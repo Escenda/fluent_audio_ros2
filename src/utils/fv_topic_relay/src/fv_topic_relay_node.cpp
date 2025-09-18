@@ -58,14 +58,19 @@ void FVTopicRelayNode::setupRelays()
     subscriptions_.clear();
     publishers_.clear();
     
+    // 画像用の軽量QoS（ベストエフォート・低遅延）
+    auto img_qos = rclcpp::QoS(rclcpp::KeepLast(1));
+    img_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
+    img_qos.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
+
     for (const auto& config : relay_configs_) {
-        // パブリッシャーを作成
-        auto pub = this->create_publisher<sensor_msgs::msg::Image>(config.to_topic, 10);
+        // パブリッシャーを作成（best_effort）
+        auto pub = this->create_publisher<sensor_msgs::msg::Image>(config.to_topic, img_qos);
         publishers_.push_back(pub);
         
-        // サブスクライバーを作成（ラムダでパブリッシャーをキャプチャ）
+        // サブスクライバーを作成（best_effort、ラムダでパブリッシャーをキャプチャ）
         auto sub = this->create_subscription<sensor_msgs::msg::Image>(
-            config.from_topic, 10,
+            config.from_topic, img_qos,
             [pub, this, config](const sensor_msgs::msg::Image::SharedPtr msg) {
                 // そのままリレー
                 pub->publish(*msg);

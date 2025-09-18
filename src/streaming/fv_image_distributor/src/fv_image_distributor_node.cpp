@@ -61,13 +61,15 @@ void FVImageDistributor::loadParameters()
 
 void FVImageDistributor::initializeSubscriptions()
 {
+    // 画像用QoS: ベストエフォート・低遅延
+    auto img_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
     if (compressed_) {
         compressed_subscription_ = this->create_subscription<sensor_msgs::msg::CompressedImage>(
-            input_topic_, 10, std::bind(&FVImageDistributor::compressedImageCallback, this, std::placeholders::_1));
+            input_topic_, img_qos, std::bind(&FVImageDistributor::compressedImageCallback, this, std::placeholders::_1));
         RCLCPP_INFO(this->get_logger(), "Compressed image subscription initialized");
     } else {
         image_subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
-            input_topic_, 10, std::bind(&FVImageDistributor::imageCallback, this, std::placeholders::_1));
+            input_topic_, img_qos, std::bind(&FVImageDistributor::imageCallback, this, std::placeholders::_1));
         RCLCPP_INFO(this->get_logger(), "Raw image subscription initialized");
     }
 }

@@ -91,7 +91,7 @@ std::unique_ptr<AIModel> AIModel::createFromConfig(const nlohmann::json& config_
  * @param config_json 設定JSON
  */
 void AIModel::setCommonConfig(const nlohmann::json& model_cfg, const nlohmann::json& config_json) {
-    RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] setCommonConfig");
+    RCLCPP_INFO(rclcpp::get_logger(logger_name_), "[AIModel] setCommonConfig");
     name_ = model_cfg["name"].get<std::string>();
     device_ = model_cfg["device"].get<std::string>();
     input_width_ = model_cfg["input_width"].get<int>();
@@ -99,58 +99,21 @@ void AIModel::setCommonConfig(const nlohmann::json& model_cfg, const nlohmann::j
     model_path_ = model_cfg["path"].get<std::string>();
     config_ = config_json;
 
-    RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] モデル名: %s", name_.c_str());
-    RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] デバイス: %s", device_.c_str());
-    RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] 入力サイズ: %dx%d", input_width_, input_height_);
-    RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] モデルパス: %s", model_path_.c_str());
+    RCLCPP_INFO(rclcpp::get_logger(logger_name_), "[AIModel] モデル名: %s", name_.c_str());
+    RCLCPP_INFO(rclcpp::get_logger(logger_name_), "[AIModel] デバイス: %s", device_.c_str());
+    RCLCPP_INFO(rclcpp::get_logger(logger_name_), "[AIModel] 入力サイズ: %dx%d", input_width_, input_height_);
+    RCLCPP_INFO(rclcpp::get_logger(logger_name_), "[AIModel] モデルパス: %s", model_path_.c_str());
     
-    // モデルパスの存在チェックとフォールバック
+    // モデルパスの存在チェック（厳密運用：設定に従い、見つからなければ例外）
     try {
         namespace fs = std::filesystem;
-        fs::path p(model_path_);
-        if (!p.is_absolute()) {
-            // 相対パスなら /models 配下を優先
-            fs::path candidate = fs::path("/models") / p;
-            if (fs::exists(candidate)) {
-                model_path_ = candidate.string();
-                RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] 相対パスを /models に解決: %s", model_path_.c_str());
-            }
-        }
-        // それでも存在しなければ、ファイル名のみから /models を試行
         if (!fs::exists(model_path_)) {
-            fs::path base = fs::path(model_path_).filename();
-            // /models 直下
-            fs::path candidate1 = fs::path("/models") / base;
-            // 一般的なサブディレクトリ候補
-            fs::path candidate2 = fs::path("/models/yolov10") / base;
-            fs::path candidate3 = fs::path("/models/openvino") / base;
-            if (fs::exists(candidate1)) { model_path_ = candidate1.string(); }
-            else if (fs::exists(candidate2)) { model_path_ = candidate2.string(); }
-            else if (fs::exists(candidate3)) { model_path_ = candidate3.string(); }
-            if (fs::exists(model_path_)) {
-                RCLCPP_WARN(rclcpp::get_logger("AIModel"), "[AIModel] モデルが見つからないため候補を使用: %s", model_path_.c_str());
-            }
-        }
-        // なお存在しない場合は既定モデルにフォールバック
-        if (!fs::exists(model_path_)) {
-            // 複数候補を順に試す
-            std::vector<fs::path> fallbacks = {
-                fs::path("/models/yolov10/v2_nano_best_fp16_dynamic.xml"),
-                fs::path("/models/yolov10/yolov10n_aspara_v2.1.xml"),
-                fs::path("/models/yolov10/yolov10m_aspara_v2.0.xml"),
-                fs::path("/models/openvino/aspara_v2.0_yolo10s.xml")
-            };
-            for (const auto& fb : fallbacks) {
-                if (fs::exists(fb)) { model_path_ = fb.string(); break; }
-            }
-            if (fs::exists(model_path_)) {
-                RCLCPP_WARN(rclcpp::get_logger("AIModel"), "[AIModel] 指定モデル未検出のため既定候補にフォールバック: %s", model_path_.c_str());
-            } else {
-                RCLCPP_WARN(rclcpp::get_logger("AIModel"), "[AIModel] モデルファイルが見つかりませんでした。後続の初期化で失敗する可能性があります: %s", model_path_.c_str());
-            }
+            RCLCPP_ERROR(rclcpp::get_logger(logger_name_), "[AIModel] モデルファイルが存在しません: %s", model_path_.c_str());
+            throw std::runtime_error("Model file not found: " + model_path_);
         }
     } catch (const std::exception& e) {
-        RCLCPP_WARN(rclcpp::get_logger("AIModel"), "[AIModel] モデルパス検証中に例外: %s", e.what());
+        // ここでthrowして呼び出し側に明確な失敗として伝える
+        throw;
     }
     
     // クラス名リストを読み込む
@@ -164,9 +127,9 @@ void AIModel::setCommonConfig(const nlohmann::json& model_cfg, const nlohmann::j
         for (size_t i = 0; i < class_names_.size(); ++i) {
             class_list += "[" + std::to_string(i) + "]" + class_names_[i] + ", ";
         }
-        RCLCPP_INFO(rclcpp::get_logger("AIModel"), "%s", class_list.c_str());
+        RCLCPP_INFO(rclcpp::get_logger(logger_name_), "%s", class_list.c_str());
     }
-    RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] クラス名リスト: %zu", class_names_.size());
+    RCLCPP_INFO(rclcpp::get_logger(logger_name_), "[AIModel] クラス名リスト: %zu", class_names_.size());
 }
 
 /**
@@ -174,20 +137,20 @@ void AIModel::setCommonConfig(const nlohmann::json& model_cfg, const nlohmann::j
  * @param path 設定ファイルパス
  */
 void AIModel::loadConfig(const std::string& path) {
-    RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] loadConfig");
+    RCLCPP_INFO(rclcpp::get_logger(logger_name_), "[AIModel] loadConfig");
     std::ifstream ifs(path);
     if (!ifs) {
-        RCLCPP_ERROR(rclcpp::get_logger("AIModel"), "設定ファイルが開けません: %s", path.c_str());
+        RCLCPP_ERROR(rclcpp::get_logger(logger_name_), "設定ファイルが開けません: %s", path.c_str());
         return;
     }
-    RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] 設定ファイル読み込み開始: %s", path.c_str());
+    RCLCPP_INFO(rclcpp::get_logger(logger_name_), "[AIModel] 設定ファイル読み込み開始: %s", path.c_str());
     try {
         nlohmann::json config_json;
         ifs >> config_json;
         config_ = config_json;
-        RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] 設定ファイル読み込み成功: %s", path.c_str());
+        RCLCPP_INFO(rclcpp::get_logger(logger_name_), "[AIModel] 設定ファイル読み込み成功: %s", path.c_str());
     } catch (const std::exception& e) {
-        RCLCPP_ERROR(rclcpp::get_logger("AIModel"), "設定ファイル読み込みエラー: %s", e.what());
+        RCLCPP_ERROR(rclcpp::get_logger(logger_name_), "設定ファイル読み込みエラー: %s", e.what());
     }
 }
 

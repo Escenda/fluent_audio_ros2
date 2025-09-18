@@ -23,7 +23,7 @@
 fv_object_detector_d415:
   ros__parameters:
     # ===== トピック設定（D415専用） =====
-    input_image_topic: "/fv/d415/color/image_raw"                    # 入力カラー画像トピック
+    input_image_topic: "/fv/selected/d415/color/image_raw"           # 入力カラー画像トピック（セレクタ経由）
     output_image_topic: "/fv/d415/object_detection/annotated_image"  # アノテーション付き出力画像
     output_detections_topic: "/fv/d415/object_detection/detections"  # 検出結果トピック
     
@@ -42,7 +42,7 @@ fv_object_detector_d415:
     # ===== YOLOv10モデル設定 =====
     model:
       type: "yolov10"                               # モデルタイプ：YOLOv10
-      model_path: "/models/v2_nano_best_fp16_dynamic.xml"  # モデルファイルパス
+      model_path: "/models/yolov10/yolov10n_aspara_v2.0.xml"  # 実在するIR
       device: "GPU"                                 # 推論デバイス（GPU/CPU/MYRIAD）
       input_width: 640                             # 入力画像幅（ピクセル）
       input_height: 640                            # 入力画像高さ（ピクセル）

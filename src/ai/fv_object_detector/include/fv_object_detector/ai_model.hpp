@@ -116,6 +116,9 @@ public:
      */
     virtual std::vector<DetectionData> infer(const cv::Mat& image) = 0;
 
+    // ロガー名の上書き（ノード名を反映させるために使用）
+    void setLoggerName(const std::string& name) { logger_name_ = name; }
+
     // ===== ユーティリティ関数群 =====
     
     /**
@@ -202,6 +205,7 @@ protected:
     int input_width_ = 0;                      ///< モデル入力画像の幅（ピクセル）
     int input_height_ = 0;                     ///< モデル入力画像の高さ（ピクセル）
     double last_infer_time_ms_ = 0.0;          ///< 最後の推論時間（ミリ秒）
+    std::string logger_name_ = "AIModel";      ///< ロガー名（既定はAIModel、ノード側で上書き可）
 
     // ===== 保護メソッド群 =====
     

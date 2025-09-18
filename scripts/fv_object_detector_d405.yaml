@@ -26,7 +26,7 @@
 fv_object_detector_d405:
   ros__parameters:
     # ===== トピック設定（D405専用） =====
-    input_image_topic: "/fv/d405/color/image_raw"                    # 入力カラー画像トピック（D405）
+    input_image_topic: "/fv/selected/d405/color/image_raw"           # 入力カラー画像トピック（D405, セレクタ経由）
     output_image_topic: "/fv/d405/object_detection/annotated_image"  # アノテーション付き出力画像
     output_detections_topic: "/fv/d405/object_detection/detections"  # 検出結果トピック
     
@@ -45,7 +45,7 @@ fv_object_detector_d405:
     # ===== YOLOv10モデル設定 =====
     model:
       type: "yolov10"                               # モデルタイプ：YOLOv10
-      model_path: "/models/v2_nano_best_fp16_dynamic.xml"  # モデルファイルパス
+      model_path: "/models/yolov10/yolov10m_aspara_v2.0.xml"  # 実在するIR
       #model_path: "/home/aspara/seedbox-r1/fluent_vision_ros2/models/openvino/aspara_v2.1b_yolo10n_dynamic_nms.xml"  # モデルファイルパス
       device: "GPU"                                 # 推論デバイス（GPU/CPU/MYRIAD）
       input_width: 640                             # 入力画像幅（ピクセル）

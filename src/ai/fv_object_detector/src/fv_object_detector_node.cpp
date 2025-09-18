@@ -190,6 +190,8 @@ private:
             // AIモデルを初期化
             if (model_type == "yolov10") {
                 model_ = fv_object_detector::AIModel::createFromConfig(config_json);
+                // ログにノード名を反映（[AIModel] ではなくノード名で出るように）
+                if (model_) model_->setLoggerName(this->get_logger().get_name());
             } else {
                 throw std::runtime_error("Unknown model type: " + model_type);
             }

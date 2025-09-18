@@ -60,13 +60,15 @@ void FVWebSocketServer::loadParameters()
 
 void FVWebSocketServer::initializeSubscriptions()
 {
+    // 画像用QoS: ベストエフォート・低遅延
+    auto img_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
     if (compressed_) {
         compressed_subscription_ = this->create_subscription<sensor_msgs::msg::CompressedImage>(
-            topic_name_, 10, std::bind(&FVWebSocketServer::compressedImageCallback, this, std::placeholders::_1));
+            topic_name_, img_qos, std::bind(&FVWebSocketServer::compressedImageCallback, this, std::placeholders::_1));
         RCLCPP_INFO(this->get_logger(), "Compressed image subscription initialized");
     } else {
         image_subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
-            topic_name_, 10, std::bind(&FVWebSocketServer::imageCallback, this, std::placeholders::_1));
+            topic_name_, img_qos, std::bind(&FVWebSocketServer::imageCallback, this, std::placeholders::_1));
         RCLCPP_INFO(this->get_logger(), "Raw image subscription initialized");
     }
 }

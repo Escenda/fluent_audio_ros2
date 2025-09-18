@@ -45,7 +45,7 @@ YoloV10Model::~YoloV10Model() {}
  */
 void YoloV10Model::initialize(const nlohmann::json& model_cfg) {
     try {
-        RCLCPP_INFO(rclcpp::get_logger("YoloV10Model"), "モデルの読み込み開始: %s", model_path_.c_str());
+        RCLCPP_INFO(rclcpp::get_logger(logger_name_), "モデルの読み込み開始: %s", model_path_.c_str());
         
         // ===== 設定からパラメータを読み込み =====
         if (model_cfg.contains("confidence_threshold")) {
@@ -66,16 +66,16 @@ void YoloV10Model::initialize(const nlohmann::json& model_cfg) {
         std::string device = device_;
         if (device.empty()) {
             device = "CPU";
-            RCLCPP_INFO(rclcpp::get_logger("YoloV10Model"), "デフォルトデバイスを使用: %s", device.c_str());
+            RCLCPP_INFO(rclcpp::get_logger(logger_name_), "デフォルトデバイスを使用: %s", device.c_str());
         }
         
         // ===== モデルのコンパイル =====
         try {
             compiled_model_ = core.compile_model(model, device);
         } catch (const std::exception& e) {
-            RCLCPP_ERROR(rclcpp::get_logger("YoloV10Model"), "デバイス %s でのコンパイルに失敗: %s", device.c_str(), e.what());
+            RCLCPP_ERROR(rclcpp::get_logger(logger_name_), "デバイス %s でのコンパイルに失敗: %s", device.c_str(), e.what());
             // CPUで再試行
-            RCLCPP_INFO(rclcpp::get_logger("YoloV10Model"), "CPUで再試行");
+            RCLCPP_INFO(rclcpp::get_logger(logger_name_), "CPUで再試行");
             compiled_model_ = core.compile_model(model, "CPU");
         }
         
@@ -85,11 +85,11 @@ void YoloV10Model::initialize(const nlohmann::json& model_cfg) {
         // ===== モデル情報を表示 =====
         printModelIOInfo(compiled_model_);
         
-        RCLCPP_INFO(rclcpp::get_logger("YoloV10Model"), "モデル初期化完了: %s", model_path_.c_str());
-        RCLCPP_INFO(rclcpp::get_logger("YoloV10Model"), "信頼度閾値: %f, NMS閾値: %f, 最小面積: %f", 
+        RCLCPP_INFO(rclcpp::get_logger(logger_name_), "モデル初期化完了: %s", model_path_.c_str());
+        RCLCPP_INFO(rclcpp::get_logger(logger_name_), "信頼度閾値: %f, NMS閾値: %f, 最小面積: %f", 
                     min_confidence_, nms_threshold_, min_area_);
     } catch (const std::exception& e) {
-        RCLCPP_ERROR(rclcpp::get_logger("YoloV10Model"), "モデル初期化エラー: %s", e.what());
+        RCLCPP_ERROR(rclcpp::get_logger(logger_name_), "モデル初期化エラー: %s", e.what());
         throw;
     }
 }
@@ -130,7 +130,7 @@ std::vector<DetectionData> YoloV10Model::infer(const cv::Mat& image) {
     try {
         infer_request_.infer();
     } catch (const std::exception& e) {
-        RCLCPP_ERROR(rclcpp::get_logger("YoloV10Model"), "推論エラー: %s", e.what());
+        RCLCPP_ERROR(rclcpp::get_logger(logger_name_), "推論エラー: %s", e.what());
         return detections;
     }
     
@@ -144,14 +144,14 @@ std::vector<DetectionData> YoloV10Model::infer(const cv::Mat& image) {
         ov::Tensor output_tensor = infer_request_.get_output_tensor();
         detections = postProcess(output_tensor, image.size());
     } catch (const std::exception& e) {
-        RCLCPP_ERROR(rclcpp::get_logger("YoloV10Model"), "後処理エラー: %s", e.what());
+        RCLCPP_ERROR(rclcpp::get_logger(logger_name_), "後処理エラー: %s", e.what());
         return std::vector<DetectionData>();
     }
     
     // ===== NMS適用 =====
     detections = applyNMS(detections, nms_threshold_);
     
-    RCLCPP_DEBUG(rclcpp::get_logger("YoloV10Model"), "検出数: %zu, 推論時間: %.2f ms", 
+    RCLCPP_DEBUG(rclcpp::get_logger(logger_name_), "検出数: %zu, 推論時間: %.2f ms", 
                  detections.size(), getLastInferTime());
     
     return detections;
