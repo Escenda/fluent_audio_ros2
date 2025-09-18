@@ -37,5 +37,3 @@ private:
 
 } // namespace fluent_cloud::filters
 
-
-

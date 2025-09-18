@@ -1,0 +1,19 @@
+/**:
+  ros__parameters:
+    output_topic: "/fv/d405/detection_fusion/rois"
+    hold_frames: 10
+    frame_id: ""
+    diagnostic_interval_ms: 100.0
+    sources:
+      object:
+        label: "object"
+        topic: "/fv/d405/object_detection/detections"
+        confidence_multiplier: 1.0
+        min_confidence: 0.2
+        qos_depth: 5
+      instance:
+        label: "instance"
+        topic: "/fv/d405/instance_seg/detections"
+        confidence_multiplier: 1.0
+        min_confidence: 0.1
+        qos_depth: 5

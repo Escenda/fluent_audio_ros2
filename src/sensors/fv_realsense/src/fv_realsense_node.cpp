@@ -208,6 +208,8 @@ void FVDepthCameraNode::loadParameters()
     align_to_color_ = this->declare_parameter("streams.align_to_color", false);
     // keep sync flag as existing behavior
     sync_enabled_ = this->declare_parameter("streams.sync_enabled", true);
+    // Sync warning threshold (ms)
+    sync_warn_ms_ = this->declare_parameter("streams.sync_warn_ms", 1.0);
     stream_config_.depth_colormap_enabled = 
         this->declare_parameter("streams.depth_colormap_enabled", true);
     // reuse the already-declared value to avoid double declaration
@@ -418,6 +420,9 @@ bool FVDepthCameraNode::initializeRealSense()
                 device_.get_info(RS2_CAMERA_INFO_NAME),
                 device_.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER));
             
+            // Get device name for later use
+            std::string device_name = device_.get_info(RS2_CAMERA_INFO_NAME);
+            
             // Get depth scale from depth sensor
             for (auto sensor : device_.query_sensors()) {
                 if (sensor.is<rs2::depth_sensor>()) {
@@ -426,22 +431,25 @@ bool FVDepthCameraNode::initializeRealSense()
                     RCLCPP_INFO(this->get_logger(), "📏 Depth scale: %f", depth_scale_);
                     
                     // Double check with manual depth scale based on device model
-                    std::string device_name = device_.get_info(RS2_CAMERA_INFO_NAME);
                     if (device_name.find("D415") != std::string::npos) {
                         if (std::abs(depth_scale_ - 0.001f) > 0.0001f) {
                             RCLCPP_WARN(this->get_logger(), "⚠️ D415 depth scale mismatch: got %f, expected 0.001", depth_scale_);
                             depth_scale_ = 0.001f;  // Force correct value for D415
                         }
                     } else if (device_name.find("D405") != std::string::npos) {
-                        // D405は実際には0.0001を返すが、これは間違い。強制的に0.001に設定
-                        RCLCPP_WARN(this->get_logger(), "⚠️ D405 depth scale override: got %f, forcing to 0.001", depth_scale_);
-                        depth_scale_ = 0.001f;  // Force correct value for D405 (1mm per unit, same as D415)
+                        // D405の正しいdepth_scaleは0.0001（設定ファイルの値を使用）
+                        RCLCPP_INFO(this->get_logger(), "📏 D405 depth scale: %f (correct value)", depth_scale_);
+                        // 設定ファイルからのオーバーライドがあれば使用
+                        if (config_depth_scale_ > 0) {
+                            RCLCPP_INFO(this->get_logger(), "📏 Using config depth scale: %f", config_depth_scale_);
+                            depth_scale_ = config_depth_scale_;
+                        }
                     }
                     break;
                 }
             }
-            // 設定ファイルからのオーバーライド
-            if (config_depth_scale_ > 0) {
+            // 設定ファイルからのオーバーライド（D405以外の場合）
+            if (config_depth_scale_ > 0 && device_name.find("D405") == std::string::npos) {
                 RCLCPP_INFO(this->get_logger(), "📏 Overriding depth scale from config: %f -> %f", depth_scale_, config_depth_scale_);
                 depth_scale_ = config_depth_scale_;
             }
@@ -763,7 +771,7 @@ void FVDepthCameraNode::processingLoop()
                             double depth_timestamp = depth_frame_full.get_timestamp();
                             double timestamp_diff = std::abs(color_timestamp - depth_timestamp);
                             
-                            if (timestamp_diff > 1.0) {  // 1ms以上ずれている場合
+                            if (timestamp_diff > sync_warn_ms_) {  // 許容差を超える場合のみ警告
                                 RCLCPP_WARN(this->get_logger(), 
                                     "⚠️ Frame sync warning: color=%.3f, depth=%.3f, diff=%.3fms", 
                                     color_timestamp, depth_timestamp, timestamp_diff);

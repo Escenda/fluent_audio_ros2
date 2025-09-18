@@ -36,6 +36,9 @@ find_package(compressed_image_transport REQUIRED)     # 圧縮画像転送
 find_package(geometry_msgs REQUIRED)                  # 幾何学メッセージ型
 find_package(std_srvs REQUIRED)                       # 標準サービス型
 find_package(OpenCV REQUIRED)                         # OpenCVコンピュータビジョン
+find_package(TIFF REQUIRED)
+find_package(CURL REQUIRED)
+find_package(GDAL QUIET)
 find_package(rosidl_default_generators REQUIRED)      # ROS2インターフェース生成
 
 # ===== サービスメッセージ生成 =====
@@ -59,13 +62,7 @@ add_executable(fv_realsense_node
   src/fv_realsense_node.cpp  # メインRealSenseノード
 )
 
-add_executable(fv_realsense_simple_node
-  src/fv_realsense_simple_node.cpp  # シンプルRealSenseノード
-)
 
-add_executable(image_saver_node
-  src/image_saver_node.cpp   # 画像保存ノード
-)
 
 # ===== メインノードの依存関係リンク =====
 ament_target_dependencies(fv_realsense_node
@@ -84,29 +81,16 @@ ament_target_dependencies(fv_realsense_node
 target_link_libraries(fv_realsense_node
   ${OpenCV_LIBS}            # OpenCVライブラリ
   ${REALSENSE2_LIBRARIES}   # RealSense SDKライブラリ
+  TIFF::TIFF
+  CURL::libcurl
 )
+if(GDAL_FOUND)
+  target_link_libraries(fv_realsense_node GDAL::GDAL)
+endif()
 
 # ===== シンプルノードの依存関係リンク（最小限） =====
-ament_target_dependencies(fv_realsense_simple_node
-  rclcpp                    # ROS2 C++クライアントライブラリ
-  sensor_msgs               # センサーメッセージ型
-  cv_bridge                 # OpenCV-ROS2橋渡し
-)
-
-target_link_libraries(fv_realsense_simple_node
-  ${OpenCV_LIBS}            # OpenCVライブラリ
-)
 
 # ===== 画像保存ノードの依存関係リンク =====
-ament_target_dependencies(image_saver_node
-  rclcpp                    # ROS2 C++クライアントライブラリ
-  sensor_msgs               # センサーメッセージ型
-  cv_bridge                 # OpenCV-ROS2橋渡し
-)
-
-target_link_libraries(image_saver_node
-  ${OpenCV_LIBS}            # OpenCVライブラリ
-)
 
 # ===== 生成されたインターフェースのリンク =====
 rosidl_target_interfaces(fv_realsense_node
@@ -116,8 +100,6 @@ rosidl_target_interfaces(fv_realsense_node
 # 実行ファイルのインストール
 install(TARGETS
   fv_realsense_node         # メインRealSenseノード
-  fv_realsense_simple_node  # シンプルRealSenseノード
-  image_saver_node          # 画像保存ノード
   DESTINATION lib/${PROJECT_NAME}  # インストール先：lib/fv_realsense/
 )
 

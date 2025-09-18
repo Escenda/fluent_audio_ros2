@@ -35,6 +35,9 @@ find_package(OpenCV REQUIRED)                # OpenCVコンピュータビジョ
 find_package(OpenVINO REQUIRED)              # Intel OpenVINO推論エンジン
 find_package(PkgConfig REQUIRED)             # pkg-config
 pkg_check_modules(JSON REQUIRED nlohmann_json)  # JSON処理ライブラリ
+find_package(TIFF REQUIRED)
+find_package(CURL REQUIRED)
+find_package(GDAL QUIET)
 
 # ===== インクルードディレクトリ設定 =====
 include_directories(
@@ -65,7 +68,12 @@ ament_target_dependencies(fv_object_mask_generator_node
 target_link_libraries(fv_object_mask_generator_node
   openvino::runtime         # OpenVINO推論エンジン
   ${JSON_LIBRARIES}         # JSON処理ライブラリ
+  TIFF::TIFF
+  CURL::libcurl
 )
+if(GDAL_FOUND)
+  target_link_libraries(fv_object_mask_generator_node GDAL::GDAL)
+endif()
 
 # ===== インストール設定 =====
 # 実行ファイルのインストール

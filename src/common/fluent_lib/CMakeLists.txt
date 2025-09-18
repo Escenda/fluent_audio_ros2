@@ -27,12 +27,13 @@ find_package(tf2_geometry_msgs REQUIRED)
 # Find system dependencies
 find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED)
+find_package(Freetype REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # Include directories
 include_directories(include)
 include_directories(${OpenCV_INCLUDE_DIRS})
 include_directories(${PCL_INCLUDE_DIRS})
-include_directories(legacy/cvx/include)
 
 # Source files
 set(FLUENT_LIB_SOURCES
@@ -40,7 +41,6 @@ set(FLUENT_LIB_SOURCES
   src/fluent_cloud_impl.cpp
   src/fluent_utils.cpp
   src/fluent_text.cpp
-  src/cvx_text.cpp
 )
 
 # Create library
@@ -61,9 +61,11 @@ ament_target_dependencies(${PROJECT_NAME}
 )
 
 # Link libraries
-target_link_libraries(${PROJECT_NAME} 
+target_link_libraries(${PROJECT_NAME}
   ${OpenCV_LIBRARIES}
   ${PCL_LIBRARIES}
+  ${Freetype_LIBRARIES}
+  yaml-cpp
 )
 
 # Install headers
@@ -100,6 +102,8 @@ ament_export_dependencies(
   tf2
   tf2_ros
   tf2_geometry_msgs
+  Freetype
+  yaml-cpp
 )
 
 # Lint and test

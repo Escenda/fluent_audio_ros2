@@ -1,0 +1,346 @@
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction, LogInfo, ExecuteProcess
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+import yaml
+import os
+import subprocess
+from typing import Dict, List, Any
+import shutil
+
+
+def load_config(config_path: str):
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+
+def _flatten_params(d: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for k, v in (d or {}).items():
+        key = f"{prefix}.{k}" if prefix else str(k)
+        if isinstance(v, dict):
+            out.update(_flatten_params(v, key))
+        else:
+            out[key] = v
+    return out
+
+
+def load_camera_serials(config_path: str) -> Dict[str, str]:
+    # Prefer /config/camera_serials.yaml, else sibling to main config
+    candidates = [
+        '/config/camera_serials.yaml',
+        os.path.join(os.path.dirname(config_path), 'camera_serials.yaml'),
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            try:
+                with open(p, 'r') as f:
+                    data = yaml.safe_load(f) or {}
+                # Normalize keys
+                return {str(k).upper(): str(v) for k, v in data.items()}
+            except Exception:
+                return {}
+    return {}
+
+
+def enumerate_realsense_serials() -> List[str]:
+    try:
+        import pyrealsense2 as rs  # type: ignore
+        ctx = rs.context()
+        devs = ctx.query_devices()
+        serials = []
+        for i in range(devs.size()):
+            d = devs[i]
+            try:
+                serials.append(d.get_info(rs.camera_info.serial_number))
+            except Exception:
+                pass
+        return serials
+    except Exception:
+        return []
+
+
+def detect_realsense_models() -> Dict[str, str]:
+    """Return mapping like { 'D405': 'SERIAL', 'D415': 'SERIAL', 'D435': 'SERIAL' }.
+    If multiple same models exist, keep the first detected serial.
+    """
+    out: Dict[str, str] = {}
+    try:
+        import pyrealsense2 as rs  # type: ignore
+        ctx = rs.context()
+        devs = ctx.query_devices()
+        for i in range(devs.size()):
+            d = devs[i]
+            try:
+                name = d.get_info(rs.camera_info.name)
+                serial = d.get_info(rs.camera_info.serial_number)
+            except Exception:
+                continue
+            upname = (name or '').upper()
+            model = None
+            if 'D405' in upname:
+                model = 'D405'
+            elif 'D415' in upname:
+                model = 'D415'
+            elif 'D435' in upname:
+                model = 'D435'
+            if model and model not in out and serial:
+                out[model] = serial
+    except Exception:
+        return out
+    return out
+
+
+def get_openvino_available_devices() -> List[str]:
+    try:
+        # OpenVINO 2022.3+ API
+        from openvino.runtime import Core  # type: ignore
+        core = Core()
+        return list(core.available_devices)
+    except Exception:
+        try:
+            # Older API fallback
+            import openvino as ov  # type: ignore
+            core = ov.Core()
+            return list(core.available_devices)
+        except Exception:
+            return []
+
+
+def launch_setup(context, *args, **kwargs):
+    config_path = LaunchConfiguration('config').perform(context)
+    update_serials = LaunchConfiguration('update_camera_serials').perform(context).lower() in ('1', 'true', 'yes', 'on')
+    camera_serials_path = LaunchConfiguration('camera_serials_path').perform(context)
+    use_serials_script = LaunchConfiguration('use_serials_script').perform(context).lower() in ('1', 'true', 'yes', 'on')
+    serials_script_path = LaunchConfiguration('serials_script_path').perform(context)
+    cfg = load_config(config_path)
+    # Allow config file to enable auto-update as well
+    cfg_update = bool(cfg.get('system', {}).get('update_camera_serials', False))
+    update_serials = update_serials or cfg_update
+
+    # Support both keys: 'groups' (preferred) and legacy 'pipelines'
+    groups = cfg.get('groups') if cfg.get('groups') is not None else cfg.get('pipelines', [])
+
+    # actions collector
+    actions = []
+
+    # Optionally detect and update camera serials file BEFORE reading it
+    if update_serials:
+        model_map = {}
+        # Prefer external script, if provided
+        if use_serials_script and serials_script_path and os.path.isfile(serials_script_path):
+            try:
+                # Run without update flag: it will write /tmp/camera_serials.txt
+                subprocess.run([serials_script_path], check=False)
+                tmp_path = '/tmp/camera_serials.txt'
+                if os.path.isfile(tmp_path):
+                    try:
+                        with open(tmp_path, 'r') as f:
+                            for line in f:
+                                line = line.strip()
+                                if not line or ':' not in line:
+                                    continue
+                                k, v = line.split(':', 1)
+                                k = k.strip().upper()
+                                v = v.strip()
+                                if k and v and k not in model_map:
+                                    model_map[k] = v
+                        actions.append(LogInfo(msg=f"[fluent_vision_system] Parsed serials from script: {model_map}"))
+                    except Exception as e:
+                        actions.append(LogInfo(msg=f"[fluent_vision_system] Failed reading /tmp/camera_serials.txt: {e}"))
+                else:
+                    actions.append(LogInfo(msg=f"[fluent_vision_system] Serial script did not produce {tmp_path}"))
+            except Exception as e:
+                actions.append(LogInfo(msg=f"[fluent_vision_system] Failed to run serials script '{serials_script_path}': {e}"))
+
+        # Fallback to internal detection if script not used or failed
+        if not model_map:
+            model_map = detect_realsense_models()
+
+        if model_map:
+            try:
+                os.makedirs(os.path.dirname(camera_serials_path), exist_ok=True)
+                with open(camera_serials_path, 'w') as f:
+                    yaml.safe_dump(model_map, f, default_flow_style=False, sort_keys=True)
+                actions.append(LogInfo(msg=f"[fluent_vision_system] Updated camera serials at {camera_serials_path}: {model_map}"))
+            except Exception as e:
+                actions.append(LogInfo(msg=f"[fluent_vision_system] Failed to write camera serials to {camera_serials_path}: {e}"))
+        else:
+            actions.append(LogInfo(msg="[fluent_vision_system] No RealSense devices detected to update camera serials"))
+
+    # foxglove_bridgeの起動
+    if cfg.get('system', {}).get('enable_foxglove', False):
+        foxglove_bridge = Node(
+            package='foxglove_bridge',
+            executable='foxglove_bridge',
+            name='foxglove_bridge',
+            output='screen'
+        )
+        actions.append(foxglove_bridge)
+
+    # Preprocess: determine desired RealSense serials from camera_serials.yaml (now possibly updated)
+    serial_map = load_camera_serials(config_path)
+    present_serials = enumerate_realsense_serials()
+    ov_devices = [d.upper() for d in get_openvino_available_devices()]
+
+    nodes_cfg = []
+    for group in groups:
+        if not group.get('enable', True):
+            continue
+        for n in group.get('nodes', []):
+            if not n.get('enable', True):
+                continue
+            nodes_cfg.append(n)
+
+    # 直列起動: カメラ系(fv_realsense/fv_camera)の間隔を大きく取り、同時起動を避ける
+    camera_delay = float(cfg.get('system', {}).get('camera_start_delay', 3.0))
+    default_delay = float(cfg.get('system', {}).get('default_start_delay', 0.5))
+    inter_group_delay = float(cfg.get('system', {}).get('inter_group_delay', 1.0))
+
+    delay = 0.0
+    for group in groups:
+        if not group.get('enable', True):
+            continue
+
+        group_nodes = [n for n in group.get('nodes', []) if n.get('enable', True)]
+        for n in group_nodes:
+            params_file = n.get('params_file', '')
+            if not params_file or not os.path.isfile(params_file):
+                actions.append(LogInfo(msg=f"[fluent_vision_system] Skip node '{n.get('id','?')}' due to missing params_file: {params_file}"))
+                continue
+            # Avoid using '/' as namespace default; empty string means root namespace
+            ns = n.get('namespace', '')
+            if ns == '/':
+                ns = ''
+            # Log what we are about to launch
+            actions.append(LogInfo(msg=f"[fluent_vision_system] Launching {n.get('package')}:{n.get('exec')} name={n.get('node_name', n.get('id'))} ns='{ns}' params='{params_file}'"))
+
+            # Optional runtime parameter overrides (flat dict for this node)
+            overrides = {}
+            if n.get('package') == 'fv_realsense':
+                node_name = n.get('node_name', n.get('id', ''))
+                want_serial = None
+                lname = node_name.lower()
+                if 'd405' in lname and 'D405' in serial_map:
+                    want_serial = serial_map['D405']
+                elif 'd415' in lname and 'D415' in serial_map:
+                    want_serial = serial_map['D415']
+                # Validate presence if we can detect devices
+                if want_serial and present_serials and want_serial not in present_serials:
+                    actions.append(LogInfo(msg=f"[fluent_vision_system] Warning: desired serial {want_serial} for {node_name} not detected. Connected: {present_serials}"))
+                if want_serial:
+                    # rclcpp側のdeclare_parameterはドット区切りのキーを想定するため、
+                    # ネスト辞書ではなくフラットなキーで上書きする
+                    overrides['camera_selection.serial_number'] = str(want_serial)
+                    overrides['camera_selection.selection_method'] = 'serial'
+                # シリアル未検出でもYAML側のcamera_selection（name等）で選択させるのでスキップしない
+
+            # Fallbacks when GPU is unavailable
+            if 'GPU' not in ov_devices:
+                if n.get('package') == 'fv_instance_seg':
+                    # fv_instance_seg expects flat key 'device'
+                    overrides['device'] = 'CPU'
+                if n.get('package') == 'fv_object_detector':
+                    # fv_object_detector declares nested parameter 'model.device'
+                    overrides['model.device'] = 'CPU'
+                if n.get('package') == 'fv_object_mask_generator':
+                    # UNet マスク生成は model.device を参照
+                    overrides['model.device'] = 'CPU'
+
+            # 共通: YAMLパラメータをロードしてフラット化し、overridesをマージして渡す
+            # これにより --params-file の二重指定を完全に避ける
+            flat_params: Dict[str, Any] = {}
+            try:
+                with open(params_file, 'r') as pf:
+                    raw = yaml.safe_load(pf) or {}
+                if isinstance(raw, dict) and raw:
+                    root_key = next(iter(raw.keys()))
+                    ros_params = raw[root_key].get('ros__parameters', {}) if isinstance(raw[root_key], dict) else {}
+                    flat_params = _flatten_params(ros_params)
+            except Exception as e:
+                actions.append(LogInfo(msg=f"[fluent_vision_system] Failed to read params file {params_file}: {e}"))
+
+            # overridesはフラットキー前提
+            for ok, ov in (overrides or {}).items():
+                flat_params[ok] = ov
+
+            node_parameters = [flat_params] if flat_params else ([overrides] if overrides else [])
+
+            node_name = n.get('node_name', n.get('id'))
+
+            if n['package'] == 'fv_realsense':
+                # RealSenseはNodeで --ros-args 経由のみを使う（parametersは使わない）
+                args = ['--ros-args', '--params-file', params_file, '-r', f'__node:={node_name}']
+                for ok, ov in (overrides or {}).items():
+                    if isinstance(ov, str):
+                        args += ['-p', f"{ok}:='{ov}'"]
+                    else:
+                        args += ['-p', f'{ok}:={ov}']
+                node = Node(
+                    package='fv_realsense',
+                    executable='fv_realsense_node',
+                    name=node_name,
+                    namespace=ns,
+                    arguments=args,
+                    output='screen',
+                )
+            else:
+                node = Node(
+                    package=n['package'],
+                    executable=n['exec'],
+                    name=node_name,
+                    namespace=ns,
+                    # パラメータはフラット辞書として渡す
+                    parameters=node_parameters,
+                    output='screen',
+                )
+
+            # 個別にlaunch_delayが指定されていれば優先
+            node_delay = n.get('launch_delay', None)
+            if node_delay is None:
+                # カメラ系は大きめの間隔、その他はデフォルト間隔
+                if n['package'] in ('fv_realsense', 'fv_camera'):
+                    inc = camera_delay
+                else:
+                    inc = default_delay
+            else:
+                inc = float(node_delay)
+
+            actions.append(TimerAction(period=delay, actions=[node]))
+            delay += inc
+
+        # グループ間に待機を入れて電源負荷をさらに低減
+        delay += inter_group_delay
+
+    return actions
+
+
+def generate_launch_description():
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            'config',
+            description='Absolute path to fluent_vision_system yaml',
+            default_value='/config/fluent_vision_system.yaml',
+        ),
+        DeclareLaunchArgument(
+            'update_camera_serials',
+            description='If true, detect RealSense models and write camera serials file before launching',
+            default_value='false',
+        ),
+        DeclareLaunchArgument(
+            'camera_serials_path',
+            description='Path to write/read camera_serials.yaml',
+            default_value='/config/camera_serials.yaml',
+        ),
+        DeclareLaunchArgument(
+            'use_serials_script',
+            description='Use external script to detect serials (preferred)',
+            default_value='false',
+        ),
+        DeclareLaunchArgument(
+            'serials_script_path',
+            description='Path to update_camera_serials.sh (or compatible) script',
+            default_value='',
+        ),
+        OpaqueFunction(function=launch_setup),
+    ])

@@ -126,6 +126,8 @@ private:
     bool organized_pointcloud_enabled_ = false; // organized cloud publish flag
     int organized_pointcloud_decimation_ = 1;    // 1=full, >1 decimated with NaN fill
     bool organized_pointcloud_rgb_ = true;      // include RGB in organized cloud
+    // Frame sync warning threshold (ms)
+    double sync_warn_ms_ = 1.0;
 
     // Publishers
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr color_pub_;

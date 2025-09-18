@@ -1,13 +1,11 @@
 #pragma once
 
-// Minimal sample:
-//   auto den = fluent_cloud::filters::VoxelGrid<pcl::PointXYZRGB>().setLeafSize(0.005).filter(cloud);
-//   den = fluent_cloud::filters::StatisticalOutlierRemoval<pcl::PointXYZRGB>().setMeanK(50).setStddevMulThresh(1.0).filter(den);
-//   auto m = fluent_cloud::compute_pca_metrics(den);
-
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/common/centroid.h>
+#include <pcl/common/common.h>
 #include <Eigen/Core>
+#include <Eigen/Eigenvalues>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -15,20 +13,6 @@
 #include "fluent_lib/fluent_cloud/filters.hpp"
 
 namespace fluent_cloud {
-
-inline pcl::PointCloud<pcl::PointXYZRGB>::Ptr voxel_sor(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr &input,
-    double voxel_leaf_size,
-    int mean_k,
-    double stddev_mul)
-{
-    auto voxel = filters::VoxelGrid<pcl::PointXYZRGB>().setLeafSize(voxel_leaf_size).filter(input);
-    auto out = filters::StatisticalOutlierRemoval<pcl::PointXYZRGB>()
-        .setMeanK(mean_k)
-        .setStddevMulThresh(stddev_mul)
-        .filter(voxel);
-    return out;
-}
 
 struct PCAMetrics {
     double length_m{0.0};
@@ -65,7 +49,6 @@ inline PCAMetrics compute_pca_metrics(const pcl::PointCloud<pcl::PointXYZRGB>::P
 
     m.length_m = static_cast<double>(m.tmax - m.tmin);
 
-    // diameter: median of perpendicular distances in 20%-80% band, doubled
     std::vector<float> dists; dists.reserve(cloud->points.size());
     for (const auto &p : cloud->points) if (isFinite(p)) {
         Eigen::Vector3f v(p.x,p.y,p.z);
@@ -81,7 +64,6 @@ inline PCAMetrics compute_pca_metrics(const pcl::PointCloud<pcl::PointXYZRGB>::P
         m.diameter_m = 2.0 * static_cast<double>(dists[mid]);
     }
 
-    // curvature ratio: RMS perpendicular / length
     double sum2 = 0.0; size_t cnt = 0;
     for (const auto &p : cloud->points) if (isFinite(p)) {
         Eigen::Vector3f v(p.x,p.y,p.z);
@@ -98,5 +80,4 @@ inline PCAMetrics compute_pca_metrics(const pcl::PointCloud<pcl::PointXYZRGB>::P
 }
 
 } // namespace fluent_cloud
-
 

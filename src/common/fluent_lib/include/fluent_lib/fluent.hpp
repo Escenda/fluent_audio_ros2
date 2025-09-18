@@ -1,23 +1,19 @@
+// FluentLib unified public header (compat layer)
 #pragma once
 
-// FluentLib unified public header
-// Purpose:
-// - Single include for reusable building blocks in ROS2/C++ vision apps
-// - Hide boilerplate (cv_bridge, PC2 conversions, QoS, timers, threads, UI) behind short, readable APIs
-// Modules:
-// - fluent_cloud: point cloud filters (VoxelGrid/SOR), metrics (PCA length/diameter/curvature), depth→cloud IO
-// - fluent_image: thin cv::Mat/ROS Image wrapper with implicit conversions and helpers
-// - fluent_lib::ros: params/pub/sub/QoS/log/timers/DSL/FluentNode utilities
-// - fluent_ui: lightweight animation and HUD rendering helpers
+// 集約ヘッダー（既存プロジェクト互換）
+// - 既存コードはこの1つをインクルードすればOK
+// - 依存が見つからないもの（未実装のUI等）は読み込みを避けてビルドを通す
 
-// Core Fluent utilities (existing aggregate)
+// ルートの簡易 API 集約
 #include <fluent.hpp>
 
-// FluentCloud façade (new path)
+// FluentCloud（ヘッダー実装の軽量ファサード）
 #include "fluent_lib/fluent_cloud/io.hpp"
 #include "fluent_lib/fluent_cloud/filters.hpp"
+#include "fluent_lib/fluent_cloud/pipeline.hpp"
 
-// Fluent ROS helpers
+// ROS ヘルパ
 #include "fluent_lib/ros/timer.hpp"
 #include "fluent_lib/ros/params.hpp"
 #include "fluent_lib/ros/param_binder.hpp"
@@ -27,22 +23,13 @@
 #include "fluent_lib/ros/qos.hpp"
 #include "fluent_lib/ros/dsl.hpp"
 #include "fluent_lib/ros/timer_registry.hpp"
-// Async utilities
-#include "fluent_lib/async/worker.hpp"
-// Cloud pipelines/metrics
-#include "fluent_lib/fluent_cloud/pipeline.hpp"
-// UI
-#include "fluent_lib/ui/anim.hpp"
-#include "fluent_lib/ui/renderer.hpp"
-#include "fluent_lib/ui/panel.hpp"
-// Node
 #include "fluent_lib/ros/fluent_node.hpp"
-// Image
+
+// 非必須の UI / utils は未使用のため除外（不足でビルド落ちを避ける）
+
+// 画像ラッパ
 #include "fluent_lib/fluent_image/image.hpp"
-// Utils
-#include "fluent_lib/utils/system.hpp"
 
-// Short, readable aliases for ultra-brief callsites
+// エイリアス（既存コード互換）
 using FluentImage = fluent_image::Image;
-
 

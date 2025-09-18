@@ -9,8 +9,6 @@
 
 namespace fluent_cloud::io {
 
-// Placeholder for a stable DepthToCloud facade.
-// Keep signature compatible with existing usage sites that include depth_to_cloud.hpp
 struct DepthToCloud {
     static pcl::PointCloud<pcl::PointXYZRGB>::Ptr convertAsparagusROI(
         const cv::Mat &depth_mat,
@@ -23,7 +21,6 @@ struct DepthToCloud {
         Cloud::Ptr cloud(new Cloud);
         if (depth_mat.empty() || roi.width<=0 || roi.height<=0) return cloud;
 
-        // Camera intrinsics
         const double fx = camera_info.k[0];
         const double fy = camera_info.k[4];
         const double cx = camera_info.k[2];
@@ -36,7 +33,6 @@ struct DepthToCloud {
         const int y1 = std::min(depth_mat.rows, roi.y + roi.height);
         if (x0>=x1 || y0>=y1) return cloud;
 
-        // カラーサイズが異なる場合は深度サイズに合わせてリサイズ（最近傍）
         cv::Mat color_aligned;
         if (!color_mat.empty() && (color_mat.size() != depth_mat.size())) {
             cv::resize(color_mat, color_aligned, depth_mat.size(), 0, 0, cv::INTER_NEAREST);
@@ -84,7 +80,6 @@ struct DepthToCloud {
         return cloud;
     }
 
-    // Overload: ROS Image から自動変換（深度は32F化、カラーはBGR8化）
     static pcl::PointCloud<pcl::PointXYZRGB>::Ptr convertAsparagusROI(
         const sensor_msgs::msg::Image &depth_msg,
         const sensor_msgs::msg::Image &color_msg,
@@ -99,7 +94,6 @@ struct DepthToCloud {
         return convertAsparagusROI(static_cast<cv::Mat&>(depth32), static_cast<cv::Mat&>(color_bgr), roi, camera_info, 1.0f);
     }
 
-    // Overload: FluentImage から自動変換
     static pcl::PointCloud<pcl::PointXYZRGB>::Ptr convertAsparagusROI(
         const fluent_image::Image &depth_img,
         const fluent_image::Image &color_img,
@@ -114,6 +108,4 @@ struct DepthToCloud {
 };
 
 } // namespace fluent_cloud::io
-
-
 

@@ -115,3 +115,19 @@ private:
 
 } // namespace utils
 } // namespace fluent
+
+// 追加: 簡易システムモニタ（ダミー実装）
+namespace fluent { namespace utils {
+
+struct SystemStats {
+    double cpu_usage_pct{0.0};
+    int mem_used_mb{0};
+    int mem_total_mb{0};
+};
+
+class SystemMonitor {
+public:
+    SystemStats sample() const; // 実装は cpp
+};
+
+}} // namespace fluent::utils

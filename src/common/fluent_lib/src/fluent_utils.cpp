@@ -92,3 +92,17 @@ double Stopwatch::elapsed_sec() const {
 
 } // namespace utils
 } // namespace fluent
+
+// SystemMonitor 簡易実装
+namespace fluent { namespace utils {
+
+SystemStats SystemMonitor::sample() const {
+    SystemStats s;
+    // 最小実装: 値を既定/0で返す（将来: /proc などから取得）
+    s.cpu_usage_pct = 0.0;
+    s.mem_used_mb = 0;
+    s.mem_total_mb = 0;
+    return s;
+}
+
+}} // namespace fluent::utils

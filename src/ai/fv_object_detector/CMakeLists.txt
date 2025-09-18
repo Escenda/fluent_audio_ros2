@@ -46,6 +46,9 @@ find_package(OpenCV REQUIRED)                # OpenCVコンピュータビジョ
 find_package(OpenVINO REQUIRED)              # Intel OpenVINO推論エンジン
 find_package(nlohmann_json REQUIRED)         # JSON処理ライブラリ
 find_package(yaml-cpp REQUIRED)              # YAML処理ライブラリ
+find_package(TIFF REQUIRED)
+find_package(CURL REQUIRED)
+find_package(GDAL QUIET)
 
 # ===== C++標準設定 =====
 set(CMAKE_CXX_STANDARD 17)                   # C++17標準を使用
@@ -80,7 +83,12 @@ target_link_libraries(fv_object_detector_node
   openvino::runtime                         # OpenVINO推論エンジン
   nlohmann_json::nlohmann_json              # JSON処理ライブラリ
   yaml-cpp                                  # YAML処理ライブラリ
+  TIFF::TIFF
+  CURL::libcurl
 )
+if(GDAL_FOUND)
+  target_link_libraries(fv_object_detector_node GDAL::GDAL)
+endif()
 
 # ===== インストール設定 =====
 # 実行ファイルのインストール

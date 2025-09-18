@@ -1,167 +1,119 @@
 #pragma once
 
-// Minimal samples:
-//  - From ROS Image → draw → publish
-//    fluent_image::Image img(*msg); img = img.to_bgr8();
-//    img.text({20,40}, "Hello", {0,255,0});
-//    pub->publish(sensor_msgs::msg::Image(img));
+// 互換レイヤ: fluent_image::Image
+// - sensor_msgs::msg::Image / cv::Mat 相互変換
+// - to_bgr8 / to_depth32f 等の基本変換
 
-#include <opencv2/core.hpp>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/imgcodecs.hpp>
+#include <opencv2/opencv.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/header.hpp>
 #include <string>
-#include <utility>
-#include <type_traits>
-#include <cv_bridge/cv_bridge.h>
 
 namespace fluent_image {
 
-// Thin wrapper around cv::Mat with automatic conversions to/from ROS Image
 class Image {
 public:
-  Image() = default;
-  Image(const cv::Mat &mat, std::string encoding = "bgr8")
-    : mat_(mat), encoding_(std::move(encoding)) {}
-  Image(cv::Mat &&mat, std::string encoding = "bgr8")
-    : mat_(std::move(mat)), encoding_(std::move(encoding)) {}
+    Image() = default;
+    explicit Image(const cv::Mat &m) : mat_(m) {}
+    explicit Image(const sensor_msgs::msg::Image &msg) { from_msg(msg); }
 
-  // Construct from ROS Image (cv_bridge inside). Copies data.
-  explicit Image(const sensor_msgs::msg::Image &msg) {
-    auto cv = cv_bridge::toCvCopy(msg, msg.encoding.empty() ? sensor_msgs::image_encodings::BGR8 : msg.encoding);
-    mat_ = cv->image;
-    encoding_ = cv->encoding;
-  }
+    // 暗黙変換（使い勝手重視）
+    operator cv::Mat&() { return mat_; }
+    operator const cv::Mat&() const { return mat_; }
 
-  // Implicit conversions (be cautious but match user's expectation of automatic conversion)
-  operator cv::Mat&() { return mat_; }
-  operator const cv::Mat&() const { return mat_; }
+    // 基本アクセス
+    cv::Mat& mat() { return mat_; }
+    const cv::Mat& mat() const { return mat_; }
 
-  operator sensor_msgs::msg::Image() const {
-    // Header left default; caller can set if needed
-    return *cv_bridge::CvImage(std_msgs::msg::Header{}, encoding_, mat_).toImageMsg();
-  }
-
-  // Accessors
-  int w() const { return mat_.cols; }
-  int h() const { return mat_.rows; }
-  const std::string &encoding() const { return encoding_; }
-
-  // Encoding helpers
-  Image& assume_bgr8() { encoding_ = "bgr8"; return *this; }
-  Image& assume_gray8() { encoding_ = "mono8"; return *this; }
-
-  // Auto conversions (return new Image)
-  Image to_bgr8() const {
-    if (mat_.empty()) return *this;
-    cv::Mat out;
-    auto enc = lower(encoding_);
-    if (enc == "bgr8" && mat_.type() == CV_8UC3) return Image(mat_.clone(), "bgr8");
-    if (enc == "rgb8" && mat_.type() == CV_8UC3) {
-      cv::cvtColor(mat_, out, cv::COLOR_RGB2BGR); return Image(out, "bgr8"); }
-    if ((enc == "bgra8" || enc == "rgba8") && mat_.type() == CV_8UC4) {
-      int code = (enc == "bgra8") ? cv::COLOR_BGRA2BGR : cv::COLOR_RGBA2BGR;
-      cv::cvtColor(mat_, out, code); return Image(out, "bgr8"); }
-    if ((enc == "mono8" || enc == "8uc1") && mat_.type() == CV_8UC1) {
-      cv::cvtColor(mat_, out, cv::COLOR_GRAY2BGR); return Image(out, "bgr8"); }
-    // Fallback: try convert by type
-    if (mat_.type() == CV_8UC3) return Image(mat_.clone(), "bgr8");
-    if (mat_.type() == CV_8UC1) { cv::cvtColor(mat_, out, cv::COLOR_GRAY2BGR); return Image(out, "bgr8"); }
-    return Image(mat_.clone(), "bgr8");
-  }
-
-  Image to_gray8() const {
-    if (mat_.empty()) return *this;
-    cv::Mat out;
-    auto enc = lower(encoding_);
-    if ((enc == "mono8" || enc == "8uc1") && mat_.type() == CV_8UC1) return Image(mat_.clone(), "mono8");
-    if (enc == "bgr8" && mat_.type() == CV_8UC3) { cv::cvtColor(mat_, out, cv::COLOR_BGR2GRAY); return Image(out, "mono8"); }
-    if (enc == "rgb8" && mat_.type() == CV_8UC3) { cv::cvtColor(mat_, out, cv::COLOR_RGB2GRAY); return Image(out, "mono8"); }
-    if ((enc == "bgra8" || enc == "rgba8") && mat_.type() == CV_8UC4) {
-      int code = (enc == "bgra8") ? cv::COLOR_BGRA2GRAY : cv::COLOR_RGBA2GRAY; cv::cvtColor(mat_, out, code); return Image(out, "mono8"); }
-    if (mat_.type() == CV_8UC3) { cv::cvtColor(mat_, out, cv::COLOR_BGR2GRAY); return Image(out, "mono8"); }
-    return Image(mat_.clone(), "mono8");
-  }
-
-  // Normalize depth to 32F meters (depth_unit_m applied if input is 16U)
-  Image to_depth32f(float depth_unit_m) const {
-    if (mat_.empty()) return *this;
-    cv::Mat out;
-    if (mat_.type() == CV_16UC1) {
-      mat_.convertTo(out, CV_32FC1, static_cast<double>(depth_unit_m));
-      return Image(out, "32FC1");
+    // 型変換
+    Image to_bgr8() const {
+        if (mat_.empty()) return Image();
+        if (mat_.type() == CV_8UC3) return *this; // 既にBGR8
+        cv::Mat out;
+        if (mat_.type() == CV_8UC1) {
+            cv::cvtColor(mat_, out, cv::COLOR_GRAY2BGR);
+        } else if (mat_.type() == CV_16UC1) {
+            cv::Mat tmp8; mat_.convertTo(tmp8, CV_8U, 1.0/256.0);
+            cv::cvtColor(tmp8, out, cv::COLOR_GRAY2BGR);
+        } else if (mat_.type() == CV_32FC1) {
+            cv::Mat tmp8; mat_.convertTo(tmp8, CV_8U, 255.0);
+            cv::cvtColor(tmp8, out, cv::COLOR_GRAY2BGR);
+        } else {
+            out = mat_.clone();
+        }
+        return Image(out);
     }
-    if (mat_.type() == CV_32FC1) return Image(mat_.clone(), "32FC1");
-    return Image(mat_.clone(), "32FC1");
-  }
 
-  // Basic draw helpers (chainable)
-  Image& rect(const cv::Rect &r, const cv::Scalar &color, int thickness=2) {
-    if (!mat_.empty()) cv::rectangle(mat_, r, color, thickness);
-    return *this;
-  }
-  Image& text(const cv::Point &org, const std::string &s, const cv::Scalar &color,
-              double scale=0.6, int th=2) {
-    if (!mat_.empty()) cv::putText(mat_, s, org, cv::FONT_HERSHEY_SIMPLEX, scale, color, th);
-    return *this;
-  }
-
-  // Encode to CompressedImage (jpeg/png). Quality: 1..100 for jpeg, 0..9 for png (mapped from 1..100)
-  sensor_msgs::msg::CompressedImage to_compressed(int quality = 85, const std::string &format = "jpeg") const {
-    sensor_msgs::msg::CompressedImage msg;
-    if (mat_.empty()) { msg.format = format; return msg; }
-    std::vector<int> params;
-    std::string f = lower(format);
-    if (f == "jpeg" || f == "jpg") {
-      msg.format = "jpeg";
-      params = {cv::IMWRITE_JPEG_QUALITY, std::clamp(quality, 1, 100)};
-      cv::imencode(".jpg", mat_, msg.data, params);
-    } else if (f == "png") {
-      msg.format = "png";
-      int level = std::clamp(quality, 1, 100) / 11; // 0..9 roughly from 1..100
-      params = {cv::IMWRITE_PNG_COMPRESSION, level};
-      cv::imencode(".png", mat_, msg.data, params);
-    } else {
-      msg.format = "jpeg";
-      params = {cv::IMWRITE_JPEG_QUALITY, std::clamp(quality, 1, 100)};
-      cv::imencode(".jpg", mat_, msg.data, params);
+    Image to_depth32f(float unit_m = 1.0f) const {
+        if (mat_.empty()) return Image();
+        if (mat_.type() == CV_32FC1) return *this;
+        cv::Mat out;
+        if (mat_.type() == CV_16UC1) {
+            mat_.convertTo(out, CV_32F, unit_m);
+        } else if (mat_.type() == CV_8UC1) {
+            mat_.convertTo(out, CV_32F, unit_m);
+        } else {
+            out = mat_.clone();
+        }
+        return Image(out);
     }
-    return msg;
-  }
 
-  sensor_msgs::msg::CompressedImage to_compressed(const std_msgs::msg::Header &hdr, int quality = 85, const std::string &format = "jpeg") const {
-    auto msg = to_compressed(quality, format);
-    msg.header = hdr;
-    return msg;
-  }
+    // ROS メッセージ変換
+    void from_msg(const sensor_msgs::msg::Image &msg) {
+        const auto &enc = msg.encoding;
+        if (enc == "bgr8") {
+            mat_ = cv::Mat(msg.height, msg.width, CV_8UC3, const_cast<unsigned char*>(msg.data.data())).clone();
+        } else if (enc == "mono8") {
+            mat_ = cv::Mat(msg.height, msg.width, CV_8UC1, const_cast<unsigned char*>(msg.data.data())).clone();
+        } else if (enc == "16UC1") {
+            mat_ = cv::Mat(msg.height, msg.width, CV_16UC1, const_cast<unsigned char*>(msg.data.data())).clone();
+        } else if (enc == "32FC1") {
+            mat_ = cv::Mat(msg.height, msg.width, CV_32FC1, const_cast<unsigned char*>(msg.data.data())).clone();
+        } else {
+            // 未知エンコーディングはバイト列のまま複製
+            mat_ = cv::Mat(1, static_cast<int>(msg.data.size()), CV_8UC1, const_cast<unsigned char*>(msg.data.data())).clone();
+        }
+    }
+
+    static sensor_msgs::msg::Image to_msg(const Image &img, const std_msgs::msg::Header &hdr) {
+        sensor_msgs::msg::Image out;
+        out.header = hdr;
+        if (img.mat_.type() == CV_8UC3) {
+            out.height = img.mat_.rows; out.width = img.mat_.cols;
+            out.encoding = "bgr8"; out.step = static_cast<uint32_t>(img.mat_.cols * 3);
+            out.data.assign(img.mat_.datastart, img.mat_.dataend);
+        } else if (img.mat_.type() == CV_8UC1) {
+            out.height = img.mat_.rows; out.width = img.mat_.cols;
+            out.encoding = "mono8"; out.step = static_cast<uint32_t>(img.mat_.cols);
+            out.data.assign(img.mat_.datastart, img.mat_.dataend);
+        } else if (img.mat_.type() == CV_16UC1) {
+            out.height = img.mat_.rows; out.width = img.mat_.cols;
+            out.encoding = "16UC1"; out.step = static_cast<uint32_t>(img.mat_.cols * 2);
+            const auto bytes = img.mat_.total() * img.mat_.elemSize();
+            out.data.resize(bytes);
+            std::memcpy(out.data.data(), img.mat_.data, bytes);
+        } else if (img.mat_.type() == CV_32FC1) {
+            out.height = img.mat_.rows; out.width = img.mat_.cols;
+            out.encoding = "32FC1"; out.step = static_cast<uint32_t>(img.mat_.cols * 4);
+            const auto bytes = img.mat_.total() * img.mat_.elemSize();
+            out.data.resize(bytes);
+            std::memcpy(out.data.data(), img.mat_.data, bytes);
+        } else {
+            // フォールバック（バイト配列）
+            out.height = 1; out.width = static_cast<uint32_t>(img.mat_.total());
+            out.encoding = "mono8"; out.step = out.width;
+            out.data.assign(img.mat_.datastart, img.mat_.dataend);
+        }
+        return out;
+    }
 
 private:
-  cv::Mat mat_;
-  std::string encoding_ {"bgr8"};
-
-  static std::string lower(const std::string &s) {
-    std::string t = s; std::transform(t.begin(), t.end(), t.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); }); return t;
-  }
+    cv::Mat mat_;
 };
 
-// Pipe operator to enable function-style transforms: img | f
-template <typename F>
-auto operator|(const Image &img, F &&f) -> decltype(f(img)) { return f(img); }
-
-// Overloads for common sources (cv::Mat, ROS Image)
-inline Image make(const cv::Mat &m, const std::string &enc = "bgr8") { return Image(m, enc); }
-inline Image make(const sensor_msgs::msg::Image &msg) { return Image(msg); }
+inline sensor_msgs::msg::Image to_msg(const Image &img, const std_msgs::msg::Header &hdr) {
+    return Image::to_msg(img, hdr);
+}
 
 } // namespace fluent_image
-
-namespace fluent_image {
-// Helper to attach header when creating Image msg
-inline sensor_msgs::msg::Image to_msg(const Image &img, const std_msgs::msg::Header &hdr) {
-  sensor_msgs::msg::Image out = static_cast<sensor_msgs::msg::Image>(img);
-  out.header = hdr;
-  return out;
-}
-}
-
 
