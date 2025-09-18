@@ -2,6 +2,7 @@
 #include "fv_object_detector/yolov10_model.hpp"
 #include <fstream>
 #include <iostream>
+#include <filesystem>
 #include <rclcpp/rclcpp.hpp>
 
 namespace fv_object_detector
@@ -102,6 +103,55 @@ void AIModel::setCommonConfig(const nlohmann::json& model_cfg, const nlohmann::j
     RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] デバイス: %s", device_.c_str());
     RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] 入力サイズ: %dx%d", input_width_, input_height_);
     RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] モデルパス: %s", model_path_.c_str());
+    
+    // モデルパスの存在チェックとフォールバック
+    try {
+        namespace fs = std::filesystem;
+        fs::path p(model_path_);
+        if (!p.is_absolute()) {
+            // 相対パスなら /models 配下を優先
+            fs::path candidate = fs::path("/models") / p;
+            if (fs::exists(candidate)) {
+                model_path_ = candidate.string();
+                RCLCPP_INFO(rclcpp::get_logger("AIModel"), "[AIModel] 相対パスを /models に解決: %s", model_path_.c_str());
+            }
+        }
+        // それでも存在しなければ、ファイル名のみから /models を試行
+        if (!fs::exists(model_path_)) {
+            fs::path base = fs::path(model_path_).filename();
+            // /models 直下
+            fs::path candidate1 = fs::path("/models") / base;
+            // 一般的なサブディレクトリ候補
+            fs::path candidate2 = fs::path("/models/yolov10") / base;
+            fs::path candidate3 = fs::path("/models/openvino") / base;
+            if (fs::exists(candidate1)) { model_path_ = candidate1.string(); }
+            else if (fs::exists(candidate2)) { model_path_ = candidate2.string(); }
+            else if (fs::exists(candidate3)) { model_path_ = candidate3.string(); }
+            if (fs::exists(model_path_)) {
+                RCLCPP_WARN(rclcpp::get_logger("AIModel"), "[AIModel] モデルが見つからないため候補を使用: %s", model_path_.c_str());
+            }
+        }
+        // なお存在しない場合は既定モデルにフォールバック
+        if (!fs::exists(model_path_)) {
+            // 複数候補を順に試す
+            std::vector<fs::path> fallbacks = {
+                fs::path("/models/yolov10/v2_nano_best_fp16_dynamic.xml"),
+                fs::path("/models/yolov10/yolov10n_aspara_v2.1.xml"),
+                fs::path("/models/yolov10/yolov10m_aspara_v2.0.xml"),
+                fs::path("/models/openvino/aspara_v2.0_yolo10s.xml")
+            };
+            for (const auto& fb : fallbacks) {
+                if (fs::exists(fb)) { model_path_ = fb.string(); break; }
+            }
+            if (fs::exists(model_path_)) {
+                RCLCPP_WARN(rclcpp::get_logger("AIModel"), "[AIModel] 指定モデル未検出のため既定候補にフォールバック: %s", model_path_.c_str());
+            } else {
+                RCLCPP_WARN(rclcpp::get_logger("AIModel"), "[AIModel] モデルファイルが見つかりませんでした。後続の初期化で失敗する可能性があります: %s", model_path_.c_str());
+            }
+        }
+    } catch (const std::exception& e) {
+        RCLCPP_WARN(rclcpp::get_logger("AIModel"), "[AIModel] モデルパス検証中に例外: %s", e.what());
+    }
     
     // クラス名リストを読み込む
     if (config_json.contains("classes") && config_json["classes"].is_array()) {

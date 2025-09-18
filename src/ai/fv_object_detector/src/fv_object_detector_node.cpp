@@ -63,7 +63,8 @@ public:
         RCLCPP_INFO(this->get_logger(), "FV Object Detector Node starting...");
         
         // ===== パラメータ宣言 =====
-        this->declare_parameter("input_image_topic", "/camera/color/image_raw");        // 入力画像トピック
+        // 既定はfv_topic_relayの選択ストリームを利用
+        this->declare_parameter("input_image_topic", "/fv/selected/color/image_raw");        // 入力画像トピック
         this->declare_parameter("output_image_topic", "/object_detection/annotated_image"); // 出力画像トピック
         this->declare_parameter("output_detections_topic", "/object_detection/detections"); // 検出結果トピック
         this->declare_parameter("processing_frequency", 10.0);                          // 処理頻度（Hz）
