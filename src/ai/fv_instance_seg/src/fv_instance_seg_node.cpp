@@ -78,6 +78,7 @@ InstanceSegNode::InstanceSegNode(const rclcpp::NodeOptions& options)
 
   overlay_pub_ = this->create_publisher<Image>("overlay", qos);
   mask_pub_ = this->create_publisher<Image>("mask", qos);
+  id_mask_pub_ = this->create_publisher<Image>("mask_id", qos);
   if (publish_detections_) dets_pub_ = this->create_publisher<Detection2DArray>("detections", qos);
 
   inferencer_ = CreateInferencer(backend_);
@@ -131,6 +132,7 @@ void InstanceSegNode::imageCallback(const Image::SharedPtr msg) {
   updateTracking(res, stamp);
 
   cv::Mat combined(cv_ptr->image.rows, cv_ptr->image.cols, CV_8UC1, cv::Scalar(0));
+  cv::Mat id_img(cv_ptr->image.rows, cv_ptr->image.cols, CV_8UC1, cv::Scalar(0));
   cv::Mat color_layer(cv_ptr->image.size(), CV_8UC3, cv::Scalar(0, 0, 0));
   std::vector<TrackState> publish_tracks;
   publish_tracks.reserve(tracks_.size());
@@ -151,6 +153,10 @@ void InstanceSegNode::imageCallback(const Image::SharedPtr msg) {
     publish_tracks.push_back(track);
     if (!mask.empty()) {
       combined |= mask;
+      // インスタンスIDマスク: トラックID(1..255)を画素値として書き込む
+      unsigned char vid = static_cast<unsigned char>(track.id & 0xFF);
+      if (vid == 0) vid = 255; // 0は背景に予約
+      id_img.setTo(cv::Scalar(vid), mask);
       if (publish_overlay_) {
         cv::Mat colored(color_layer.size(), CV_8UC3, track.color);
         colored.copyTo(color_layer, mask);
@@ -159,6 +165,14 @@ void InstanceSegNode::imageCallback(const Image::SharedPtr msg) {
   }
 
   publishMask(combined, msg->header);
+  // IDマスクの配信（常時）
+  {
+    cv_bridge::CvImage out;
+    out.header = msg->header;
+    out.encoding = sensor_msgs::image_encodings::MONO8;
+    out.image = id_img;
+    id_mask_pub_->publish(*out.toImageMsg());
+  }
 
   if (publish_overlay_) {
     cv::Mat overlay;

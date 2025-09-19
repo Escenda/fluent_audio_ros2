@@ -563,6 +563,14 @@ private:
         det.conf_instance = id.score;
         det.conf_semantic = 0.0f;
         det.conf_fused = static_cast<float>(w_object_ * od.score + w_instance_ * id.score + bonus_overlap_);
+        // インスタンス由来のIDを8bitで保持（UIの色分けに利用）
+        try {
+          int mid = std::stoi(id.det.id);
+          if (mid < 0) mid = -mid;
+          det.mask_instance_id = static_cast<uint32_t>(mid & 0xFF);
+        } catch (...) {
+          det.mask_instance_id = 0;
+        }
         det.observed_at = sel.header.stamp;
         candidates.emplace_back(det);
       }
@@ -611,6 +619,14 @@ private:
         det.conf_instance = id.score;
         det.conf_semantic = 0.0f;
         det.conf_fused = static_cast<float>(w_instance_ * id.score);
+        // インスタンスIDを8bitにエンコード
+        try {
+          int mid = std::stoi(id.det.id);
+          if (mid < 0) mid = -mid;
+          det.mask_instance_id = static_cast<uint32_t>(mid & 0xFF);
+        } catch (...) {
+          det.mask_instance_id = 0;
+        }
         det.observed_at = id.det.header.stamp;
         candidates.emplace_back(det);
       }

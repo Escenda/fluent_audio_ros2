@@ -45,6 +45,7 @@ class InstanceSegNode : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr overlay_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr mask_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr id_mask_pub_;
   rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr dets_pub_;
 
   std::unique_ptr<Inferencer> inferencer_;

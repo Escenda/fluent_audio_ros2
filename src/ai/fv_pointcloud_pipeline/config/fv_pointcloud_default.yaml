@@ -1,4 +1,4 @@
-filters:
+steps:
   - type: voxel_grid
     leaf_size: 0.005
     debug_topic: step_voxel

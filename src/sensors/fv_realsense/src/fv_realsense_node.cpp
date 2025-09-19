@@ -389,22 +389,61 @@ bool FVDepthCameraNode::initializeRealSense()
         }
         
         // Wait for first frames to ensure pipeline is ready
+        bool frames_ok = true;
         try {
             RCLCPP_INFO(this->get_logger(), "⏳ Waiting for initial frames...");
             auto initial_frames = pipe_.wait_for_frames(5000); // 5 second timeout
             auto color_frame = initial_frames.get_color_frame();
             auto depth_frame = initial_frames.get_depth_frame();
-            
-            if (color_frame) {
-                RCLCPP_INFO(this->get_logger(), "✅ Got initial color frame: %dx%d", 
-                    color_frame.get_width(), color_frame.get_height());
+            // Log & validate
+            if (stream_config_.color_enabled) {
+                if (color_frame) {
+                    RCLCPP_INFO(this->get_logger(), "✅ Got initial color frame: %dx%d", 
+                        color_frame.get_width(), color_frame.get_height());
+                } else {
+                    frames_ok = false;
+                    RCLCPP_WARN(this->get_logger(), "⚠️ Initial color frame missing");
+                }
             }
-            if (depth_frame) {
-                RCLCPP_INFO(this->get_logger(), "✅ Got initial depth frame: %dx%d",
-                    depth_frame.get_width(), depth_frame.get_height());
+            if (stream_config_.depth_enabled) {
+                if (depth_frame) {
+                    RCLCPP_INFO(this->get_logger(), "✅ Got initial depth frame: %dx%d",
+                        depth_frame.get_width(), depth_frame.get_height());
+                } else {
+                    frames_ok = false;
+                    RCLCPP_WARN(this->get_logger(), "⚠️ Initial depth frame missing");
+                }
             }
         } catch (const rs2::error& e) {
+            frames_ok = false;
             RCLCPP_WARN(this->get_logger(), "⚠️ Could not get initial frames: %s", e.what());
+        }
+        // Simple auto-recover: if initial frames didn't arrive, perform hardware reset and retry once
+        if (!frames_ok) {
+            RCLCPP_WARN(this->get_logger(), "🔁 Initial frames not received. Attempting hardware reset & restart...");
+            try { pipe_.stop(); } catch (...) {}
+            try {
+                auto dev = profile_.get_device();
+                dev.hardware_reset();
+            } catch (const std::exception &ex) {
+                RCLCPP_WARN(this->get_logger(), "⚠️ Hardware reset failed: %s", ex.what());
+            }
+            std::this_thread::sleep_for(std::chrono::seconds(3));
+            try {
+                profile_ = pipe_.start(cfg_);
+                RCLCPP_INFO(this->get_logger(), "✅ Pipeline restarted successfully after reset");
+                // wait again
+                auto fs = pipe_.wait_for_frames(5000);
+                bool ok2 = true;
+                if (stream_config_.color_enabled && !fs.get_color_frame()) ok2 = false;
+                if (stream_config_.depth_enabled && !fs.get_depth_frame()) ok2 = false;
+                if (!ok2) {
+                    RCLCPP_WARN(this->get_logger(), "⚠️ Frames still not available after reset");
+                }
+            } catch (const std::exception &ex) {
+                RCLCPP_ERROR(this->get_logger(), "❌ Restart after reset failed: %s", ex.what());
+                return false;
+            }
         }
         
         device_ = profile_.get_device();
