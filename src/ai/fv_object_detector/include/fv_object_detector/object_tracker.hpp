@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <deque>
 
 namespace fv_object_detector
 {
@@ -35,6 +36,7 @@ public:
         bool  require_same_class = true; // クラスIDの一致を要求
         int   hold_frames     = 2;       // 未検出でも描画/出力で保持するフレーム数
         float smooth_alpha    = 0.6f;    // bbox/scoreの平滑化係数（0~1、1で即時追従）
+        int   median_window   = 0;       // 中値フィルタ窓（>1で有効）
     };
 
     /**
@@ -95,6 +97,8 @@ private:
         int age = 0;               // 生存フレーム数（総）
         int time_since_update = 0; // 最終更新からのフレーム数
         float confidence = 0.0f;   // 直近信頼度（平滑化）
+        std::deque<cv::Rect2f> bbox_hist; // 直近バウンディングボックス履歴
+        std::deque<float> conf_hist;       // 直近スコア履歴
     };
 
     Params params_{};
@@ -124,6 +128,10 @@ private:
 
     // IoU計算
     float calculateIoU(const cv::Rect2f& a, const cv::Rect2f& b) const;
+
+    // ヘルパー: 直近履歴から中央値矩形を算出
+    cv::Rect2f medianRect(const std::deque<cv::Rect2f>& hist, int window) const;
+    float medianValue(const std::deque<float>& hist, int window) const;
 };
 
 } // namespace fv_object_detector

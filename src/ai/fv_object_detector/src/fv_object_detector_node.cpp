@@ -86,6 +86,7 @@ public:
         this->declare_parameter("tracker.require_same_class", true);
         this->declare_parameter("tracker.hold_frames", 2);
         this->declare_parameter("tracker.smooth_alpha", 0.6);
+        this->declare_parameter("tracker.median_window", 0);
 
         // 可視化設定
         this->declare_parameter("visualization.color_by_id", false);
@@ -150,6 +151,7 @@ public:
             tp.require_same_class = this->get_parameter("tracker.require_same_class").as_bool();
             tp.hold_frames     = this->get_parameter("tracker.hold_frames").as_int();
             tp.smooth_alpha    = static_cast<float>(this->get_parameter("tracker.smooth_alpha").as_double());
+            tp.median_window   = this->get_parameter("tracker.median_window").as_int();
             tracker_->setParams(tp);
         }
         

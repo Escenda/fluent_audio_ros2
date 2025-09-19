@@ -12,6 +12,7 @@
 #include <limits>
 #include <sstream>
 #include <rclcpp/rclcpp.hpp>
+#include <vector>
 
 namespace fv_object_detector
 {
@@ -92,6 +93,13 @@ void ObjectTracker::assignObjectIds(std::vector<DetectionData> &detections) {
       trk.confidence = a * detections[best_idx].confidence + (1.0f - a) * trk.confidence;
       trk.class_id = detections[best_idx].class_id;
       trk.class_name = detections[best_idx].class_name;
+      // 履歴更新（中央値フィルタ用）
+      if (params_.median_window > 1) {
+        trk.bbox_hist.push_back(nb);
+        if ((int)trk.bbox_hist.size() > std::max(params_.median_window, 3)) trk.bbox_hist.pop_front();
+        trk.conf_hist.push_back(detections[best_idx].confidence);
+        if ((int)trk.conf_hist.size() > std::max(params_.median_window, 3)) trk.conf_hist.pop_front();
+      }
       trk.hits += 1;
       trk.time_since_update = 0;
     }
@@ -104,6 +112,10 @@ void ObjectTracker::assignObjectIds(std::vector<DetectionData> &detections) {
     int new_id = next_object_id_++;
     det.object_id = new_id;
     Track t{new_id, det.bbox, det.class_id, det.class_name, 1, 1, 0, det.confidence};
+    if (params_.median_window > 1) {
+      t.bbox_hist.push_back(det.bbox);
+      t.conf_hist.push_back(det.confidence);
+    }
     tracks_.emplace(new_id, t);
   }
 
@@ -179,7 +191,12 @@ std::vector<DetectionData> ObjectTracker::getStabilizedDetections() const {
     // 出力条件: 未更新でもhold_frames以内 or 現在更新済み（time_since_update==0）
     if (t.time_since_update <= params_.hold_frames && t.hits >= params_.min_hits) {
       DetectionData d;
-      d.bbox = t.bbox;
+      // 中央値フィルタ
+      if (params_.median_window > 1 && t.bbox_hist.size() >= 2) {
+        d.bbox = medianRect(t.bbox_hist, params_.median_window);
+      } else {
+        d.bbox = t.bbox;
+      }
       d.confidence = t.confidence;
       d.class_id = t.class_id;
       d.object_id = t.id;
@@ -206,6 +223,30 @@ float ObjectTracker::calculateIoU(const cv::Rect2f &a, const cv::Rect2f &b) cons
 
 float ObjectTracker::calculateDistance(const cv::Point2f &p1, const cv::Point2f &p2) const {
   return cv::norm(p1 - p2);
+}
+
+cv::Rect2f ObjectTracker::medianRect(const std::deque<cv::Rect2f> &hist, int window) const {
+  if (hist.empty()) return cv::Rect2f();
+  int w = std::min(window, (int)hist.size());
+  std::vector<float> vx, vy, vw, vh;
+  vx.reserve(w); vy.reserve(w); vw.reserve(w); vh.reserve(w);
+  for (int i = (int)hist.size() - w; i < (int)hist.size(); ++i) {
+    vx.push_back(hist[i].x);
+    vy.push_back(hist[i].y);
+    vw.push_back(hist[i].width);
+    vh.push_back(hist[i].height);
+  }
+  auto med = [](std::vector<float>& a){ std::nth_element(a.begin(), a.begin()+a.size()/2, a.end()); return a[a.size()/2]; };
+  return cv::Rect2f(med(vx), med(vy), med(vw), med(vh));
+}
+
+float ObjectTracker::medianValue(const std::deque<float> &hist, int window) const {
+  if (hist.empty()) return 0.0f;
+  int w = std::min(window, (int)hist.size());
+  std::vector<float> v; v.reserve(w);
+  for (int i = (int)hist.size() - w; i < (int)hist.size(); ++i) v.push_back(hist[i]);
+  std::nth_element(v.begin(), v.begin()+v.size()/2, v.end());
+  return v[v.size()/2];
 }
 
 } // namespace fv_object_detector 
