@@ -14,6 +14,7 @@ find_package(message_filters REQUIRED)
 find_package(fv_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+find_package(fluent_lib REQUIRED)
 
 add_executable(fv_detection_fusion_node
   src/fv_detection_fusion_node.cpp
@@ -26,6 +27,7 @@ ament_target_dependencies(fv_detection_fusion_node
   message_filters
   fv_msgs
   cv_bridge
+  fluent_lib
 )
 
 # Prefer linking minimal OpenCV modules to avoid pulling optional deps
@@ -40,6 +42,7 @@ target_link_libraries(fv_detection_fusion_node
   ${FV_OPENCV_LIBS}
   tiff
   curl
+  fluent_lib::fluent_lib
 )
 
 target_compile_features(fv_detection_fusion_node PUBLIC cxx_std_17)

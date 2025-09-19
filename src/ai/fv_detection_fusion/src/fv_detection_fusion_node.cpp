@@ -9,6 +9,8 @@
 // OpenCV
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+// 日本語対応の影付きテキスト描画
+#include "fluent_text.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -96,6 +98,8 @@ private:
     fv_msgs::msg::Detection2D detection;
     rclcpp::Time last_update{0};
     int hold_frames{0};
+    rclcpp::Time first_seen{0};
+    int seen_frames{0};
   };
 
   struct Box {
@@ -150,6 +154,10 @@ private:
     declareIfMissing<bool>("debug.draw_history", false);
     declareIfMissing<std::string>("debug.roi_mask_topic", std::string("roi_mask"));
     declareIfMissing<bool>("debug.overlay_tint_mask", true);
+    declareIfMissing<bool>("debug.overlay.instance_fullmask", true);
+    declareIfMissing<bool>("debug.overlay.unet_fullmask", false);
+    declareIfMissing<double>("debug.overlay.alpha_inst", 0.4);
+    declareIfMissing<double>("debug.overlay.alpha_unet", 0.3);
 
     // 融合パラメータ
     declareIfMissing<double>("fusion.iou_threshold", 0.30);
@@ -172,6 +180,8 @@ private:
     declareIfMissing<int>("mask.postprocess.morph.close_kernel", 5);
     declareIfMissing<int>("mask.postprocess.morph.close_iter", 1);
     declareIfMissing<bool>("mask.postprocess.keep_largest", true);
+    declareIfMissing<bool>("mask.postprocess.fill_holes", true);
+    declareIfMissing<int>("mask.postprocess.max_hole_area_px", 2000);
     declareIfMissing<double>("fusion.weights.w_object", 0.6);
     declareIfMissing<double>("fusion.weights.w_instance", 0.4);
     declareIfMissing<double>("fusion.weights.bonus_overlap", 0.05);
@@ -191,6 +201,14 @@ private:
     debug_draw_history_ = this->get_parameter("debug.draw_history").as_bool();
     roi_mask_topic_ = this->get_parameter("debug.roi_mask_topic").as_string();
     debug_overlay_tint_mask_ = this->get_parameter("debug.overlay_tint_mask").as_bool();
+    overlay_inst_full_ = this->get_parameter("debug.overlay.instance_fullmask").as_bool();
+    overlay_unet_full_ = this->get_parameter("debug.overlay.unet_fullmask").as_bool();
+    overlay_alpha_inst_ = this->get_parameter("debug.overlay.alpha_inst").as_double();
+    overlay_alpha_unet_ = this->get_parameter("debug.overlay.alpha_unet").as_double();
+    // label params（既定はdeclareParametersで宣言済み、ここでは取得のみ）
+    label_enable_ = this->get_parameter("debug.label.enable").as_bool();
+    label_font_scale_ = this->get_parameter("debug.label.font_scale").as_double();
+    label_thickness_ = this->get_parameter("debug.label.thickness").as_int();
 
     iou_th_ = this->get_parameter("fusion.iou_threshold").as_double();
     nms_iou_th_ = this->get_parameter("fusion.nms_iou_threshold").as_double();
@@ -215,6 +233,8 @@ private:
     close_k_ = this->get_parameter("mask.postprocess.morph.close_kernel").as_int();
     close_iter_ = this->get_parameter("mask.postprocess.morph.close_iter").as_int();
     keep_largest_ = this->get_parameter("mask.postprocess.keep_largest").as_bool();
+    fill_holes_ = this->get_parameter("mask.postprocess.fill_holes").as_bool();
+    max_hole_area_px_ = this->get_parameter("mask.postprocess.max_hole_area_px").as_int();
 
     auto param_list = this->list_parameters({"sources"}, 10);
     std::unordered_map<std::string, SourceConfig> configs;
@@ -486,6 +506,8 @@ private:
         rec.detection = det;
         rec.last_update = this->now();
         rec.hold_frames = hold_frames_;
+        if (rec.first_seen.nanoseconds() == 0) rec.first_seen = rec.last_update;
+        rec.seen_frames += 1;
         updated_ids.push_back(best_id);
       }
     }
@@ -524,6 +546,20 @@ private:
         auto resize_to = [&](cv::Mat &m){ if (!m.empty() && (m.cols!=img.cols || m.rows!=img.rows)) cv::resize(m, m, img.size(), 0,0, cv::INTER_NEAREST); };
         resize_to(inst_mask); resize_to(unet_mask);
 
+        // フルフレームのマスクオーバーレイ（背景的に塗布）
+        if (debug_enable_overlay_ && debug_overlay_tint_mask_) {
+          if (overlay_unet_full_ && !unet_mask.empty()) {
+            cv::Mat color(img.size(), CV_8UC3, cv::Scalar(255,255,0)); // Cyan
+            cv::Mat blended; cv::addWeighted(img, 1.0 - overlay_alpha_unet_, color, overlay_alpha_unet_, 0.0, blended);
+            blended.copyTo(img, unet_mask);
+          }
+          if (overlay_inst_full_ && !inst_mask.empty()) {
+            cv::Mat color(img.size(), CV_8UC3, cv::Scalar(255,0,255)); // Magenta
+            cv::Mat blended; cv::addWeighted(img, 1.0 - overlay_alpha_inst_, color, overlay_alpha_inst_, 0.0, blended);
+            blended.copyTo(img, inst_mask);
+          }
+        }
+
         cv::Mat roi_mask(img.size(), CV_8UC1, cv::Scalar(0));
         auto within_time = [&](const std_msgs::msg::Header &mh, const rclcpp::Time &det_t){
           if (mh.stamp.sec==0 && mh.stamp.nanosec==0) return false;
@@ -536,6 +572,25 @@ private:
           if (bin_thresh_ >= 0) cv::threshold(m, m, bin_thresh_, 255, cv::THRESH_BINARY);
           if (open_k_>1 && open_iter_>0) { cv::Mat k=cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(open_k_,open_k_)); cv::morphologyEx(m,m,cv::MORPH_OPEN,k,cv::Point(-1,-1),open_iter_); }
           if (close_k_>1 && close_iter_>0) { cv::Mat k=cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(close_k_,close_k_)); cv::morphologyEx(m,m,cv::MORPH_CLOSE,k,cv::Point(-1,-1),close_iter_); }
+          if (fill_holes_) {
+            // 背景と接続していない穴だけを埋める
+            cv::Mat bordered; cv::copyMakeBorder(m, bordered, 1,1,1,1, cv::BORDER_CONSTANT, cv::Scalar(0));
+            cv::Mat flooded = bordered.clone();
+            cv::floodFill(flooded, cv::Point(0,0), cv::Scalar(255));
+            cv::Mat flood_crop = flooded(cv::Rect(1,1,m.cols, m.rows));
+            cv::bitwise_not(flood_crop, flood_crop); // 穴領域（背景に接続していない0領域）
+            if (max_hole_area_px_ > 0) {
+              cv::Mat labels, stats, centroids; int n = cv::connectedComponentsWithStats(flood_crop, labels, stats, centroids, 8, CV_32S);
+              cv::Mat small_holes = cv::Mat::zeros(m.size(), CV_8UC1);
+              for (int i=1;i<n;++i) {
+                int area = stats.at<int>(i, cv::CC_STAT_AREA);
+                if (area <= max_hole_area_px_) small_holes.setTo(255, labels==i);
+              }
+              cv::bitwise_or(m, small_holes, m);
+            } else {
+              cv::bitwise_or(m, flood_crop, m);
+            }
+          }
         };
         auto keep_largest_cc = [&](cv::Mat &m){
           if (!keep_largest_ || m.empty()) return;
@@ -636,7 +691,7 @@ private:
         if (obj_msg) for (auto &d : obj_msg->detections) draw_box(d, cv::Scalar(255,0,0)); // Blue YOLOv10
         if (inst_msg) for (auto &d : inst_msg->detections) draw_box(d, cv::Scalar(255,0,255)); // Magenta YOLOv8-seg
 
-        // 融合結果の描画（緑）
+        // 融合結果の描画（緑） + ラベル
         {
           std::lock_guard<std::mutex> lock(data_mutex_);
           auto draw_one = [&](const fv_msgs::msg::Detection2D &fd){
@@ -645,6 +700,60 @@ private:
             int w = static_cast<int>(fd.bbox_max.x - fd.bbox_min.x);
             int h = static_cast<int>(fd.bbox_max.y - fd.bbox_min.y);
             cv::rectangle(img, cv::Rect(x, y, std::max(0,w), std::max(0,h)), cv::Scalar(0,255,0), 2);
+            if (label_enable_) {
+              // 取得情報
+              double fused = fd.conf_fused;
+              double obj = fd.conf_object;
+              double inst = fd.conf_instance;
+              // 遅延（画像ヘッダと観測時刻の差）。どちらか未設定なら非表示
+              bool have_img_stamp = (hdr.stamp.sec != 0 || hdr.stamp.nanosec != 0);
+              bool have_obs_stamp = (fd.observed_at.sec != 0 || fd.observed_at.nanosec != 0);
+              std::string dt_str = "-";
+              if (have_img_stamp && have_obs_stamp) {
+                rclcpp::Time obs(fd.observed_at);
+                rclcpp::Time ih(hdr.stamp);
+                double dt_ms = std::abs((ih - obs).nanoseconds()) / 1e6; // ms
+                if (dt_ms < 1000.0) {
+                  char b[32]; snprintf(b, sizeof(b), "%dms", (int)std::round(dt_ms)); dt_str = b;
+                } else {
+                  char b[32]; snprintf(b, sizeof(b), "%.1fs", dt_ms/1000.0); dt_str = b;
+                }
+              }
+              int ttl = 0, frames = 0; double age_s = 0.0;
+              auto it = fused_active_.find(fd.id);
+              if (it != fused_active_.end()) {
+                ttl = it->second.hold_frames;
+                frames = it->second.seen_frames;
+                if (it->second.first_seen.nanoseconds() != 0) {
+                  age_s = (it->second.last_update - it->second.first_seen).seconds();
+                }
+              }
+              // ラベル文字列（2行、日本語）
+              char line1[160]; snprintf(line1, sizeof(line1), "ID:%d  統合:%.2f  物体:%.2f  インスタ:%.2f", fd.id, fused, obj, inst);
+              char line2[160]; snprintf(line2, sizeof(line2), "経過:%.1fs  枚数:%df  遅延:%s  残:%d", age_s, frames, dt_str.c_str(), ttl);
+              std::string l1(line1), l2(line2);
+              // 位置（bbox上）
+              int baseline = 0;
+              int pad = 4, gap = 2;
+              // 日本語はgetTextSizeで幅が過大になることがあるため、ASCIIベースで測り+余白
+              char m1[160]; snprintf(m1, sizeof(m1), "ID:%d  F:%.2f O:%.2f I:%.2f", fd.id, fused, obj, inst);
+              char m2[160]; snprintf(m2, sizeof(m2), "%.1fs  %df  %s  %d", age_s, frames, dt_str.c_str(), ttl);
+              cv::Size sz1 = cv::getTextSize(m1, cv::FONT_HERSHEY_SIMPLEX, label_font_scale_, label_thickness_, &baseline);
+              cv::Size sz2 = cv::getTextSize(m2, cv::FONT_HERSHEY_SIMPLEX, label_font_scale_, label_thickness_, &baseline);
+              int jp_extra = 12; // 日本語分の余白
+              int bw = std::max(sz1.width, sz2.width) + pad*2 + jp_extra;
+              int bh = (sz1.height + sz2.height + gap) + pad*2;
+              int bx = x; int by = std::max(0, y - bh - 2);
+              if (bx + bw > img.cols) bx = std::max(0, img.cols - bw - 2);
+              cv::rectangle(img, cv::Rect(bx, by, bw, bh), cv::Scalar(32,32,32), cv::FILLED);
+              // 日本語対応の描画（影付き）
+              fluent::text::drawShadow(img, l1, cv::Point(bx + pad, by + pad + sz1.height),
+                                       cv::Scalar(255,255,255), cv::Scalar(0,0,0),
+                                       label_font_scale_, std::max(1, label_thickness_), 0);
+              fluent::text::drawShadow(img, l2, cv::Point(bx + pad, by + pad + sz1.height + gap + sz2.height),
+                                       cv::Scalar(255,255,255), cv::Scalar(0,0,0),
+                                       label_font_scale_, std::max(1, label_thickness_), 0);
+            }
           };
           if (debug_draw_history_) {
             for (const auto &kv : fused_active_) draw_one(kv.second.detection);
@@ -701,6 +810,13 @@ private:
   bool debug_draw_history_{false};
   std::string roi_mask_topic_{"roi_mask"};
   bool debug_overlay_tint_mask_{true};
+  bool overlay_inst_full_{true};
+  bool overlay_unet_full_{false};
+  double overlay_alpha_inst_{0.4};
+  double overlay_alpha_unet_{0.3};
+  bool label_enable_{true};
+  double label_font_scale_{0.5};
+  int label_thickness_{1};
 
   std::vector<SourceConfig> sources_;
   std::vector<rclcpp::Subscription<vision_msgs::msg::Detection2DArray>::SharedPtr> source_subs_;
@@ -754,6 +870,8 @@ private:
   int close_k_{5};
   int close_iter_{1};
   bool keep_largest_{true};
+  bool fill_holes_{true};
+  int max_hole_area_px_{2000};
 
   const SourceConfig &findCfg(const std::string &label) const {
     for (const auto &s : sources_) if (s.label == label) return s;
