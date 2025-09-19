@@ -33,6 +33,7 @@ find_package(geometry_msgs REQUIRED)         # 幾何学メッセージ型
 find_package(visualization_msgs REQUIRED)    # 可視化メッセージ型
 find_package(vision_msgs REQUIRED)           # コンピュータビジョンメッセージ
 find_package(std_srvs REQUIRED)              # 標準サービス型
+find_package(fluent_lib REQUIRED)            # 共通ユーティリティ（テキスト描画など）
 
 # ===== サービスメッセージ生成（一時的に無効化） =====
 # rosidl_generate_interfaces(${PROJECT_NAME}
@@ -75,6 +76,7 @@ ament_target_dependencies(fv_object_detector_node
   geometry_msgs             # 幾何学メッセージ型
   visualization_msgs        # 可視化メッセージ型
   vision_msgs               # コンピュータビジョンメッセージ
+  fluent_lib                # 共通ユーティリティ（インターフェース設定用）
 )
 
 # ===== 外部ライブラリリンク =====
@@ -85,6 +87,7 @@ target_link_libraries(fv_object_detector_node
   yaml-cpp                                  # YAML処理ライブラリ
   TIFF::TIFF
   CURL::libcurl
+  fluent_lib::fluent_lib                     # Fluent共通ライブラリ（IMPORTEDターゲット）
 )
 if(GDAL_FOUND)
   target_link_libraries(fv_object_detector_node GDAL::GDAL)

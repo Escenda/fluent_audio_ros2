@@ -46,8 +46,8 @@ void FVTopicRelayNode::loadParameters()
         relay_configs_.push_back({"/fv/d415/depth/colormap", "/vision_ai/d415/depth/colormap"});
         relay_configs_.push_back({"/fv/d415/object_detection/annotated_image", "/vision_ai/d415/object_detection/annotated_image"});
         relay_configs_.push_back({"/fv/d415/object_detection/annotated_image_mouse_left", "/vision_ai/d415/object_detection/annotated_image_mouse_left"});
-        relay_configs_.push_back({"/fv/d415/segmentation_mask/colored", "/vision_ai/d415/segmentation_mask/colored"});
-        relay_configs_.push_back({"/fv/d415/segmentation_mask/colored_mouse_left", "/vision_ai/d415/segmentation_mask/colored_mouse_left"});
+        // インスタンスセグメンテーションのオーバーレイをUI想定のパスへ中継
+        relay_configs_.push_back({"/fv/d415/instance_seg/overlay", "/vision_ai/d415/segmentation_mask/colored"});
     }
     
     RCLCPP_INFO(this->get_logger(), "📋 Loaded %zu relay configurations", relay_configs_.size());

@@ -20,6 +20,8 @@
 #include "fv_object_detector/yolov10_model.hpp"
 #include "fv_object_detector/object_tracker.hpp"
 #include "fv_object_detector/detection_data.hpp"
+// 統一テキスト描画（影付き、日本語対応）
+#include "fluent_text.hpp"
 // #include "fv_object_detector/srv/set_detection_state.hpp"
 // #include "fv_object_detector/srv/get_detection_stats.hpp"
 
@@ -72,6 +74,23 @@ public:
         this->declare_parameter("enable_visualization", true);                          // 可視化有効化
         this->declare_parameter("show_stats_on_image", true);                           // 統計情報表示
         this->declare_parameter("publish_annotated_image", true);                       // アノテーション画像出力
+
+        // クラスフィルタ
+        this->declare_parameter("filter.class_ids", std::vector<int64_t>{});
+
+        // トラッカー設定
+        this->declare_parameter("tracker.max_distance_px", 60.0);
+        this->declare_parameter("tracker.iou_threshold", 0.3);
+        this->declare_parameter("tracker.max_age", 5);
+        this->declare_parameter("tracker.min_hits", 1);
+        this->declare_parameter("tracker.require_same_class", true);
+        this->declare_parameter("tracker.hold_frames", 2);
+        this->declare_parameter("tracker.smooth_alpha", 0.6);
+
+        // 可視化設定
+        this->declare_parameter("visualization.color_by_id", false);
+        std::vector<int64_t> default_palette = {255,0,0, 0,255,0, 0,0,255, 255,255,0, 255,0,255, 0,255,255};
+        this->declare_parameter("visualization.id_color_palette_bgr", default_palette);
         
         // パラメータを取得
         input_topic_ = this->get_parameter("input_image_topic").as_string();
@@ -82,6 +101,23 @@ public:
         enable_visualization_ = this->get_parameter("enable_visualization").as_bool();
         show_stats_on_image_ = this->get_parameter("show_stats_on_image").as_bool();
         publish_annotated_image_ = this->get_parameter("publish_annotated_image").as_bool();
+
+        // クラスフィルタ取得
+        auto filter_ids_param = this->get_parameter("filter.class_ids").as_integer_array();
+        filter_class_ids_.clear();
+        for (auto v : filter_ids_param) {
+            filter_class_ids_.push_back(static_cast<int>(v));
+        }
+
+        // 可視化: IDカラーリング
+        color_by_id_ = this->get_parameter("visualization.color_by_id").as_bool();
+        auto pal_param = this->get_parameter("visualization.id_color_palette_bgr").as_integer_array();
+        id_color_palette_.clear();
+        for (size_t i = 0; i + 2 < pal_param.size(); i += 3) {
+            id_color_palette_.emplace_back(static_cast<int>(pal_param[i+0]),
+                                           static_cast<int>(pal_param[i+1]),
+                                           static_cast<int>(pal_param[i+2]));
+        }
 
         // QoS設定を読み込み
         int qos_queue_size = this->declare_parameter("qos.queue_size", 10);
@@ -106,6 +142,15 @@ public:
         // オブジェクトトラッカーを初期化
         if (enable_tracking_) {
             tracker_ = std::make_unique<fv_object_detector::ObjectTracker>();
+            fv_object_detector::ObjectTracker::Params tp;
+            tp.max_distance_px = static_cast<float>(this->get_parameter("tracker.max_distance_px").as_double());
+            tp.iou_threshold   = static_cast<float>(this->get_parameter("tracker.iou_threshold").as_double());
+            tp.max_age         = this->get_parameter("tracker.max_age").as_int();
+            tp.min_hits        = this->get_parameter("tracker.min_hits").as_int();
+            tp.require_same_class = this->get_parameter("tracker.require_same_class").as_bool();
+            tp.hold_frames     = this->get_parameter("tracker.hold_frames").as_int();
+            tp.smooth_alpha    = static_cast<float>(this->get_parameter("tracker.smooth_alpha").as_double());
+            tracker_->setParams(tp);
         }
         
         // サブスクライバーを設定（QoSはパラメータから）
@@ -275,6 +320,18 @@ private:
             RCLCPP_ERROR(this->get_logger(), "Detection failed: %s", e.what());
             return;
         }
+
+        // ===== クラスフィルタを適用（例: Asparagusのみ） =====
+        if (!filter_class_ids_.empty()) {
+            std::vector<fv_object_detector::DetectionData> filtered;
+            filtered.reserve(detections.size());
+            for (const auto& d : detections) {
+                for (int cid : filter_class_ids_) {
+                    if (d.class_id == cid) { filtered.push_back(d); break; }
+                }
+            }
+            detections.swap(filtered);
+        }
         
         // ===== 処理終了時間を記録 =====
         auto processing_end = std::chrono::high_resolution_clock::now();
@@ -288,12 +345,19 @@ private:
             tracker_->assignObjectIds(detections);
         }
         
-        // ===== 検出結果をパブリッシュ =====
-        publishDetections(detections, image_msg->header);
+        // ===== 検出結果をパブリッシュ（安定化出力を優先） =====
+        std::vector<fv_object_detector::DetectionData> to_publish = detections;
+        if (enable_tracking_ && tracker_) {
+            auto stable = tracker_->getStabilizedDetections();
+            if (!stable.empty()) {
+                to_publish.swap(stable);
+            }
+        }
+        publishDetections(to_publish, image_msg->header);
         
         // ===== アノテーション画像をパブリッシュ =====
         if (enable_visualization_ && publish_annotated_image_) {
-            cv::Mat annotated_image = drawDetections(image, detections);
+            cv::Mat annotated_image = drawDetections(image, to_publish);
             publishAnnotatedImage(annotated_image, image_msg->header);
         }
     }
@@ -324,7 +388,8 @@ private:
         for (const auto& det : detections) {
             // バウンディングボックスを描画
             cv::Rect bbox(det.bbox.x, det.bbox.y, det.bbox.width, det.bbox.height);
-            cv::Scalar color = getColorForClass(det.class_id);
+            cv::Scalar color = color_by_id_ && det.object_id >= 0 ? getColorForId(det.object_id)
+                                                                  : getColorForClass(det.class_id);
             cv::rectangle(result, bbox, color, 2);
             
             // ラベルテキストを構築
@@ -379,6 +444,16 @@ private:
         };
         
         return colors[class_id % colors.size()];
+    }
+
+    // IDに基づく色
+    cv::Scalar getColorForId(int object_id)
+    {
+        if (!id_color_palette_.empty()) {
+            return id_color_palette_[object_id % id_color_palette_.size()];
+        }
+        // フォールバック: クラス風パレット
+        return getColorForClass(object_id);
     }
     
     /**
@@ -458,16 +533,22 @@ private:
      */
     void drawStatsOnImage(cv::Mat& image)
     {
-        // 統計情報テキストを構築
-        std::string stats_text = "Device: " + stats_.device_used;
-        stats_text += " | FPS: " + std::to_string(static_cast<int>(stats_.fps));
-        stats_text += " | Inference: " + std::to_string(static_cast<int>(stats_.inference_time_ms)) + "ms";
-        stats_text += " | Total: " + std::to_string(static_cast<int>(stats_.total_processing_time_ms)) + "ms";
-        stats_text += " | Detections: " + std::to_string(stats_.filtered_detections);
-        stats_text += " | Status: " + std::string(detection_enabled_ ? "ON" : "OFF");
-        
-        // 統計情報を画像上部に描画（緑色）
-        cv::putText(image, stats_text, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+        int line = 0;
+        auto put = [&](const std::string& s, const cv::Scalar& col){
+            fluent::text::drawShadow(image, s, cv::Point(10, 30 + line * 22), col, cv::Scalar(0,0,0), 0.6, 2, 0);
+            ++line;
+        };
+
+        const cv::Scalar green(0,255,0);
+        const cv::Scalar yellow(0,255,255);
+
+        put(std::string("Device: ") + stats_.device_used, green);
+        put(std::string("Model: ") + (model_ ? model_->getModelName() : std::string("-")), green);
+        put(std::string("FPS: ") + std::to_string(static_cast<int>(stats_.fps)), green);
+        put(std::string("Inference: ") + std::to_string(static_cast<int>(stats_.inference_time_ms)) + "ms", green);
+        put(std::string("Total: ") + std::to_string(static_cast<int>(stats_.total_processing_time_ms)) + "ms", green);
+        put(std::string("Detections: ") + std::to_string(stats_.filtered_detections), green);
+        put(std::string("Status: ") + std::string(detection_enabled_ ? "ON" : "OFF"), detection_enabled_ ? green : yellow);
     }
     
     /**
@@ -570,6 +651,13 @@ private:
     bool detection_enabled_;                                   ///< 検出有効化フラグ
     int frame_count_;                                          ///< フレームカウンタ
     std::chrono::steady_clock::time_point last_fps_time_;      ///< 最後のFPS計算時刻
+
+    // 可視化設定
+    bool color_by_id_ = false;
+    std::vector<cv::Scalar> id_color_palette_;
+
+    // クラスフィルタ
+    std::vector<int> filter_class_ids_;
 };
 
 /**

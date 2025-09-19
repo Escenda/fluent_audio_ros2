@@ -34,66 +34,92 @@ ObjectTracker::ObjectTracker() : next_object_id_(0), selected_object_id_(-1) {}
  * - 現在の検出結果の更新
  */
 void ObjectTracker::assignObjectIds(std::vector<DetectionData> &detections) {
-  // 前回の検出数を保存
-  size_t previous_detection_count = current_detections_.size();
-
-  // ===== 各オブジェクトの初期化 =====
+  // 初期化: 全検出を未割り当てに
   for (auto &det : detections) {
-    det.object_id = -1;      // 未割り当て状態
+    det.object_id = -1;
   }
 
-  // ===== 既に割り当て済みのIDを追跡するセット =====
-  std::set<int> assigned_ids;
+  // 既存トラックの更新前インクリメント（未更新時間, age）
+  for (auto &kv : tracks_) {
+    kv.second.age += 1;
+    kv.second.time_since_update += 1;
+  }
 
-  // ===== 前フレームのオブジェクトと現在フレームのオブジェクトを対応付ける =====
-  if (!current_detections_.empty()) {
-    // 前フレームの各オブジェクトに対して、最も近い現在フレームのオブジェクトを探す
-    std::vector<bool> current_matched(detections.size(), false);
+  // 検出とトラックのマッチング（単純貪欲: IoU優先, 次に距離）
+  std::vector<bool> det_assigned(detections.size(), false);
+  for (auto &kv : tracks_) {
+    auto &trk = kv.second;
 
-    for (const auto &prev_det : current_detections_) {
-      // 前フレームのオブジェクト中心座標を計算
-      cv::Point2f prev_center(prev_det.bbox.x + prev_det.bbox.width / 2,
-                              prev_det.bbox.y + prev_det.bbox.height / 2);
+    float best_iou = -1.0f;
+    float best_dist = std::numeric_limits<float>::max();
+    int best_idx = -1;
 
-      float min_distance = 50.0f; // 距離の閾値（これより大きい場合はマッチしない）
-      int best_match_idx = -1;
+    for (size_t i = 0; i < detections.size(); ++i) {
+      if (det_assigned[i]) continue;
 
-      // ===== 最も近い現在フレームのオブジェクトを探す =====
-      for (size_t i = 0; i < detections.size(); ++i) {
-        if (current_matched[i])
-          continue; // マッチしたオブジェクトはスキップ
-
-        // 現在フレームのオブジェクト中心座標を計算
-        cv::Point2f curr_center(
-            detections[i].bbox.x + detections[i].bbox.width / 2,
-            detections[i].bbox.y + detections[i].bbox.height / 2);
-
-        // ユークリッド距離を計算
-        float distance = cv::norm(curr_center - prev_center);
-
-        if (distance < min_distance) {
-          min_distance = distance;
-          best_match_idx = static_cast<int>(i);
-        }
+      const auto &det = detections[i];
+      if (params_.require_same_class && det.class_id != trk.class_id) {
+        continue;
       }
 
-      // ===== マッチした場合、IDを引き継ぐ =====
-      if (best_match_idx >= 0) {
-        detections[best_match_idx].object_id = prev_det.object_id;
-        current_matched[best_match_idx] = true;
-        assigned_ids.insert(prev_det.object_id);
+      float iou = calculateIoU(trk.bbox, det.bbox);
+      cv::Point2f c1(trk.bbox.x + trk.bbox.width * 0.5f, trk.bbox.y + trk.bbox.height * 0.5f);
+      cv::Point2f c2(det.bbox.x + det.bbox.width * 0.5f, det.bbox.y + det.bbox.height * 0.5f);
+      float dist = calculateDistance(c1, c2);
+
+      bool pass_gate = (iou >= params_.iou_threshold) || (dist <= params_.max_distance_px);
+      if (!pass_gate) continue;
+
+      // IoU優先、同IoUなら距離が近い方
+      if (iou > best_iou || (std::abs(iou - best_iou) < 1e-6 && dist < best_dist)) {
+        best_iou = iou;
+        best_dist = dist;
+        best_idx = static_cast<int>(i);
       }
+    }
+
+    if (best_idx >= 0) {
+      // マッチ: IDを引き継ぎ、トラック更新
+      detections[best_idx].object_id = trk.id;
+      det_assigned[best_idx] = true;
+      // 平滑化更新
+      const auto &nb = detections[best_idx].bbox;
+      float a = std::clamp(params_.smooth_alpha, 0.0f, 1.0f);
+      trk.bbox.x = a * nb.x + (1.0f - a) * trk.bbox.x;
+      trk.bbox.y = a * nb.y + (1.0f - a) * trk.bbox.y;
+      trk.bbox.width  = a * nb.width  + (1.0f - a) * trk.bbox.width;
+      trk.bbox.height = a * nb.height + (1.0f - a) * trk.bbox.height;
+      trk.confidence = a * detections[best_idx].confidence + (1.0f - a) * trk.confidence;
+      trk.class_id = detections[best_idx].class_id;
+      trk.class_name = detections[best_idx].class_name;
+      trk.hits += 1;
+      trk.time_since_update = 0;
     }
   }
 
-  // ===== 未割り当てのオブジェクトに新しいIDを割り当てる =====
-  for (auto &det : detections) {
-    if (det.object_id < 0) {
-      det.object_id = next_object_id_++;
-    }
+  // 未割り当ての検出は新規トラックとして登録（min_hitsは公開側で利用可）
+  for (size_t i = 0; i < detections.size(); ++i) {
+    if (det_assigned[i]) continue;
+    auto &det = detections[i];
+    int new_id = next_object_id_++;
+    det.object_id = new_id;
+    Track t{new_id, det.bbox, det.class_id, det.class_name, 1, 1, 0, det.confidence};
+    tracks_.emplace(new_id, t);
   }
 
-  // ===== 現在の検出結果を更新 =====
+  // マッチしなかったトラックは年齢に応じて破棄
+  std::vector<int> to_erase;
+  for (auto &kv : tracks_) {
+    auto &trk = kv.second;
+    if (trk.time_since_update > params_.max_age) {
+      to_erase.push_back(kv.first);
+    }
+  }
+  for (int id : to_erase) {
+    tracks_.erase(id);
+  }
+
+  // 現在の検出結果を更新
   current_detections_ = detections;
 }
 
@@ -142,6 +168,44 @@ void ObjectTracker::reset() {
   next_object_id_ = 0;
   current_detections_.clear();
   selected_object_id_ = -1;
+  tracks_.clear();
+}
+
+std::vector<DetectionData> ObjectTracker::getStabilizedDetections() const {
+  std::vector<DetectionData> out;
+  out.reserve(tracks_.size());
+  for (const auto &kv : tracks_) {
+    const auto &t = kv.second;
+    // 出力条件: 未更新でもhold_frames以内 or 現在更新済み（time_since_update==0）
+    if (t.time_since_update <= params_.hold_frames && t.hits >= params_.min_hits) {
+      DetectionData d;
+      d.bbox = t.bbox;
+      d.confidence = t.confidence;
+      d.class_id = t.class_id;
+      d.object_id = t.id;
+      d.class_name = t.class_name;
+      d.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count() / 1000.0;
+      out.push_back(std::move(d));
+    }
+  }
+  return out;
+}
+
+float ObjectTracker::calculateIoU(const cv::Rect2f &a, const cv::Rect2f &b) const {
+  float x1 = std::max(a.x, b.x);
+  float y1 = std::max(a.y, b.y);
+  float x2 = std::min(a.x + a.width, b.x + b.width);
+  float y2 = std::min(a.y + a.height, b.y + b.height);
+  if (x2 <= x1 || y2 <= y1) return 0.0f;
+  float inter = (x2 - x1) * (y2 - y1);
+  float ua = a.width * a.height + b.width * b.height - inter;
+  if (ua <= 0.0f) return 0.0f;
+  return inter / ua;
+}
+
+float ObjectTracker::calculateDistance(const cv::Point2f &p1, const cv::Point2f &p2) const {
+  return cv::norm(p1 - p2);
 }
 
 } // namespace fv_object_detector 

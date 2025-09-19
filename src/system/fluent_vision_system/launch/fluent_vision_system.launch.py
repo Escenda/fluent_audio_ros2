@@ -269,19 +269,14 @@ def launch_setup(context, *args, **kwargs):
             node_name = n.get('node_name', n.get('id'))
 
             if n['package'] == 'fv_realsense':
-                # RealSenseはNodeで --ros-args 経由のみを使う（parametersは使わない）
-                args = ['--ros-args', '--params-file', params_file, '-r', f'__node:={node_name}']
-                for ok, ov in (overrides or {}).items():
-                    if isinstance(ov, str):
-                        args += ['-p', f"{ok}:='{ov}'"]
-                    else:
-                        args += ['-p', f'{ok}:={ov}']
+                # RealSenseへも parameters を直接渡す（--ros-args の二重挿入を避ける）
+                # YAMLの内容はflat_paramsにフラット化済み。CLIでの -p 指定は不要。
                 node = Node(
                     package='fv_realsense',
                     executable='fv_realsense_node',
                     name=node_name,
                     namespace=ns,
-                    arguments=args,
+                    parameters=node_parameters,
                     output='screen',
                 )
             else:

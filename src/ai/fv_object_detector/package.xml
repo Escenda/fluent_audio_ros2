@@ -36,6 +36,7 @@
   <depend>visualization_msgs</depend>  <!-- 可視化メッセージ型 -->
   <depend>vision_msgs</depend>  <!-- コンピュータビジョンメッセージ -->
   <depend>std_srvs</depend>  <!-- 標準サービス型 -->
+  <depend>fluent_lib</depend>  <!-- 共通ユーティリティ（テキスト描画など） -->
 
   <!-- ===== テスト依存関係 ===== -->
   <test_depend>ament_lint_auto</test_depend>  <!-- 自動リントツール -->

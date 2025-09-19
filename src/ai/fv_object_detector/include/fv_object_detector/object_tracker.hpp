@@ -5,6 +5,8 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include <map>
+#include <set>
+#include <string>
 
 namespace fv_object_detector
 {
@@ -21,6 +23,24 @@ public:
      * @brief コンストラクタ
      */
     ObjectTracker();
+
+    /**
+     * @brief 設定パラメータ
+     */
+    struct Params {
+        float max_distance_px = 60.0f;   // 中心距離によるゲート
+        float iou_threshold   = 0.3f;    // IoUによるゲート
+        int   max_age         = 5;       // 未検出で保持する最大フレーム数
+        int   min_hits        = 1;       // 新規トラックを確定するまでの最小ヒット数
+        bool  require_same_class = true; // クラスIDの一致を要求
+        int   hold_frames     = 2;       // 未検出でも描画/出力で保持するフレーム数
+        float smooth_alpha    = 0.6f;    // bbox/scoreの平滑化係数（0~1、1で即時追従）
+    };
+
+    /**
+     * @brief パラメータ設定
+     */
+    void setParams(const Params& p) { params_ = p; }
 
     /**
      * @brief 検出されたオブジェクトにIDを割り当てる
@@ -60,11 +80,28 @@ public:
      */
     void reset();
 
+    /**
+     * @brief 安定化済みの検出リストを取得（未検出でもhold_frames内は維持）
+     */
+    std::vector<DetectionData> getStabilizedDetections() const;
+
 private:
+    struct Track {
+        int id;
+        cv::Rect2f bbox;
+        int class_id;
+        std::string class_name;
+        int hits = 0;              // 検出ヒット回数
+        int age = 0;               // 生存フレーム数（総）
+        int time_since_update = 0; // 最終更新からのフレーム数
+        float confidence = 0.0f;   // 直近信頼度（平滑化）
+    };
+
+    Params params_{};
     int next_object_id_;                           ///< 次に割り当てるオブジェクトID
     int selected_object_id_;                       ///< 選択中のオブジェクトID
     std::vector<DetectionData> current_detections_; ///< 現在の検出結果
-    std::map<int, cv::Point2f> previous_centers_;   ///< 前フレームのオブジェクト中心位置
+    std::map<int, Track> tracks_;                   ///< 既存トラック
 
     /**
      * @brief 2つのオブジェクトが同じオブジェクトかどうかを判定
@@ -84,6 +121,9 @@ private:
      * @return float 距離
      */
     float calculateDistance(const cv::Point2f& p1, const cv::Point2f& p2) const;
+
+    // IoU計算
+    float calculateIoU(const cv::Rect2f& a, const cv::Rect2f& b) const;
 };
 
 } // namespace fv_object_detector
