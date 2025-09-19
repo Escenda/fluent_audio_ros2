@@ -9,6 +9,9 @@
     debug:
       enable_overlay: true
       overlay_topic: "overlay"
+      roi_mask_topic: "roi_mask"
+      overlay_tint_mask: true
+      draw_invalid_area: true
     # 融合パラメータ（必要なら調整）
     fusion:
       iou_threshold: 0.30
@@ -17,6 +20,34 @@
         w_object: 0.6
         w_instance: 0.4
         bonus_overlap: 0.05
+    # 無効領域（ハサミエリア）
+    invalid_area:
+      enabled: true
+      any_overlap: true
+      touch_inclusive: true
+      box:
+        center_x_ratio: 0.5
+        y_top_ratio: 0.5
+        width_ratio: 0.5
+        height_ratio: 0.5
+    # 固定枠モード設定
+    mode:
+      fixed_enabled: false
+    fixed_roi:
+      box:
+        x_center_ratio: 0.5
+        y_top_px: 5
+        width_ratio: 0.20
+        height_ratio: 0.50
+    # 検出モードのフィルタ
+    detection:
+      filter:
+        min_aspect_ratio: 0.05
+        max_aspect_ratio: 2.0
+        min_w_px: 8
+        min_h_px: 20
+        max_w_px: 8192
+        max_h_px: 8192
     sources:
       object:
         label: "object"

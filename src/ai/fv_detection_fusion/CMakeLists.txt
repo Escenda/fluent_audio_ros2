@@ -15,6 +15,7 @@ find_package(fv_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc)
 find_package(fluent_lib REQUIRED)
+find_package(std_srvs REQUIRED)
 
 add_executable(fv_detection_fusion_node
   src/fv_detection_fusion_node.cpp
@@ -28,6 +29,7 @@ ament_target_dependencies(fv_detection_fusion_node
   fv_msgs
   cv_bridge
   fluent_lib
+  std_srvs
 )
 
 # Prefer linking minimal OpenCV modules to avoid pulling optional deps

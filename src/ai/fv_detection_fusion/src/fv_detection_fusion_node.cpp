@@ -11,6 +11,8 @@
 #include <opencv2/imgproc.hpp>
 // 日本語対応の影付きテキスト描画
 #include "fluent_text.hpp"
+// Services
+#include <std_srvs/srv/set_bool.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -80,6 +82,24 @@ public:
     timer_ = this->create_wall_timer(
         std::chrono::milliseconds(static_cast<int>(diagnostic_interval_ms_)),
         std::bind(&DetectionFusionNode::publishFusion, this));
+
+    // Services: 無効領域 ON/OFF, 固定モード切替
+    srv_invalid_area_ = this->create_service<std_srvs::srv::SetBool>(
+        "set_invalid_area_enabled",
+        [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
+               std::shared_ptr<std_srvs::srv::SetBool::Response> res) {
+          invalid_area_enabled_ = req->data;
+          res->success = true;
+          res->message = std::string("invalid_area.enabled=") + (invalid_area_enabled_?"true":"false");
+        });
+    srv_fixed_mode_ = this->create_service<std_srvs::srv::SetBool>(
+        "set_fixed_mode",
+        [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
+               std::shared_ptr<std_srvs::srv::SetBool::Response> res) {
+          fixed_mode_enabled_ = req->data;
+          res->success = true;
+          res->message = std::string("mode.fixed_enabled=") + (fixed_mode_enabled_?"true":"false");
+        });
 
     RCLCPP_INFO(get_logger(), "fv_detection_fusion_node ready (sources=%zu)", sources_.size());
   }
@@ -158,6 +178,15 @@ private:
     declareIfMissing<bool>("debug.overlay.unet_fullmask", false);
     declareIfMissing<double>("debug.overlay.alpha_inst", 0.4);
     declareIfMissing<double>("debug.overlay.alpha_unet", 0.3);
+    // 元検出（object/instance）の矩形に寸法等を描画するオプション
+    declareIfMissing<bool>("debug.show_src_dims", false);
+    declareIfMissing<bool>("debug.src_dims.show_filter_eval", true);
+    declareIfMissing<double>("debug.src_dims.font_scale", 0.4);
+    declareIfMissing<int>("debug.src_dims.thickness", 1);
+    // 元検出の枠の描画制御と線の太さ
+    declareIfMissing<bool>("debug.draw_src.object", true);
+    declareIfMissing<bool>("debug.draw_src.instance", true);
+    declareIfMissing<int>("debug.src_box.thickness", 1);
 
     // 融合パラメータ
     declareIfMissing<double>("fusion.iou_threshold", 0.30);
@@ -186,6 +215,29 @@ private:
     declareIfMissing<double>("fusion.weights.w_instance", 0.4);
     declareIfMissing<double>("fusion.weights.bonus_overlap", 0.05);
     declareIfMissing<std::string>("fusion.prefer_bbox", std::string("yolov10"));
+
+    // モード/無効領域/フィルタ
+    declareIfMissing<bool>("mode.fixed_enabled", false);
+    declareIfMissing<bool>("invalid_area.enabled", true);
+    declareIfMissing<bool>("invalid_area.any_overlap", true);        // true: 少しでも重なれば無効
+    declareIfMissing<bool>("invalid_area.touch_inclusive", true);    // true: 辺が接触(面積0)でも無効
+    declareIfMissing<double>("invalid_area.box.center_x_ratio", 0.5);
+    declareIfMissing<double>("invalid_area.box.y_top_ratio", 0.5);
+    declareIfMissing<double>("invalid_area.box.width_ratio", 0.5);
+    declareIfMissing<double>("invalid_area.box.height_ratio", 0.5);
+    declareIfMissing<bool>("debug.draw_invalid_area", true);
+
+    declareIfMissing<double>("fixed_roi.box.x_center_ratio", 0.5);
+    declareIfMissing<int>("fixed_roi.box.y_top_px", 5);
+    declareIfMissing<double>("fixed_roi.box.width_ratio", 0.20);
+    declareIfMissing<double>("fixed_roi.box.height_ratio", 0.50);
+
+    declareIfMissing<double>("detection.filter.min_aspect_ratio", 0.05);
+    declareIfMissing<double>("detection.filter.max_aspect_ratio", 2.0);
+    declareIfMissing<int>("detection.filter.min_w_px", 8);
+    declareIfMissing<int>("detection.filter.min_h_px", 20);
+    declareIfMissing<int>("detection.filter.max_w_px", 8192);
+    declareIfMissing<int>("detection.filter.max_h_px", 8192);
   }
 
   void readParameters() {
@@ -209,6 +261,15 @@ private:
     label_enable_ = this->get_parameter("debug.label.enable").as_bool();
     label_font_scale_ = this->get_parameter("debug.label.font_scale").as_double();
     label_thickness_ = this->get_parameter("debug.label.thickness").as_int();
+    // 元検出の寸法描画
+    debug_show_src_dims_ = this->get_parameter("debug.show_src_dims").as_bool();
+    debug_src_show_filter_ = this->get_parameter("debug.src_dims.show_filter_eval").as_bool();
+    src_dims_font_scale_ = this->get_parameter("debug.src_dims.font_scale").as_double();
+    src_dims_thickness_ = this->get_parameter("debug.src_dims.thickness").as_int();
+    // 元検出の枠描画
+    draw_src_obj_boxes_ = this->get_parameter("debug.draw_src.object").as_bool();
+    draw_src_inst_boxes_ = this->get_parameter("debug.draw_src.instance").as_bool();
+    src_box_thickness_ = this->get_parameter("debug.src_box.thickness").as_int();
 
     iou_th_ = this->get_parameter("fusion.iou_threshold").as_double();
     nms_iou_th_ = this->get_parameter("fusion.nms_iou_threshold").as_double();
@@ -217,6 +278,29 @@ private:
     w_instance_ = this->get_parameter("fusion.weights.w_instance").as_double();
     bonus_overlap_ = this->get_parameter("fusion.weights.bonus_overlap").as_double();
     prefer_bbox_ = this->get_parameter("fusion.prefer_bbox").as_string();
+
+    // モード/無効領域/フィルタ
+    fixed_mode_enabled_ = this->get_parameter("mode.fixed_enabled").as_bool();
+    invalid_area_enabled_ = this->get_parameter("invalid_area.enabled").as_bool();
+    invalid_any_overlap_ = this->get_parameter("invalid_area.any_overlap").as_bool();
+    invalid_touch_inclusive_ = this->get_parameter("invalid_area.touch_inclusive").as_bool();
+    draw_invalid_area_ = this->get_parameter("debug.draw_invalid_area").as_bool();
+    inv_cx_r_ = this->get_parameter("invalid_area.box.center_x_ratio").as_double();
+    inv_y_top_r_ = this->get_parameter("invalid_area.box.y_top_ratio").as_double();
+    inv_w_r_ = this->get_parameter("invalid_area.box.width_ratio").as_double();
+    inv_h_r_ = this->get_parameter("invalid_area.box.height_ratio").as_double();
+
+    fixed_cx_r_ = this->get_parameter("fixed_roi.box.x_center_ratio").as_double();
+    fixed_y_top_px_ = this->get_parameter("fixed_roi.box.y_top_px").as_int();
+    fixed_w_r_ = this->get_parameter("fixed_roi.box.width_ratio").as_double();
+    fixed_h_r_ = this->get_parameter("fixed_roi.box.height_ratio").as_double();
+
+    filt_min_ar_ = this->get_parameter("detection.filter.min_aspect_ratio").as_double();
+    filt_max_ar_ = this->get_parameter("detection.filter.max_aspect_ratio").as_double();
+    filt_min_w_ = this->get_parameter("detection.filter.min_w_px").as_int();
+    filt_min_h_ = this->get_parameter("detection.filter.min_h_px").as_int();
+    filt_max_w_ = this->get_parameter("detection.filter.max_w_px").as_int();
+    filt_max_h_ = this->get_parameter("detection.filter.max_h_px").as_int();
 
     instance_mask_topic_ = this->get_parameter("masks.instance_mask_topic").as_string();
     unet_mask_topic_ = this->get_parameter("masks.unet_mask_topic").as_string();
@@ -348,8 +432,74 @@ private:
     // フレームごとの一時融合リスト
     struct TmpDet { vision_msgs::msg::Detection2D det; float score; };
     std::vector<TmpDet> objs, insts;
+    // 画像サイズ（無効領域/固定枠算出用）
+    int img_w = 0, img_h = 0;
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      if (!last_image_.empty()) { img_w = last_image_.cols; img_h = last_image_.rows; }
+      else if (!last_unet_mask_.empty()) { img_w = last_unet_mask_.cols; img_h = last_unet_mask_.rows; }
+      else if (!last_inst_mask_.empty()) { img_w = last_inst_mask_.cols; img_h = last_inst_mask_.rows; }
+    }
+
+    auto make_invalid_rect = [&](int W, int H){
+      if (W<=0 || H<=0) return cv::Rect();
+      int iw = std::max(1, static_cast<int>(std::round(inv_w_r_ * W)));
+      int ih = std::max(1, static_cast<int>(std::round(inv_h_r_ * H)));
+      int cx = static_cast<int>(std::round(inv_cx_r_ * W));
+      int x = std::clamp(cx - iw/2, 0, std::max(0, W-1));
+      int y = std::clamp(static_cast<int>(std::round(inv_y_top_r_ * H)), 0, std::max(0, H-1));
+      if (x+iw>W) iw = W-x; if (y+ih>H) ih = H-y;
+      return cv::Rect(x,y, std::max(0,iw), std::max(0,ih));
+    };
+    auto make_fixed_rect = [&](int W, int H){
+      if (W<=0 || H<=0) return cv::Rect();
+      int fw = std::max(1, static_cast<int>(std::round(fixed_w_r_ * W)));
+      int fh = std::max(1, static_cast<int>(std::round(fixed_h_r_ * H)));
+      int cx = static_cast<int>(std::round(fixed_cx_r_ * W));
+      int x = std::clamp(cx - fw/2, 0, std::max(0, W-1));
+      int y = std::clamp(fixed_y_top_px_, 0, std::max(0, H-1));
+      if (x+fw>W) fw = W-x; if (y+fh>H) fh = H-y;
+      return cv::Rect(x,y, std::max(0,fw), std::max(0,fh));
+    };
+    const cv::Rect invalid_rect = make_invalid_rect(img_w, img_h);
+    auto rect_overlap = [&](const cv::Rect &a, const cv::Rect &b){
+      int x1 = std::max(a.x, b.x);
+      int y1 = std::max(a.y, b.y);
+      int x2 = std::min(a.x + a.width,  b.x + b.width);
+      int y2 = std::min(a.y + a.height, b.y + b.height);
+      if (invalid_touch_inclusive_) return (x2 >= x1) && (y2 >= y1);
+      return (x2 > x1) && (y2 > y1);
+    };
+    auto det_to_rect = [&](const vision_msgs::msg::Detection2D &d){
+      int x = static_cast<int>(std::round(d.bbox.center.position.x - d.bbox.size_x * 0.5));
+      int y = static_cast<int>(std::round(d.bbox.center.position.y - d.bbox.size_y * 0.5));
+      int w = static_cast<int>(std::round(d.bbox.size_x));
+      int h = static_cast<int>(std::round(d.bbox.size_y));
+      x = std::max(0, std::min(x, std::max(0, img_w-1)));
+      y = std::max(0, std::min(y, std::max(0, img_h-1)));
+      if (x + w > img_w) w = img_w - x; if (y + h > img_h) h = img_h - y;
+      return cv::Rect(x,y, std::max(0,w), std::max(0,h));
+    };
+
     if (obj_msg) {
       for (auto &d : obj_msg->detections) {
+        // サイズ/アスペクト比フィルタ
+        const double w = d.bbox.size_x;
+        const double h = d.bbox.size_y;
+        if (!(w >= filt_min_w_ && h >= filt_min_h_ && w <= filt_max_w_ && h <= filt_max_h_)) continue;
+        const double ar = (h <= 1e-6) ? 0.0 : (w / h);
+        if (ar < filt_min_ar_ || ar > filt_max_ar_) continue;
+        // 無効領域（検出モード時）
+        if (!fixed_mode_enabled_ && invalid_area_enabled_ && img_w>0 && img_h>0) {
+          bool hit = false;
+          if (invalid_any_overlap_) hit = rect_overlap(det_to_rect(d), invalid_rect);
+          else {
+            int cx = static_cast<int>(std::round(d.bbox.center.position.x));
+            int cy = static_cast<int>(std::round(d.bbox.center.position.y));
+            hit = invalid_rect.contains(cv::Point(cx, cy));
+          }
+          if (hit) continue; // 反応しない
+        }
         float s = d.results.empty() ? 1.0f : static_cast<float>(d.results.front().hypothesis.score);
         s *= findCfg(object_label_).confidence_multiplier;
         if (s >= findCfg(object_label_).min_confidence) objs.push_back({d, s});
@@ -357,95 +507,130 @@ private:
     }
     if (inst_msg) {
       for (auto &d : inst_msg->detections) {
+        // YOLOv8-seg のbboxにも無効領域を適用（検出モード時）
+        if (!fixed_mode_enabled_ && invalid_area_enabled_ && img_w>0 && img_h>0) {
+          bool hit = false;
+          if (invalid_any_overlap_) hit = rect_overlap(det_to_rect(d), invalid_rect);
+          else {
+            int cx = static_cast<int>(std::round(d.bbox.center.position.x));
+            int cy = static_cast<int>(std::round(d.bbox.center.position.y));
+            hit = invalid_rect.contains(cv::Point(cx, cy));
+          }
+          if (hit) continue;
+        }
         float s = d.results.empty() ? 1.0f : static_cast<float>(d.results.front().hypothesis.score);
         s *= findCfg(instance_label_).confidence_multiplier;
         if (s >= findCfg(instance_label_).min_confidence) insts.push_back({d, s});
       }
     }
 
-    // マッチング（貪欲に最大IoU）
+    // 固定モード or マッチング
     std::vector<int> inst_matched(insts.size(), -1);
-    for (size_t i = 0; i < objs.size(); ++i) {
-      const Box b0 = toBox(objs[i].det);
-      float best_iou = 0.0f; int best_j = -1;
+    std::vector<fv_msgs::msg::Detection2D> candidates;
+    if (!fixed_mode_enabled_) {
+      // マッチング（貪欲に最大IoU）
+      for (size_t i = 0; i < objs.size(); ++i) {
+        const Box b0 = toBox(objs[i].det);
+        float best_iou = 0.0f; int best_j = -1;
+        for (size_t j = 0; j < insts.size(); ++j) {
+          if (inst_matched[j] >= 0) continue;
+          float iouv = iou(b0, toBox(insts[j].det));
+          if (iouv >= iou_th_ && iouv > best_iou) { best_iou = iouv; best_j = static_cast<int>(j); }
+        }
+        if (best_j >= 0) inst_matched[best_j] = static_cast<int>(i);
+      }
+    }
+
+    if (!fixed_mode_enabled_) {
+      // 生成: マッチしたペア
+      for (size_t j = 0; j < insts.size(); ++j) {
+        int oi = inst_matched[j];
+        if (oi < 0) continue;
+        const auto &od = objs[oi];
+        const auto &id = insts[j];
+        fv_msgs::msg::Detection2D det;
+        det.header = od.det.header; // 代表
+        det.label = "fused";
+        det.source_mask = det.SOURCE_OBJECT | det.SOURCE_INSTANCE;
+        det.class_id = 0;
+        // bbox選択
+        const auto sel = (prefer_bbox_ == std::string("yolov8") ? id.det : od.det);
+        det.bbox_min.x = sel.bbox.center.position.x - sel.bbox.size_x * 0.5;
+        det.bbox_min.y = sel.bbox.center.position.y - sel.bbox.size_y * 0.5;
+        det.bbox_max.x = sel.bbox.center.position.x + sel.bbox.size_x * 0.5;
+        det.bbox_max.y = sel.bbox.center.position.y + sel.bbox.size_y * 0.5;
+        det.conf_object = od.score;
+        det.conf_instance = id.score;
+        det.conf_semantic = 0.0f;
+        det.conf_fused = static_cast<float>(w_object_ * od.score + w_instance_ * id.score + bonus_overlap_);
+        det.observed_at = sel.header.stamp;
+        candidates.emplace_back(det);
+      }
+    }
+
+    if (!fixed_mode_enabled_) {
+      // 生成: 片側のみ（object）
+      for (size_t i = 0; i < objs.size(); ++i) {
+        bool is_paired = false;
+        for (int m : inst_matched) { if (m == static_cast<int>(i)) { is_paired = true; break; } }
+        if (is_paired) continue;
+        const auto &od = objs[i];
+        fv_msgs::msg::Detection2D det;
+        det.header = od.det.header;
+        det.label = "fused";
+        det.source_mask = det.SOURCE_OBJECT;
+        det.class_id = 0;
+        det.bbox_min.x = od.det.bbox.center.position.x - od.det.bbox.size_x * 0.5;
+        det.bbox_min.y = od.det.bbox.center.position.y - od.det.bbox.size_y * 0.5;
+        det.bbox_max.x = od.det.bbox.center.position.x + od.det.bbox.size_x * 0.5;
+        det.bbox_max.y = od.det.bbox.center.position.y + od.det.bbox.size_y * 0.5;
+        det.conf_object = od.score;
+        det.conf_instance = 0.0f;
+        det.conf_semantic = 0.0f;
+        det.conf_fused = static_cast<float>(w_object_ * od.score);
+        det.observed_at = od.det.header.stamp;
+        candidates.emplace_back(det);
+      }
+    }
+
+    if (!fixed_mode_enabled_) {
+      // 生成: 片側のみ（instance）
       for (size_t j = 0; j < insts.size(); ++j) {
         if (inst_matched[j] >= 0) continue;
-        float iouv = iou(b0, toBox(insts[j].det));
-        if (iouv >= iou_th_ && iouv > best_iou) { best_iou = iouv; best_j = static_cast<int>(j); }
+        const auto &id = insts[j];
+        fv_msgs::msg::Detection2D det;
+        det.header = id.det.header;
+        det.label = "fused";
+        det.source_mask = det.SOURCE_INSTANCE;
+        det.class_id = 0;
+        det.bbox_min.x = id.det.bbox.center.position.x - id.det.bbox.size_x * 0.5;
+        det.bbox_min.y = id.det.bbox.center.position.y - id.det.bbox.size_y * 0.5;
+        det.bbox_max.x = id.det.bbox.center.position.x + id.det.bbox.size_x * 0.5;
+        det.bbox_max.y = id.det.bbox.center.position.y + id.det.bbox.size_y * 0.5;
+        det.conf_object = 0.0f;
+        det.conf_instance = id.score;
+        det.conf_semantic = 0.0f;
+        det.conf_fused = static_cast<float>(w_instance_ * id.score);
+        det.observed_at = id.det.header.stamp;
+        candidates.emplace_back(det);
       }
-      if (best_j >= 0) inst_matched[best_j] = static_cast<int>(i);
     }
 
-    // 一時候補（fv_msgs形式）
-    std::vector<fv_msgs::msg::Detection2D> candidates;
-
-    // 生成: マッチしたペア
-    for (size_t j = 0; j < insts.size(); ++j) {
-      int oi = inst_matched[j];
-      if (oi < 0) continue;
-      const auto &od = objs[oi];
-      const auto &id = insts[j];
-      fv_msgs::msg::Detection2D det;
-      det.header = od.det.header; // 代表
-      det.label = "fused";
-      det.source_mask = det.SOURCE_OBJECT | det.SOURCE_INSTANCE;
-      det.class_id = 0;
-      // bbox選択
-      const auto sel = (prefer_bbox_ == "yolov8" ? id.det : od.det);
-      det.bbox_min.x = sel.bbox.center.position.x - sel.bbox.size_x * 0.5;
-      det.bbox_min.y = sel.bbox.center.position.y - sel.bbox.size_y * 0.5;
-      det.bbox_max.x = sel.bbox.center.position.x + sel.bbox.size_x * 0.5;
-      det.bbox_max.y = sel.bbox.center.position.y + sel.bbox.size_y * 0.5;
-      det.conf_object = od.score;
-      det.conf_instance = id.score;
-      det.conf_semantic = 0.0f;
-      det.conf_fused = static_cast<float>(w_object_ * od.score + w_instance_ * id.score + bonus_overlap_);
-      det.observed_at = sel.header.stamp;
-      candidates.emplace_back(det);
-    }
-
-    // 生成: 片側のみ（object）
-    for (size_t i = 0; i < objs.size(); ++i) {
-      bool is_paired = false;
-      for (int m : inst_matched) { if (m == static_cast<int>(i)) { is_paired = true; break; } }
-      if (is_paired) continue;
-      const auto &od = objs[i];
-      fv_msgs::msg::Detection2D det;
-      det.header = od.det.header;
-      det.label = "fused";
-      det.source_mask = det.SOURCE_OBJECT;
-      det.class_id = 0;
-      det.bbox_min.x = od.det.bbox.center.position.x - od.det.bbox.size_x * 0.5;
-      det.bbox_min.y = od.det.bbox.center.position.y - od.det.bbox.size_y * 0.5;
-      det.bbox_max.x = od.det.bbox.center.position.x + od.det.bbox.size_x * 0.5;
-      det.bbox_max.y = od.det.bbox.center.position.y + od.det.bbox.size_y * 0.5;
-      det.conf_object = od.score;
-      det.conf_instance = 0.0f;
-      det.conf_semantic = 0.0f;
-      det.conf_fused = static_cast<float>(w_object_ * od.score);
-      det.observed_at = od.det.header.stamp;
-      candidates.emplace_back(det);
-    }
-
-    // 生成: 片側のみ（instance）
-    for (size_t j = 0; j < insts.size(); ++j) {
-      if (inst_matched[j] >= 0) continue;
-      const auto &id = insts[j];
-      fv_msgs::msg::Detection2D det;
-      det.header = id.det.header;
-      det.label = "fused";
-      det.source_mask = det.SOURCE_INSTANCE;
-      det.class_id = 0;
-      det.bbox_min.x = id.det.bbox.center.position.x - id.det.bbox.size_x * 0.5;
-      det.bbox_min.y = id.det.bbox.center.position.y - id.det.bbox.size_y * 0.5;
-      det.bbox_max.x = id.det.bbox.center.position.x + id.det.bbox.size_x * 0.5;
-      det.bbox_max.y = id.det.bbox.center.position.y + id.det.bbox.size_y * 0.5;
-      det.conf_object = 0.0f;
-      det.conf_instance = id.score;
-      det.conf_semantic = 0.0f;
-      det.conf_fused = static_cast<float>(w_instance_ * id.score);
-      det.observed_at = id.det.header.stamp;
-      candidates.emplace_back(det);
+    // 固定モードの強制枠（赤枠として扱う）
+    if (fixed_mode_enabled_ && img_w>0 && img_h>0) {
+      const cv::Rect fr = make_fixed_rect(img_w, img_h);
+      if (fr.width>0 && fr.height>0) {
+        fv_msgs::msg::Detection2D det;
+        det.header.stamp = this->now();
+        det.label = "fixed";
+        det.source_mask = det.SOURCE_INSTANCE; // マスク優先
+        det.class_id = 0;
+        det.bbox_min.x = fr.x; det.bbox_min.y = fr.y;
+        det.bbox_max.x = fr.x + fr.width; det.bbox_max.y = fr.y + fr.height;
+        det.conf_object = 0.0f; det.conf_instance = 1.0f; det.conf_semantic = 0.0f; det.conf_fused = 1.0f;
+        det.observed_at = out.header.stamp;
+        candidates.emplace_back(det);
+      }
     }
 
     // NMSで候補を間引き
@@ -605,6 +790,7 @@ private:
         };
 
         // ROIごとに処理
+        const bool prefer_unet_only = fixed_mode_enabled_ || (mask_prefer_ == std::string("unet_only"));
         for (const auto &det : selected) {
           int x = std::max(0, static_cast<int>(det.bbox_min.x) - roi_pad_px_);
           int y = std::max(0, static_cast<int>(det.bbox_min.y) - roi_pad_px_);
@@ -648,9 +834,9 @@ private:
               }
             }
           } else {
-            // prefer モード（inst優先→unet）
+            // prefer モード（inst優先→unet）; 固定モード時はUNetのみ
             bool used_inst=false;
-            if (mask_prefer_ != std::string("unet_only") && inst_ok) { base = inst_mask(roi).clone(); used_inst=true; }
+            if (!prefer_unet_only && inst_ok) { base = inst_mask(roi).clone(); used_inst=true; }
             else if (unet_ok) { base = unet_mask(roi).clone(); }
             else { continue; }
             postprocess(base);
@@ -680,26 +866,76 @@ private:
           roi_mask_pub_->publish(*mask_msg.toImageMsg());
         }
 
+        // 無効領域の描画（有効時のみ）
+        if (debug_enable_overlay_ && draw_invalid_area_ && invalid_area_enabled_ && invalid_rect.width>0 && invalid_rect.height>0) {
+          cv::rectangle(img, invalid_rect, cv::Scalar(96,96,96), 2);
+        }
+
         // 元検出の描画（参照用）
         auto draw_box = [&](const vision_msgs::msg::Detection2D &d, const cv::Scalar &color){
           int x = static_cast<int>(d.bbox.center.position.x - d.bbox.size_x * 0.5);
           int y = static_cast<int>(d.bbox.center.position.y - d.bbox.size_y * 0.5);
           int w = static_cast<int>(d.bbox.size_x);
           int h = static_cast<int>(d.bbox.size_y);
-          cv::rectangle(img, cv::Rect(x, y, std::max(0,w), std::max(0,h)), color, 2);
+          if (!fixed_mode_enabled_ && invalid_area_enabled_ && invalid_rect.width>0 && invalid_rect.height>0) {
+            if (invalid_any_overlap_) {
+              cv::Rect rr(x,y,std::max(0,w),std::max(0,h));
+              if (rect_overlap(rr, invalid_rect)) return; // 描画しない
+            } else {
+              int cx = x + w/2, cy = y + h/2; if (invalid_rect.contains(cv::Point(cx,cy))) return; // 描画しない
+            }
+          }
+          // 薄色（パステル）で描画するため、白とブレンドした色を用意
+          auto pastel = [&](const cv::Scalar &c){ return cv::Scalar(
+              std::min(255.0, c[0]*0.7 + 255*0.3),
+              std::min(255.0, c[1]*0.7 + 255*0.3),
+              std::min(255.0, c[2]*0.7 + 255*0.3)); };
+          cv::Scalar col = pastel(color);
+          cv::rectangle(img, cv::Rect(x, y, std::max(0,w), std::max(0,h)), col, std::max(1, src_box_thickness_));
+          if (debug_show_src_dims_) {
+            double ar = (h <= 1e-6) ? 0.0 : (static_cast<double>(w) / static_cast<double>(h));
+            bool pass_size = (w >= filt_min_w_ && h >= filt_min_h_ && w <= filt_max_w_ && h <= filt_max_h_);
+            bool pass_ar = (ar >= filt_min_ar_ && ar <= filt_max_ar_);
+            bool pass = debug_src_show_filter_ ? (pass_size && pass_ar) : true;
+            double conf = d.results.empty() ? 1.0 : d.results.front().hypothesis.score;
+            // 表示テキスト
+            char buf[128];
+            if (debug_src_show_filter_) snprintf(buf, sizeof(buf), "S:%.2f W:%d H:%d AR:%.2f %s", conf, w, h, ar, pass?"OK":"NG");
+            else snprintf(buf, sizeof(buf), "S:%.2f W:%d H:%d AR:%.2f", conf, w, h, ar);
+            // テキスト背景ボックス
+            int baseline = 0;
+            cv::Size sz = cv::getTextSize(buf, cv::FONT_HERSHEY_SIMPLEX, std::max(0.3, src_dims_font_scale_), std::max(1, src_dims_thickness_), &baseline);
+            int pad = 3;
+            int bx = x; int by = std::max(0, y - (sz.height + pad*2) - 2);
+            int bw = sz.width + pad*2; int bh = sz.height + pad*2;
+            if (bx + bw > img.cols) bx = std::max(0, img.cols - bw - 2);
+            cv::rectangle(img, cv::Rect(bx, by, bw, bh), cv::Scalar(32,32,32), cv::FILLED);
+            // 影付き日本語描画ユーティリティで可読性を上げる（ASCII主体でも有効）
+            fluent::text::drawShadow(img, std::string(buf), cv::Point(bx + pad, by + pad + sz.height),
+                                     pass ? cv::Scalar(255,255,255) : cv::Scalar(80,80,255),
+                                     cv::Scalar(0,0,0),
+                                     std::max(0.3, src_dims_font_scale_), std::max(1, src_dims_thickness_), 0);
+          }
         };
-        if (obj_msg) for (auto &d : obj_msg->detections) draw_box(d, cv::Scalar(255,0,0)); // Blue YOLOv10
-        if (inst_msg) for (auto &d : inst_msg->detections) draw_box(d, cv::Scalar(255,0,255)); // Magenta YOLOv8-seg
+        // 固定モード時は元検出の描画を抑止（固定枠のみ表示）
+        if (!fixed_mode_enabled_) {
+          if (obj_msg && draw_src_obj_boxes_) for (auto &d : obj_msg->detections) draw_box(d, cv::Scalar(255,0,0)); // Blue YOLOv10 (pastelized)
+          if (inst_msg && draw_src_inst_boxes_) for (auto &d : inst_msg->detections) draw_box(d, cv::Scalar(255,0,255)); // Magenta YOLOv8-seg (pastelized)
+        }
 
         // 融合結果の描画（緑） + ラベル
         {
           std::lock_guard<std::mutex> lock(data_mutex_);
           auto draw_one = [&](const fv_msgs::msg::Detection2D &fd){
+            // 固定モード時は固定枠（label=="fixed"）のみ描画する
+            const bool is_fixed = (fd.label == std::string("fixed"));
+            if (fixed_mode_enabled_ && !is_fixed) return;
             int x = static_cast<int>(fd.bbox_min.x);
             int y = static_cast<int>(fd.bbox_min.y);
             int w = static_cast<int>(fd.bbox_max.x - fd.bbox_min.x);
             int h = static_cast<int>(fd.bbox_max.y - fd.bbox_min.y);
-            cv::rectangle(img, cv::Rect(x, y, std::max(0,w), std::max(0,h)), cv::Scalar(0,255,0), 2);
+            cv::Scalar col = is_fixed ? cv::Scalar(0,0,255) : cv::Scalar(0,255,0); // 固定=赤, 通常=緑
+            cv::rectangle(img, cv::Rect(x, y, std::max(0,w), std::max(0,h)), col, 2);
             if (label_enable_) {
               // 取得情報
               double fused = fd.conf_fused;
@@ -766,7 +1002,9 @@ private:
         out_cv.header = hdr;
         out_cv.encoding = sensor_msgs::image_encodings::BGR8;
         out_cv.image = img;
-        overlay_pub_->publish(*out_cv.toImageMsg());
+        if (debug_enable_overlay_ && overlay_pub_) {
+          overlay_pub_->publish(*out_cv.toImageMsg());
+        }
       }
     }
   }
@@ -817,6 +1055,13 @@ private:
   bool label_enable_{true};
   double label_font_scale_{0.5};
   int label_thickness_{1};
+  bool debug_show_src_dims_{false};
+  bool debug_src_show_filter_{true};
+  double src_dims_font_scale_{0.4};
+  int src_dims_thickness_{1};
+  bool draw_src_obj_boxes_{true};
+  bool draw_src_inst_boxes_{true};
+  int src_box_thickness_{1};
 
   std::vector<SourceConfig> sources_;
   std::vector<rclcpp::Subscription<vision_msgs::msg::Detection2DArray>::SharedPtr> source_subs_;
@@ -841,6 +1086,8 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr overlay_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr roi_mask_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr srv_invalid_area_;
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr srv_fixed_mode_;
 
   // 融合設定
   std::string object_label_{"object"};
@@ -872,6 +1119,19 @@ private:
   bool keep_largest_{true};
   bool fill_holes_{true};
   int max_hole_area_px_{2000};
+
+  // モード/無効領域/フィルタ
+  bool fixed_mode_enabled_{false};
+  bool invalid_area_enabled_{true};
+  bool draw_invalid_area_{true};
+  bool invalid_any_overlap_{true};
+  bool invalid_touch_inclusive_{true};
+  double inv_cx_r_{0.5}, inv_y_top_r_{0.5}, inv_w_r_{0.5}, inv_h_r_{0.5};
+  double fixed_cx_r_{0.5};
+  int fixed_y_top_px_{5};
+  double fixed_w_r_{0.2}, fixed_h_r_{0.5};
+  double filt_min_ar_{0.05}, filt_max_ar_{2.0};
+  int filt_min_w_{8}, filt_min_h_{20}, filt_max_w_{8192}, filt_max_h_{8192};
 
   const SourceConfig &findCfg(const std::string &label) const {
     for (const auto &s : sources_) if (s.label == label) return s;
