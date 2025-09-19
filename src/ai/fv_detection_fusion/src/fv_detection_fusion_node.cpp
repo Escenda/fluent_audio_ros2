@@ -1,6 +1,14 @@
 #include <rclcpp/rclcpp.hpp>
 #include <vision_msgs/msg/detection2_d_array.hpp>
 #include <fv_msgs/msg/detection_array.hpp>
+#include <std_msgs/msg/header.hpp>
+// 画像オーバーレイ用
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/image_encodings.hpp>
+#include <cv_bridge/cv_bridge.h>
+// OpenCV
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -22,14 +30,50 @@ public:
 
     output_pub_ = this->create_publisher<fv_msgs::msg::DetectionArray>(output_topic_, rclcpp::QoS(output_qos_depth_));
 
+    // 画像オーバーレイ出力
+    if (debug_enable_overlay_) {
+      overlay_pub_ = this->create_publisher<sensor_msgs::msg::Image>(overlay_topic_, rclcpp::QoS(1));
+    }
+
     for (const auto &source : sources_) {
+      rclcpp::QoS qos(source.qos_depth);
+      if (source.qos_reliability == "reliable") {
+        qos.reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE);
+      } else {
+        qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
+      }
       auto sub = this->create_subscription<vision_msgs::msg::Detection2DArray>(
-          source.topic, rclcpp::QoS(source.qos_depth),
+          source.topic, qos,
           [this, cfg = source](const vision_msgs::msg::Detection2DArray::SharedPtr msg) {
             handleDetections(cfg, msg);
           });
       source_subs_.push_back(sub);
     }
+
+    // 入力画像の購読（オーバーレイ用）
+    if (debug_enable_overlay_ && !input_image_topic_.empty()) {
+      image_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+          input_image_topic_, rclcpp::QoS(1).best_effort(),
+          std::bind(&DetectionFusionNode::handleImage, this, std::placeholders::_1));
+      RCLCPP_INFO(get_logger(), "Subscribed image: %s", input_image_topic_.c_str());
+    }
+
+    // マスク購読
+    if (!instance_mask_topic_.empty()) {
+      inst_mask_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+          instance_mask_topic_, rclcpp::QoS(1).best_effort(),
+          std::bind(&DetectionFusionNode::handleInstMask, this, std::placeholders::_1));
+      RCLCPP_INFO(get_logger(), "Subscribed instance mask: %s", instance_mask_topic_.c_str());
+    }
+    if (!unet_mask_topic_.empty()) {
+      unet_mask_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+          unet_mask_topic_, rclcpp::QoS(1).best_effort(),
+          std::bind(&DetectionFusionNode::handleUnetMask, this, std::placeholders::_1));
+      RCLCPP_INFO(get_logger(), "Subscribed UNet mask: %s", unet_mask_topic_.c_str());
+    }
+
+    // ROIマスク出力
+    roi_mask_pub_ = this->create_publisher<sensor_msgs::msg::Image>(roi_mask_topic_, rclcpp::QoS(1));
 
     timer_ = this->create_wall_timer(
         std::chrono::milliseconds(static_cast<int>(diagnostic_interval_ms_)),
@@ -45,6 +89,7 @@ private:
     float confidence_multiplier{1.0f};
     float min_confidence{0.0f};
     int qos_depth{5};
+    std::string qos_reliability{"best_effort"}; // best_effort | reliable
   };
 
   struct DetRecord {
@@ -52,6 +97,37 @@ private:
     rclcpp::Time last_update{0};
     int hold_frames{0};
   };
+
+  struct Box {
+    float x{0}, y{0}, w{0}, h{0};
+  };
+
+  static Box toBox(const vision_msgs::msg::Detection2D &det) {
+    Box b;
+    b.x = static_cast<float>(det.bbox.center.position.x - det.bbox.size_x * 0.5);
+    b.y = static_cast<float>(det.bbox.center.position.y - det.bbox.size_y * 0.5);
+    b.w = static_cast<float>(det.bbox.size_x);
+    b.h = static_cast<float>(det.bbox.size_y);
+    return b;
+  }
+
+  static float iou(const Box &a, const Box &b) {
+    const float ax2 = a.x + a.w;
+    const float ay2 = a.y + a.h;
+    const float bx2 = b.x + b.w;
+    const float by2 = b.y + b.h;
+    const float ix1 = std::max(a.x, b.x);
+    const float iy1 = std::max(a.y, b.y);
+    const float ix2 = std::min(ax2, bx2);
+    const float iy2 = std::min(ay2, by2);
+    const float iw = std::max(0.0f, ix2 - ix1);
+    const float ih = std::max(0.0f, iy2 - iy1);
+    const float inter = iw * ih;
+    const float area_a = std::max(0.0f, a.w) * std::max(0.0f, a.h);
+    const float area_b = std::max(0.0f, b.w) * std::max(0.0f, b.h);
+    const float uni = area_a + area_b - inter + 1e-6f;
+    return inter / uni;
+  }
 
   template <typename T>
   void declareIfMissing(const std::string &name, const T &default_value) {
@@ -66,6 +142,40 @@ private:
     declareIfMissing<double>("diagnostic_interval_ms", 100.0);
     declareIfMissing<int>("hold_frames", 5);
     declareIfMissing<std::string>("frame_id", "");
+
+    // 画像/デバッグ
+    declareIfMissing<std::string>("input_image_topic", std::string(""));
+    declareIfMissing<bool>("debug.enable_overlay", true);
+    declareIfMissing<std::string>("debug.overlay_topic", std::string("overlay"));
+    declareIfMissing<bool>("debug.draw_history", false);
+    declareIfMissing<std::string>("debug.roi_mask_topic", std::string("roi_mask"));
+    declareIfMissing<bool>("debug.overlay_tint_mask", true);
+
+    // 融合パラメータ
+    declareIfMissing<double>("fusion.iou_threshold", 0.30);
+    declareIfMissing<double>("fusion.nms_iou_threshold", 0.50);
+    declareIfMissing<double>("fusion.track_match_iou", 0.50);
+    
+    // マスク購読・後処理
+    declareIfMissing<std::string>("masks.instance_mask_topic", std::string(""));
+    declareIfMissing<std::string>("masks.unet_mask_topic", std::string(""));
+    declareIfMissing<double>("masks.max_stamp_diff_ms", 120.0);
+    declareIfMissing<std::string>("mask.prefer", std::string("instance_then_unet"));
+    declareIfMissing<std::string>("mask.combine_mode", std::string("prefer"));
+    declareIfMissing<int>("roi.pad_px", 6);
+    declareIfMissing<int>("roi.min_area_px", 300);
+    declareIfMissing<double>("roi.min_aspect_ratio", 0.1);
+    declareIfMissing<double>("roi.max_aspect_ratio", 1.2);
+    declareIfMissing<int>("mask.postprocess.binarize_threshold", 128);
+    declareIfMissing<int>("mask.postprocess.morph.open_kernel", 3);
+    declareIfMissing<int>("mask.postprocess.morph.open_iter", 1);
+    declareIfMissing<int>("mask.postprocess.morph.close_kernel", 5);
+    declareIfMissing<int>("mask.postprocess.morph.close_iter", 1);
+    declareIfMissing<bool>("mask.postprocess.keep_largest", true);
+    declareIfMissing<double>("fusion.weights.w_object", 0.6);
+    declareIfMissing<double>("fusion.weights.w_instance", 0.4);
+    declareIfMissing<double>("fusion.weights.bonus_overlap", 0.05);
+    declareIfMissing<std::string>("fusion.prefer_bbox", std::string("yolov10"));
   }
 
   void readParameters() {
@@ -74,6 +184,37 @@ private:
     diagnostic_interval_ms_ = this->get_parameter("diagnostic_interval_ms").as_double();
     hold_frames_ = this->get_parameter("hold_frames").as_int();
     frame_id_override_ = this->get_parameter("frame_id").as_string();
+
+    input_image_topic_ = this->get_parameter("input_image_topic").as_string();
+    debug_enable_overlay_ = this->get_parameter("debug.enable_overlay").as_bool();
+    overlay_topic_ = this->get_parameter("debug.overlay_topic").as_string();
+    debug_draw_history_ = this->get_parameter("debug.draw_history").as_bool();
+    roi_mask_topic_ = this->get_parameter("debug.roi_mask_topic").as_string();
+    debug_overlay_tint_mask_ = this->get_parameter("debug.overlay_tint_mask").as_bool();
+
+    iou_th_ = this->get_parameter("fusion.iou_threshold").as_double();
+    nms_iou_th_ = this->get_parameter("fusion.nms_iou_threshold").as_double();
+    track_match_iou_th_ = this->get_parameter("fusion.track_match_iou").as_double();
+    w_object_ = this->get_parameter("fusion.weights.w_object").as_double();
+    w_instance_ = this->get_parameter("fusion.weights.w_instance").as_double();
+    bonus_overlap_ = this->get_parameter("fusion.weights.bonus_overlap").as_double();
+    prefer_bbox_ = this->get_parameter("fusion.prefer_bbox").as_string();
+
+    instance_mask_topic_ = this->get_parameter("masks.instance_mask_topic").as_string();
+    unet_mask_topic_ = this->get_parameter("masks.unet_mask_topic").as_string();
+    max_stamp_diff_ms_ = this->get_parameter("masks.max_stamp_diff_ms").as_double();
+    mask_prefer_ = this->get_parameter("mask.prefer").as_string();
+    mask_combine_mode_ = this->get_parameter("mask.combine_mode").as_string();
+    roi_pad_px_ = this->get_parameter("roi.pad_px").as_int();
+    roi_min_area_px_ = this->get_parameter("roi.min_area_px").as_int();
+    roi_min_aspect_ = this->get_parameter("roi.min_aspect_ratio").as_double();
+    roi_max_aspect_ = this->get_parameter("roi.max_aspect_ratio").as_double();
+    bin_thresh_ = this->get_parameter("mask.postprocess.binarize_threshold").as_int();
+    open_k_ = this->get_parameter("mask.postprocess.morph.open_kernel").as_int();
+    open_iter_ = this->get_parameter("mask.postprocess.morph.open_iter").as_int();
+    close_k_ = this->get_parameter("mask.postprocess.morph.close_kernel").as_int();
+    close_iter_ = this->get_parameter("mask.postprocess.morph.close_iter").as_int();
+    keep_largest_ = this->get_parameter("mask.postprocess.keep_largest").as_bool();
 
     auto param_list = this->list_parameters({"sources"}, 10);
     std::unordered_map<std::string, SourceConfig> configs;
@@ -99,6 +240,8 @@ private:
         cfg.min_confidence = static_cast<float>(this->get_parameter(name).as_double());
       } else if (param == "qos_depth") {
         cfg.qos_depth = this->get_parameter(name).as_int();
+      } else if (param == "qos_reliability" || param == "reliability") {
+        cfg.qos_reliability = this->get_parameter(name).as_string();
       }
     }
 
@@ -120,40 +263,44 @@ private:
   }
 
   void handleDetections(const SourceConfig &cfg, const vision_msgs::msg::Detection2DArray::SharedPtr msg) {
-    const rclcpp::Time stamp(msg->header.stamp);
     std::lock_guard<std::mutex> lock(data_mutex_);
+    latest_by_label_[cfg.label] = msg;
+    // ここでは配列をキャッシュするだけ。融合はタイマーで実施。
+  }
 
-    for (const auto &det : msg->detections) {
-      const int32_t key = makeKey(cfg.label, det);
-      auto [it, inserted] = active_detections_.try_emplace(key);
-      auto &record = it->second;
-      record.detection.header = msg->header;
-      record.detection.id = key;
-      record.detection.label = cfg.label;
-      record.detection.class_id = 0;
+  void handleImage(const sensor_msgs::msg::Image::SharedPtr msg) {
+    try {
+      auto cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      last_image_ = cv_ptr->image.clone();
+      last_image_header_ = msg->header;
+      have_image_ = true;
+    } catch (const std::exception &e) {
+      RCLCPP_WARN(get_logger(), "cv_bridge failed: %s", e.what());
+    }
+  }
 
-      float score = 1.0f;
-      if (!det.results.empty()) {
-        score = static_cast<float>(det.results.front().hypothesis.score);
-      }
-      score *= cfg.confidence_multiplier;
-      if (score < cfg.min_confidence) {
-        continue;
-      }
-      record.detection.conf_object = score;
-      record.detection.conf_fused = score;
+  void handleInstMask(const sensor_msgs::msg::Image::SharedPtr msg) {
+    try {
+      auto cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::MONO8);
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      last_inst_mask_ = cv_ptr->image.clone();
+      last_inst_mask_header_ = msg->header;
+      have_inst_mask_ = true;
+    } catch (const std::exception &e) {
+      RCLCPP_WARN(get_logger(), "inst mask cv_bridge failed: %s", e.what());
+    }
+  }
 
-      record.detection.bbox_min.x = det.bbox.center.position.x - det.bbox.size_x * 0.5;
-      record.detection.bbox_min.y = det.bbox.center.position.y - det.bbox.size_y * 0.5;
-      record.detection.bbox_max.x = det.bbox.center.position.x + det.bbox.size_x * 0.5;
-      record.detection.bbox_max.y = det.bbox.center.position.y + det.bbox.size_y * 0.5;
-      record.detection.mask_instance_id = 0;
-      record.detection.mask_semantic_id = 0;
-      record.detection.depth_hint_m = std::numeric_limits<float>::quiet_NaN();
-      record.detection.observed_at = msg->header.stamp;
-
-      record.last_update = stamp;
-      record.hold_frames = hold_frames_;
+  void handleUnetMask(const sensor_msgs::msg::Image::SharedPtr msg) {
+    try {
+      auto cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::MONO8);
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      last_unet_mask_ = cv_ptr->image.clone();
+      last_unet_mask_header_ = msg->header;
+      have_unet_mask_ = true;
+    } catch (const std::exception &e) {
+      RCLCPP_WARN(get_logger(), "unet mask cv_bridge failed: %s", e.what());
     }
   }
 
@@ -162,25 +309,357 @@ private:
       return;
     }
 
-    fv_msgs::msg::DetectionArray fused;
-    fused.header.stamp = this->now();
-    fused.header.frame_id = frame_id_override_;
+    fv_msgs::msg::DetectionArray out;
+    out.header.stamp = this->now();
+    out.header.frame_id = frame_id_override_;
 
+    // 検出配列を取得
+    std::shared_ptr<vision_msgs::msg::Detection2DArray> obj_msg;
+    std::shared_ptr<vision_msgs::msg::Detection2DArray> inst_msg;
+    sensor_msgs::msg::Image::SharedPtr dummy; // not used
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
-      for (auto it = active_detections_.begin(); it != active_detections_.end();) {
-        auto &record = it->second;
-        if (record.hold_frames <= 0) {
-          it = active_detections_.erase(it);
-          continue;
+      auto it_obj = latest_by_label_.find(object_label_);
+      if (it_obj != latest_by_label_.end()) obj_msg = it_obj->second;
+      auto it_inst = latest_by_label_.find(instance_label_);
+      if (it_inst != latest_by_label_.end()) inst_msg = it_inst->second;
+    }
+
+    // フレームごとの一時融合リスト
+    struct TmpDet { vision_msgs::msg::Detection2D det; float score; };
+    std::vector<TmpDet> objs, insts;
+    if (obj_msg) {
+      for (auto &d : obj_msg->detections) {
+        float s = d.results.empty() ? 1.0f : static_cast<float>(d.results.front().hypothesis.score);
+        s *= findCfg(object_label_).confidence_multiplier;
+        if (s >= findCfg(object_label_).min_confidence) objs.push_back({d, s});
+      }
+    }
+    if (inst_msg) {
+      for (auto &d : inst_msg->detections) {
+        float s = d.results.empty() ? 1.0f : static_cast<float>(d.results.front().hypothesis.score);
+        s *= findCfg(instance_label_).confidence_multiplier;
+        if (s >= findCfg(instance_label_).min_confidence) insts.push_back({d, s});
+      }
+    }
+
+    // マッチング（貪欲に最大IoU）
+    std::vector<int> inst_matched(insts.size(), -1);
+    for (size_t i = 0; i < objs.size(); ++i) {
+      const Box b0 = toBox(objs[i].det);
+      float best_iou = 0.0f; int best_j = -1;
+      for (size_t j = 0; j < insts.size(); ++j) {
+        if (inst_matched[j] >= 0) continue;
+        float iouv = iou(b0, toBox(insts[j].det));
+        if (iouv >= iou_th_ && iouv > best_iou) { best_iou = iouv; best_j = static_cast<int>(j); }
+      }
+      if (best_j >= 0) inst_matched[best_j] = static_cast<int>(i);
+    }
+
+    // 一時候補（fv_msgs形式）
+    std::vector<fv_msgs::msg::Detection2D> candidates;
+
+    // 生成: マッチしたペア
+    for (size_t j = 0; j < insts.size(); ++j) {
+      int oi = inst_matched[j];
+      if (oi < 0) continue;
+      const auto &od = objs[oi];
+      const auto &id = insts[j];
+      fv_msgs::msg::Detection2D det;
+      det.header = od.det.header; // 代表
+      det.label = "fused";
+      det.source_mask = det.SOURCE_OBJECT | det.SOURCE_INSTANCE;
+      det.class_id = 0;
+      // bbox選択
+      const auto sel = (prefer_bbox_ == "yolov8" ? id.det : od.det);
+      det.bbox_min.x = sel.bbox.center.position.x - sel.bbox.size_x * 0.5;
+      det.bbox_min.y = sel.bbox.center.position.y - sel.bbox.size_y * 0.5;
+      det.bbox_max.x = sel.bbox.center.position.x + sel.bbox.size_x * 0.5;
+      det.bbox_max.y = sel.bbox.center.position.y + sel.bbox.size_y * 0.5;
+      det.conf_object = od.score;
+      det.conf_instance = id.score;
+      det.conf_semantic = 0.0f;
+      det.conf_fused = static_cast<float>(w_object_ * od.score + w_instance_ * id.score + bonus_overlap_);
+      det.observed_at = sel.header.stamp;
+      candidates.emplace_back(det);
+    }
+
+    // 生成: 片側のみ（object）
+    for (size_t i = 0; i < objs.size(); ++i) {
+      bool is_paired = false;
+      for (int m : inst_matched) { if (m == static_cast<int>(i)) { is_paired = true; break; } }
+      if (is_paired) continue;
+      const auto &od = objs[i];
+      fv_msgs::msg::Detection2D det;
+      det.header = od.det.header;
+      det.label = "fused";
+      det.source_mask = det.SOURCE_OBJECT;
+      det.class_id = 0;
+      det.bbox_min.x = od.det.bbox.center.position.x - od.det.bbox.size_x * 0.5;
+      det.bbox_min.y = od.det.bbox.center.position.y - od.det.bbox.size_y * 0.5;
+      det.bbox_max.x = od.det.bbox.center.position.x + od.det.bbox.size_x * 0.5;
+      det.bbox_max.y = od.det.bbox.center.position.y + od.det.bbox.size_y * 0.5;
+      det.conf_object = od.score;
+      det.conf_instance = 0.0f;
+      det.conf_semantic = 0.0f;
+      det.conf_fused = static_cast<float>(w_object_ * od.score);
+      det.observed_at = od.det.header.stamp;
+      candidates.emplace_back(det);
+    }
+
+    // 生成: 片側のみ（instance）
+    for (size_t j = 0; j < insts.size(); ++j) {
+      if (inst_matched[j] >= 0) continue;
+      const auto &id = insts[j];
+      fv_msgs::msg::Detection2D det;
+      det.header = id.det.header;
+      det.label = "fused";
+      det.source_mask = det.SOURCE_INSTANCE;
+      det.class_id = 0;
+      det.bbox_min.x = id.det.bbox.center.position.x - id.det.bbox.size_x * 0.5;
+      det.bbox_min.y = id.det.bbox.center.position.y - id.det.bbox.size_y * 0.5;
+      det.bbox_max.x = id.det.bbox.center.position.x + id.det.bbox.size_x * 0.5;
+      det.bbox_max.y = id.det.bbox.center.position.y + id.det.bbox.size_y * 0.5;
+      det.conf_object = 0.0f;
+      det.conf_instance = id.score;
+      det.conf_semantic = 0.0f;
+      det.conf_fused = static_cast<float>(w_instance_ * id.score);
+      det.observed_at = id.det.header.stamp;
+      candidates.emplace_back(det);
+    }
+
+    // NMSで候補を間引き
+    auto det_iou = [&](const fv_msgs::msg::Detection2D &a, const fv_msgs::msg::Detection2D &b){
+      auto ax1 = a.bbox_min.x, ay1 = a.bbox_min.y, ax2 = a.bbox_max.x, ay2 = a.bbox_max.y;
+      auto bx1 = b.bbox_min.x, by1 = b.bbox_min.y, bx2 = b.bbox_max.x, by2 = b.bbox_max.y;
+      const float ix1 = static_cast<float>(std::max(ax1, bx1));
+      const float iy1 = static_cast<float>(std::max(ay1, by1));
+      const float ix2 = static_cast<float>(std::min(ax2, bx2));
+      const float iy2 = static_cast<float>(std::min(ay2, by2));
+      const float iw = std::max(0.0f, ix2 - ix1);
+      const float ih = std::max(0.0f, iy2 - iy1);
+      const float inter = iw * ih;
+      const float area_a = std::max(0.0f, static_cast<float>((ax2-ax1)*(ay2-ay1)));
+      const float area_b = std::max(0.0f, static_cast<float>((bx2-bx1)*(by2-by1)));
+      const float uni = area_a + area_b - inter + 1e-6f;
+      return inter / uni;
+    };
+
+    std::vector<int> order(candidates.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(), [&](int a, int b){return candidates[a].conf_fused > candidates[b].conf_fused;});
+    std::vector<char> suppressed(candidates.size(), 0);
+    std::vector<fv_msgs::msg::Detection2D> selected;
+    for (size_t oi = 0; oi < order.size(); ++oi) {
+      int i = order[oi];
+      if (suppressed[i]) continue;
+      selected.emplace_back(candidates[i]);
+      for (size_t oj = oi + 1; oj < order.size(); ++oj) {
+        int j = order[oj];
+        if (suppressed[j]) continue;
+        if (det_iou(candidates[i], candidates[j]) >= nms_iou_th_) suppressed[j] = 1;
+      }
+    }
+
+    // 融合アクティブを更新（TTL）＋トラックID安定化（IoUマッチ）
+    std::vector<int32_t> updated_ids;
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      for (auto &kv : fused_active_) kv.second.hold_frames -= 1;
+
+      auto iou_track = [&](const fv_msgs::msg::Detection2D &a, const fv_msgs::msg::Detection2D &b){
+        return det_iou(a,b);
+      };
+
+      for (auto &det : selected) {
+        // 既存トラックにマッチ
+        int32_t best_id = -1; float best_iou = 0.0f;
+        for (auto &kv : fused_active_) {
+          float iv = iou_track(det, kv.second.detection);
+          if (iv > best_iou && iv >= track_match_iou_th_) { best_iou = iv; best_id = kv.first; }
         }
-        record.hold_frames -= 1;
-        fused.detections.emplace_back(record.detection);
+        if (best_id < 0) {
+          best_id = next_track_id_++;
+        }
+        det.id = best_id;
+        auto &rec = fused_active_[best_id];
+        rec.detection = det;
+        rec.last_update = this->now();
+        rec.hold_frames = hold_frames_;
+        updated_ids.push_back(best_id);
+      }
+    }
+
+    // TTLで出力収集
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      for (auto it = fused_active_.begin(); it != fused_active_.end();) {
+        if (it->second.hold_frames <= 0) { it = fused_active_.erase(it); continue; }
+        out.detections.emplace_back(it->second.detection);
         ++it;
       }
     }
 
-    output_pub_->publish(fused);
+    // publish fused array（現フレーム選抜のみ）
+    out.detections = selected;
+    output_pub_->publish(out);
+
+    // overlay + ROI mask
+    if ((debug_enable_overlay_ && overlay_pub_) || roi_mask_pub_) {
+      cv::Mat img;
+      std_msgs::msg::Header hdr;
+      {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        if (have_image_) { img = last_image_.clone(); hdr = last_image_header_; }
+      }
+      if (!img.empty()) {
+        // 取得した最新マスク（必要に応じてサイズを画像に合わせる）
+        cv::Mat inst_mask, unet_mask;
+        std_msgs::msg::Header inst_hdr, unet_hdr;
+        {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          if (have_inst_mask_) { inst_mask = last_inst_mask_.clone(); inst_hdr = last_inst_mask_header_; }
+          if (have_unet_mask_) { unet_mask = last_unet_mask_.clone(); unet_hdr = last_unet_mask_header_; }
+        }
+        auto resize_to = [&](cv::Mat &m){ if (!m.empty() && (m.cols!=img.cols || m.rows!=img.rows)) cv::resize(m, m, img.size(), 0,0, cv::INTER_NEAREST); };
+        resize_to(inst_mask); resize_to(unet_mask);
+
+        cv::Mat roi_mask(img.size(), CV_8UC1, cv::Scalar(0));
+        auto within_time = [&](const std_msgs::msg::Header &mh, const rclcpp::Time &det_t){
+          if (mh.stamp.sec==0 && mh.stamp.nanosec==0) return false;
+          rclcpp::Time mt(mh.stamp);
+          double dt_ms = std::abs((det_t - mt).nanoseconds())/1e6;
+          return dt_ms <= max_stamp_diff_ms_;
+        };
+        auto postprocess = [&](cv::Mat &m){
+          if (m.empty()) return;
+          if (bin_thresh_ >= 0) cv::threshold(m, m, bin_thresh_, 255, cv::THRESH_BINARY);
+          if (open_k_>1 && open_iter_>0) { cv::Mat k=cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(open_k_,open_k_)); cv::morphologyEx(m,m,cv::MORPH_OPEN,k,cv::Point(-1,-1),open_iter_); }
+          if (close_k_>1 && close_iter_>0) { cv::Mat k=cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(close_k_,close_k_)); cv::morphologyEx(m,m,cv::MORPH_CLOSE,k,cv::Point(-1,-1),close_iter_); }
+        };
+        auto keep_largest_cc = [&](cv::Mat &m){
+          if (!keep_largest_ || m.empty()) return;
+          cv::Mat labels, stats, centroids;
+          int n = cv::connectedComponentsWithStats(m, labels, stats, centroids, 8, CV_32S);
+          int best=-1; int best_area=0;
+          for (int i=1;i<n;++i){ int area=stats.at<int>(i, cv::CC_STAT_AREA); if (area>best_area){best_area=area; best=i;} }
+          if (best<=0) { m.setTo(0); return; }
+          cv::Mat out = cv::Mat::zeros(m.size(), CV_8UC1);
+          out.setTo(255, labels==best);
+          m = out;
+        };
+
+        // ROIごとに処理
+        for (const auto &det : selected) {
+          int x = std::max(0, static_cast<int>(det.bbox_min.x) - roi_pad_px_);
+          int y = std::max(0, static_cast<int>(det.bbox_min.y) - roi_pad_px_);
+          int w = std::min(img.cols - x, static_cast<int>(det.bbox_max.x - det.bbox_min.x) + 2*roi_pad_px_);
+          int h = std::min(img.rows - y, static_cast<int>(det.bbox_max.y - det.bbox_min.y) + 2*roi_pad_px_);
+          if (w<=0 || h<=0) continue;
+          cv::Rect roi(x,y,w,h);
+
+          cv::Mat base; // 最終ROIマスク
+          const bool inst_ok = (!inst_mask.empty() && within_time(inst_hdr, rclcpp::Time(det.observed_at)));
+          const bool unet_ok = (!unet_mask.empty()); // UNetはstampがnow()のため時刻ゲートを緩和
+
+          if (mask_combine_mode_ == std::string("union") && (inst_ok || unet_ok)) {
+            cv::Mat mi, mu;
+            if (inst_ok) mi = inst_mask(roi).clone();
+            if (unet_ok) mu = unet_mask(roi).clone();
+            if (!mi.empty()) { postprocess(mi); keep_largest_cc(mi); }
+            if (!mu.empty()) { postprocess(mu); keep_largest_cc(mu); }
+            if (mi.empty()) base = mu;
+            else if (mu.empty()) base = mi;
+            else { base = mi | mu; }
+
+            int area = base.empty()?0:cv::countNonZero(base);
+            if (area < roi_min_area_px_) continue;
+
+            // 合成マスク反映
+            base.copyTo(roi_mask(roi), base);
+
+            // オーバーレイ: UNETのみ領域=シアン、INST領域=マゼンタ
+            if (debug_enable_overlay_ && debug_overlay_tint_mask_) {
+              // 下地: UNet（シアン）→ 上書き: インスタンス（マゼンタ）
+              if (!mu.empty()) {
+                cv::Mat color_roi(roi.size(), CV_8UC3, cv::Scalar(255,255,0)); // Cyan
+                cv::Mat blended; cv::addWeighted(img(roi), 0.6, color_roi, 0.4, 0.0, blended);
+                blended.copyTo(img(roi), mu); // 重なり含め塗布
+              }
+              if (!mi.empty()) {
+                cv::Mat color_roi(roi.size(), CV_8UC3, cv::Scalar(255,0,255)); // Magenta
+                cv::Mat blended; cv::addWeighted(img(roi), 0.6, color_roi, 0.4, 0.0, blended);
+                blended.copyTo(img(roi), mi); // 重なりはマゼンタで上描き
+              }
+            }
+          } else {
+            // prefer モード（inst優先→unet）
+            bool used_inst=false;
+            if (mask_prefer_ != std::string("unet_only") && inst_ok) { base = inst_mask(roi).clone(); used_inst=true; }
+            else if (unet_ok) { base = unet_mask(roi).clone(); }
+            else { continue; }
+            postprocess(base);
+            keep_largest_cc(base);
+            int area = cv::countNonZero(base);
+            if (area < roi_min_area_px_) continue;
+
+            // 合成マスクに反映
+            base.copyTo(roi_mask(roi), base);
+
+            // オーバーレイに半透明で塗布
+            if (debug_enable_overlay_ && debug_overlay_tint_mask_) {
+              cv::Mat color_roi(roi.size(), CV_8UC3, used_inst?cv::Scalar(255,0,255):cv::Scalar(255,255,0));
+              cv::Mat blended;
+              cv::addWeighted(img(roi), 0.6, color_roi, 0.4, 0.0, blended);
+              blended.copyTo(img(roi), base);
+            }
+          }
+        }
+
+        // 合成マスクの配信
+        if (roi_mask_pub_) {
+          cv_bridge::CvImage mask_msg;
+          mask_msg.header = hdr;
+          mask_msg.encoding = sensor_msgs::image_encodings::MONO8;
+          mask_msg.image = roi_mask;
+          roi_mask_pub_->publish(*mask_msg.toImageMsg());
+        }
+
+        // 元検出の描画（参照用）
+        auto draw_box = [&](const vision_msgs::msg::Detection2D &d, const cv::Scalar &color){
+          int x = static_cast<int>(d.bbox.center.position.x - d.bbox.size_x * 0.5);
+          int y = static_cast<int>(d.bbox.center.position.y - d.bbox.size_y * 0.5);
+          int w = static_cast<int>(d.bbox.size_x);
+          int h = static_cast<int>(d.bbox.size_y);
+          cv::rectangle(img, cv::Rect(x, y, std::max(0,w), std::max(0,h)), color, 2);
+        };
+        if (obj_msg) for (auto &d : obj_msg->detections) draw_box(d, cv::Scalar(255,0,0)); // Blue YOLOv10
+        if (inst_msg) for (auto &d : inst_msg->detections) draw_box(d, cv::Scalar(255,0,255)); // Magenta YOLOv8-seg
+
+        // 融合結果の描画（緑）
+        {
+          std::lock_guard<std::mutex> lock(data_mutex_);
+          auto draw_one = [&](const fv_msgs::msg::Detection2D &fd){
+            int x = static_cast<int>(fd.bbox_min.x);
+            int y = static_cast<int>(fd.bbox_min.y);
+            int w = static_cast<int>(fd.bbox_max.x - fd.bbox_min.x);
+            int h = static_cast<int>(fd.bbox_max.y - fd.bbox_min.y);
+            cv::rectangle(img, cv::Rect(x, y, std::max(0,w), std::max(0,h)), cv::Scalar(0,255,0), 2);
+          };
+          if (debug_draw_history_) {
+            for (const auto &kv : fused_active_) draw_one(kv.second.detection);
+          } else {
+            for (int32_t id : updated_ids) draw_one(fused_active_[id].detection);
+          }
+        }
+
+        cv_bridge::CvImage out_cv;
+        out_cv.header = hdr;
+        out_cv.encoding = sensor_msgs::image_encodings::BGR8;
+        out_cv.image = img;
+        overlay_pub_->publish(*out_cv.toImageMsg());
+      }
+    }
   }
 
   int32_t makeKey(const std::string &label, const vision_msgs::msg::Detection2D &det) const {
@@ -196,20 +675,90 @@ private:
     return static_cast<int32_t>(hash & 0x7FFFFFFF);
   }
 
+  int32_t makeKeyFused(const std::string &label, const fv_msgs::msg::Detection2D &det) const {
+    const double cx = (det.bbox_min.x + det.bbox_max.x) * 0.5;
+    const double cy = (det.bbox_min.y + det.bbox_max.y) * 0.5;
+    const double w = (det.bbox_max.x - det.bbox_min.x);
+    const double h = (det.bbox_max.y - det.bbox_min.y);
+    std::size_t hash = std::hash<std::string>{}(label);
+    hash ^= std::hash<long long>{}(static_cast<long long>(cx * 1000.0)) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+    hash ^= std::hash<long long>{}(static_cast<long long>(cy * 1000.0)) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+    hash ^= std::hash<long long>{}(static_cast<long long>(w * 1000.0)) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+    hash ^= std::hash<long long>{}(static_cast<long long>(h * 1000.0)) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+    return static_cast<int32_t>(hash & 0x7FFFFFFF);
+  }
+
   std::string output_topic_;
   int output_qos_depth_{5};
   double diagnostic_interval_ms_{100.0};
   int hold_frames_{5};
   std::string frame_id_override_;
 
+  // 画像/デバッグ
+  std::string input_image_topic_;
+  bool debug_enable_overlay_{true};
+  std::string overlay_topic_{"overlay"};
+  bool debug_draw_history_{false};
+  std::string roi_mask_topic_{"roi_mask"};
+  bool debug_overlay_tint_mask_{true};
+
   std::vector<SourceConfig> sources_;
   std::vector<rclcpp::Subscription<vision_msgs::msg::Detection2DArray>::SharedPtr> source_subs_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr inst_mask_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr unet_mask_sub_;
 
   std::mutex data_mutex_;
-  std::unordered_map<int32_t, DetRecord> active_detections_;
+  std::unordered_map<std::string, vision_msgs::msg::Detection2DArray::SharedPtr> latest_by_label_;
+  std::unordered_map<int32_t, DetRecord> fused_active_;
+  cv::Mat last_image_;
+  std_msgs::msg::Header last_image_header_;
+  bool have_image_{false};
+  cv::Mat last_inst_mask_;
+  cv::Mat last_unet_mask_;
+  std_msgs::msg::Header last_inst_mask_header_;
+  std_msgs::msg::Header last_unet_mask_header_;
+  bool have_inst_mask_{false};
+  bool have_unet_mask_{false};
 
   rclcpp::Publisher<fv_msgs::msg::DetectionArray>::SharedPtr output_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr overlay_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr roi_mask_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
+
+  // 融合設定
+  std::string object_label_{"object"};
+  std::string instance_label_{"instance"};
+  double iou_th_{0.30};
+  double nms_iou_th_{0.50};
+  double track_match_iou_th_{0.50};
+  double w_object_{0.6};
+  double w_instance_{0.4};
+  double bonus_overlap_{0.05};
+  std::string prefer_bbox_{"yolov10"};
+  int32_t next_track_id_{1};
+
+  // マスク・ROI設定
+  std::string instance_mask_topic_;
+  std::string unet_mask_topic_;
+  double max_stamp_diff_ms_{120.0};
+  std::string mask_prefer_{"instance_then_unet"};
+  std::string mask_combine_mode_{"prefer"}; // prefer | union
+  int roi_pad_px_{6};
+  int roi_min_area_px_{300};
+  double roi_min_aspect_{0.1};
+  double roi_max_aspect_{1.2};
+  int bin_thresh_{128};
+  int open_k_{3};
+  int open_iter_{1};
+  int close_k_{5};
+  int close_iter_{1};
+  bool keep_largest_{true};
+
+  const SourceConfig &findCfg(const std::string &label) const {
+    for (const auto &s : sources_) if (s.label == label) return s;
+    static SourceConfig kDefault; return kDefault;
+  }
 };
 
 }  // namespace fv_detection_fusion
@@ -224,4 +773,3 @@ int main(int argc, char **argv) {
   rclcpp::shutdown();
   return 0;
 }
-
