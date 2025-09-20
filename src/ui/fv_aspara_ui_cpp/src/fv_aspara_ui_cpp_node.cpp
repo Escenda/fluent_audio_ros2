@@ -349,8 +349,8 @@ private:
         cv::rectangle(view, bb, color, thickness);
         if (is_selected) {
           // Draw selected panel: ID, conf, size, distance if available
-          char line1[128]; std::snprintf(line1, sizeof(line1), "アスパラ#%d conf=%.2f", d.id, std::max(0.0, std::min(1.0, (double)d.conf_fused)));
-          char line2[128]; std::snprintf(line2, sizeof(line2), "サイズ %dx%d px", bb.width, bb.height);
+          //char line1[128]; std::snprintf(line1, sizeof(line1), "アスパラ#%d conf=%.2f", d.id, std::max(0.0, std::min(1.0, (double)d.conf_fused)));
+          //char line2[128]; std::snprintf(line2, sizeof(line2), "サイズ %dx%d px", bb.width, bb.height);
           std::string line3;
           // find distance from metrics (root z)
           if (last_metrics_) {
@@ -362,8 +362,8 @@ private:
             }
           }
           int base_y = std::max(0, y1 - 28);
-          fluent::text::drawShadow(view, std::string(line1), cv::Point(x1, base_y), cv::Scalar(255,255,255), cv::Scalar(0,0,0), 0.6, 2, 0);
-          fluent::text::drawShadow(view, std::string(line2), cv::Point(x1, base_y+16), cv::Scalar(230,230,230), cv::Scalar(0,0,0), 0.5, 1, 0);
+          //fluent::text::drawShadow(view, std::string(line1), cv::Point(x1, base_y), cv::Scalar(255,255,255), cv::Scalar(0,0,0), 0.6, 2, 0);
+          //fluent::text::drawShadow(view, std::string(line2), cv::Point(x1, base_y+16), cv::Scalar(230,230,230), cv::Scalar(0,0,0), 0.5, 1, 0);
           if (!line3.empty()) {
             fluent::text::drawShadow(view, line3, cv::Point(x1, base_y+32), cv::Scalar(200,255,200), cv::Scalar(0,0,0), 0.5, 1, 0);
           }
