@@ -13,6 +13,7 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include "fluent_text.hpp"
 #include <string>
 #include <memory>
@@ -223,6 +224,16 @@ public:
 
     RCLCPP_INFO(get_logger(), "Aspara UI CPP started: img=%s det=%s met=%s out=%s",
                 image_topic_.c_str(), detections_topic_.c_str(), metrics_topic_.c_str(), annotated_topic_.c_str());
+
+    srv_get_sel_ = create_service<std_srvs::srv::Trigger>(
+      "/get_selected_asparagus",
+      std::bind(&AsparaUiCppNode::onSrvGetSelected, this, std::placeholders::_1, std::placeholders::_2));
+    srv_next_ = create_service<std_srvs::srv::Trigger>(
+      "/next_asparagus",
+      std::bind(&AsparaUiCppNode::onSrvNext, this, std::placeholders::_1, std::placeholders::_2));
+    srv_prev_ = create_service<std_srvs::srv::Trigger>(
+      "/prev_asparagus",
+      std::bind(&AsparaUiCppNode::onSrvPrev, this, std::placeholders::_1, std::placeholders::_2));
   }
 
 private:
@@ -309,6 +320,21 @@ private:
           selected_index = cand_index; selected_id = cand.id; selected_conf = cand_conf;
           if (selected_id == last_selected_id_) { hold_count_++; } else { hold_count_ = 0; if (sel_lock_frames_ > 0) lock_left_ = sel_lock_frames_; }
         }
+      }
+    }
+
+    // Manual override (via services)
+    if (manual_active_ && last_dets_ && !last_dets_->detections.empty()) {
+      int idx = -1;
+      for (size_t i = 0; i < last_dets_->detections.size(); ++i) {
+        if (last_dets_->detections[i].id == manual_selected_id_) { idx = static_cast<int>(i); break; }
+      }
+      if (idx >= 0) {
+        selected_index = idx;
+        selected_id = manual_selected_id_;
+        selected_conf = static_cast<double>(last_dets_->detections[static_cast<size_t>(idx)].conf_fused);
+      } else {
+        manual_active_ = false;
       }
     }
 
@@ -805,6 +831,13 @@ private:
   bool seltf_enable_{true};
   std::string seltf_child_{"aspara_selected"};
 
+  // services / manual selection
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_get_sel_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_next_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_prev_;
+  bool manual_active_{false};
+  int manual_selected_id_{-1};
+
   void onMask(const sensor_msgs::msg::Image::SharedPtr msg) {
     // 強参照で保持し、onImage側で確実に利用できるようにする
     last_mask_ = msg;
@@ -836,6 +869,89 @@ private:
     if (id_palette_colors_.empty()) return cv::Vec3b(0,255,0);
     size_t idx = static_cast<size_t>(std::abs(id)) % id_palette_colors_.size();
     return id_palette_colors_[idx];
+  }
+
+  void onSrvGetSelected(const std::shared_ptr<std_srvs::srv::Trigger::Request> /*req*/,
+                        std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+    int id = manual_active_ ? manual_selected_id_ : last_selected_id_;
+    if (id < 0 || !last_dets_) {
+      res->success = false;
+      res->message = std::string("no selection");
+      return;
+    }
+    const fv_msgs::msg::Detection2D* det_ptr = nullptr;
+    for (const auto &d : last_dets_->detections) { if (d.id == id) { det_ptr = &d; break; } }
+    if (!det_ptr) {
+      res->success = false;
+      res->message = std::string("selection not in current detections");
+      return;
+    }
+    const fv_msgs::msg::Detection2D &d = *det_ptr;
+    double x1 = d.bbox_min.x, y1 = d.bbox_min.y, x2 = d.bbox_max.x, y2 = d.bbox_max.y;
+    double conf = static_cast<double>(d.conf_fused);
+    double length_m = -1.0, thickness_m = -1.0;
+    geometry_msgs::msg::Point root = {}, tip = {};
+    std::string frame = cinfo_frame_;
+    if (last_metrics_) {
+      for (const auto &m : last_metrics_->stalks) {
+        if (m.id == id) {
+          length_m = m.length_m; thickness_m = m.thickness_m;
+          root = m.root_camera; tip = m.tip_camera;
+          if (frame.empty()) frame = m.header.frame_id;
+          break;
+        }
+      }
+    }
+    char buf[1024];
+    std::snprintf(buf, sizeof(buf),
+      "{\"id\":%d,\"conf\":%.3f,\"bbox\":{\"x1\":%.1f,\"y1\":%.1f,\"x2\":%.1f,\"y2\":%.1f},\"length_m\":%.4f,\"thickness_m\":%.4f,\"root_camera\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},\"tip_camera\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},\"frame_id\":\"%s\"}",
+      id, conf, x1,y1,x2,y2, length_m, thickness_m, root.x,root.y,root.z, tip.x,tip.y,tip.z, frame.c_str());
+    res->success = true;
+    res->message = std::string(buf);
+  }
+
+  static std::vector<int> listCurrentIds(const fv_msgs::msg::DetectionArray::SharedPtr &arr) {
+    std::vector<int> ids;
+    if (!arr) return ids;
+    ids.reserve(arr->detections.size());
+    for (const auto &d : arr->detections) ids.push_back(d.id);
+    return ids;
+  }
+
+  void onSrvNext(const std::shared_ptr<std_srvs::srv::Trigger::Request> /*req*/,
+                 std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+    if (!last_dets_ || last_dets_->detections.empty()) {
+      res->success = false; res->message = "no detections"; return;
+    }
+    auto ids = listCurrentIds(last_dets_);
+    if (ids.empty()) { res->success = false; res->message = "no detections"; return; }
+    int base = manual_active_ ? manual_selected_id_ : last_selected_id_;
+    int pos = -1;
+    for (size_t i = 0; i < ids.size(); ++i) if (ids[i] == base) { pos = static_cast<int>(i); break; }
+    int next_pos = (pos < 0) ? 0 : (pos + 1) % static_cast<int>(ids.size());
+    manual_selected_id_ = ids[static_cast<size_t>(next_pos)];
+    manual_active_ = true;
+    res->success = true;
+    res->message = std::string("selected_id=") + std::to_string(manual_selected_id_);
+  }
+
+  void onSrvPrev(const std::shared_ptr<std_srvs::srv::Trigger::Request> /*req*/,
+                 std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+    if (!last_dets_ || last_dets_->detections.empty()) {
+      res->success = false; res->message = "no detections"; return;
+    }
+    auto ids = listCurrentIds(last_dets_);
+    if (ids.empty()) { res->success = false; res->message = "no detections"; return; }
+    int base = manual_active_ ? manual_selected_id_ : last_selected_id_;
+    int pos = -1;
+    for (size_t i = 0; i < ids.size(); ++i) if (ids[i] == base) { pos = static_cast<int>(i); break; }
+    int prev_pos;
+    if (pos < 0) prev_pos = static_cast<int>(ids.size()) - 1;
+    else prev_pos = (pos - 1 + static_cast<int>(ids.size())) % static_cast<int>(ids.size());
+    manual_selected_id_ = ids[static_cast<size_t>(prev_pos)];
+    manual_active_ = true;
+    res->success = true;
+    res->message = std::string("selected_id=") + std::to_string(manual_selected_id_);
   }
 };
 

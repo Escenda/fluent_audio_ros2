@@ -126,6 +126,20 @@ private:
     float x{0}, y{0}, w{0}, h{0};
   };
 
+  static float y_iou(const Box &a, const Box &b) {
+    const float ay1 = a.y;
+    const float ay2 = a.y + a.h;
+    const float by1 = b.y;
+    const float by2 = b.y + b.h;
+    const float iy1 = std::max(ay1, by1);
+    const float iy2 = std::min(ay2, by2);
+    const float ih = std::max(0.0f, iy2 - iy1);
+    const float ua = std::max(0.0f, a.h);
+    const float ub = std::max(0.0f, b.h);
+    const float uni_h = ua + ub - ih + 1e-6f;
+    return ih / uni_h;
+  }
+
   static Box toBox(const vision_msgs::msg::Detection2D &det) {
     Box b;
     b.x = static_cast<float>(det.bbox.center.position.x - det.bbox.size_x * 0.5);
@@ -191,6 +205,16 @@ private:
     // 融合パラメータ
     declareIfMissing<double>("fusion.iou_threshold", 0.30);
     declareIfMissing<double>("fusion.nms_iou_threshold", 0.50);
+    declareIfMissing<double>("fusion.nms_contain_ratio", 0.85);
+    declareIfMissing<bool>("fusion.nms_keep_contained_cross_source", true);
+    // 比較軸の選択: iou | y_iou
+    declareIfMissing<std::string>("fusion.match_metric", std::string("iou"));
+    declareIfMissing<std::string>("fusion.nms_metric", std::string("iou"));
+    declareIfMissing<int>("fusion.center_x_max_offset_px", 0); // 0で無効
+    // 隣接個体の潰れ抑止: NMS時の横方向ゲート
+    declareIfMissing<double>("fusion.nms_min_x_overlap_ratio", 0.15); // inter_w / min(w)
+    declareIfMissing<int>("fusion.nms_center_x_max_offset_px", 0);    // 0で無効
+    declareIfMissing<std::string>("fusion.nms_cross_contained_policy", std::string("prefer_instance"));
     declareIfMissing<double>("fusion.track_match_iou", 0.50);
     
     // マスク購読・後処理
@@ -273,6 +297,14 @@ private:
 
     iou_th_ = this->get_parameter("fusion.iou_threshold").as_double();
     nms_iou_th_ = this->get_parameter("fusion.nms_iou_threshold").as_double();
+    nms_contain_ratio_ = this->get_parameter("fusion.nms_contain_ratio").as_double();
+    nms_keep_contained_cross_source_ = this->get_parameter("fusion.nms_keep_contained_cross_source").as_bool();
+    match_metric_ = this->get_parameter("fusion.match_metric").as_string();
+    nms_metric_ = this->get_parameter("fusion.nms_metric").as_string();
+    center_x_max_offset_px_ = this->get_parameter("fusion.center_x_max_offset_px").as_int();
+    nms_min_x_overlap_ratio_ = this->get_parameter("fusion.nms_min_x_overlap_ratio").as_double();
+    nms_center_x_max_offset_px_ = this->get_parameter("fusion.nms_center_x_max_offset_px").as_int();
+    nms_cross_contained_policy_ = this->get_parameter("fusion.nms_cross_contained_policy").as_string();
     track_match_iou_th_ = this->get_parameter("fusion.track_match_iou").as_double();
     w_object_ = this->get_parameter("fusion.weights.w_object").as_double();
     w_instance_ = this->get_parameter("fusion.weights.w_instance").as_double();
@@ -528,14 +560,21 @@ private:
     std::vector<int> inst_matched(insts.size(), -1);
     std::vector<fv_msgs::msg::Detection2D> candidates;
     if (!fixed_mode_enabled_) {
-      // マッチング（貪欲に最大IoU）
+      // マッチング（metric切替: iou / y_iou）
       for (size_t i = 0; i < objs.size(); ++i) {
-        const Box b0 = toBox(objs[i].det);
-        float best_iou = 0.0f; int best_j = -1;
+        const Box bo = toBox(objs[i].det);
+        float best_s = 0.0f; int best_j = -1;
         for (size_t j = 0; j < insts.size(); ++j) {
           if (inst_matched[j] >= 0) continue;
-          float iouv = iou(b0, toBox(insts[j].det));
-          if (iouv >= iou_th_ && iouv > best_iou) { best_iou = iouv; best_j = static_cast<int>(j); }
+          const Box bi = toBox(insts[j].det);
+          // 中心Xのズレ制限（任意）
+          if (center_x_max_offset_px_ > 0) {
+            float cx_o = bo.x + 0.5f * bo.w;
+            float cx_i = bi.x + 0.5f * bi.w;
+            if (std::fabs(cx_o - cx_i) > static_cast<float>(center_x_max_offset_px_)) continue;
+          }
+          float s = (match_metric_ == std::string("y_iou")) ? y_iou(bo, bi) : iou(bo, bi);
+          if (s >= static_cast<float>(iou_th_) && s > best_s) { best_s = s; best_j = static_cast<int>(j); }
         }
         if (best_j >= 0) inst_matched[best_j] = static_cast<int>(i);
       }
@@ -649,7 +688,7 @@ private:
       }
     }
 
-    // NMSで候補を間引き
+    // NMSで候補を間引き（包含対策: インスタンスとオブジェクトが強く内包関係のときは抑制を緩和）
     auto det_iou = [&](const fv_msgs::msg::Detection2D &a, const fv_msgs::msg::Detection2D &b){
       auto ax1 = a.bbox_min.x, ay1 = a.bbox_min.y, ax2 = a.bbox_max.x, ay2 = a.bbox_max.y;
       auto bx1 = b.bbox_min.x, by1 = b.bbox_min.y, bx2 = b.bbox_max.x, by2 = b.bbox_max.y;
@@ -665,10 +704,54 @@ private:
       const float uni = area_a + area_b - inter + 1e-6f;
       return inter / uni;
     };
+    auto det_y_iou = [&](const fv_msgs::msg::Detection2D &a, const fv_msgs::msg::Detection2D &b){
+      const float ay1 = static_cast<float>(a.bbox_min.y);
+      const float ay2 = static_cast<float>(a.bbox_max.y);
+      const float by1 = static_cast<float>(b.bbox_min.y);
+      const float by2 = static_cast<float>(b.bbox_max.y);
+      const float iy1 = std::max(ay1, by1);
+      const float iy2 = std::min(ay2, by2);
+      const float ih = std::max(0.0f, iy2 - iy1);
+      const float ha = std::max(0.0f, ay2 - ay1);
+      const float hb = std::max(0.0f, by2 - by1);
+      const float uni_h = ha + hb - ih + 1e-6f;
+      return ih / uni_h;
+    };
+    auto contain_ratio = [&](const fv_msgs::msg::Detection2D &a, const fv_msgs::msg::Detection2D &b){
+      auto ax1 = a.bbox_min.x, ay1 = a.bbox_min.y, ax2 = a.bbox_max.x, ay2 = a.bbox_max.y;
+      auto bx1 = b.bbox_min.x, by1 = b.bbox_min.y, bx2 = b.bbox_max.x, by2 = b.bbox_max.y;
+      const float ix1 = static_cast<float>(std::max(ax1, bx1));
+      const float iy1 = static_cast<float>(std::max(ay1, by1));
+      const float ix2 = static_cast<float>(std::min(ax2, bx2));
+      const float iy2 = static_cast<float>(std::min(ay2, by2));
+      const float iw = std::max(0.0f, ix2 - ix1);
+      const float ih = std::max(0.0f, iy2 - iy1);
+      const float inter = iw * ih;
+      const float area_a = std::max(0.0f, static_cast<float>((ax2-ax1)*(ay2-ay1)));
+      const float area_b = std::max(0.0f, static_cast<float>((bx2-bx1)*(by2-by1)));
+      const float small = std::max(1e-6f, std::min(area_a, area_b));
+      return inter / small; // 小さい方に対する包含率
+    };
+    auto is_object = [&](const fv_msgs::msg::Detection2D &d){ return (d.source_mask & d.SOURCE_OBJECT) != 0; };
+    auto is_instance = [&](const fv_msgs::msg::Detection2D &d){ return (d.source_mask & d.SOURCE_INSTANCE) != 0; };
+
+    auto has_obj = [&](const fv_msgs::msg::Detection2D &d){ return (d.source_mask & d.SOURCE_OBJECT) != 0; };
+    auto has_inst = [&](const fv_msgs::msg::Detection2D &d){ return (d.source_mask & d.SOURCE_INSTANCE) != 0; };
+    auto is_fused_src = [&](const fv_msgs::msg::Detection2D &d){ return has_obj(d) && has_inst(d); };
+    auto priority = [&](const fv_msgs::msg::Detection2D &d){
+      if (is_fused_src(d)) return 2;
+      if (has_inst(d)) return 1;
+      return 0; // object-only 他
+    };
 
     std::vector<int> order(candidates.size());
     std::iota(order.begin(), order.end(), 0);
-    std::sort(order.begin(), order.end(), [&](int a, int b){return candidates[a].conf_fused > candidates[b].conf_fused;});
+    std::sort(order.begin(), order.end(), [&](int a, int b){
+      int pa = priority(candidates[a]);
+      int pb = priority(candidates[b]);
+      if (pa != pb) return pa > pb; // 高優先度から
+      return candidates[a].conf_fused > candidates[b].conf_fused;
+    });
     std::vector<char> suppressed(candidates.size(), 0);
     std::vector<fv_msgs::msg::Detection2D> selected;
     for (size_t oi = 0; oi < order.size(); ++oi) {
@@ -678,7 +761,48 @@ private:
       for (size_t oj = oi + 1; oj < order.size(); ++oj) {
         int j = order[oj];
         if (suppressed[j]) continue;
-        if (det_iou(candidates[i], candidates[j]) >= nms_iou_th_) suppressed[j] = 1;
+        float iouv = (nms_metric_ == std::string("y_iou")) ? det_y_iou(candidates[i], candidates[j]) : det_iou(candidates[i], candidates[j]);
+        if (iouv >= static_cast<float>(nms_iou_th_)) {
+          // 横方向ゲート: 横重なりが小さい/中心差が大きいペアはNMS抑制対象から外す
+          auto ax1 = candidates[i].bbox_min.x; auto ax2 = candidates[i].bbox_max.x;
+          auto bx1 = candidates[j].bbox_min.x; auto bx2 = candidates[j].bbox_max.x;
+          const float iwx = std::max(0.0f, static_cast<float>(std::min(ax2, bx2) - std::max(ax1, bx1)));
+          const float wa = std::max(0.0f, static_cast<float>(ax2 - ax1));
+          const float wb = std::max(0.0f, static_cast<float>(bx2 - bx1));
+          const float minw = std::max(1e-6f, std::min(wa, wb));
+          const float x_overlap_ratio = iwx / minw;
+          const float cxa = static_cast<float>(0.5 * (ax1 + ax2));
+          const float cxb = static_cast<float>(0.5 * (bx1 + bx2));
+          const float cx_diff = std::fabs(cxa - cxb);
+          if (nms_center_x_max_offset_px_ > 0 && cx_diff > static_cast<float>(nms_center_x_max_offset_px_)) {
+            continue; // 十分離れている → 別個体とみなす
+          }
+          if (nms_min_x_overlap_ratio_ > 0.0 && x_overlap_ratio < static_cast<float>(nms_min_x_overlap_ratio_)) {
+            continue; // 横の重なりが小さい → 別個体とみなす
+          }
+          bool cross_source = (has_obj(candidates[i]) != has_obj(candidates[j])) || (has_inst(candidates[i]) != has_inst(candidates[j]));
+          float cr = contain_ratio(candidates[i], candidates[j]);
+          if (cross_source && cr >= static_cast<float>(nms_contain_ratio_)) {
+            if (nms_keep_contained_cross_source_) {
+              continue; // 両方残す
+            }
+            // ポリシーに従って低優先度側を抑制
+            int pi = priority(candidates[i]);
+            int pj = priority(candidates[j]);
+            if (nms_cross_contained_policy_ == std::string("prefer_fused")) {
+              // fused > instance > object
+              if (pj < pi) suppressed[j] = 1; else suppressed[j] = 1; // 同等時はj抑制
+            } else { // prefer_instance（デフォルト）: instance(含fused)を優先
+              bool i_has_inst = has_inst(candidates[i]);
+              bool j_has_inst = has_inst(candidates[j]);
+              if (i_has_inst && !j_has_inst) { suppressed[j] = 1; }
+              else if (!i_has_inst && j_has_inst) { continue; } // jを残す
+              else { suppressed[j] = 1; }
+            }
+          } else {
+            suppressed[j] = 1; // 通常のNMS
+          }
+        }
       }
     }
 
@@ -1110,6 +1234,14 @@ private:
   std::string instance_label_{"instance"};
   double iou_th_{0.30};
   double nms_iou_th_{0.50};
+  double nms_contain_ratio_{0.85};
+  bool nms_keep_contained_cross_source_{true};
+  std::string nms_cross_contained_policy_{"prefer_instance"};
+  std::string match_metric_{"iou"};
+  std::string nms_metric_{"iou"};
+  int center_x_max_offset_px_{0};
+  double nms_min_x_overlap_ratio_{0.15};
+  int nms_center_x_max_offset_px_{0};
   double track_match_iou_th_{0.50};
   double w_object_{0.6};
   double w_instance_{0.4};

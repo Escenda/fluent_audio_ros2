@@ -17,6 +17,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc)
 find_package(fv_msgs REQUIRED)
 find_package(fluent_lib REQUIRED)
+find_package(std_srvs REQUIRED)
 
 set(FV_OPENCV_LIBS)
 if(TARGET opencv_core)
@@ -39,6 +40,7 @@ ament_target_dependencies(fv_aspara_ui_cpp_node
   tf2
   tf2_ros
   tf2_geometry_msgs
+  std_srvs
 )
 
 target_include_directories(fv_aspara_ui_cpp_node
