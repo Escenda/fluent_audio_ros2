@@ -626,6 +626,10 @@ private:
       }
     }
 
+    // ここまでの入れ子ブロックで括弧が1つ閉じ忘れられていたため補完
+    // （onImage関数のスコープを正しく閉じるための修正）
+    }
+
     // no global title; each bbox has its own JP title
 
     auto out = cv_bridge::CvImage(msg->header, sensor_msgs::image_encodings::BGR8, view).toImageMsg();
