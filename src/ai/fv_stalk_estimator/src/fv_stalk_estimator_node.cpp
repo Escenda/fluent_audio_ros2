@@ -7,6 +7,8 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/ModelCoefficients.h>
+#include <pcl/segmentation/sac_segmentation.h>
 #include <unordered_map>
 #include <mutex>
 
@@ -53,6 +55,12 @@ public:
     this->declare_parameter<bool>("smooth.enable", true);
     this->declare_parameter<double>("smooth.alpha", 0.6);        // prevの寄与（0.0-1.0）
     this->declare_parameter<double>("smooth.max_jump_m", 0.08);  // 大ジャンプ時はリセット
+    // 地面RANSAC（任意）: 前処理デバッグトピック（ground_remove前）から平面推定
+    this->declare_parameter<bool>("ground.enable", true);
+    this->declare_parameter<std::string>("ground.cloud_topic", "");
+    this->declare_parameter<double>("ground.distance_threshold", 0.01);
+    this->declare_parameter<int>("ground.max_iterations", 200);
+    this->declare_parameter<double>("ground.max_tilt_deg", 35.0); // 上向き法線との許容傾き
 
     readParameters();
 
@@ -73,6 +81,14 @@ public:
     pub_ = this->create_publisher<fv_msgs::msg::StalkMetricsArray>(output_topic_, rclcpp::QoS(10));
     if (publish_markers_) {
       marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(marker_topic_, rclcpp::QoS(10));
+    }
+    if (ground_enable_ && !ground_cloud_topic_.empty()) {
+      // ground_remove 前のデバッグ点群（例: /fv/d405/pointcloud/debug/step2_sor）
+      rclcpp::QoS qos(3); qos.best_effort();
+      ground_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+        ground_cloud_topic_, qos,
+        std::bind(&StalkEstimatorNode::onGroundCloud, this, std::placeholders::_1));
+      RCLCPP_INFO(get_logger(), "Ground RANSAC subscribed: %s", ground_cloud_topic_.c_str());
     }
 
     RCLCPP_INFO(get_logger(), "fv_stalk_estimator_node ready: cloud=%s counts=%s det=%s out=%s",
@@ -97,6 +113,11 @@ private:
     smooth_enable_ = this->get_parameter("smooth.enable").as_bool();
     smooth_alpha_ = this->get_parameter("smooth.alpha").as_double();
     smooth_max_jump_m_ = this->get_parameter("smooth.max_jump_m").as_double();
+    ground_enable_ = this->get_parameter("ground.enable").as_bool();
+    ground_cloud_topic_ = this->get_parameter("ground.cloud_topic").as_string();
+    ground_dist_thresh_ = this->get_parameter("ground.distance_threshold").as_double();
+    ground_max_iter_ = this->get_parameter("ground.max_iterations").as_int();
+    ground_max_tilt_deg_ = this->get_parameter("ground.max_tilt_deg").as_double();
     if (pca_trim_low_ < 0.0) pca_trim_low_ = 0.0;
     if (pca_trim_high_ > 1.0) pca_trim_high_ = 1.0;
     if (pca_trim_high_ <= pca_trim_low_) pca_trim_high_ = std::min(0.95, pca_trim_low_ + 0.8);
@@ -114,6 +135,37 @@ private:
     det_map_.clear();
     for (const auto &d : msg->detections) {
       det_map_[d.id] = d;
+    }
+  }
+
+  void onGroundCloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+    if (!ground_enable_) return;
+    CloudPtr cloud(new Cloud);
+    pcl::fromROSMsg(*msg, *cloud);
+    if (!cloud || cloud->points.size() < 100) return;
+    pcl::SACSegmentation<pcl::PointXYZRGB> seg; seg.setOptimizeCoefficients(true);
+    seg.setModelType(pcl::SACMODEL_PLANE); seg.setMethodType(pcl::SAC_RANSAC);
+    seg.setMaxIterations(std::max(50, ground_max_iter_));
+    seg.setDistanceThreshold(static_cast<float>(std::max(0.002, ground_dist_thresh_)));
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+    pcl::ModelCoefficients::Ptr coeff(new pcl::ModelCoefficients);
+    seg.setInputCloud(cloud);
+    seg.segment(*inliers, *coeff);
+    if (!coeff || coeff->values.size() < 4 || inliers->indices.size() < 50) return;
+    Eigen::Vector3f n(coeff->values[0], coeff->values[1], coeff->values[2]);
+    float d = coeff->values[3];
+    if (n.norm() < 1e-6f) return;
+    n.normalize();
+    // 法線を上向き(+Z)に揃える
+    Eigen::Vector3f up(0,0,1);
+    if (n.dot(up) < 0.0f) { n = -n; d = -d; }
+    double tilt_deg = std::acos(std::max(-1.0f, std::min(1.0f, n.dot(up)))) * 180.0 / M_PI;
+    if (tilt_deg > ground_max_tilt_deg_) {
+      return; // 傾き過大
+    }
+    {
+      std::lock_guard<std::mutex> lk(mutex_);
+      ground_n_ = n; ground_d_ = d; ground_valid_ = true; ground_frame_ = msg->header.frame_id; ground_stamp_ = msg->header.stamp;
     }
   }
 
@@ -193,13 +245,32 @@ private:
       Eigen::Vector3f pmin = metrics.center + metrics.axis * metrics.tmin;
       Eigen::Vector3f pmax = metrics.center + metrics.axis * metrics.tmax;
 
-      // 2D投影の下側(=vが大)を根本とみなす。PCA軸の符号反転に対して安定。
-      double vmin = projectV(pmin);
-      double vmax = projectV(pmax);
-      bool use_y_fallback = !intr_.valid();
-      double a = use_y_fallback ? static_cast<double>(pmin.y()) : vmin;
-      double b = use_y_fallback ? static_cast<double>(pmax.y()) : vmax;
-      if (b >= a) { p_root = pmax; p_tip = pmin; } else { p_root = pmin; p_tip = pmax; }
+      // 地面RANSACが有効なら、平面からの高さで根本を決定（低い方=根本）。
+      // 使えない場合は2D投影の下側を根本。
+      bool used_plane = false;
+      Eigen::Vector3f n_local; float d_local;
+      {
+        std::lock_guard<std::mutex> lk(mutex_);
+        if (ground_valid_) { n_local = ground_n_; d_local = ground_d_; used_plane = true; }
+      }
+      if (used_plane) {
+        auto signed_height = [&](const Eigen::Vector3f &p){ return n_local.dot(p) + d_local; };
+        double ha = signed_height(pmin);
+        double hb = signed_height(pmax);
+        // より低い(小さい)方を根本に
+        if (hb <= ha) { p_root = pmax; p_tip = pmin; } else { p_root = pmin; p_tip = pmax; }
+        // 平面に近すぎて差が小さい場合は2D投影にフォールバック（1cm未満）
+        if (std::abs(hb - ha) < 0.01) used_plane = false;
+      }
+      if (!used_plane) {
+        // 2D投影の下側(=vが大)を根本とみなす
+        double vmin = projectV(pmin);
+        double vmax = projectV(pmax);
+        bool use_y_fallback = !intr_.valid();
+        double a = use_y_fallback ? static_cast<double>(pmin.y()) : vmin;
+        double b = use_y_fallback ? static_cast<double>(pmax.y()) : vmax;
+        if (b >= a) { p_root = pmax; p_tip = pmin; } else { p_root = pmin; p_tip = pmax; }
+      }
       if (invert_vertical_) std::swap(p_root, p_tip);
 
       // 時系列スムージング（IDごと）
@@ -331,6 +402,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Publisher<fv_msgs::msg::StalkMetricsArray>::SharedPtr pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr ground_sub_;
 
   // state
   std::mutex mutex_;
@@ -339,6 +411,17 @@ private:
   builtin_interfaces::msg::Time last_det_stamp_;
   Intrinsics intr_;
   std::unordered_map<int32_t, std::pair<Eigen::Vector3f, Eigen::Vector3f>> last_rt_;
+  // Ground plane (n.x * X + n.y * Y + n.z * Z + d = 0), n is upward
+  Eigen::Vector3f ground_n_{0,0,1};
+  float ground_d_{0.0f};
+  bool ground_valid_{false};
+  std::string ground_frame_;
+  builtin_interfaces::msg::Time ground_stamp_;
+  bool ground_enable_{true};
+  std::string ground_cloud_topic_;
+  double ground_dist_thresh_{0.01};
+  int ground_max_iter_{200};
+  double ground_max_tilt_deg_{35.0};
 };
 
 } // namespace fv_stalk_estimator

@@ -95,6 +95,8 @@ public:
     declare_parameter<int>("selection.fixed.box.y_top_px", 5);
     declare_parameter<double>("selection.fixed.box.width_ratio", 0.20);
     declare_parameter<double>("selection.fixed.box.height_ratio", 0.50);
+    // Selection stability
+    declare_parameter<int>("selection.lock_frames", 10);
     declare_parameter<int>("selection.hold_frames", 5);
     declare_parameter<double>("selection.switch_conf_margin", 0.05);
     // Display filter (UI only)
@@ -162,6 +164,7 @@ public:
     sel_fix_yt_px_ = get_parameter("selection.fixed.box.y_top_px").as_int();
     sel_fix_wr_ = get_parameter("selection.fixed.box.width_ratio").as_double();
     sel_fix_hr_ = get_parameter("selection.fixed.box.height_ratio").as_double();
+    sel_lock_frames_ = std::max<int>(0, static_cast<int>(get_parameter("selection.lock_frames").as_int()));
     sel_hold_frames_ = std::max<int>(0, static_cast<int>(get_parameter("selection.hold_frames").as_int()));
     sel_switch_margin_ = get_parameter("selection.switch_conf_margin").as_double();
     disp_filter_enable_ = get_parameter("display_filter.enable").as_bool();
@@ -264,6 +267,23 @@ private:
       if (cand_index >= 0 && cand_index < static_cast<int>(last_dets_->detections.size())) {
         const auto &cand = last_dets_->detections[static_cast<size_t>(cand_index)];
         double cand_conf = static_cast<double>(cand.conf_fused);
+        // Hard lock: keep previous id for sel_lock_frames_ if still present
+        if (last_selected_id_ >= 0 && lock_left_ > 0) {
+          int prev_idx = -1;
+          for (size_t i = 0; i < last_dets_->detections.size(); ++i) {
+            if (last_dets_->detections[i].id == last_selected_id_) { prev_idx = static_cast<int>(i); break; }
+          }
+          if (prev_idx >= 0) {
+            selected_index = prev_idx;
+            selected_id = last_selected_id_;
+            selected_conf = static_cast<double>(last_dets_->detections[static_cast<size_t>(prev_idx)].conf_fused);
+            lock_left_ = std::max(0, lock_left_ - 1);
+            // skip further switching logic while locked
+          } else {
+            // lost previous target, fall through to normal logic and reset lock on selection
+          }
+        }
+        if (selected_id < 0) {
         // Hysteresis: keep previous selection for a few frames unless strong improvement
         if (last_selected_id_ >= 0 && cand.id != last_selected_id_ && hold_count_ < sel_hold_frames_) {
           if (cand_conf <= last_selected_conf_ + sel_switch_margin_) {
@@ -279,13 +299,15 @@ private:
               hold_count_++;
             } else {
               selected_index = cand_index; selected_id = cand.id; selected_conf = cand_conf; hold_count_ = 0;
+              if (sel_lock_frames_ > 0) lock_left_ = sel_lock_frames_;
             }
           } else {
             selected_index = cand_index; selected_id = cand.id; selected_conf = cand_conf; hold_count_ = 0;
+            if (sel_lock_frames_ > 0) lock_left_ = sel_lock_frames_;
           }
         } else {
           selected_index = cand_index; selected_id = cand.id; selected_conf = cand_conf;
-          if (selected_id == last_selected_id_) { hold_count_++; } else { hold_count_ = 0; }
+          if (selected_id == last_selected_id_) { hold_count_++; } else { hold_count_ = 0; if (sel_lock_frames_ > 0) lock_left_ = sel_lock_frames_; }
         }
       }
     }
@@ -574,9 +596,13 @@ private:
                 char ln3[128]; std::snprintf(ln3, sizeof(ln3), "3D root(%.1f,%.1f,%.1f)cm", root_p.x*100.0, root_p.y*100.0, root_p.z*100.0);
                 fluent::text::drawShadow(view, ln3, cv::Point(x,y), cv::Scalar(200,255,200), cv::Scalar(0,0,0), selinfo_font_scale_, selinfo_thickness_, 0);
                 y += 14;
-                char ln4[128]; std::snprintf(ln4, sizeof(ln4), "長さ %.1fcm 直径 %.1fcm", m.length_m*length_scale_/100.0*100.0, m.thickness_m*diameter_scale_/100.0*100.0);
-                // 上式は実質 m.length_m*(cm換算) と同じ。見やすさ優先。
-                fluent::text::drawShadow(view, ln4, cv::Point(x,y), cv::Scalar(255,255,255), cv::Scalar(0,0,0), selinfo_font_scale_, selinfo_thickness_, 0);
+                char ln4[128];
+                std::snprintf(ln4, sizeof(ln4), "長さ %.1f %s 直径 %.1f %s",
+                              m.length_m * length_scale_, length_unit_.c_str(),
+                              m.thickness_m * diameter_scale_, diameter_unit_.c_str());
+                fluent::text::drawShadow(view, ln4, cv::Point(x,y),
+                                         cv::Scalar(255,255,255), cv::Scalar(0,0,0),
+                                         selinfo_font_scale_, selinfo_thickness_, 0);
               }
 
               if (seltf_enable_ && tf_broadcaster_) {
@@ -717,6 +743,8 @@ private:
   double sel_fix_wr_{0.20}, sel_fix_hr_{0.50};
   int sel_hold_frames_{5};
   double sel_switch_margin_{0.05};
+  int sel_lock_frames_{10};
+  int lock_left_{0};
   int last_selected_id_{-1};
   int hold_count_{0};
   double last_selected_conf_{0.0};
