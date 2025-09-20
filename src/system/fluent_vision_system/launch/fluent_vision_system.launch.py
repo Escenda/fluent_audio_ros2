@@ -306,6 +306,179 @@ def launch_setup(context, *args, **kwargs):
 
         # グループ間に待機を入れて電源負荷をさらに低減
         delay += inter_group_delay
+    
+    # --- Optional: RTAB-Map integration -------------------------------------
+    try:
+        rtab_cfg: Dict[str, Any] = (cfg.get('system', {}).get('rtabmap') or {})
+        rtab_enabled = bool(rtab_cfg.get('enable', False))
+    except Exception:
+        rtab_cfg = {}
+        rtab_enabled = False
+
+    if rtab_enabled:
+        database_path = str(rtab_cfg.get('database_path', '/recordings/rtabmap/rtabmap.db'))
+        localization = bool(rtab_cfg.get('localization', False))
+        use_viz = bool(rtab_cfg.get('rtabmapviz', False))
+        rtab_delay = float(rtab_cfg.get('launch_delay', 2.0))
+        mode = str(rtab_cfg.get('mode', 'rgbd_single')).lower()
+        dual_depth = bool(rtab_cfg.get('dual_depth', False))
+
+        # 共通: オドメトリ（カメラ1側を使用）
+        cam1_rgb = str(rtab_cfg.get('cam1', {}).get('rgb', '/fv/d415/color/image_raw'))
+        cam1_depth = str(rtab_cfg.get('cam1', {}).get('depth', '/fv/d415/depth/image_rect_raw'))
+        cam1_info = str(rtab_cfg.get('cam1', {}).get('info', '/fv/d415/color/camera_info'))
+
+        odom_params: Dict[str, Any] = {
+            'frame_id': 'base_link',
+            'odom_frame_id': 'odom',
+            'publish_tf': True,
+            'approx_sync': True,
+            'approx_sync_max_interval': 0.08,
+            'wait_for_transform': 0.2,
+            'Odom/Strategy': '1',             # Frame-to-Frame
+            'Vis/MinInliers': '15',
+            'Vis/InlierDistance': '0.1',
+            'Vis/RefineIterations': '5',
+        }
+        rgbd_odometry = Node(
+            package='rtabmap_odom',
+            executable='rgbd_odometry',
+            name='rgbd_odometry',
+            output='screen',
+            parameters=[odom_params],
+            remappings=[
+                ('rgb/image', cam1_rgb),
+                ('depth/image', cam1_depth),
+                ('rgb/camera_info', cam1_info),
+            ],
+        )
+
+        # デュアル深度カメラ構成
+        if mode in ('rgbd_dual', 'dual') or dual_depth:
+            cam0_rgb = str(rtab_cfg.get('cam0', {}).get('rgb', '/fv/d405/color/image_raw'))
+            cam0_depth = str(rtab_cfg.get('cam0', {}).get('depth', '/fv/d405/depth/image_rect_raw'))
+            cam0_info = str(rtab_cfg.get('cam0', {}).get('info', '/fv/d405/color/camera_info'))
+
+            # 2系統のRGB-D同期ノード
+            rgbd_sync0 = Node(
+                package='rtabmap_sync',
+                executable='rgbd_sync',
+                name='rgbd_sync0',
+                output='screen',
+                parameters=[{'approx_sync': True, 'queue_size': 30}],
+                remappings=[
+                    ('rgb/image', cam0_rgb),
+                    ('depth/image', cam0_depth),
+                    ('rgb/camera_info', cam0_info),
+                    ('rgbd_image', 'rgbd_image0'),
+                ],
+            )
+            rgbd_sync1 = Node(
+                package='rtabmap_sync',
+                executable='rgbd_sync',
+                name='rgbd_sync1',
+                output='screen',
+                parameters=[{'approx_sync': True, 'queue_size': 30}],
+                remappings=[
+                    ('rgb/image', cam1_rgb),
+                    ('depth/image', cam1_depth),
+                    ('rgb/camera_info', cam1_info),
+                    ('rgbd_image', 'rgbd_image1'),
+                ],
+            )
+
+            rtab_params: Dict[str, Any] = {
+                'frame_id': 'base_link',
+                'map_frame_id': 'map',
+                'odom_frame_id': 'odom',
+                'subscribe_rgbd': True,
+                'rgbd_cameras': 2,
+                'subscribe_scan': False,
+                'subscribe_odom': True,
+                'queue_size': 30,
+                'wait_for_transform': 0.2,
+                'database_path': database_path,
+                'Mem/IncrementalMemory': not localization,
+            }
+            rtabmap = Node(
+                package='rtabmap_slam',
+                executable='rtabmap',
+                name='rtabmap',
+                output='screen',
+                parameters=[rtab_params],
+                remappings=[
+                    ('rgbd_image0', 'rgbd_image0'),
+                    ('rgbd_image1', 'rgbd_image1'),
+                    ('odom', '/odom'),
+                ],
+                arguments=['-d'],
+            )
+
+            actions.append(LogInfo(msg='[fluent_vision_system] RTABMap dual RGB-D enabled'))
+            actions.append(TimerAction(period=delay + rtab_delay, actions=[rgbd_sync0]))
+            actions.append(TimerAction(period=delay + rtab_delay, actions=[rgbd_sync1]))
+            actions.append(TimerAction(period=delay + rtab_delay + 0.3, actions=[rgbd_odometry]))
+            actions.append(TimerAction(period=delay + rtab_delay + 0.6, actions=[rtabmap]))
+
+        else:
+            # シングルカメラ（既定: D415）
+            rtab_params: Dict[str, Any] = {
+                'frame_id': 'base_link',
+                'map_frame_id': 'map',
+                'odom_frame_id': 'odom',
+                'subscribe_depth': True,
+                'subscribe_rgb': True,
+                'subscribe_scan': False,
+                'subscribe_odom': True,
+                'approx_sync': True,
+                'queue_size': 30,
+                'wait_for_transform': 0.2,
+                'database_path': database_path,
+                'Mem/IncrementalMemory': not localization,
+            }
+            rtabmap = Node(
+                package='rtabmap_slam',
+                executable='rtabmap',
+                name='rtabmap',
+                output='screen',
+                parameters=[rtab_params],
+                remappings=[
+                    ('rgb/image', cam1_rgb),
+                    ('depth/image', cam1_depth),
+                    ('rgb/camera_info', cam1_info),
+                    ('odom', '/odom'),
+                ],
+                arguments=['-d'],
+            )
+
+            actions.append(LogInfo(msg='[fluent_vision_system] RTABMap single RGB-D enabled'))
+            actions.append(TimerAction(period=delay + rtab_delay, actions=[rgbd_odometry]))
+            actions.append(TimerAction(period=delay + rtab_delay + 0.5, actions=[rtabmap]))
+
+        # 可視化は必要時のみ（単一カメラのトピックに接続）
+        if use_viz:
+            viz_node = Node(
+                package='rtabmap_viz',
+                executable='rtabmap_viz',
+                name='rtabmapviz',
+                output='screen',
+                parameters=[{
+                    'subscribe_depth': True,
+                    'subscribe_rgb': True,
+                    'subscribe_scan': False,
+                    'subscribe_odom_info': True,
+                    'frame_id': 'base_link',
+                    'odom_frame_id': 'odom',
+                    'wait_for_transform': 0.2,
+                }],
+                remappings=[
+                    ('rgb/image', cam1_rgb),
+                    ('depth/image', cam1_depth),
+                    ('rgb/camera_info', cam1_info),
+                    ('odom', '/odom'),
+                ],
+            )
+            actions.append(TimerAction(period=delay + rtab_delay + 1.0, actions=[viz_node]))
 
     return actions
 

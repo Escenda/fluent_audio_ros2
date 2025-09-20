@@ -1,12 +1,12 @@
 steps:
   - type: voxel_grid
-    leaf_size: 0.005
-    debug_topic: step_voxel
+    leaf_size: 0.004
+    debug_topic: step1_voxel
 
   - type: statistical_outlier
     mean_k: 20
     stddev_mul: 1.0
-    debug_topic: step_sor
+    debug_topic: step2_sor
 
   - type: ground_remove
     distance_threshold: 0.015
@@ -14,16 +14,16 @@ steps:
     axis: [0.0, 0.0, 1.0]
     angular_threshold_deg: 25.0
     keep_largest_cluster: true
-    debug_topic: step_ground
+    debug_topic: step3_ground
 
   - type: pass_through
     field: z
     min: $root_depth - 0.08
     max: $root_depth + 0.08
-    debug_topic: step_zband
+    debug_topic: step4_zband
 
   - type: cluster_keep_largest
     tolerance: 0.015
     min_size: 25
     max_size: 120000
-    debug_topic: step_cluster
+    debug_topic: step5_cluster

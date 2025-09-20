@@ -42,6 +42,7 @@ public:
     declare_parameter<bool>("draw_confidence", true);
     declare_parameter<bool>("draw_metrics", true);
     declare_parameter<bool>("draw_root_tip", true);
+    declare_parameter<bool>("draw_root_xyz", false);
     // 画面左上タイトルは使わず、各矩形にタイトル（アスパラ）を描画する方針
     // 後方互換のため draw_title パラメータは宣言のみ行い無視する
     declare_parameter<bool>("draw_title", false);
@@ -89,6 +90,7 @@ public:
     draw_confidence_ = get_parameter("draw_confidence").as_bool();
     draw_metrics_ = get_parameter("draw_metrics").as_bool();
     draw_root_tip_ = get_parameter("draw_root_tip").as_bool();
+    draw_root_xyz_ = get_parameter("draw_root_xyz").as_bool();
     draw_title_ = get_parameter("draw_title").as_bool();
     draw_invalid_area_ = get_parameter("draw_invalid_area").as_bool();
     invalid_enabled_ = get_parameter("invalid_area.enabled").as_bool();
@@ -291,8 +293,8 @@ private:
       }
     }
 
-    // Draw per-bbox JP title after mask overlay (so it stays on top)
-    if (last_dets_) {
+    // Draw per-bbox JP title only when label/conf requested
+    if ((draw_labels_ || draw_confidence_) && last_dets_) {
       for (size_t idx = 0; idx < last_dets_->detections.size(); ++idx) {
         const auto &d = last_dets_->detections[idx];
         int x1 = static_cast<int>(std::floor(d.bbox_min.x));
@@ -383,12 +385,14 @@ private:
               cv::Point p0((int)uv0.first,(int)uv0.second);
               cv::circle(view, p0, 4, cv::Scalar(0,0,255), -1);
               if (selected_id == m.id) cv::circle(view, p0, 7, cv::Scalar(0,255,255), 2);
-              char xyz[128];
-              std::snprintf(xyz, sizeof(xyz), "x=%.1f y=%.1f z=%.1f cm",
-                            (double)m.root_camera.x*100.0, (double)m.root_camera.y*100.0, (double)m.root_camera.z*100.0);
-              cv::Point torg = p0 + cv::Point(8, -6);
-              fluent::text::drawShadow(view, std::string(xyz), torg,
-                                       cv::Scalar(255,255,255), cv::Scalar(0,0,0), 0.5, 1, 0);
+              if (draw_root_xyz_) {
+                char xyz[128];
+                std::snprintf(xyz, sizeof(xyz), "x=%.1f y=%.1f z=%.1f cm",
+                              (double)m.root_camera.x*100.0, (double)m.root_camera.y*100.0, (double)m.root_camera.z*100.0);
+                cv::Point torg = p0 + cv::Point(8, -6);
+                fluent::text::drawShadow(view, std::string(xyz), torg,
+                                         cv::Scalar(255,255,255), cv::Scalar(0,0,0), 0.5, 1, 0);
+              }
             }
             if (m.tip_camera.z > 0.0) {
               auto uv1 = project(m.tip_camera.x, m.tip_camera.y, m.tip_camera.z);
@@ -487,6 +491,7 @@ private:
   bool draw_confidence_{true};
   bool draw_metrics_{true};
   bool draw_root_tip_{true};
+  bool draw_root_xyz_{false};
   bool draw_invalid_area_{true};
   bool invalid_enabled_{false};
   bool invalid_any_overlap_{true};

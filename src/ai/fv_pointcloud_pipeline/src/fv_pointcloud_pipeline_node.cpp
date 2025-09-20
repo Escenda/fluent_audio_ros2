@@ -24,6 +24,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <deque>
 #include <utility>
 #include <vector>
 
@@ -69,6 +70,14 @@ public:
         detections_topic_, rclcpp::QoS(10),
         std::bind(&PointcloudPipelineNode::handleDetections, this, std::placeholders::_1));
 
+    // Optional ROI mask subscriber (best effort)
+    if (!mask_topic_.empty()) {
+      mask_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+          mask_topic_, rclcpp::QoS(1).best_effort(),
+          std::bind(&PointcloudPipelineNode::handleMask, this, std::placeholders::_1));
+      RCLCPP_INFO(get_logger(), "Subscribed roi mask: %s", mask_topic_.c_str());
+    }
+
     parameter_callback_handle_ = this->add_on_set_parameters_callback(
         [this](const std::vector<rclcpp::Parameter> &params) {
           return onParametersSet(params);
@@ -97,6 +106,9 @@ private:
     this->declare_parameter<std::string>("depth_topic", "/fv/d405/depth/image_rect_raw");
     this->declare_parameter<std::string>("camera_info_topic", "/fv/d405/depth/camera_info");
     this->declare_parameter<std::string>("detections_topic", "/fv/d405/detection_fusion/rois");
+    // Optional fused ROI mask (from detection_fusion)
+    this->declare_parameter<std::string>("mask_topic", "");
+    this->declare_parameter<int>("mask_threshold", 128);
     this->declare_parameter<std::string>("output_topic", "/fv/d405/pointcloud/filtered");
     this->declare_parameter<std::string>("counts_topic", "");
     this->declare_parameter<std::string>("debug_namespace", "/fv/d405/pointcloud/debug");
@@ -111,6 +123,11 @@ private:
     this->declare_parameter<std::string>("color_qos_reliability", "reliable");
     this->declare_parameter<bool>("publish_debug_clouds", true);
     this->declare_parameter<std::string>("output_frame", "");
+    // Temporal accumulation (optional)
+    this->declare_parameter<bool>("accumulate.enable", false);
+    this->declare_parameter<int>("accumulate.frames", 3);
+    this->declare_parameter<double>("accumulate.min_iou", 0.5);
+    this->declare_parameter<int>("accumulate.max_points", 50000);
   }
 
   void readParameters() {
@@ -118,6 +135,8 @@ private:
     depth_topic_ = this->get_parameter("depth_topic").as_string();
     camera_info_topic_ = this->get_parameter("camera_info_topic").as_string();
     detections_topic_ = this->get_parameter("detections_topic").as_string();
+    mask_topic_ = this->get_parameter("mask_topic").as_string();
+    mask_threshold_ = this->get_parameter("mask_threshold").as_int();
     output_topic_ = this->get_parameter("output_topic").as_string();
     counts_topic_ = this->get_parameter("counts_topic").as_string();
     debug_namespace_ = this->get_parameter("debug_namespace").as_string();
@@ -132,6 +151,10 @@ private:
     color_qos_reliability_ = this->get_parameter("color_qos_reliability").as_string();
     publish_debug_clouds_ = this->get_parameter("publish_debug_clouds").as_bool();
     output_frame_override_ = this->get_parameter("output_frame").as_string();
+    accumulate_enable_ = this->get_parameter("accumulate.enable").as_bool();
+    accumulate_frames_ = std::max<int>(1, static_cast<int>(this->get_parameter("accumulate.frames").as_int()));
+    accumulate_min_iou_ = this->get_parameter("accumulate.min_iou").as_double();
+    accumulate_max_points_ = std::max<int>(1000, static_cast<int>(this->get_parameter("accumulate.max_points").as_int()));
   }
 
   rclcpp::QoS makeQoS(int depth, const std::string &reliability) const {
@@ -285,11 +308,13 @@ private:
     sensor_msgs::msg::Image::SharedPtr depth_msg;
     sensor_msgs::msg::Image::SharedPtr color_msg;
     sensor_msgs::msg::CameraInfo::SharedPtr camera_info;
+    sensor_msgs::msg::Image::SharedPtr mask_msg;
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
       depth_msg = latest_depth_;
       color_msg = latest_color_;
       camera_info = latest_camera_info_;
+      mask_msg = latest_mask_;
     }
 
     if (!depth_msg || !camera_info) {
@@ -330,18 +355,51 @@ private:
     detection_ids.reserve(msg->detections.size());
     detection_counts.reserve(msg->detections.size());
 
+    // Prepare mask image (MONO8) resized to depth resolution if provided
+    cv::Mat mask_for_depth;
+    if (mask_msg) {
+      try {
+        auto mbridge = cv_bridge::toCvShare(mask_msg);
+        if (mbridge->image.channels() == 1) {
+          mask_for_depth = mbridge->image;
+        } else {
+          cv::cvtColor(mbridge->image, mask_for_depth, cv::COLOR_BGR2GRAY);
+        }
+        if (mask_for_depth.size() != depth_bridge->image.size()) {
+          cv::resize(mask_for_depth, mask_for_depth, depth_bridge->image.size(), 0, 0, cv::INTER_NEAREST);
+        }
+      } catch (const std::exception &ex) {
+        RCLCPP_WARN(get_logger(), "cv_bridge mask conversion failed: %s", ex.what());
+        mask_for_depth.release();
+      }
+    }
+
     for (const auto &det : msg->detections) {
       detection_ids.push_back(det.id);
       uint32_t appended_points = 0;
 
       const auto roi = detectionToRoi(det, depth_bridge->image.cols, depth_bridge->image.rows);
       if (roi.width > 0 && roi.height > 0) {
-        auto roi_cloud = extractCloud(depth_bridge->image, color_bridge ? color_bridge->image : cv::Mat(),
+        auto roi_cloud = extractCloud(depth_bridge->image,
+                                      color_bridge ? color_bridge->image : cv::Mat(),
+                                      mask_for_depth,
                                       roi, det);
+        // Temporal accumulation across frames (per detection id)
+        if (accumulate_enable_ && roi_cloud && !roi_cloud->empty()) {
+          auto merged = accumulateCloud(det.id, roi, roi_cloud);
+          if (merged && !merged->empty()) roi_cloud = merged;
+        }
         if (roi_cloud && !roi_cloud->empty()) {
           fluent_cloud::pipeline::FilterContext ctx;
+          // root_depth: 検出ヒントが無い場合はROI内深度の中央値でフォールバック
+          double root_depth = std::numeric_limits<double>::quiet_NaN();
           if (std::isfinite(det.depth_hint_m) && det.depth_hint_m > 0.0f) {
-            ctx.scalars["root_depth"] = det.depth_hint_m;
+            root_depth = static_cast<double>(det.depth_hint_m);
+          } else {
+            root_depth = estimateRoiMedianDepth(depth_bridge->image, mask_for_depth, roi);
+          }
+          if (std::isfinite(root_depth) && root_depth > 0.0) {
+            ctx.scalars["root_depth"] = root_depth;
           }
           ctx.scalars["roi_width_px"] = static_cast<double>(roi.width);
           ctx.scalars["roi_height_px"] = static_cast<double>(roi.height);
@@ -397,13 +455,20 @@ private:
   }
 
   CloudPtr extractCloud(const cv::Mat &depth, const cv::Mat &color,
+                        const cv::Mat &mask,
                         const cv::Rect &roi, [[maybe_unused]] const fv_msgs::msg::Detection2D &det) const {
     CloudPtr cloud(new Cloud);
     cloud->is_dense = false;
     const bool has_color = !color.empty();
+    const bool use_mask = !mask.empty();
 
     for (int v = roi.y; v < roi.y + roi.height; v += sample_stride_px_) {
       for (int u = roi.x; u < roi.x + roi.width; u += sample_stride_px_) {
+        if (use_mask) {
+          uint8_t m = mask.at<uint8_t>(std::clamp(v, 0, mask.rows - 1),
+                                       std::clamp(u, 0, mask.cols - 1));
+          if (m < mask_threshold_) continue; // outside ROI mask
+        }
         double depth_m = depthAt(depth, v, u);
         if (!std::isfinite(depth_m) || depth_m <= 0.0) {
           continue;
@@ -432,6 +497,51 @@ private:
     }
 
     return cloud;
+  }
+
+  // IoU between two rects
+  static double rectIoU(const cv::Rect &a, const cv::Rect &b) {
+    int x1 = std::max(a.x, b.x);
+    int y1 = std::max(a.y, b.y);
+    int x2 = std::min(a.x + a.width, b.x + b.width);
+    int y2 = std::min(a.y + a.height, b.y + b.height);
+    int iw = std::max(0, x2 - x1);
+    int ih = std::max(0, y2 - y1);
+    double inter = static_cast<double>(iw) * static_cast<double>(ih);
+    double uni = static_cast<double>(a.area() + b.area()) - inter + 1e-9;
+    return inter / uni;
+  }
+
+  // Accumulate recent ROI clouds per detection id
+  CloudPtr accumulateCloud(int32_t id, const cv::Rect &roi, const CloudPtr &current) {
+    auto &acc = accum_[id];
+    // Reset if ROI moves too much (low IoU)
+    if (acc.has_roi) {
+      double iou = rectIoU(acc.last_roi, roi);
+      if (iou < accumulate_min_iou_) {
+        acc.buffers.clear();
+      }
+    }
+    acc.last_roi = roi;
+    acc.has_roi = true;
+    acc.buffers.push_back(current);
+    while (static_cast<int>(acc.buffers.size()) > accumulate_frames_) {
+      acc.buffers.pop_front();
+    }
+    // Merge with cap
+    CloudPtr merged(new Cloud);
+    merged->is_dense = false;
+    for (const auto &c : acc.buffers) {
+      if (!c) continue;
+      for (const auto &p : c->points) {
+        merged->points.push_back(p);
+        if (static_cast<int>(merged->points.size()) >= accumulate_max_points_) break;
+      }
+      if (static_cast<int>(merged->points.size()) >= accumulate_max_points_) break;
+    }
+    merged->width = merged->points.size();
+    merged->height = 1;
+    return merged;
   }
 
   double depthAt(const cv::Mat &depth, int row, int col) const {
@@ -503,11 +613,43 @@ private:
     return msg;
   }
 
+  // ROI内の深度中央値を推定（mask>=threshold の画素のみ使用）
+  double estimateRoiMedianDepth(const cv::Mat &depth,
+                                const cv::Mat &mask,
+                                const cv::Rect &roi) const {
+    std::vector<double> samples;
+    samples.reserve(static_cast<size_t>((roi.width / std::max(1, sample_stride_px_)) *
+                                        (roi.height / std::max(1, sample_stride_px_))));
+    const bool use_mask = !mask.empty();
+    for (int v = roi.y; v < roi.y + roi.height; v += std::max(1, sample_stride_px_)) {
+      for (int u = roi.x; u < roi.x + roi.width; u += std::max(1, sample_stride_px_)) {
+        if (use_mask) {
+          uint8_t m = mask.at<uint8_t>(std::clamp(v, 0, mask.rows - 1),
+                                       std::clamp(u, 0, mask.cols - 1));
+          if (m < mask_threshold_) continue;
+        }
+        double d = depthAt(depth, v, u);
+        if (std::isfinite(d) && d > 0.0 && d >= min_depth_m_ && d <= max_depth_m_) {
+          samples.push_back(d);
+        }
+      }
+    }
+    if (samples.size() < 8) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    // メディアン
+    size_t mid = samples.size() / 2;
+    std::nth_element(samples.begin(), samples.begin() + mid, samples.end());
+    double median = samples[mid];
+    return median;
+  }
+
   // Parameters
   std::string color_topic_;
   std::string depth_topic_;
   std::string camera_info_topic_;
   std::string detections_topic_;
+  std::string mask_topic_;
   std::string output_topic_;
   std::string counts_topic_;
   std::string debug_namespace_;
@@ -522,12 +664,19 @@ private:
   int color_qos_depth_{5};
   std::string color_qos_reliability_{"reliable"};
   bool publish_debug_clouds_{true};
+  int mask_threshold_{128};
+  // Accumulation params
+  bool accumulate_enable_{false};
+  int accumulate_frames_{3};
+  double accumulate_min_iou_{0.5};
+  int accumulate_max_points_{50000};
 
   // Subscriptions / publishers
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr color_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_sub_;
   rclcpp::Subscription<fv_msgs::msg::DetectionArray>::SharedPtr detections_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr mask_sub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_pub_;
   rclcpp::Publisher<fv_msgs::msg::DetectionCloudIndices>::SharedPtr counts_pub_;
   std::unordered_map<std::string, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr> debug_publishers_;
@@ -537,12 +686,25 @@ private:
   sensor_msgs::msg::Image::SharedPtr latest_depth_;
   sensor_msgs::msg::Image::SharedPtr latest_color_;
   sensor_msgs::msg::CameraInfo::SharedPtr latest_camera_info_;
+  sensor_msgs::msg::Image::SharedPtr latest_mask_;
   CameraIntrinsics intrinsics_;
 
   fluent_cloud::pipeline::PipelineConfig pipeline_config_;
   std::vector<StepDebugInfo> step_debug_info_;
 
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_handle_;
+
+  void handleMask(const sensor_msgs::msg::Image::SharedPtr msg) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    latest_mask_ = msg;
+  }
+
+  struct AccumState {
+    std::deque<CloudPtr> buffers;
+    cv::Rect last_roi;
+    bool has_roi{false};
+  };
+  std::unordered_map<int32_t, AccumState> accum_;
 };
 
 }  // namespace fv_pointcloud_pipeline
@@ -554,4 +716,3 @@ int main(int argc, char **argv) {
   rclcpp::shutdown();
   return 0;
 }
-
