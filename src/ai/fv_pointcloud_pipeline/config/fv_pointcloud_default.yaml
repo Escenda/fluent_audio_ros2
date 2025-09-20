@@ -1,11 +1,11 @@
 steps:
   - type: voxel_grid
-    leaf_size: 0.004
+    leaf_size: 0.0035
     debug_topic: step1_voxel
 
   - type: statistical_outlier
     mean_k: 20
-    stddev_mul: 1.0
+    stddev_mul: 1.2
     debug_topic: step2_sor
 
   - type: ground_remove
@@ -18,8 +18,8 @@ steps:
 
   - type: pass_through
     field: z
-    min: $root_depth - 0.08
-    max: $root_depth + 0.08
+    min: "$root_depth - 0.05"
+    max: "$root_depth + 0.03"
     debug_topic: step4_zband
 
   - type: cluster_keep_largest

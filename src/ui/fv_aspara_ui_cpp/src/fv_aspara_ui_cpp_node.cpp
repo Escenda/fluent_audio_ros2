@@ -35,14 +35,25 @@ public:
     // IDごとの色（B,G,Rの順で3つ1組）
     declare_parameter<std::vector<int>>("id_color_palette_bgr",
       std::vector<int>{
-        255,0,0,  0,255,0,  0,0,255,  255,255,0,  255,0,255,  0,255,255,
-        0,165,255, 128,0,128, 0,255,128, 128,128,0, 128,128,128
+        // vivid BGR palette (no grays)
+        0,0,255,    0,255,0,    255,0,0,    0,255,255,  255,0,255,  255,255,0,
+        0,165,255,  180,105,255,  0,215,255,  203,192,255,  77,255,255,  255,144,30
       });
+    // bbox colors (avoid grays)
+    declare_parameter<int>("selected_box_color_bgr[0]", 0);
+    declare_parameter<int>("selected_box_color_bgr[1]", 255);
+    declare_parameter<int>("selected_box_color_bgr[2]", 0);
+    declare_parameter<int>("unselected_box_color_bgr[0]", 0);   // orange-ish
+    declare_parameter<int>("unselected_box_color_bgr[1]", 165);
+    declare_parameter<int>("unselected_box_color_bgr[2]", 255);
     declare_parameter<bool>("draw_labels", true);
     declare_parameter<bool>("draw_confidence", true);
     declare_parameter<bool>("draw_metrics", true);
     declare_parameter<bool>("draw_root_tip", true);
     declare_parameter<bool>("draw_root_xyz", false);
+    // Metrics units
+    declare_parameter<std::string>("metrics.length_unit", "cm");  // cm|mm|m
+    declare_parameter<std::string>("metrics.diameter_unit", "mm"); // cm|mm|m
     // 画面左上タイトルは使わず、各矩形にタイトル（アスパラ）を描画する方針
     // 後方互換のため draw_title パラメータは宣言のみ行い無視する
     declare_parameter<bool>("draw_title", false);
@@ -63,12 +74,18 @@ public:
     declare_parameter<int>("selection.fixed.box.y_top_px", 5);
     declare_parameter<double>("selection.fixed.box.width_ratio", 0.20);
     declare_parameter<double>("selection.fixed.box.height_ratio", 0.50);
+    declare_parameter<int>("selection.hold_frames", 5);
+    declare_parameter<double>("selection.switch_conf_margin", 0.05);
     // Display filter (UI only)
+    declare_parameter<bool>("display_filter.enable", true);
     declare_parameter<bool>("display_filter.only_vertical", false);
     declare_parameter<double>("display_filter.min_aspect_ratio", 0.05);
     declare_parameter<double>("display_filter.max_aspect_ratio", 2.0);
     declare_parameter<int>("display_filter.min_w_px", 1);
     declare_parameter<int>("display_filter.min_h_px", 1);
+    // Fallbacks for far/small detections
+    declare_parameter<bool>("selection.ignore_filter_fallback", true);
+    declare_parameter<bool>("metrics.draw_even_if_filtered", true);
 
     image_topic_ = get_parameter("image_topic").as_string();
     detections_topic_ = get_parameter("detections_topic").as_string();
@@ -91,6 +108,10 @@ public:
     draw_metrics_ = get_parameter("draw_metrics").as_bool();
     draw_root_tip_ = get_parameter("draw_root_tip").as_bool();
     draw_root_xyz_ = get_parameter("draw_root_xyz").as_bool();
+    length_unit_ = get_parameter("metrics.length_unit").as_string();
+    diameter_unit_ = get_parameter("metrics.diameter_unit").as_string();
+    rebuildUnitScales();
+    
     draw_title_ = get_parameter("draw_title").as_bool();
     draw_invalid_area_ = get_parameter("draw_invalid_area").as_bool();
     invalid_enabled_ = get_parameter("invalid_area.enabled").as_bool();
@@ -107,11 +128,16 @@ public:
     sel_fix_yt_px_ = get_parameter("selection.fixed.box.y_top_px").as_int();
     sel_fix_wr_ = get_parameter("selection.fixed.box.width_ratio").as_double();
     sel_fix_hr_ = get_parameter("selection.fixed.box.height_ratio").as_double();
+    sel_hold_frames_ = std::max<int>(0, static_cast<int>(get_parameter("selection.hold_frames").as_int()));
+    sel_switch_margin_ = get_parameter("selection.switch_conf_margin").as_double();
+    disp_filter_enable_ = get_parameter("display_filter.enable").as_bool();
     disp_only_vertical_ = get_parameter("display_filter.only_vertical").as_bool();
     disp_min_ar_ = get_parameter("display_filter.min_aspect_ratio").as_double();
     disp_max_ar_ = get_parameter("display_filter.max_aspect_ratio").as_double();
     disp_min_w_ = get_parameter("display_filter.min_w_px").as_int();
     disp_min_h_ = get_parameter("display_filter.min_h_px").as_int();
+    sel_ignore_filter_fallback_ = get_parameter("selection.ignore_filter_fallback").as_bool();
+    metrics_draw_even_if_filtered_ = get_parameter("metrics.draw_even_if_filtered").as_bool();
 
     rclcpp::QoS qos_sensor(5);
     qos_sensor.best_effort();
@@ -175,14 +201,48 @@ private:
     }
 
     int selected_index = -1;
+    int selected_id = -1;
+    double selected_conf = 0.0;
     if (sel_mode_ == "auto" && last_dets_ && !last_dets_->detections.empty()) {
-      selected_index = pickSelectedIndex(*last_dets_, sel_auto_strategy_, view.cols, view.rows);
+      int cand_index = pickSelectedIndex(*last_dets_, sel_auto_strategy_, view.cols, view.rows);
+      if (cand_index < 0 && sel_ignore_filter_fallback_) {
+        // Retry selection without display filter (to keep far small targets)
+        cand_index = pickSelectedIndex(*last_dets_, sel_auto_strategy_, view.cols, view.rows, /*ignore_filter=*/true);
+      }
+      if (cand_index >= 0 && cand_index < static_cast<int>(last_dets_->detections.size())) {
+        const auto &cand = last_dets_->detections[static_cast<size_t>(cand_index)];
+        double cand_conf = static_cast<double>(cand.conf_fused);
+        // Hysteresis: keep previous selection for a few frames unless strong improvement
+        if (last_selected_id_ >= 0 && cand.id != last_selected_id_ && hold_count_ < sel_hold_frames_) {
+          if (cand_conf <= last_selected_conf_ + sel_switch_margin_) {
+            // Try to keep previous id if it still exists in current detections
+            int prev_idx = -1;
+            for (size_t i = 0; i < last_dets_->detections.size(); ++i) {
+              if (last_dets_->detections[i].id == last_selected_id_) { prev_idx = static_cast<int>(i); break; }
+            }
+            if (prev_idx >= 0) {
+              selected_index = prev_idx;
+              selected_id = last_selected_id_;
+              selected_conf = last_selected_conf_;
+              hold_count_++;
+            } else {
+              selected_index = cand_index; selected_id = cand.id; selected_conf = cand_conf; hold_count_ = 0;
+            }
+          } else {
+            selected_index = cand_index; selected_id = cand.id; selected_conf = cand_conf; hold_count_ = 0;
+          }
+        } else {
+          selected_index = cand_index; selected_id = cand.id; selected_conf = cand_conf;
+          if (selected_id == last_selected_id_) { hold_count_++; } else { hold_count_ = 0; }
+        }
+      }
     }
 
-    int selected_id = -1;
-    if (last_dets_ && selected_index >= 0 && selected_index < static_cast<int>(last_dets_->detections.size())) {
+    if (selected_id < 0 && last_dets_ && selected_index >= 0 && selected_index < static_cast<int>(last_dets_->detections.size())) {
       selected_id = last_dets_->detections[static_cast<size_t>(selected_index)].id;
+      selected_conf = static_cast<double>(last_dets_->detections[static_cast<size_t>(selected_index)].conf_fused);
     }
+    if (selected_id >= 0) { last_selected_id_ = selected_id; last_selected_conf_ = selected_conf; }
 
     if (last_dets_) {
       for (size_t idx = 0; idx < last_dets_->detections.size(); ++idx) {
@@ -199,11 +259,32 @@ private:
         if (!passDisplayFilter(bb)) {
           continue; // UI表示フィルタ
         }
-        // draw bbox: non-selected gray, selected green
+        // draw bbox: vivid colors (no grays)
         bool is_selected = (static_cast<int>(idx) == selected_index);
-        cv::Scalar color = is_selected ? cv::Scalar(0, 255, 0) : cv::Scalar(128, 128, 128);
+        cv::Scalar color = is_selected ? sel_box_color_ : unsel_box_color_;
         int thickness = is_selected && draw_selection_box_ ? 2 : 1; // thinner selection box
         cv::rectangle(view, bb, color, thickness);
+        if (is_selected) {
+          // Draw selected panel: ID, conf, size, distance if available
+          char line1[128]; std::snprintf(line1, sizeof(line1), "アスパラ#%d conf=%.2f", d.id, std::max(0.0, std::min(1.0, (double)d.conf_fused)));
+          char line2[128]; std::snprintf(line2, sizeof(line2), "サイズ %dx%d px", bb.width, bb.height);
+          std::string line3;
+          // find distance from metrics (root z)
+          if (last_metrics_) {
+            for (const auto &m : last_metrics_->stalks) {
+              if (m.id == d.id && m.root_camera.z > 0.0) {
+                char buf[128]; std::snprintf(buf, sizeof(buf), "距離 %.1f cm", (double)m.root_camera.z*100.0);
+                line3 = buf; break;
+              }
+            }
+          }
+          int base_y = std::max(0, y1 - 28);
+          fluent::text::drawShadow(view, std::string(line1), cv::Point(x1, base_y), cv::Scalar(255,255,255), cv::Scalar(0,0,0), 0.6, 2, 0);
+          fluent::text::drawShadow(view, std::string(line2), cv::Point(x1, base_y+16), cv::Scalar(230,230,230), cv::Scalar(0,0,0), 0.5, 1, 0);
+          if (!line3.empty()) {
+            fluent::text::drawShadow(view, line3, cv::Point(x1, base_y+32), cv::Scalar(200,255,200), cv::Scalar(0,0,0), 0.5, 1, 0);
+          }
+        }
         if (draw_labels_ || draw_confidence_) {
           std::string label;
           if (draw_labels_) label = "ID " + std::to_string(d.id);
@@ -351,6 +432,7 @@ private:
         y2 = std::clamp(y2, 0, std::max(0, view.rows-1));
         cv::Rect bb(cv::Point(x1,y1), cv::Point(x2,y2));
         if (passDisplayFilter(bb)) valid_ids.insert(d.id);
+        else if (metrics_draw_even_if_filtered_) valid_ids.insert(d.id);
       }
       if (!valid_ids.empty()) {
         for (const auto &m : last_metrics_->stalks) {
@@ -371,11 +453,11 @@ private:
           }
 
           char lenjp[64];
-          std::snprintf(lenjp, sizeof(lenjp), "長さ %.1f cm", m.length_m * 100.0);
+          std::snprintf(lenjp, sizeof(lenjp), "長さ %.1f %s", m.length_m * length_scale_, length_unit_.c_str());
           fluent::text::drawShadow(view, std::string(lenjp), mid_pt + cv::Point(8,-8),
                                    cv::Scalar(255,255,255), cv::Scalar(0,0,0), 0.7, 2, 0);
           char diajp[64];
-          std::snprintf(diajp, sizeof(diajp), "直径 %.1f mm", m.thickness_m * 1000.0);
+          std::snprintf(diajp, sizeof(diajp), "直径 %.1f %s", m.thickness_m * diameter_scale_, diameter_unit_.c_str());
           fluent::text::drawShadow(view, std::string(diajp), mid_pt + cv::Point(8,14),
                                    cv::Scalar(200,255,200), cv::Scalar(0,0,0), 0.6, 1, 0);
 
@@ -444,10 +526,12 @@ private:
   }
 
   static double aspectRatio(const cv::Rect &r) {
-    if (r.height <= 0) return 0.0; return static_cast<double>(r.width) / static_cast<double>(r.height);
+    if (r.height <= 0) return 0.0;
+    return static_cast<double>(r.width) / static_cast<double>(r.height);
   }
 
   bool passDisplayFilter(const cv::Rect &bb) const {
+    if (!disp_filter_enable_) return true;
     if (bb.width < disp_min_w_ || bb.height < disp_min_h_) return false;
     double ar = aspectRatio(bb);
     if (ar < disp_min_ar_ || ar > disp_max_ar_) return false;
@@ -455,7 +539,7 @@ private:
     return true;
   }
 
-  int pickSelectedIndex(const fv_msgs::msg::DetectionArray &arr, const std::string &strategy, int width, int height) const {
+  int pickSelectedIndex(const fv_msgs::msg::DetectionArray &arr, const std::string &strategy, int width, int height, bool ignore_filter=false) const {
     if (arr.detections.empty()) return -1;
     int best = 0; double best_val = -1e9;
     for (size_t i = 0; i < arr.detections.size(); ++i) {
@@ -469,7 +553,7 @@ private:
       x2 = std::clamp(x2, 0, std::max(0, width-1));
       y2 = std::clamp(y2, 0, std::max(0, height-1));
       cv::Rect bb(cv::Point(x1,y1), cv::Point(x2,y2));
-      if (!passDisplayFilter(bb)) continue;
+      if (!ignore_filter && !passDisplayFilter(bb)) continue;
       double val = 0.0;
       if (strategy == "largest_height") {
         val = static_cast<double>(bb.height);
@@ -503,9 +587,17 @@ private:
   double sel_fix_xc_{0.5};
   int sel_fix_yt_px_{5};
   double sel_fix_wr_{0.20}, sel_fix_hr_{0.50};
+  int sel_hold_frames_{5};
+  double sel_switch_margin_{0.05};
+  int last_selected_id_{-1};
+  int hold_count_{0};
+  double last_selected_conf_{0.0};
+  bool disp_filter_enable_{true};
   bool disp_only_vertical_{false};
   double disp_min_ar_{0.05}, disp_max_ar_{2.0};
   int disp_min_w_{1}, disp_min_h_{1};
+  bool sel_ignore_filter_fallback_{true};
+  bool metrics_draw_even_if_filtered_{true};
 
   // subs/pubs
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_img_;
@@ -530,6 +622,13 @@ private:
   std::vector<cv::Vec3b> id_palette_colors_;
 
   bool draw_title_{true};
+  cv::Scalar sel_box_color_{0,255,0};
+  cv::Scalar unsel_box_color_{0,165,255};
+  // units
+  std::string length_unit_{"cm"};
+  std::string diameter_unit_{"mm"};
+  double length_scale_{100.0};   // m -> cm
+  double diameter_scale_{1000.0}; // m -> mm
 
   void onMask(const sensor_msgs::msg::Image::SharedPtr msg) {
     // 強参照で保持し、onImage側で確実に利用できるようにする
@@ -547,6 +646,15 @@ private:
     if (id_palette_colors_.empty()) {
       id_palette_colors_.push_back(cv::Vec3b(0,255,0));
     }
+  }
+
+  void rebuildUnitScales() {
+    auto to_scale = [](const std::string &u)->double{
+      std::string s=u; for (auto &c: s) c=static_cast<char>(::tolower(c));
+      if (s=="m") return 1.0; if (s=="cm") return 100.0; if (s=="mm") return 1000.0; return 100.0;
+    };
+    length_scale_ = to_scale(length_unit_);
+    diameter_scale_ = to_scale(diameter_unit_);
   }
 
   cv::Vec3b colorForDetId(int id) const {

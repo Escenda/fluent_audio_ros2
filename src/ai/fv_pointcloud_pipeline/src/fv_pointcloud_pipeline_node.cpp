@@ -117,12 +117,16 @@ private:
     this->declare_parameter<int>("sample_stride_px", 2);
     this->declare_parameter<double>("min_depth_m", 0.05);
     this->declare_parameter<double>("max_depth_m", 2.5);
+    this->declare_parameter<int>("mask_dilate_px", 0);
     this->declare_parameter<int>("depth_qos_depth", 5);
     this->declare_parameter<std::string>("depth_qos_reliability", "reliable");
     this->declare_parameter<int>("color_qos_depth", 5);
     this->declare_parameter<std::string>("color_qos_reliability", "reliable");
     this->declare_parameter<bool>("publish_debug_clouds", true);
     this->declare_parameter<std::string>("output_frame", "");
+    // Depth residual gate (optional): remove points far from root depth
+    this->declare_parameter<bool>("depth_residual.enable", false);
+    this->declare_parameter<double>("depth_residual.max_m", 0.025);
     // Temporal accumulation (optional)
     this->declare_parameter<bool>("accumulate.enable", false);
     this->declare_parameter<int>("accumulate.frames", 3);
@@ -145,12 +149,15 @@ private:
     sample_stride_px_ = std::max(1, static_cast<int>(this->get_parameter("sample_stride_px").as_int()));
     min_depth_m_ = this->get_parameter("min_depth_m").as_double();
     max_depth_m_ = this->get_parameter("max_depth_m").as_double();
+    mask_dilate_px_ = std::max(0, static_cast<int>(this->get_parameter("mask_dilate_px").as_int()));
     depth_qos_depth_ = this->get_parameter("depth_qos_depth").as_int();
     depth_qos_reliability_ = this->get_parameter("depth_qos_reliability").as_string();
     color_qos_depth_ = this->get_parameter("color_qos_depth").as_int();
     color_qos_reliability_ = this->get_parameter("color_qos_reliability").as_string();
     publish_debug_clouds_ = this->get_parameter("publish_debug_clouds").as_bool();
     output_frame_override_ = this->get_parameter("output_frame").as_string();
+    depth_residual_enable_ = this->get_parameter("depth_residual.enable").as_bool();
+    depth_residual_max_m_ = this->get_parameter("depth_residual.max_m").as_double();
     accumulate_enable_ = this->get_parameter("accumulate.enable").as_bool();
     accumulate_frames_ = std::max<int>(1, static_cast<int>(this->get_parameter("accumulate.frames").as_int()));
     accumulate_min_iou_ = this->get_parameter("accumulate.min_iou").as_double();
@@ -368,6 +375,11 @@ private:
         if (mask_for_depth.size() != depth_bridge->image.size()) {
           cv::resize(mask_for_depth, mask_for_depth, depth_bridge->image.size(), 0, 0, cv::INTER_NEAREST);
         }
+        if (mask_dilate_px_ > 0) {
+          int k = std::min(31, std::max(1, mask_dilate_px_));
+          cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(2*k+1, 2*k+1));
+          cv::dilate(mask_for_depth, mask_for_depth, kernel, cv::Point(-1,-1), 1);
+        }
       } catch (const std::exception &ex) {
         RCLCPP_WARN(get_logger(), "cv_bridge mask conversion failed: %s", ex.what());
         mask_for_depth.release();
@@ -456,11 +468,21 @@ private:
 
   CloudPtr extractCloud(const cv::Mat &depth, const cv::Mat &color,
                         const cv::Mat &mask,
-                        const cv::Rect &roi, [[maybe_unused]] const fv_msgs::msg::Detection2D &det) const {
+                        const cv::Rect &roi, const fv_msgs::msg::Detection2D &det) const {
     CloudPtr cloud(new Cloud);
     cloud->is_dense = false;
     const bool has_color = !color.empty();
     const bool use_mask = !mask.empty();
+
+    // Optional depth residual gate baseline
+    double gate_root_m = std::numeric_limits<double>::quiet_NaN();
+    if (depth_residual_enable_) {
+      if (std::isfinite(det.depth_hint_m) && det.depth_hint_m > 0.0f) {
+        gate_root_m = static_cast<double>(det.depth_hint_m);
+      } else {
+        gate_root_m = estimateRoiMedianDepth(depth, mask, roi);
+      }
+    }
 
     for (int v = roi.y; v < roi.y + roi.height; v += sample_stride_px_) {
       for (int u = roi.x; u < roi.x + roi.width; u += sample_stride_px_) {
@@ -472,6 +494,11 @@ private:
         double depth_m = depthAt(depth, v, u);
         if (!std::isfinite(depth_m) || depth_m <= 0.0) {
           continue;
+        }
+        if (depth_residual_enable_ && std::isfinite(gate_root_m)) {
+          if (std::abs(depth_m - gate_root_m) > depth_residual_max_m_) {
+            continue;
+          }
         }
         if (depth_m < min_depth_m_ || depth_m > max_depth_m_) {
           continue;
@@ -665,6 +692,9 @@ private:
   std::string color_qos_reliability_{"reliable"};
   bool publish_debug_clouds_{true};
   int mask_threshold_{128};
+  int mask_dilate_px_{0};
+  bool depth_residual_enable_{false};
+  double depth_residual_max_m_{0.025};
   // Accumulation params
   bool accumulate_enable_{false};
   int accumulate_frames_{3};

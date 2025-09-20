@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <mutex>
 
+#include <visualization_msgs/msg/marker_array.hpp>
+
 #include "fv_msgs/msg/detection_array.hpp"
 #include "fv_msgs/msg/detection_cloud_indices.hpp"
 #include "fv_msgs/msg/stalk_metrics.hpp"
@@ -38,9 +40,15 @@ public:
     this->declare_parameter<std::string>("detections_topic", "/fv/d405/detection_fusion/rois");
     this->declare_parameter<std::string>("camera_info_topic", "/fv/d405/color/camera_info");
     this->declare_parameter<std::string>("output_topic", "/fv/d405/stalk/metrics");
+    this->declare_parameter<bool>("publish_markers", true);
+    this->declare_parameter<std::string>("marker_topic", "/fv/d405/stalk/markers");
+    this->declare_parameter<double>("marker_scale_m", 0.015);
     this->declare_parameter<double>("pca_trim_low", 0.05);
     this->declare_parameter<double>("pca_trim_high", 0.95);
     this->declare_parameter<bool>("invert_vertical", false);
+    // 根本選択ロジック: カメラから見て最も手前(z最小)近傍の中で、画像の一番下(v最大)を優先
+    this->declare_parameter<bool>("root_select.nearest_bottom", true);
+    this->declare_parameter<double>("root_select.z_margin_m", 0.01);
 
     readParameters();
 
@@ -59,6 +67,9 @@ public:
     }
 
     pub_ = this->create_publisher<fv_msgs::msg::StalkMetricsArray>(output_topic_, rclcpp::QoS(10));
+    if (publish_markers_) {
+      marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(marker_topic_, rclcpp::QoS(10));
+    }
 
     RCLCPP_INFO(get_logger(), "fv_stalk_estimator_node ready: cloud=%s counts=%s det=%s out=%s",
                 cloud_topic_.c_str(), counts_topic_.c_str(), detections_topic_.c_str(), output_topic_.c_str());
@@ -71,9 +82,14 @@ private:
     detections_topic_ = this->get_parameter("detections_topic").as_string();
     camera_info_topic_ = this->get_parameter("camera_info_topic").as_string();
     output_topic_ = this->get_parameter("output_topic").as_string();
+    publish_markers_ = this->get_parameter("publish_markers").as_bool();
+    marker_topic_ = this->get_parameter("marker_topic").as_string();
+    marker_scale_m_ = this->get_parameter("marker_scale_m").as_double();
     pca_trim_low_ = this->get_parameter("pca_trim_low").as_double();
     pca_trim_high_ = this->get_parameter("pca_trim_high").as_double();
     invert_vertical_ = this->get_parameter("invert_vertical").as_bool();
+    root_nearest_bottom_ = this->get_parameter("root_select.nearest_bottom").as_bool();
+    root_z_margin_m_ = this->get_parameter("root_select.z_margin_m").as_double();
     if (pca_trim_low_ < 0.0) pca_trim_low_ = 0.0;
     if (pca_trim_high_ > 1.0) pca_trim_high_ = 1.0;
     if (pca_trim_high_ <= pca_trim_low_) pca_trim_high_ = std::min(0.95, pca_trim_low_ + 0.8);
@@ -121,6 +137,10 @@ private:
     size_t offset = 0;
     fv_msgs::msg::StalkMetricsArray out;
     out.header = msg->header;
+    // metricsのframe_idは可能ならカメラのframe_idに統一（TF不整合の回避）
+    if (!intr_.frame_id.empty()) {
+      out.header.frame_id = intr_.frame_id;
+    }
 
     for (size_t i = 0; i < msg->ids.size() && i < msg->counts.size(); ++i) {
       const int32_t id = msg->ids[i];
@@ -166,15 +186,46 @@ private:
       Eigen::Vector3f pmin = metrics.center + metrics.axis * metrics.tmin;
       Eigen::Vector3f pmax = metrics.center + metrics.axis * metrics.tmax;
 
-      // 2D投影から下側（vが大）を根本とみなす簡易規則
-      // カメラ内パラメータが未取得の場合は y 座標でフォールバック
-      double vmin = projectV(pmin);
-      double vmax = projectV(pmax);
-      bool use_y_fallback = !intr_.valid();
-      double a = use_y_fallback ? static_cast<double>(pmin.y()) : vmin;
-      double b = use_y_fallback ? static_cast<double>(pmax.y()) : vmax;
-      if (b >= a) { p_root = pmax; p_tip = pmin; }
-      else { p_root = pmin; p_tip = pmax; }
+      if (root_nearest_bottom_) {
+        // subクラウドから z 最小近傍(±root_z_margin_m_)の中で 画像vが最大の点を採用
+        float zmin = std::numeric_limits<float>::infinity();
+        auto isFinite = [](const pcl::PointXYZRGB &p){ return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) && p.z > 0.0f; };
+        for (const auto &p : sub->points) if (isFinite(p)) zmin = std::min(zmin, p.z);
+        float z_gate = std::isfinite(zmin) ? (zmin + static_cast<float>(std::max(0.0, root_z_margin_m_))) : 0.0f;
+        bool use_y_fallback = !intr_.valid();
+        bool found = false;
+        double best_v = -1e18;
+        pcl::PointXYZRGB bestP;
+        for (const auto &p : sub->points) if (isFinite(p) && p.z <= z_gate) {
+          Eigen::Vector3f q(p.x,p.y,p.z);
+          double vv = use_y_fallback ? static_cast<double>(q.y()) : projectV(q);
+          if (!found || vv > best_v) { best_v = vv; bestP = p; found = true; }
+        }
+        if (found) {
+          p_root = Eigen::Vector3f(bestP.x, bestP.y, bestP.z);
+          // ルートから遠いほうのPCA端を先端とする
+          float t_root = metrics.axis.dot(p_root - metrics.center);
+          float dmin = std::abs(t_root - metrics.tmin);
+          float dmax = std::abs(t_root - metrics.tmax);
+          p_tip = (dmax >= dmin) ? pmax : pmin;
+        } else {
+          // フォールバック: 旧ロジック（画像下側を根本）
+          double vmin = projectV(pmin);
+          double vmax = projectV(pmax);
+          bool uy = !intr_.valid();
+          double a = uy ? static_cast<double>(pmin.y()) : vmin;
+          double b = uy ? static_cast<double>(pmax.y()) : vmax;
+          if (b >= a) { p_root = pmax; p_tip = pmin; } else { p_root = pmin; p_tip = pmax; }
+        }
+      } else {
+        // 旧ロジック（画像下側を根本）
+        double vmin = projectV(pmin);
+        double vmax = projectV(pmax);
+        bool use_y_fallback = !intr_.valid();
+        double a = use_y_fallback ? static_cast<double>(pmin.y()) : vmin;
+        double b = use_y_fallback ? static_cast<double>(pmax.y()) : vmax;
+        if (b >= a) { p_root = pmax; p_tip = pmin; } else { p_root = pmin; p_tip = pmax; }
+      }
       if (invert_vertical_) std::swap(p_root, p_tip);
 
       fv_msgs::msg::StalkMetrics m;
@@ -206,6 +257,9 @@ private:
 
     if (!out.stalks.empty()) {
       pub_->publish(out);
+      if (publish_markers_ && marker_pub_) {
+        publishMarkers(out);
+      }
     }
   }
 
@@ -223,15 +277,53 @@ private:
     return intr_.cy + intr_.fy * static_cast<double>(p.y()) / z;
   }
 
+  void publishMarkers(const fv_msgs::msg::StalkMetricsArray &arr) {
+    visualization_msgs::msg::MarkerArray ma;
+    // Clear previous markers
+    visualization_msgs::msg::Marker clear;
+    clear.action = visualization_msgs::msg::Marker::DELETEALL;
+    ma.markers.push_back(clear);
+
+    std::string frame = intr_.frame_id.empty() ? arr.header.frame_id : intr_.frame_id;
+    rclcpp::Time now = this->now();
+
+    for (const auto &m : arr.stalks) {
+      if (m.root_camera.z <= 0.0f) continue;
+      visualization_msgs::msg::Marker mk;
+      mk.header.frame_id = frame;
+      mk.header.stamp = now;
+      mk.ns = "stalk_root";
+      mk.id = static_cast<int>(m.id);
+      mk.type = visualization_msgs::msg::Marker::SPHERE;
+      mk.action = visualization_msgs::msg::Marker::ADD;
+      mk.pose.position.x = m.root_camera.x;
+      mk.pose.position.y = m.root_camera.y;
+      mk.pose.position.z = m.root_camera.z;
+      mk.pose.orientation.w = 1.0;
+      mk.scale.x = marker_scale_m_;
+      mk.scale.y = marker_scale_m_;
+      mk.scale.z = marker_scale_m_;
+      mk.color.r = 1.0f; mk.color.g = 0.0f; mk.color.b = 0.0f; mk.color.a = 1.0f;
+      mk.lifetime = rclcpp::Duration(0, 0); // persistent until overwritten
+      ma.markers.push_back(std::move(mk));
+    }
+    if (!ma.markers.empty() && marker_pub_) marker_pub_->publish(ma);
+  }
+
   // params
   std::string cloud_topic_;
   std::string counts_topic_;
   std::string detections_topic_;
   std::string camera_info_topic_;
   std::string output_topic_;
+  bool publish_markers_{true};
+  std::string marker_topic_;
+  double marker_scale_m_{0.015};
   double pca_trim_low_{0.05};
   double pca_trim_high_{0.95};
   bool invert_vertical_{false};
+  bool root_nearest_bottom_{true};
+  double root_z_margin_m_{0.01};
 
   // subs/pubs
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
@@ -239,6 +331,7 @@ private:
   rclcpp::Subscription<fv_msgs::msg::DetectionArray>::SharedPtr det_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
   rclcpp::Publisher<fv_msgs::msg::StalkMetricsArray>::SharedPtr pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
 
   // state
   std::mutex mutex_;

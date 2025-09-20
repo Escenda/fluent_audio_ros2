@@ -10,6 +10,7 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common io)
 find_package(fluent_lib REQUIRED)
@@ -24,6 +25,7 @@ ament_target_dependencies(fv_stalk_estimator_node
   sensor_msgs
   std_msgs
   geometry_msgs
+  visualization_msgs
   pcl_conversions
   fluent_lib
   fv_msgs
@@ -46,4 +48,3 @@ install(TARGETS fv_stalk_estimator_node
 )
 
 ament_package()
-
