@@ -46,9 +46,13 @@ public:
     this->declare_parameter<double>("pca_trim_low", 0.05);
     this->declare_parameter<double>("pca_trim_high", 0.95);
     this->declare_parameter<bool>("invert_vertical", false);
-    // 根本選択ロジック: カメラから見て最も手前(z最小)近傍の中で、画像の一番下(v最大)を優先
-    this->declare_parameter<bool>("root_select.nearest_bottom", true);
+    // 根本選択ロジック: 2D投影でより下側(vが大)の端点を根本とする（安定性重視）
+    this->declare_parameter<bool>("root_select.nearest_bottom", false);
     this->declare_parameter<double>("root_select.z_margin_m", 0.01);
+    // 時間方向スムージング（微振れ抑制）
+    this->declare_parameter<bool>("smooth.enable", true);
+    this->declare_parameter<double>("smooth.alpha", 0.6);        // prevの寄与（0.0-1.0）
+    this->declare_parameter<double>("smooth.max_jump_m", 0.08);  // 大ジャンプ時はリセット
 
     readParameters();
 
@@ -90,6 +94,9 @@ private:
     invert_vertical_ = this->get_parameter("invert_vertical").as_bool();
     root_nearest_bottom_ = this->get_parameter("root_select.nearest_bottom").as_bool();
     root_z_margin_m_ = this->get_parameter("root_select.z_margin_m").as_double();
+    smooth_enable_ = this->get_parameter("smooth.enable").as_bool();
+    smooth_alpha_ = this->get_parameter("smooth.alpha").as_double();
+    smooth_max_jump_m_ = this->get_parameter("smooth.max_jump_m").as_double();
     if (pca_trim_low_ < 0.0) pca_trim_low_ = 0.0;
     if (pca_trim_high_ > 1.0) pca_trim_high_ = 1.0;
     if (pca_trim_high_ <= pca_trim_low_) pca_trim_high_ = std::min(0.95, pca_trim_low_ + 0.8);
@@ -186,47 +193,36 @@ private:
       Eigen::Vector3f pmin = metrics.center + metrics.axis * metrics.tmin;
       Eigen::Vector3f pmax = metrics.center + metrics.axis * metrics.tmax;
 
-      if (root_nearest_bottom_) {
-        // subクラウドから z 最小近傍(±root_z_margin_m_)の中で 画像vが最大の点を採用
-        float zmin = std::numeric_limits<float>::infinity();
-        auto isFinite = [](const pcl::PointXYZRGB &p){ return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) && p.z > 0.0f; };
-        for (const auto &p : sub->points) if (isFinite(p)) zmin = std::min(zmin, p.z);
-        float z_gate = std::isfinite(zmin) ? (zmin + static_cast<float>(std::max(0.0, root_z_margin_m_))) : 0.0f;
-        bool use_y_fallback = !intr_.valid();
-        bool found = false;
-        double best_v = -1e18;
-        pcl::PointXYZRGB bestP;
-        for (const auto &p : sub->points) if (isFinite(p) && p.z <= z_gate) {
-          Eigen::Vector3f q(p.x,p.y,p.z);
-          double vv = use_y_fallback ? static_cast<double>(q.y()) : projectV(q);
-          if (!found || vv > best_v) { best_v = vv; bestP = p; found = true; }
-        }
-        if (found) {
-          p_root = Eigen::Vector3f(bestP.x, bestP.y, bestP.z);
-          // ルートから遠いほうのPCA端を先端とする
-          float t_root = metrics.axis.dot(p_root - metrics.center);
-          float dmin = std::abs(t_root - metrics.tmin);
-          float dmax = std::abs(t_root - metrics.tmax);
-          p_tip = (dmax >= dmin) ? pmax : pmin;
-        } else {
-          // フォールバック: 旧ロジック（画像下側を根本）
-          double vmin = projectV(pmin);
-          double vmax = projectV(pmax);
-          bool uy = !intr_.valid();
-          double a = uy ? static_cast<double>(pmin.y()) : vmin;
-          double b = uy ? static_cast<double>(pmax.y()) : vmax;
-          if (b >= a) { p_root = pmax; p_tip = pmin; } else { p_root = pmin; p_tip = pmax; }
-        }
-      } else {
-        // 旧ロジック（画像下側を根本）
-        double vmin = projectV(pmin);
-        double vmax = projectV(pmax);
-        bool use_y_fallback = !intr_.valid();
-        double a = use_y_fallback ? static_cast<double>(pmin.y()) : vmin;
-        double b = use_y_fallback ? static_cast<double>(pmax.y()) : vmax;
-        if (b >= a) { p_root = pmax; p_tip = pmin; } else { p_root = pmin; p_tip = pmax; }
-      }
+      // 2D投影の下側(=vが大)を根本とみなす。PCA軸の符号反転に対して安定。
+      double vmin = projectV(pmin);
+      double vmax = projectV(pmax);
+      bool use_y_fallback = !intr_.valid();
+      double a = use_y_fallback ? static_cast<double>(pmin.y()) : vmin;
+      double b = use_y_fallback ? static_cast<double>(pmax.y()) : vmax;
+      if (b >= a) { p_root = pmax; p_tip = pmin; } else { p_root = pmin; p_tip = pmax; }
       if (invert_vertical_) std::swap(p_root, p_tip);
+
+      // 時系列スムージング（IDごと）
+      if (smooth_enable_) {
+        auto it = last_rt_.find(id);
+        if (it == last_rt_.end()) {
+          last_rt_[id] = {p_root, p_tip};
+        } else {
+          auto prev = it->second;
+          auto dist = [](const Eigen::Vector3f &a, const Eigen::Vector3f &b){ return (a-b).norm(); };
+          bool reset = (dist(prev.first, p_root) > static_cast<float>(smooth_max_jump_m_)) ||
+                       (dist(prev.second, p_tip) > static_cast<float>(smooth_max_jump_m_));
+          if (reset) {
+            it->second = {p_root, p_tip};
+          } else {
+            float ap = static_cast<float>(std::clamp(smooth_alpha_, 0.0, 1.0));
+            Eigen::Vector3f nr = ap * prev.first  + (1.0f - ap) * p_root;
+            Eigen::Vector3f nt = ap * prev.second + (1.0f - ap) * p_tip;
+            it->second = {nr, nt};
+            p_root = nr; p_tip = nt;
+          }
+        }
+      }
 
       fv_msgs::msg::StalkMetrics m;
       m.header = out.header;
@@ -324,6 +320,9 @@ private:
   bool invert_vertical_{false};
   bool root_nearest_bottom_{true};
   double root_z_margin_m_{0.01};
+  bool smooth_enable_{true};
+  double smooth_alpha_{0.6};
+  double smooth_max_jump_m_{0.08};
 
   // subs/pubs
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
@@ -339,6 +338,7 @@ private:
   std::unordered_map<int32_t, fv_msgs::msg::Detection2D> det_map_;
   builtin_interfaces::msg::Time last_det_stamp_;
   Intrinsics intr_;
+  std::unordered_map<int32_t, std::pair<Eigen::Vector3f, Eigen::Vector3f>> last_rt_;
 };
 
 } // namespace fv_stalk_estimator

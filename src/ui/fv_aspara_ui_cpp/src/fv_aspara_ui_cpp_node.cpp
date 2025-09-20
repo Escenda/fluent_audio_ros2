@@ -296,7 +296,8 @@ private:
     }
     if (selected_id >= 0) { last_selected_id_ = selected_id; last_selected_conf_ = selected_conf; }
 
-    if (draw_title_ && last_dets_) {
+    // 検出枠は draw_title_ に依存させない（常に描画）
+    if (last_dets_) {
       for (size_t idx = 0; idx < last_dets_->detections.size(); ++idx) {
         const auto &d = last_dets_->detections[idx];
         int x1 = static_cast<int>(std::floor(d.bbox_min.x));
