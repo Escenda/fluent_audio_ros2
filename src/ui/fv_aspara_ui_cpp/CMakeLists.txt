@@ -10,6 +10,10 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc)
 find_package(fv_msgs REQUIRED)
 find_package(fluent_lib REQUIRED)
@@ -30,7 +34,11 @@ ament_target_dependencies(fv_aspara_ui_cpp_node
   sensor_msgs
   std_msgs
   cv_bridge
+  geometry_msgs
   fv_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
 )
 
 target_include_directories(fv_aspara_ui_cpp_node
