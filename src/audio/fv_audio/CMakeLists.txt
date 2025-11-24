@@ -61,7 +61,19 @@ target_link_libraries(fv_audio_node ${ALSA_LIBRARIES})
 rosidl_target_interfaces(fv_audio_node
   ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
-install(TARGETS fv_audio_node
+add_executable(sine_wave_generator
+  src/sine_wave_generator.cpp
+)
+
+ament_target_dependencies(sine_wave_generator
+  rclcpp
+  std_msgs
+)
+
+rosidl_target_interfaces(sine_wave_generator
+  ${PROJECT_NAME} "rosidl_typesupport_cpp")
+
+install(TARGETS fv_audio_node sine_wave_generator
   DESTINATION lib/${PROJECT_NAME}
 )
 
