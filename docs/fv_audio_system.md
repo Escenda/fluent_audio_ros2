@@ -56,10 +56,10 @@
 - キャッシュ: `~/.fluent_voice_cache`（デフォルト）へPCMとメタ情報を保存し、同じテキスト/ボイスは再利用。
 
 ### 3.6 fv_audio_output（出力ノード）
-- PortAudioでスピーカーを開き、`/audio/output/frame`を購読、または`/audio/output/play`サービスでバイナリを受け取り再生。
-- パラメータ: `device_selector`, `sample_rate`, `channels`, `latency_ms`, `mixing_enabled`。
-- Mixモード: 複数PCM入力を同時再生。揮発的通知と長尺TTSを重ねる場合はミキサーを有効化。
-- エラーハンドリング: XRUN検知、再接続、再生キュー詰まりのダイアグ報告。
+- ALSAを利用したROSノードとして実装済み（`ros2 run fv_audio_output fv_audio_output_node`）。`audio/output/frame`を購読し、PCM16LEをそのままスピーカーへ再生する。
+- パラメータ: `audio.device_id`, `audio.sample_rate`, `audio.channels`, `audio.bit_depth`, `queue.max_frames`。`config/default.yaml`で既定値を提供。
+- 将来的に`/audio/output/play`サービスを追加し、バッファやファイルを直接再生できるようにする計画。
+- XRUN検知時は`snd_pcm_prepare`でリカバリし、キュー溢れ時は古いフレームを破棄して最新を優先。
 
 ### 3.7 fv_audio_router（任意）
 - Captureの`audio/frame`を購読し、フィルタ/エンコーディング（Opus化など）を行ってWebSocket/RTMPに転送。

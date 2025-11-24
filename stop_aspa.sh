@@ -32,6 +32,7 @@ if [ ! -d "${PID_DIR}" ]; then
 fi
 
 stop_unit "aspa_i2c_hub_0"
+stop_unit "fv_audio_output"
 stop_unit "fv_tts"
 
 # 念のための後片付け

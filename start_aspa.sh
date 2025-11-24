@@ -42,6 +42,11 @@ if [ ! -f "${aspa_i2c_config}" ]; then
   aspa_i2c_config="${WS_DIR}/src/aspa_i2c/config/hub_0.yaml"
 fi
 
+audio_output_params="${WS_DIR}/install/fv_audio_output/share/fv_audio_output/config/default.yaml"
+if [ ! -f "${audio_output_params}" ]; then
+  audio_output_params="${SELF_DIR}/src/audio/fv_audio_output/config/default.yaml"
+fi
+
 start_unit() {
   local name="$1"
   shift
@@ -72,6 +77,21 @@ start_unit() {
 }
 
 start_unit "fv_tts" ros2 run fv_tts fv_tts_node --ros-args --params-file "${fv_tts_params}"
+start_unit "fv_audio_output" ros2 run fv_audio_output fv_audio_output_node --ros-args --params-file "${audio_output_params}"
 start_unit "aspa_i2c_hub_0" ros2 launch aspa_i2c aspa_i2c_hub_launch.py node_name:=aspa_i2c_hub_0 config_file:="${aspa_i2c_config}"
+
+say_startup_message() {
+  local attempt
+  for attempt in {1..10}; do
+    if ros2 service list | grep -q "/fv_tts/speak"; then
+      echo "[start_aspa] TTSサービストリガを送ります..."
+      ros2 service call /fv_tts/speak fv_tts/srv/Speak "{text: '起動しました', voice_id: '', play: true, volume_db: 0.0, cache_key: ''}" >/dev/null 2>&1 && return
+    fi
+    sleep 1
+  done
+  echo "[start_aspa] TTSサービスが起動せず、音声再生をスキップしました。" >&2
+}
+
+say_startup_message
 
 echo "[start_aspa] すべてのノードを起動しました。停止するには ./stop_aspa.sh を実行してください。"

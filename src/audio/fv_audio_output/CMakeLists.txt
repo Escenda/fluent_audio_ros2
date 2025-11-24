@@ -33,4 +33,26 @@ ament_target_dependencies(fv_audio_output_node
   fv_audio
 )
 
- target_include_directories? need etc
+target_include_directories(fv_audio_output_node PRIVATE ${ALSA_INCLUDE_DIRS})
+target_link_libraries(fv_audio_output_node ${ALSA_LIBRARIES})
+
+install(TARGETS fv_audio_output_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY
+  launch
+  config
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY include/
+  DESTINATION include/
+)
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+endif()
+
+ament_package()
