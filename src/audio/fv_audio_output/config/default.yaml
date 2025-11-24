@@ -4,4 +4,4 @@ fv_audio_output:
     audio.sample_rate: 48000
     audio.channels: 1
     audio.bit_depth: 16
-    queue.max_frames: 8
+    queue.max_frames: 32

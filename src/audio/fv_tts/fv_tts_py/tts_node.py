@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import hashlib
 import logging
+import os
 from array import array
 from pathlib import Path
 from typing import Dict, Optional
@@ -12,6 +13,9 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from fv_audio.msg import AudioFrame
 from fv_tts.srv import Speak
+
+# Set pyopenjtalk dictionary directory to user's home directory
+os.environ.setdefault("OPEN_JTALK_DICT_DIR", str(Path.home() / ".pyopenjtalk"))
 
 try:
     import pyopenjtalk
@@ -89,7 +93,7 @@ class FvTtsNode(Node):
             try:
                 cached = self.synthesize(text, voice_id, volume_db)
             except Exception as exc:  # pylint: disable=broad-except
-                self.get_logger().error("TTS failed: %s", exc, exc_info=True)
+                self.get_logger().error(f"TTS failed: {exc}")
                 response.success = False
                 response.message = f"TTS failed: {exc}"
                 return response

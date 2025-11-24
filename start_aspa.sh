@@ -5,7 +5,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS_DIR="$(cd "${SELF_DIR}/../.." && pwd)"
 STATE_DIR="${HOME}/.aspa_runtime"
 PID_DIR="${STATE_DIR}/pids"
-LOG_DIR="${STATE_DIR}/logs"
+LOG_DIR="${HOME}/logs"
 mkdir -p "${PID_DIR}" "${LOG_DIR}"
 
 SETUP_FILE="${WS_DIR}/install/setup.bash"
@@ -23,10 +23,19 @@ if ! command -v ros2 >/dev/null 2>&1; then
   exit 1
 fi
 
+export OPEN_JTALK_DICT_DIR="${HOME}/.pyopenjtalk/open_jtalk_dic_utf_8-1.11"
+
 python3 - <<'PY'
 import sys
+import os
+os.environ.setdefault("OPEN_JTALK_DICT_DIR", os.path.expanduser("~/.pyopenjtalk/open_jtalk_dic_utf_8-1.11"))
 try:
     import pyopenjtalk  # noqa: F401
+    # Initialize pyopenjtalk to download dictionary if needed
+    try:
+        pyopenjtalk.g2p("テスト", kana=False)
+    except Exception:
+        pass  # Dictionary will be downloaded on first use
 except Exception as exc:  # pragma: no cover
     print(f"[start_aspa] pyopenjtalk を import できません: {exc}", file=sys.stderr)
     sys.exit(1)
@@ -52,6 +61,7 @@ start_unit() {
   shift
   local pid_file="${PID_DIR}/${name}.pid"
   local log_file="${LOG_DIR}/${name}.log"
+  local ros_log_dir="${LOG_DIR}/ros2/${name}"
 
   if [ -f "${pid_file}" ]; then
     local existing_pid
@@ -64,13 +74,17 @@ start_unit() {
     fi
   fi
 
+  mkdir -p "${ros_log_dir}"
+
   echo "[start_aspa] ${name} を起動します..."
-  ("$@" >"${log_file}" 2>&1 & echo $! >"${pid_file}")
+  ROS_LOG_DIR="${ros_log_dir}" "$@" >"${log_file}" 2>&1 &
+  echo $! >"${pid_file}"
   sleep 0.5
   local started_pid
   started_pid="$(cat "${pid_file}")"
   if kill -0 "${started_pid}" >/dev/null 2>&1; then
     echo "[start_aspa] ${name} (PID=${started_pid}) を起動しました。ログ: ${log_file}"
+    echo "[start_aspa]   ROS2ログ: ${ros_log_dir}"
   else
     echo "[start_aspa] ${name} の起動に失敗しました。ログを確認してください: ${log_file}" >&2
   fi
@@ -83,9 +97,14 @@ start_unit "aspa_i2c_hub_0" ros2 launch aspa_i2c aspa_i2c_hub_launch.py node_nam
 say_startup_message() {
   local attempt
   for attempt in {1..10}; do
-    if ros2 service list | grep -q "/fv_tts/speak"; then
+    if ros2 service list | grep -q "/speak"; then
       echo "[start_aspa] TTSサービストリガを送ります..."
-      ros2 service call /fv_tts/speak fv_tts/srv/Speak "{text: '起動しました', voice_id: '', play: true, volume_db: 0.0, cache_key: ''}" >/dev/null 2>&1 && return
+      if ros2 service call /speak fv_tts/srv/Speak "{text: '起動しました', voice_id: '', play: true, volume_db: 0.0, cache_key: ''}"; then
+        echo "[start_aspa] 起動音声を再生しました。"
+        return
+      else
+        echo "[start_aspa] TTSサービス呼び出しに失敗しました (リトライします)。" >&2
+      fi
     fi
     sleep 1
   done

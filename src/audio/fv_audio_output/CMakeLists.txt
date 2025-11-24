@@ -13,9 +13,16 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fv_audio REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ALSA REQUIRED alsa)
+
+# Generate service interfaces
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "srv/PlayFile.srv"
+  DEPENDENCIES std_msgs
+)
 
 include_directories(
   include
@@ -35,6 +42,10 @@ ament_target_dependencies(fv_audio_output_node
 
 target_include_directories(fv_audio_output_node PRIVATE ${ALSA_INCLUDE_DIRS})
 target_link_libraries(fv_audio_output_node ${ALSA_LIBRARIES})
+
+# Link service interfaces to the node
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_link_libraries(fv_audio_output_node "${cpp_typesupport_target}")
 
 install(TARGETS fv_audio_output_node
   DESTINATION lib/${PROJECT_NAME}
