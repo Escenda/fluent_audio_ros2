@@ -4,7 +4,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 #include <geometry_msgs/msg/point32.hpp>
-#include <cv_bridge/cv_bridge.h>
+#include <fluent_lib/cv_bridge_compat.hpp>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>

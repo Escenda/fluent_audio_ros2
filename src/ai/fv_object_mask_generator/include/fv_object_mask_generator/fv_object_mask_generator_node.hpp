@@ -8,10 +8,16 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
-#include <cv_bridge/cv_bridge.h>
+#include <fluent_lib/cv_bridge_compat.hpp>
 #include <opencv2/opencv.hpp>
-#include <openvino/openvino.hpp>
+
+#if ENABLE_JSON
 #include <nlohmann/json.hpp>
+#endif
+
+#if ENABLE_OPENVINO
+#include <openvino/openvino.hpp>
+#endif
 
 namespace fv_object_mask_generator
 {
@@ -61,7 +67,9 @@ private:
   std::vector<cv::Scalar> class_colors_;
   
   // OpenVINO UNet model
+#if ENABLE_OPENVINO
   ov::CompiledModel compiled_model_;
+#endif
   bool model_initialized_;
   
   // Data synchronization

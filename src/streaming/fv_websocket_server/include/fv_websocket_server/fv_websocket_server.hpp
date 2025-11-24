@@ -4,7 +4,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <std_msgs/msg/header.hpp>
-#include <cv_bridge/cv_bridge.h>
+#include <fluent_lib/cv_bridge_compat.hpp>
 #include <opencv2/opencv.hpp>
 
 #include <memory>

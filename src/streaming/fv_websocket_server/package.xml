@@ -14,6 +14,7 @@
   <depend>image_transport</depend>
   <depend>websocketpp</depend>
   <depend>boost</depend>
+  <depend>fluent_lib</depend>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_auto</buildtool_depend>

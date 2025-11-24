@@ -12,7 +12,7 @@
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <vision_msgs/msg/detection2_d_array.hpp>
 #include <vision_msgs/msg/detection2_d.hpp>
-#include <cv_bridge/cv_bridge.h>
+#include <fluent_lib/cv_bridge_compat.hpp>
 #include <image_transport/image_transport.hpp>
 #include <opencv2/opencv.hpp>
 

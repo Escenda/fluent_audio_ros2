@@ -1,5 +1,5 @@
 #include "fluent_vision/fluent_vision.hpp"
-#include <cv_bridge/cv_bridge.h>
+#include <fluent_lib/cv_bridge_compat.hpp>
 #include <cvx/cvx.hpp>
 
 namespace fluent_vision {

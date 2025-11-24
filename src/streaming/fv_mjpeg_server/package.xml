@@ -13,6 +13,7 @@
   <depend>cv_bridge</depend>
   <depend>image_transport</depend>
   <depend>ament_index_cpp</depend>
+  <depend>fluent_lib</depend>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_auto</buildtool_depend>

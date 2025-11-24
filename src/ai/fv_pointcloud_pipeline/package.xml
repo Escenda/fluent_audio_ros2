@@ -16,6 +16,7 @@
   <build_depend>cv_bridge</build_depend>
   <build_depend>pcl_conversions</build_depend>
   <build_depend>pcl_ros</build_depend>
+  <build_depend>ament_index_cpp</build_depend>
   <build_depend>fluent_lib</build_depend>
   <build_depend>fv_msgs</build_depend>
   <build_depend>yaml-cpp</build_depend>
@@ -27,6 +28,7 @@
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>pcl_conversions</exec_depend>
   <exec_depend>pcl_ros</exec_depend>
+  <exec_depend>ament_index_cpp</exec_depend>
   <exec_depend>fluent_lib</exec_depend>
   <exec_depend>fv_msgs</exec_depend>
   <exec_depend>yaml-cpp</exec_depend>

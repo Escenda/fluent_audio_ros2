@@ -44,12 +44,18 @@ find_package(fluent_lib REQUIRED)            # 共通ユーティリティ（テ
 
 # ===== 外部ライブラリ検索 =====
 find_package(OpenCV REQUIRED)                # OpenCVコンピュータビジョン
-find_package(OpenVINO REQUIRED)              # Intel OpenVINO推論エンジン
+find_package(OpenVINO QUIET)                 # Intel OpenVINO推論エンジン
 find_package(nlohmann_json REQUIRED)         # JSON処理ライブラリ
 find_package(yaml-cpp REQUIRED)              # YAML処理ライブラリ
 find_package(TIFF REQUIRED)
 find_package(CURL REQUIRED)
 find_package(GDAL QUIET)
+
+if(NOT OpenVINO_FOUND)
+  message(WARNING "OpenVINO not found. Skipping fv_object_detector build.")
+  ament_package()
+  return()
+endif()
 
 # ===== C++標準設定 =====
 set(CMAKE_CXX_STANDARD 17)                   # C++17標準を使用

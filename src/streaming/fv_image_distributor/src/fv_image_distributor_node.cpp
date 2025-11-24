@@ -127,7 +127,7 @@ void FVImageDistributor::handleHttpRequest(boost::asio::ip::tcp::socket socket)
         boost::beast::http::request<boost::beast::http::string_body> req;
         boost::beast::http::read(socket, buffer, req);
         
-        std::string path = req.target().to_string();
+        std::string path(req.target().data(), req.target().size());
         
         if (path == "/" || path == "/index.html") {
             // Serve HTML page

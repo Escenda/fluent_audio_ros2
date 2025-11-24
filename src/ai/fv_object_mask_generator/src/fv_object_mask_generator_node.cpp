@@ -163,6 +163,7 @@ void FVObjectMaskGeneratorNode::initializeTopics()
  */
 void FVObjectMaskGeneratorNode::initializeUNetModel()
 {
+#if ENABLE_OPENVINO
   try {
     RCLCPP_INFO(this->get_logger(), "Initializing UNet model: %s", model_path_.c_str());
     
@@ -178,6 +179,10 @@ void FVObjectMaskGeneratorNode::initializeUNetModel()
     RCLCPP_ERROR(this->get_logger(), "Failed to initialize UNet model: %s", e.what());
     model_initialized_ = false;
   }
+#else
+  RCLCPP_WARN(this->get_logger(), "OpenVINO support is disabled. UNet model initialization skipped.");
+  model_initialized_ = false;
+#endif
 }
 
 /**
@@ -273,6 +278,7 @@ void FVObjectMaskGeneratorNode::processImage()
  */
 cv::Mat FVObjectMaskGeneratorNode::inferUNet(const cv::Mat& image)
 {
+#if ENABLE_OPENVINO
   if (!model_initialized_) {
     return cv::Mat();
   }
@@ -324,6 +330,10 @@ cv::Mat FVObjectMaskGeneratorNode::inferUNet(const cv::Mat& image)
     RCLCPP_ERROR(this->get_logger(), "UNet inference error: %s", e.what());
     return cv::Mat();
   }
+#else
+  RCLCPP_WARN_ONCE(this->get_logger(), "OpenVINO support is disabled. UNet inference is not available.");
+  return cv::Mat();
+#endif
 }
 
 /**

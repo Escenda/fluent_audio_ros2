@@ -5,7 +5,7 @@
 #include <chrono>
 #include <sstream>
 #include <iomanip>
-#include <cv_bridge/cv_bridge.h>
+#include <fluent_lib/cv_bridge_compat.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 #include <vision_msgs/msg/object_hypothesis_with_pose.hpp>
 #include <opencv2/imgproc.hpp>

@@ -5,7 +5,7 @@
 // 画像オーバーレイ用
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/image_encodings.hpp>
-#include <cv_bridge/cv_bridge.h>
+#include <fluent_lib/cv_bridge_compat.hpp>
 // OpenCV
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>

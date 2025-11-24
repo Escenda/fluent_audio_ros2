@@ -2,7 +2,7 @@
 #include "fv_camera/srv/get_camera_info.hpp"
 #include "fv_camera/srv/set_camera_settings.hpp"
 
-#include <cv_bridge/cv_bridge.h>
+#include <fluent_lib/cv_bridge_compat.hpp>
 #include <opencv2/opencv.hpp>
 
 #include <chrono>

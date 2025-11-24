@@ -17,6 +17,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(fluent_lib REQUIRED)
 
 # Generate services
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -50,6 +51,7 @@ ament_target_dependencies(fv_camera_node
   compressed_image_transport
   geometry_msgs
   std_srvs
+  fluent_lib
 )
 
 target_link_libraries(fv_camera_node

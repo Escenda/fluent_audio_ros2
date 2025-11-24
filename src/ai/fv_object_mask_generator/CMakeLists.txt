@@ -32,19 +32,29 @@ find_package(tf2 REQUIRED)                   # TF2座標変換ライブラリ
 find_package(tf2_ros REQUIRED)               # TF2 ROS2統合
 find_package(vision_msgs REQUIRED)           # コンピュータビジョンメッセージ
 find_package(OpenCV REQUIRED)                # OpenCVコンピュータビジョン
-find_package(OpenVINO REQUIRED)              # Intel OpenVINO推論エンジン
+find_package(fluent_lib REQUIRED)            # Fluent Vision共通ライブラリ
+find_package(OpenVINO QUIET)                 # Intel OpenVINO推論エンジン（オプション）
 find_package(PkgConfig REQUIRED)             # pkg-config
-pkg_check_modules(JSON REQUIRED nlohmann_json)  # JSON処理ライブラリ
-find_package(TIFF REQUIRED)
-find_package(CURL REQUIRED)
+
+# OpenVINOサポートの有効/無効を設定
+option(ENABLE_OPENVINO "Enable OpenVINO support" ${OpenVINO_FOUND})
+if(ENABLE_OPENVINO AND NOT OpenVINO_FOUND)
+    message(WARNING "OpenVINO not found. Disabling OpenVINO support.")
+    set(ENABLE_OPENVINO OFF)
+endif()
+pkg_check_modules(JSON QUIET nlohmann_json)  # JSON処理ライブラリ（オプション）
+find_package(TIFF QUIET)
+find_package(CURL QUIET)
 find_package(GDAL QUIET)
 
 # ===== インクルードディレクトリ設定 =====
 include_directories(
   include                    # ヘッダーファイルディレクトリ
   ${OpenCV_INCLUDE_DIRS}     # OpenCVインクルードディレクトリ
-  ${JSON_INCLUDE_DIRS}       # JSONライブラリインクルードディレクトリ
 )
+if(JSON_FOUND)
+  include_directories(${JSON_INCLUDE_DIRS})  # JSONライブラリインクルードディレクトリ
+endif()
 
 # ===== 実行ファイル作成 =====
 add_executable(fv_object_mask_generator_node
@@ -61,18 +71,51 @@ ament_target_dependencies(fv_object_mask_generator_node
   tf2                       # TF2座標変換ライブラリ
   tf2_ros                   # TF2 ROS2統合
   vision_msgs               # コンピュータビジョンメッセージ
-  OpenCV                    # OpenCVライブラリ
+  fluent_lib                # Fluent Vision共通ライブラリ
 )
 
 # ===== 外部ライブラリリンク =====
 target_link_libraries(fv_object_mask_generator_node
-  openvino::runtime         # OpenVINO推論エンジン
-  ${JSON_LIBRARIES}         # JSON処理ライブラリ
-  TIFF::TIFF
-  CURL::libcurl
+  ${OpenCV_LIBRARIES}       # OpenCVライブラリ
 )
+
+# JSONライブラリ（オプション）
+if(JSON_FOUND)
+  target_link_libraries(fv_object_mask_generator_node ${JSON_LIBRARIES})
+  target_compile_definitions(fv_object_mask_generator_node PRIVATE ENABLE_JSON=1)
+else()
+  target_compile_definitions(fv_object_mask_generator_node PRIVATE ENABLE_JSON=0)
+  message(STATUS "nlohmann_json not found. Building without JSON support.")
+endif()
+
+# TIFFライブラリ（オプション）
+if(TIFF_FOUND)
+  target_link_libraries(fv_object_mask_generator_node TIFF::TIFF)
+endif()
+
+# CURLライブラリ（オプション）
+if(CURL_FOUND)
+  target_link_libraries(fv_object_mask_generator_node CURL::libcurl)
+endif()
+
+# GDALライブラリ（オプション）
 if(GDAL_FOUND)
   target_link_libraries(fv_object_mask_generator_node GDAL::GDAL)
+endif()
+
+# OpenVINOサポートが有効な場合のみリンク
+if(ENABLE_OPENVINO)
+  target_link_libraries(fv_object_mask_generator_node
+    openvino::runtime         # OpenVINO推論エンジン
+  )
+  target_compile_definitions(fv_object_mask_generator_node
+    PRIVATE ENABLE_OPENVINO=1
+  )
+else()
+  target_compile_definitions(fv_object_mask_generator_node
+    PRIVATE ENABLE_OPENVINO=0
+  )
+  message(STATUS "OpenVINO support disabled. Building without OpenVINO.")
 endif()
 
 # ===== インストール設定 =====

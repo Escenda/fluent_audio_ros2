@@ -1,0 +1,9 @@
+std_msgs/Header header
+string encoding
+uint32 sample_rate
+uint32 channels
+uint32 bit_depth
+float32 rms
+float32 peak
+bool vad
+uint8[] data

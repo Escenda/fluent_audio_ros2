@@ -10,8 +10,10 @@
 #include <std_srvs/srv/trigger.hpp>
 #include <geometry_msgs/msg/point.hpp>
 
+#ifdef ENABLE_REALSENSE
 #include <librealsense2/rs.hpp>
-#include <cv_bridge/cv_bridge.h>
+#endif
+#include <fluent_lib/cv_bridge_compat.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/static_transform_broadcaster.h>
 

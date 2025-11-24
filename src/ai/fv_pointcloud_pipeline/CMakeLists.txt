@@ -14,6 +14,7 @@ find_package(cv_bridge REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common io filters)
+find_package(ament_index_cpp REQUIRED)
 find_package(fluent_lib REQUIRED)
 find_package(fv_msgs REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc)
@@ -37,6 +38,7 @@ ament_target_dependencies(fv_pointcloud_pipeline_node
   geometry_msgs
   cv_bridge
   pcl_conversions
+  ament_index_cpp
   fluent_lib
   fv_msgs
 )

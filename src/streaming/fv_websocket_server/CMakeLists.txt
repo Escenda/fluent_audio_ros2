@@ -15,7 +15,14 @@ find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system thread)
-find_package(websocketpp REQUIRED)
+find_package(websocketpp QUIET)
+find_package(fluent_lib REQUIRED)
+
+if(NOT websocketpp_FOUND)
+  message(WARNING "websocketpp not found. Skipping fv_websocket_server build.")
+  ament_package()
+  return()
+endif()
 
 # Include directories
 include_directories(include)
@@ -32,6 +39,7 @@ ament_target_dependencies(fv_websocket_server_node
   std_msgs
   cv_bridge
   image_transport
+  fluent_lib
 )
 
 # Link OpenCV, Boost and WebSocket++

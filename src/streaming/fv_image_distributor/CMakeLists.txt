@@ -15,6 +15,7 @@ find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system thread)
+find_package(fluent_lib REQUIRED)
 
 # Include directories
 include_directories(include)
@@ -31,6 +32,7 @@ ament_target_dependencies(fv_image_distributor_node
   std_msgs
   cv_bridge
   image_transport
+  fluent_lib
 )
 
 # Link OpenCV and Boost

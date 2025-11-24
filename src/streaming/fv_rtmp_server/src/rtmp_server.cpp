@@ -129,7 +129,7 @@ bool RTMPServer::openRTMPStream(const std::string& rtmp_url)
     }
 
     // Set input format to FLV (RTMP uses FLV)
-    AVInputFormat* input_format = av_find_input_format("flv");
+    const AVInputFormat* input_format = av_find_input_format("flv");
     if (!input_format) {
         if (status_callback_) {
             status_callback_("ERROR", "FLV input format not found");

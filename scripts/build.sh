@@ -15,6 +15,13 @@ DEFAULT_ARGS=(
   --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
 )
 
+# Source install/setup.bash if it exists (for dependencies like fluent_lib)
+if [[ -f "$WS_ROOT/install/setup.bash" ]]; then
+  set +u  # Temporarily disable unbound variable check for sourcing
+  source "$WS_ROOT/install/setup.bash"
+  set -u  # Re-enable unbound variable check
+fi
+
 if [[ $# -gt 0 ]]; then
   echo "> colcon build $*"
   colcon build "$@"

@@ -14,6 +14,7 @@ find_package(std_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(fluent_lib REQUIRED)
 
 # Include directories
 include_directories(include)
@@ -30,6 +31,7 @@ ament_target_dependencies(fv_mjpeg_server_node
   std_msgs
   cv_bridge
   image_transport
+  fluent_lib
 )
 
 # Link OpenCV

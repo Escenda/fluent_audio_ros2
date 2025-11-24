@@ -35,6 +35,7 @@
   <depend>tf2_ros</depend>  <!-- TF2 ROS2統合 -->
   <depend>vision_msgs</depend>  <!-- コンピュータビジョンメッセージ -->
   <depend>OpenCV</depend>  <!-- OpenCVコンピュータビジョン -->
+  <depend>fluent_lib</depend>
 
   <!-- ===== テスト依存関係 ===== -->
   <test_depend>ament_lint_auto</test_depend>  <!-- 自動リントツール -->
