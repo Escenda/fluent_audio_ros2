@@ -2,6 +2,7 @@
 import hashlib
 import logging
 import os
+import sys
 from array import array
 from pathlib import Path
 from typing import Dict, Optional
@@ -17,9 +18,18 @@ from fv_tts.srv import Speak
 # Set pyopenjtalk dictionary directory to user's home directory
 os.environ.setdefault("OPEN_JTALK_DICT_DIR", str(Path.home() / ".pyopenjtalk"))
 
+# Disable tqdm progress bar for pyopenjtalk downloads
+os.environ["TQDM_DISABLE"] = "1"
+
 try:
+    # Suppress download progress output during pyopenjtalk import
+    _original_stderr = sys.stderr
+    sys.stderr = open(os.devnull, 'w')
     import pyopenjtalk
+    sys.stderr.close()
+    sys.stderr = _original_stderr
 except ImportError as exc:  # pragma: no cover - import guard
+    sys.stderr = _original_stderr
     pyopenjtalk = None
     _IMPORT_ERROR = exc
 else:
@@ -120,6 +130,17 @@ class FvTtsNode(Node):
             options["voice"] = voice_id
         wav, sample_rate = pyopenjtalk.tts(text, **options)
         waveform = np.asarray(wav, dtype=np.float32)
+
+        # pyopenjtalk が返す波形は float64 だが、環境によっては
+        # -32768〜32767 相当のスケールで返ってくることがある。
+        # そのまま[-1,1]にクリップすると全区間が潰れてノイズ化するため、
+        # 振幅が1.0を超える場合は16bitスケールとして正規化する。
+        if waveform.size:
+            abs_max = float(np.max(np.abs(waveform)))
+            if abs_max > 1.0:
+                waveform /= 32768.0
+        else:
+            abs_max = 1.0
         if volume_db != 0.0:
             gain = float(10.0 ** (volume_db / 20.0))
             waveform *= gain

@@ -388,7 +388,10 @@ bool FvAudioOutputNode::loadWavFile(const std::string & file_path, std::vector<u
   // Find fmt chunk
   bool found_fmt = false;
   uint16_t audio_format = 0;
-  uint32_t byte_rate = 0, block_align = 0;
+  uint32_t byte_rate = 0;
+  uint16_t block_align = 0;
+  uint16_t channels16 = 0;
+  uint16_t bit_depth16 = 0;
 
   while (file) {
     char chunk_id[4];
@@ -400,11 +403,14 @@ bool FvAudioOutputNode::loadWavFile(const std::string & file_path, std::vector<u
 
     if (std::strncmp(chunk_id, "fmt ", 4) == 0) {
       file.read(reinterpret_cast<char*>(&audio_format), 2);
-      file.read(reinterpret_cast<char*>(&out_channels), 2);
+      file.read(reinterpret_cast<char*>(&channels16), 2);
       file.read(reinterpret_cast<char*>(&out_sample_rate), 4);
       file.read(reinterpret_cast<char*>(&byte_rate), 4);
       file.read(reinterpret_cast<char*>(&block_align), 2);
-      file.read(reinterpret_cast<char*>(&out_bit_depth), 2);
+      file.read(reinterpret_cast<char*>(&bit_depth16), 2);
+
+      out_channels = static_cast<uint32_t>(channels16);
+      out_bit_depth = static_cast<uint32_t>(bit_depth16);
 
       // Skip remaining fmt chunk
       file.seekg(chunk_size - 16, std::ios::cur);
