@@ -63,6 +63,10 @@ public:
     declare_parameter<bool>("draw_metrics", true);
     declare_parameter<bool>("draw_root_tip", true);
     declare_parameter<bool>("draw_root_xyz", false);
+    // スケルトン描画（root→tip間を等間隔に分割して点列表示）
+    declare_parameter<bool>("draw_skeleton", true);
+    declare_parameter<int>("skeleton.num_points", 10);  // 分割数
+    declare_parameter<int>("skeleton.point_radius", 3); // 点の半径
     // Metrics units
     declare_parameter<std::string>("metrics.length_unit", "cm");  // cm|mm|m
     declare_parameter<std::string>("metrics.diameter_unit", "mm"); // cm|mm|m
@@ -137,6 +141,9 @@ public:
     draw_metrics_ = get_parameter("draw_metrics").as_bool();
     draw_root_tip_ = get_parameter("draw_root_tip").as_bool();
     draw_root_xyz_ = get_parameter("draw_root_xyz").as_bool();
+    draw_skeleton_ = get_parameter("draw_skeleton").as_bool();
+    skeleton_num_points_ = std::max(2, static_cast<int>(get_parameter("skeleton.num_points").as_int()));
+    skeleton_point_radius_ = std::max(1, static_cast<int>(get_parameter("skeleton.point_radius").as_int()));
     length_unit_ = get_parameter("metrics.length_unit").as_string();
     diameter_unit_ = get_parameter("metrics.diameter_unit").as_string();
     proj_transform_to_cinfo_ = get_parameter("projection.transform_to_camera_info").as_bool();
@@ -575,6 +582,12 @@ private:
           std::snprintf(diajp, sizeof(diajp), "直径 %.1f %s", m.thickness_m * diameter_scale_, diameter_unit_.c_str());
           fluent::text::drawShadow(view, std::string(diajp), mid_pt + cv::Point(8,14),
                                    cv::Scalar(200,255,200), cv::Scalar(0,0,0), 0.6, 1, 0);
+          // 曲げ角度を表示
+          double bend_angle = computeBendAngle(m.root_camera, m.tip_camera);
+          char anglejp[64];
+          std::snprintf(anglejp, sizeof(anglejp), "角度 %.1f°", bend_angle);
+          fluent::text::drawShadow(view, std::string(anglejp), mid_pt + cv::Point(8,36),
+                                   cv::Scalar(255,200,200), cv::Scalar(0,0,0), 0.6, 1, 0);
 
           if (draw_root_tip_ && validIntrinsics()) {
             geometry_msgs::msg::Point root_p = m.root_camera;
@@ -603,6 +616,11 @@ private:
               if (root_p.z > 0.0) {
                 auto uv0 = project(root_p.x, root_p.y, root_p.z);
                 cv::line(view, cv::Point((int)uv0.first,(int)uv0.second), cv::Point((int)uv1.first,(int)uv1.second), cv::Scalar(0,200,255), 2);
+
+                // スケルトン描画: root→tip間を等間隔に分割してグラデーション点列
+                if (draw_skeleton_) {
+                  drawSkeleton(view, root_p, tip_p);
+                }
               }
             }
 
@@ -628,6 +646,13 @@ private:
                               m.thickness_m * diameter_scale_, diameter_unit_.c_str());
                 fluent::text::drawShadow(view, ln4, cv::Point(x,y),
                                          cv::Scalar(255,255,255), cv::Scalar(0,0,0),
+                                         selinfo_font_scale_, selinfo_thickness_, 0);
+                y += 14;
+                double bend_angle = computeBendAngle(root_p, tip_p);
+                char ln5[128];
+                std::snprintf(ln5, sizeof(ln5), "曲げ角度 %.1f°", bend_angle);
+                fluent::text::drawShadow(view, ln5, cv::Point(x,y),
+                                         cv::Scalar(255,200,200), cv::Scalar(0,0,0),
                                          selinfo_font_scale_, selinfo_thickness_, 0);
               }
 
@@ -663,6 +688,21 @@ private:
   }
 
   bool validIntrinsics() const { return fx_ > 0.0 && fy_ > 0.0; }
+
+  // 曲げ角度を計算: root→tipベクトルが垂直(0,-1,0)からどれだけ傾いているか（度）
+  static double computeBendAngle(const geometry_msgs::msg::Point &root, const geometry_msgs::msg::Point &tip) {
+    double dx = tip.x - root.x;
+    double dy = tip.y - root.y;
+    double dz = tip.z - root.z;
+    double len = std::sqrt(dx*dx + dy*dy + dz*dz);
+    if (len < 1e-6) return 0.0;
+    // カメラ座標系: Y軸が下向きなので、垂直は(0,-1,0)方向
+    // 茎は下(root)から上(tip)に伸びるので、ベクトルを正規化してY成分の角度を計算
+    double ny = -dy / len;  // 垂直成分（上向きに正規化）
+    // 垂直からの角度 = acos(|vertical component|)
+    double angle_rad = std::acos(std::clamp(std::abs(ny), 0.0, 1.0));
+    return angle_rad * 180.0 / M_PI;
+  }
   geometry_msgs::msg::Point transformToCinfo(const geometry_msgs::msg::Point &p, const std::string &from_frame, const rclcpp::Time &stamp) {
     geometry_msgs::msg::Point out = p;
     if (!proj_transform_to_cinfo_) return out;
@@ -684,6 +724,35 @@ private:
     double u = cx_ + fx_ * (x / z);
     double v = cy_ + fy_ * (y / z);
     return {u, v};
+  }
+
+  // スケルトン描画: root→tip間を等間隔にサンプリングして色付き点列を描画
+  // 根本=赤(255,0,0)、先端=緑(0,255,0)のグラデーション
+  void drawSkeleton(cv::Mat &img, const geometry_msgs::msg::Point &root, const geometry_msgs::msg::Point &tip) {
+    if (!validIntrinsics()) return;
+    int n = skeleton_num_points_;
+    if (n < 2) n = 2;
+    for (int i = 0; i < n; ++i) {
+      double t = static_cast<double>(i) / static_cast<double>(n - 1);  // 0.0 〜 1.0
+      // 3D点を補間
+      double px = root.x + t * (tip.x - root.x);
+      double py = root.y + t * (tip.y - root.y);
+      double pz = root.z + t * (tip.z - root.z);
+      if (pz <= 0.0) continue;
+      // 2Dに投影
+      auto uv = project(px, py, pz);
+      cv::Point pt(static_cast<int>(uv.first), static_cast<int>(uv.second));
+      // 画面外チェック
+      if (pt.x < 0 || pt.x >= img.cols || pt.y < 0 || pt.y >= img.rows) continue;
+      // グラデーション色: BGR形式 root=赤(0,0,255) → tip=緑(0,255,0)
+      int b = 0;
+      int g = static_cast<int>(255.0 * t);
+      int r = static_cast<int>(255.0 * (1.0 - t));
+      cv::Scalar color(b, g, r);
+      cv::circle(img, pt, skeleton_point_radius_, color, -1);
+      // 外枠（視認性向上）
+      cv::circle(img, pt, skeleton_point_radius_, cv::Scalar(0, 0, 0), 1);
+    }
   }
 
   cv::Rect makeInvalidRect(int width, int height) const {
@@ -760,6 +829,9 @@ private:
   bool draw_metrics_{true};
   bool draw_root_tip_{true};
   bool draw_root_xyz_{false};
+  bool draw_skeleton_{true};
+  int skeleton_num_points_{10};
+  int skeleton_point_radius_{3};
   bool draw_invalid_area_{true};
   bool invalid_enabled_{false};
   bool invalid_any_overlap_{true};
