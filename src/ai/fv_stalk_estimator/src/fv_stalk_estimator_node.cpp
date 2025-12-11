@@ -61,6 +61,9 @@ public:
     this->declare_parameter<double>("ground.distance_threshold", 0.01);
     this->declare_parameter<int>("ground.max_iterations", 200);
     this->declare_parameter<double>("ground.max_tilt_deg", 35.0); // 上向き法線との許容傾き
+    // 骨格点列生成
+    this->declare_parameter<bool>("skeleton.enable", true);
+    this->declare_parameter<int>("skeleton.num_points", 10);  // 骨格点の数
 
     readParameters();
 
@@ -118,6 +121,8 @@ private:
     ground_dist_thresh_ = this->get_parameter("ground.distance_threshold").as_double();
     ground_max_iter_ = this->get_parameter("ground.max_iterations").as_int();
     ground_max_tilt_deg_ = this->get_parameter("ground.max_tilt_deg").as_double();
+    skeleton_enable_ = this->get_parameter("skeleton.enable").as_bool();
+    skeleton_num_points_ = std::max(2, static_cast<int>(this->get_parameter("skeleton.num_points").as_int()));
     if (pca_trim_low_ < 0.0) pca_trim_low_ = 0.0;
     if (pca_trim_high_ > 1.0) pca_trim_high_ = 1.0;
     if (pca_trim_high_ <= pca_trim_low_) pca_trim_high_ = std::min(0.95, pca_trim_low_ + 0.8);
@@ -319,6 +324,13 @@ private:
           m.confidence = 0.0f;
         }
       }
+      // 骨格点列を計算
+      if (skeleton_enable_) {
+        m.skeleton_points = computeSkeletonPoints(
+            sub, metrics.center, metrics.axis,
+            metrics.tmin, metrics.tmax,
+            p_root, p_tip, skeleton_num_points_);
+      }
       out.stalks.push_back(std::move(m));
     }
 
@@ -342,6 +354,90 @@ private:
     double z = static_cast<double>(p.z());
     if (z <= 0.0 || !intr_.valid()) return 0.0;
     return intr_.cy + intr_.fy * static_cast<double>(p.y()) / z;
+  }
+
+  // 骨格点列を計算: 点群をPCA軸に沿った区間に分割し、各区間の重心を骨格点とする
+  std::vector<geometry_msgs::msg::Point> computeSkeletonPoints(
+      const CloudPtr &cloud,
+      const Eigen::Vector3f &center,
+      const Eigen::Vector3f &axis,
+      float tmin, float tmax,
+      const Eigen::Vector3f &p_root,
+      const Eigen::Vector3f &p_tip,
+      int num_points) {
+    std::vector<geometry_msgs::msg::Point> skeleton;
+    if (!cloud || cloud->empty() || num_points < 2) return skeleton;
+
+    // root→tipの方向を決定（軸の向きを合わせる）
+    Eigen::Vector3f dir = (p_tip - p_root).normalized();
+    bool flip = (axis.dot(dir) < 0);
+    Eigen::Vector3f oriented_axis = flip ? -axis : axis;
+    float oriented_tmin = flip ? -tmax : tmin;
+    float oriented_tmax = flip ? -tmin : tmax;
+
+    // 点群を軸に沿ったt値でソートしてビン分け
+    struct PointWithT {
+      Eigen::Vector3f pos;
+      float t;
+    };
+    std::vector<PointWithT> pts;
+    pts.reserve(cloud->points.size());
+    for (const auto &p : cloud->points) {
+      if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z) || p.z <= 0.0f) continue;
+      Eigen::Vector3f v(p.x, p.y, p.z);
+      float t = oriented_axis.dot(v - center);
+      if (t >= oriented_tmin && t <= oriented_tmax) {
+        pts.push_back({v, t});
+      }
+    }
+    if (pts.empty()) return skeleton;
+
+    // num_points個の区間に分割し、各区間の重心を計算
+    float range = oriented_tmax - oriented_tmin;
+    if (range < 1e-6f) return skeleton;
+
+    skeleton.reserve(static_cast<size_t>(num_points));
+    for (int i = 0; i < num_points; ++i) {
+      float bin_start = oriented_tmin + range * static_cast<float>(i) / static_cast<float>(num_points);
+      float bin_end = oriented_tmin + range * static_cast<float>(i + 1) / static_cast<float>(num_points);
+
+      Eigen::Vector3f sum(0, 0, 0);
+      int count = 0;
+      for (const auto &pt : pts) {
+        if (pt.t >= bin_start && pt.t < bin_end) {
+          sum += pt.pos;
+          count++;
+        }
+      }
+      // 最後のビンは境界を含める
+      if (i == num_points - 1) {
+        for (const auto &pt : pts) {
+          if (pt.t >= bin_end - 1e-6f && pt.t <= oriented_tmax + 1e-6f) {
+            sum += pt.pos;
+            count++;
+          }
+        }
+      }
+
+      geometry_msgs::msg::Point sp;
+      if (count > 0) {
+        Eigen::Vector3f centroid = sum / static_cast<float>(count);
+        sp.x = centroid.x();
+        sp.y = centroid.y();
+        sp.z = centroid.z();
+      } else {
+        // 点がない区間は線形補間で埋める
+        float t_mid = (bin_start + bin_end) / 2.0f;
+        float alpha = (t_mid - oriented_tmin) / range;
+        Eigen::Vector3f interp = p_root + alpha * (p_tip - p_root);
+        sp.x = interp.x();
+        sp.y = interp.y();
+        sp.z = interp.z();
+      }
+      skeleton.push_back(sp);
+    }
+
+    return skeleton;
   }
 
   void publishMarkers(const fv_msgs::msg::StalkMetricsArray &arr) {
@@ -394,6 +490,8 @@ private:
   bool smooth_enable_{true};
   double smooth_alpha_{0.6};
   double smooth_max_jump_m_{0.08};
+  bool skeleton_enable_{true};
+  int skeleton_num_points_{10};
 
   // subs/pubs
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;

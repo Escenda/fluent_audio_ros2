@@ -617,9 +617,13 @@ private:
                 auto uv0 = project(root_p.x, root_p.y, root_p.z);
                 cv::line(view, cv::Point((int)uv0.first,(int)uv0.second), cv::Point((int)uv1.first,(int)uv1.second), cv::Scalar(0,200,255), 2);
 
-                // スケルトン描画: root→tip間を等間隔に分割してグラデーション点列
+                // スケルトン描画: skeleton_pointsがあれば実際の形状、なければ直線補間
                 if (draw_skeleton_) {
-                  drawSkeleton(view, root_p, tip_p);
+                  if (!m.skeleton_points.empty()) {
+                    drawSkeletonFromPoints(view, m.skeleton_points);
+                  } else {
+                    drawSkeleton(view, root_p, tip_p);
+                  }
                 }
               }
             }
@@ -726,7 +730,7 @@ private:
     return {u, v};
   }
 
-  // スケルトン描画: root→tip間を等間隔にサンプリングして色付き点列を描画
+  // スケルトン描画: root→tip間を等間隔にサンプリングして色付き点列を描画（直線補間版）
   // 根本=赤(255,0,0)、先端=緑(0,255,0)のグラデーション
   void drawSkeleton(cv::Mat &img, const geometry_msgs::msg::Point &root, const geometry_msgs::msg::Point &tip) {
     if (!validIntrinsics()) return;
@@ -752,6 +756,41 @@ private:
       cv::circle(img, pt, skeleton_point_radius_, color, -1);
       // 外枠（視認性向上）
       cv::circle(img, pt, skeleton_point_radius_, cv::Scalar(0, 0, 0), 1);
+    }
+  }
+
+  // 実際の骨格点列から描画（曲がりを反映）
+  void drawSkeletonFromPoints(cv::Mat &img, const std::vector<geometry_msgs::msg::Point> &points) {
+    if (!validIntrinsics() || points.empty()) return;
+    size_t n = points.size();
+    std::vector<cv::Point> pts2d;
+    pts2d.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+      const auto &p = points[i];
+      if (p.z <= 0.0) continue;
+      auto uv = project(p.x, p.y, p.z);
+      cv::Point pt(static_cast<int>(uv.first), static_cast<int>(uv.second));
+      if (pt.x < 0 || pt.x >= img.cols || pt.y < 0 || pt.y >= img.rows) continue;
+      pts2d.push_back(pt);
+    }
+    if (pts2d.empty()) return;
+    // 線を描画（骨格線）
+    for (size_t i = 1; i < pts2d.size(); ++i) {
+      double t = static_cast<double>(i) / static_cast<double>(pts2d.size() - 1);
+      int b = 0;
+      int g = static_cast<int>(255.0 * t);
+      int r = static_cast<int>(255.0 * (1.0 - t));
+      cv::line(img, pts2d[i-1], pts2d[i], cv::Scalar(b, g, r), 2);
+    }
+    // 点を描画
+    for (size_t i = 0; i < pts2d.size(); ++i) {
+      double t = static_cast<double>(i) / static_cast<double>(pts2d.size() > 1 ? pts2d.size() - 1 : 1);
+      int b = 0;
+      int g = static_cast<int>(255.0 * t);
+      int r = static_cast<int>(255.0 * (1.0 - t));
+      cv::Scalar color(b, g, r);
+      cv::circle(img, pts2d[i], skeleton_point_radius_, color, -1);
+      cv::circle(img, pts2d[i], skeleton_point_radius_, cv::Scalar(0, 0, 0), 1);
     }
   }
 
