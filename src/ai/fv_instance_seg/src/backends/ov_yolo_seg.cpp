@@ -1,6 +1,7 @@
 #include "fv_instance_seg/backends/ov_yolo_seg.hpp"
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
+#include <chrono>
 #include <numeric>
 #include <unordered_map>
 
@@ -8,6 +9,10 @@ namespace fv_instance_seg {
 
 OvYoloSegInferencer::OvYoloSegInferencer() {}
 OvYoloSegInferencer::~OvYoloSegInferencer() {}
+
+void OvYoloSegInferencer::set_timeout_ms(int timeout_ms) {
+  timeout_ms_ = std::max(0, timeout_ms);
+}
 
 bool OvYoloSegInferencer::load(const std::string& model_path, const std::string& device) {
   try {
@@ -33,6 +38,8 @@ bool OvYoloSegInferencer::load(const std::string& model_path, const std::string&
     num_classes_ = std::max(1, det_c - 4 - num_coeff_);
 
     compiled_ = core_.compile_model(model, device);
+    request_ = compiled_.create_infer_request();
+    has_request_ = true;
   } catch (...) {
     return false;
   }
@@ -82,8 +89,36 @@ bool OvYoloSegInferencer::infer(const cv::Mat& bgr, float conf_thres, float iou_
   std::vector<cv::Mat> ch(3); for(int i=0;i<3;++i) ch[i]=cv::Mat(net_h_,net_w_,CV_32F, in.data<float>()+ i*net_h_*net_w_);
   std::vector<cv::Mat> sp; cv::split(f32, sp); for(int i=0;i<3;++i) sp[i].copyTo(ch[i]);
 
-  auto req=compiled_.create_infer_request(); req.set_tensor(input_port_, in); req.infer();
-  ov::Tensor det_t=req.get_tensor(det_port_), proto_t=req.get_tensor(proto_port_);
+  try {
+    if (!has_request_) {
+      request_ = compiled_.create_infer_request();
+      has_request_ = true;
+    }
+
+    request_.set_tensor(input_port_, in);
+
+    if (timeout_ms_ > 0) {
+      request_.start_async();
+      bool ready = request_.wait_for(std::chrono::milliseconds(timeout_ms_));
+      if (!ready) {
+        try {
+          request_.cancel();
+        } catch (...) {
+        }
+        has_request_ = false;
+        return false;
+      }
+      // Propagate async exceptions (if any)
+      request_.wait();
+    } else {
+      request_.infer();
+    }
+  } catch (...) {
+    has_request_ = false;
+    return false;
+  }
+
+  ov::Tensor det_t=request_.get_tensor(det_port_), proto_t=request_.get_tensor(proto_port_);
   const float* det=det_t.data<const float>(); const float* proto=proto_t.data<const float>();
   auto dshape=det_port_.get_shape(); int C=static_cast<int>(dshape[1]); int N=static_cast<int>(dshape[2]); (void)C;
   int P=proto_c_, Hm=proto_h_, Wm=proto_w_; int ncls=num_classes_, ncoef=num_coeff_;
@@ -123,11 +158,29 @@ bool OvYoloSegInferencer::infer(const cv::Mat& bgr, float conf_thres, float iou_
     cv::Mat mnet; cv::resize(sig, mnet, cv::Size(net_w_,net_h_),0,0,cv::INTER_LINEAR);
     cv::Rect roi(info.pad_w, info.pad_h, net_w_-2*info.pad_w, net_h_-2*info.pad_h); roi &= cv::Rect(0,0,net_w_,net_h_);
     cv::Mat munp = (roi.width>0 && roi.height>0)? mnet(roi).clone(): mnet;
-    cv::Mat mimg; cv::resize(munp, mimg, bgr.size(),0,0,cv::INTER_LINEAR);
 
     cv::Mat mb= cv::Mat::zeros(bgr.rows,bgr.cols,CV_8UC1);
     cv::Rect ri((int)r.x,(int)r.y,(int)r.width,(int)r.height); ri &= cv::Rect(0,0,bgr.cols,bgr.rows);
-    if(ri.width>0 && ri.height>0){ cv::Mat roi_m = mimg(ri); cv::Mat m8; roi_m.convertTo(m8, CV_8UC1, 255.0); cv::threshold(m8,m8,128,255,cv::THRESH_BINARY); m8.copyTo(mb(ri)); }
+    if (ri.width > 0 && ri.height > 0) {
+      // 元画像座標(ri) -> munp(レターボックスのパディング除去済み) 座標へ写像して、
+      // 必要なROIだけをリサイズする（全画面へのリサイズは高コストでフリーズ要因になり得る）。
+      const float s = (info.scale > 0.f) ? info.scale : 1.f;
+      int x1u = static_cast<int>(std::floor(r.x * s));
+      int y1u = static_cast<int>(std::floor(r.y * s));
+      int x2u = static_cast<int>(std::ceil((r.x + r.width) * s));
+      int y2u = static_cast<int>(std::ceil((r.y + r.height) * s));
+      cv::Rect ri_u(x1u, y1u, std::max(0, x2u - x1u), std::max(0, y2u - y1u));
+      ri_u &= cv::Rect(0, 0, munp.cols, munp.rows);
+      if (ri_u.width > 0 && ri_u.height > 0) {
+        cv::Mat roi_unp = munp(ri_u);
+        cv::Mat roi_rs;
+        cv::resize(roi_unp, roi_rs, ri.size(), 0, 0, cv::INTER_LINEAR);
+        cv::Mat m8;
+        roi_rs.convertTo(m8, CV_8UC1, 255.0);
+        cv::threshold(m8, m8, 128, 255, cv::THRESH_BINARY);
+        m8.copyTo(mb(ri));
+      }
+    }
     out->boxes.emplace_back((int)r.x,(int)r.y,(int)r.width,(int)r.height);
     out->classes.emplace_back(classes[idx]); out->scores.emplace_back(scores[idx]); out->masks.emplace_back(std::move(mb));
   }
@@ -135,4 +188,3 @@ bool OvYoloSegInferencer::infer(const cv::Mat& bgr, float conf_thres, float iou_
 }
 
 } // namespace fv_instance_seg
-

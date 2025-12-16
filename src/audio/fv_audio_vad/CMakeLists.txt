@@ -32,9 +32,12 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}
 )
 
-install(DIRECTORY include/
-  DESTINATION include/
-)
+# Only install include directory if it exists
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  install(DIRECTORY include/
+    DESTINATION include/
+  )
+endif()
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

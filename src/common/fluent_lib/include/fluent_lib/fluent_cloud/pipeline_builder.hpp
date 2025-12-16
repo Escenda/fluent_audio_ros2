@@ -21,6 +21,7 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/search/kdtree.h>
+#include <pcl/features/normal_3d.h>
 
 namespace fluent_cloud::pipeline {
 
@@ -284,6 +285,98 @@ inline CloudPtr apply(const PipelineConfig &cfg, CloudPtr cloud, const FilterCon
                     pcl::ExtractIndices<pcl::PointXYZRGB> ex; ex.setInputCloud(cloud);
                     pcl::PointIndices::Ptr idx(new pcl::PointIndices(*largest)); ex.setIndices(idx); ex.setNegative(false);
                     CloudPtr out(new Cloud); ex.filter(*out); cloud = out;
+                }
+            }
+        } else if (st.type == "cylinder_filter") {
+            // セグメント化円柱フィッティング: アスパラの曲がりに対応
+            // 点群をZ軸方向に複数セグメントに分割し、各セグメントで円柱フィット
+            const double min_radius = st.num.count("min_radius_m") ? st.num.at("min_radius_m") : 0.003;  // デフォルト3mm
+            const double max_radius = st.num.count("max_radius_m") ? st.num.at("max_radius_m") : 0.0125; // デフォルト12.5mm（直径25mm）
+            const double dist_thresh = st.num.count("distance_threshold") ? st.num.at("distance_threshold") : 0.003;
+            const int max_iter = st.num.count("max_iterations") ? static_cast<int>(st.num.at("max_iterations")) : 100;
+            const double min_inliers_ratio = st.num.count("min_inliers_ratio") ? st.num.at("min_inliers_ratio") : 0.3;
+            const int num_segments = st.num.count("num_segments") ? static_cast<int>(st.num.at("num_segments")) : 5;
+
+            if (!cloud->empty() && cloud->points.size() >= 10) {
+                // Z軸（深度）の範囲を取得
+                float z_min = std::numeric_limits<float>::max();
+                float z_max = std::numeric_limits<float>::lowest();
+                for (const auto &pt : cloud->points) {
+                    if (std::isfinite(pt.z)) {
+                        z_min = std::min(z_min, pt.z);
+                        z_max = std::max(z_max, pt.z);
+                    }
+                }
+
+                if (z_max > z_min) {
+                    CloudPtr filtered_cloud(new Cloud);
+                    filtered_cloud->is_dense = false;
+                    const float segment_height = (z_max - z_min) / static_cast<float>(num_segments);
+
+                    // 各セグメントで円柱フィット
+                    for (int seg_idx = 0; seg_idx < num_segments; ++seg_idx) {
+                        const float seg_z_min = z_min + segment_height * static_cast<float>(seg_idx);
+                        const float seg_z_max = z_min + segment_height * static_cast<float>(seg_idx + 1);
+
+                        // セグメント内の点を抽出
+                        CloudPtr segment(new Cloud);
+                        segment->is_dense = false;
+                        for (const auto &pt : cloud->points) {
+                            if (std::isfinite(pt.z) && pt.z >= seg_z_min && pt.z < seg_z_max) {
+                                segment->points.push_back(pt);
+                            }
+                        }
+
+                        if (segment->points.size() < 10) continue; // セグメントの点が少なすぎる場合はスキップ
+
+                        // 法線推定
+                        pcl::NormalEstimation<pcl::PointXYZRGB, pcl::Normal> ne;
+                        pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+                        pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+                        ne.setSearchMethod(tree);
+                        ne.setInputCloud(segment);
+                        ne.setKSearch(std::min(20, static_cast<int>(segment->points.size())));
+                        ne.compute(*normals);
+
+                        // 円柱モデルでRANSAC
+                        pcl::SACSegmentationFromNormals<pcl::PointXYZRGB, pcl::Normal> seg;
+                        seg.setOptimizeCoefficients(true);
+                        seg.setModelType(pcl::SACMODEL_CYLINDER);
+                        seg.setMethodType(pcl::SAC_RANSAC);
+                        seg.setNormalDistanceWeight(0.1);
+                        seg.setMaxIterations(max_iter);
+                        seg.setDistanceThreshold(static_cast<float>(dist_thresh));
+                        seg.setRadiusLimits(static_cast<float>(min_radius), static_cast<float>(max_radius));
+                        seg.setInputCloud(segment);
+                        seg.setInputNormals(normals);
+
+                        pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+                        pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+                        seg.segment(*inliers, *coefficients);
+
+                        // インライヤ比率チェック
+                        const int n_pts = static_cast<int>(segment->points.size());
+                        const int n_inl = static_cast<int>(inliers->indices.size());
+                        const double ratio = n_pts > 0 ? static_cast<double>(n_inl) / static_cast<double>(n_pts) : 0.0;
+
+                        if (ratio >= min_inliers_ratio && !inliers->indices.empty()) {
+                            // 円柱にフィットする点のみを追加
+                            for (int idx : inliers->indices) {
+                                if (idx >= 0 && idx < static_cast<int>(segment->points.size())) {
+                                    filtered_cloud->points.push_back(segment->points[idx]);
+                                }
+                            }
+                        } else {
+                            // フィット失敗時はセグメント全体を保持（セーフガード）
+                            for (const auto &pt : segment->points) {
+                                filtered_cloud->points.push_back(pt);
+                            }
+                        }
+                    }
+
+                    filtered_cloud->width = filtered_cloud->points.size();
+                    filtered_cloud->height = 1;
+                    cloud = filtered_cloud;
                 }
             }
         } else {

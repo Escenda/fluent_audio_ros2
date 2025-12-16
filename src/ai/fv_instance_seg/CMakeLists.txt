@@ -8,7 +8,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(vision_msgs REQUIRED)
+find_package(fv_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc)
 find_package(OpenVINO QUIET)
@@ -43,7 +43,7 @@ target_link_libraries(fv_instance_seg_backends
   openvino::runtime
 )
 ament_target_dependencies(fv_instance_seg_backends
-  rclcpp sensor_msgs vision_msgs cv_bridge
+  rclcpp sensor_msgs fv_msgs cv_bridge
 )
 
 add_executable(fv_instance_seg_node
@@ -57,7 +57,7 @@ target_link_libraries(fv_instance_seg_node
   fluent_lib::fluent_lib
 )
 ament_target_dependencies(fv_instance_seg_node
-  rclcpp sensor_msgs vision_msgs cv_bridge fluent_lib
+  rclcpp sensor_msgs fv_msgs cv_bridge fluent_lib
 )
 
 install(TARGETS fv_instance_seg_backends fv_instance_seg_node

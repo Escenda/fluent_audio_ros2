@@ -223,8 +223,9 @@ void FvAudioOutputNode::handleFrame(const fv_audio::msg::AudioFrame::SharedPtr m
     std::lock_guard<std::mutex> lock(queue_mutex_);
     if (frame_queue_.size() >= config_.max_queue_frames) {
       frame_queue_.pop_front();
+      auto & clk = *this->get_clock();
       RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 2000,
+        this->get_logger(), clk, 2000,
         "Playback queue overflow, dropping oldest frame");
     }
     frame_queue_.emplace_back(std::move(buffer));
@@ -234,9 +235,13 @@ void FvAudioOutputNode::handleFrame(const fv_audio::msg::AudioFrame::SharedPtr m
 
 bool FvAudioOutputNode::validateFrame(const fv_audio::msg::AudioFrame & msg) const
 {
+  // Note: const_cast is needed because RCLCPP_WARN_THROTTLE requires non-const Clock
+  // but get_clock() returns const in const methods. This is safe because the macro
+  // doesn't modify the clock, it only reads from it.
+  auto & clk = const_cast<rclcpp::Clock &>(*this->get_clock());
   if (msg.encoding != kEncodingPcm16) {
     RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
+      this->get_logger(), clk, 3000,
       "Unsupported encoding %s, expected %s", msg.encoding.c_str(), kEncodingPcm16);
     return false;
   }
@@ -244,7 +249,7 @@ bool FvAudioOutputNode::validateFrame(const fv_audio::msg::AudioFrame & msg) con
     msg.bit_depth != config_.bit_depth)
   {
     RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
+      this->get_logger(), clk, 3000,
       "Frame format mismatch: frame=%uHz/%u/%u config=%uHz/%u/%u",
       msg.sample_rate, msg.channels, msg.bit_depth,
       config_.sample_rate, config_.channels, config_.bit_depth);
@@ -272,8 +277,9 @@ void FvAudioOutputNode::playbackThread()
     if (!frame.empty()) {
       if (!pcm_handle_) {
         if (!openDevice()) {
+          auto & clk = *this->get_clock();
           RCLCPP_ERROR_THROTTLE(
-            this->get_logger(), *this->get_clock(), 2000,
+            this->get_logger(), clk, 2000,
             "ALSA device unavailable, dropping frame");
           continue;
         }

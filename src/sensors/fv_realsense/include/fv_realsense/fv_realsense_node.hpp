@@ -21,6 +21,10 @@
 #include <string>
 #include <mutex>
 #include <unordered_map>
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <chrono>
 
 // Include service headers
 #include "fv_realsense/srv/get_distance.hpp"
@@ -117,10 +121,17 @@ private:
 
     // RealSense members
     rs2::context ctx_;
-    rs2::pipeline pipe_;
-    rs2::config cfg_;
-    rs2::pipeline_profile profile_;
+    rs2::pipeline pipe_;          // used only for legacy fallback/restart
+    rs2::config cfg_;             // stream config (shared)
+    rs2::pipeline_profile profile_; // legacy pipeline profile
     rs2::device device_;
+
+    // Sensor-based streaming (preferred: decouple color/depth without wait_for_frames)
+    rs2::sensor color_sensor_;
+    rs2::sensor depth_sensor_;
+    rs2::stream_profile color_profile_;
+    rs2::stream_profile depth_profile_;
+    bool sensors_started_ = false;
     
     // Synchronization flag
     bool sync_enabled_ = false;
@@ -130,6 +141,20 @@ private:
     bool organized_pointcloud_rgb_ = true;      // include RGB in organized cloud
     // Frame sync warning threshold (ms)
     double sync_warn_ms_ = 1.0;
+    // Soft sync parameters (pairing by device timestamp)
+    double sync_max_skew_ms_ = 20.0;
+    int sync_max_wait_ms_ = 15;
+    std::size_t sync_queue_size_ = 5;
+    // Timestamping: map device timestamp to ROS time
+    bool use_device_timestamp_ = true;
+    double device_ts_reset_threshold_ms_ = 1000.0;
+    std::mutex device_time_mutex_;
+    bool device_time_initialized_ = false;
+    rs2_timestamp_domain device_time_domain_{RS2_TIMESTAMP_DOMAIN_HARDWARE_CLOCK};
+    double base_device_ts_ms_ = 0.0;
+    rclcpp::Time base_ros_stamp_{0, 0, RCL_SYSTEM_TIME};
+    double last_device_ts_ms_ = 0.0;
+    rclcpp::Time last_ros_stamp_{0, 0, RCL_SYSTEM_TIME};
 
     // Publishers
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr color_pub_;
@@ -160,12 +185,54 @@ private:
     std::thread processing_thread_;
     std::atomic<bool> running_;
     std::mutex frame_mutex_;
-    // Cache of latest frames for service-safe access
+    // Guard any calls into rs2::pipeline (not thread-safe across callbacks/services)
+    std::mutex pipeline_mutex_;
+    // Buffers for decoupled stream pairing
+    struct FrameItem {
+        rs2::frame frame;
+        double ts_ms = 0.0;  // device timestamp (ms)
+        std::chrono::steady_clock::time_point recv_tp{};
+    };
+    std::mutex sync_mutex_;
+    std::condition_variable sync_cv_;
+    std::deque<FrameItem> color_queue_;
+    std::deque<FrameItem> depth_queue_;
+    std::atomic<int64_t> last_color_recv_ns_{0};
+    std::atomic<int64_t> last_depth_recv_ns_{0};
+    std::atomic<int64_t> last_paired_publish_ns_{0};
+    std::atomic<uint64_t> dropped_color_frames_{0};
+    std::atomic<uint64_t> dropped_depth_frames_{0};
+
+    // Cache of latest frames for service-safe access (avoid per-frame cv::Mat clones)
     std::mutex latest_frame_mutex_;
-    cv::Mat latest_color_image_mat_;
-    cv::Mat latest_depth_image_mat_;
-    rclcpp::Time latest_frame_stamp_;
-    
+    rs2::frame latest_color_frame_;
+    rs2::frame latest_depth_frame_;
+    double latest_color_ts_ms_ = 0.0;
+    double latest_depth_ts_ms_ = 0.0;
+    rclcpp::Time latest_color_stamp_;
+    rclcpp::Time latest_depth_stamp_;
+
+    // Cache settings
+    bool cache_latest_frames_enabled_ = false;
+
+    // Frame wait/recovery tuning
+    int frame_wait_timeout_ms_ = 1000;
+    int stall_warn_ms_ = 0;
+    int stall_restart_ms_ = 0;
+
+    // Periodic stats report (helps distinguish camera stall vs publish bottleneck)
+    bool stats_report_enabled_ = false;
+    int stats_report_period_ms_ = 1000;
+    rclcpp::TimerBase::SharedPtr stats_timer_;
+    uint64_t last_stats_color_cb_ = 0;
+    uint64_t last_stats_depth_cb_ = 0;
+    uint64_t last_stats_color_pub_ = 0;
+    uint64_t last_stats_depth_pub_ = 0;
+    std::atomic<uint64_t> color_cb_count_{0};
+    std::atomic<uint64_t> depth_cb_count_{0};
+    std::atomic<uint64_t> color_pub_count_{0};
+    std::atomic<uint64_t> depth_pub_count_{0};
+
     // Mode control
     std::atomic<int> current_mode_{1};  // デフォルトは基本動作モード（パラメータinitial_modeで上書き）
 
@@ -177,7 +244,8 @@ private:
         int mode;  // 0: 表示なし, 1: カーソルのみ, 2: カーソル+座標+距離
         float x, y, z;  // 3D座標
     };
-    mutable PointMarker point_marker_;
+    mutable std::mutex point_marker_mutex_;
+    mutable PointMarker point_marker_{cv::Point(), rclcpp::Time(0, 0, RCL_SYSTEM_TIME), false, 0, 0.0f, 0.0f, 0.0f};
 
     // Camera intrinsics
     rs2_intrinsics color_intrinsics_;
@@ -192,11 +260,16 @@ private:
     void loadParameters();
     bool initializeRealSense();
     bool selectCamera();
+    bool startSensors();
+    void stopSensors();
+    void onColorFrame(const rs2::frame& frame);
+    void onDepthFrame(const rs2::frame& frame);
     void initializePublishers();
     void initializeServices();
     void initializeTF();
     void processingLoop();
-    void publishFrames(const rs2::frame& color_frame, const rs2::frame& depth_frame);
+    rclcpp::Time stampFromDeviceTime(const rs2::frame& frame, double device_ts_ms);
+    void publishFrames(const rs2::frame& color_frame, const rs2::frame& depth_frame, const rclcpp::Time& stamp);
     void publishPointCloud(const rs2::frame& color_frame, const rs2::frame& depth_frame);
     cv::Mat createDepthColormap(const rs2::frame& depth_frame);
     void publishTF();
