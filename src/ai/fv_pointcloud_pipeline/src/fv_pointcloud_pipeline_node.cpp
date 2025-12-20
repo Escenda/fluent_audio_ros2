@@ -46,11 +46,12 @@ public:
     readParameters();
     loadPipelineConfig();
 
-    pointcloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(output_topic_, rclcpp::QoS(10));
+    // ポイントクラウドは巨大データなのでBEST_EFFORT+queue=1
+    pointcloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(output_topic_, rclcpp::QoS(1).best_effort());
     if (counts_topic_.empty()) {
       counts_topic_ = output_topic_ + "/indices";
     }
-    counts_pub_ = this->create_publisher<fv_msgs::msg::DetectionCloudIndices>(counts_topic_, rclcpp::QoS(10));
+    counts_pub_ = this->create_publisher<fv_msgs::msg::DetectionCloudIndices>(counts_topic_, rclcpp::QoS(1).best_effort());
 
     depth_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
         depth_topic_, makeQoS(depth_qos_depth_, depth_qos_reliability_),
@@ -67,7 +68,7 @@ public:
         std::bind(&PointcloudPipelineNode::handleCameraInfo, this, std::placeholders::_1));
 
     detections_sub_ = this->create_subscription<fv_msgs::msg::DetectionArray>(
-        detections_topic_, rclcpp::QoS(10),
+        detections_topic_, rclcpp::QoS(10).best_effort(),
         std::bind(&PointcloudPipelineNode::handleDetections, this, std::placeholders::_1));
 
     // Optional ROI mask subscriber (best effort)

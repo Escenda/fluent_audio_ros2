@@ -151,7 +151,11 @@ bool RTMPServer::openRTMPStream(const std::string& rtmp_url)
     av_dict_set(&options, "timeout", "5000000", 0);  // 5 second timeout
 
     // Open input stream
-    int ret = avformat_open_input(&format_context_, rtmp_url.c_str(), input_format, &options);
+    // Note: const_cast is needed for compatibility between different FFmpeg versions
+    // (some expect AVInputFormat*, others const AVInputFormat*)
+    // This is safe because avformat_open_input doesn't modify the format
+    int ret = avformat_open_input(&format_context_, rtmp_url.c_str(), 
+                                  const_cast<AVInputFormat*>(input_format), &options);
     av_dict_free(&options);
     
     if (ret < 0) {

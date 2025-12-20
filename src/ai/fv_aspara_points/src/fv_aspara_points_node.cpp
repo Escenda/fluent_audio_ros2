@@ -31,7 +31,7 @@ public:
 
     if (!detections_topic_.empty()) {
       det_sub_ = this->create_subscription<fv_msgs::msg::DetectionArray>(
-          detections_topic_, rclcpp::QoS(10), std::bind(&AsparaPointsNode::onDetections, this, std::placeholders::_1));
+          detections_topic_, rclcpp::QoS(10).best_effort(), std::bind(&AsparaPointsNode::onDetections, this, std::placeholders::_1));
     }
     depth_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
         depth_topic_, rclcpp::QoS(5).best_effort(), std::bind(&AsparaPointsNode::onDepth, this, std::placeholders::_1));

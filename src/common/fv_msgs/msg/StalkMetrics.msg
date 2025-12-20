@@ -20,3 +20,6 @@ uint8 grade
 geometry_msgs/Point root_world
 geometry_msgs/Point tip_world
 builtin_interfaces/Time updated_at
+
+# 骨格点列（PCA軸に沿ってサンプリングした実際の点群、root→tip順）
+geometry_msgs/Point[] skeleton_points

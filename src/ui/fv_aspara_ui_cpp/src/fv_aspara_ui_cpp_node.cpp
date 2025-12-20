@@ -39,6 +39,8 @@ public:
     declare_parameter<std::string>("image_qos_reliability", "best_effort");
     // Optional mask overlay
     declare_parameter<std::string>("mask_topic", "");
+    // mask_topic が instance id (0..255) を持つ /mono8 の場合 true にする（高速化）
+    declare_parameter<bool>("mask_is_instance_id", false);
     declare_parameter<int>("mask_threshold", 128);
     declare_parameter<double>("mask_overlay_alpha", 0.30);
     declare_parameter<int>("mask_overlay_color_bgr[0]", 0);
@@ -63,6 +65,10 @@ public:
     declare_parameter<bool>("draw_metrics", true);
     declare_parameter<bool>("draw_root_tip", true);
     declare_parameter<bool>("draw_root_xyz", false);
+    // スケルトン描画（root→tip間を等間隔に分割して点列表示）
+    declare_parameter<bool>("draw_skeleton", true);
+    declare_parameter<int>("skeleton.num_points", 10);  // 分割数
+    declare_parameter<int>("skeleton.point_radius", 3); // 点の半径
     // Metrics units
     declare_parameter<std::string>("metrics.length_unit", "cm");  // cm|mm|m
     declare_parameter<std::string>("metrics.diameter_unit", "mm"); // cm|mm|m
@@ -114,6 +120,8 @@ public:
     // Overlay gating
     declare_parameter<bool>("overlay.show_only_selected", false);
     declare_parameter<double>("overlay.min_confidence", 0.0);
+    // FPS制限（rqt表示負荷軽減）
+    declare_parameter<double>("output.max_fps", 0.0);
 
     image_topic_ = get_parameter("image_topic").as_string();
     detections_topic_ = get_parameter("detections_topic").as_string();
@@ -122,6 +130,7 @@ public:
     annotated_topic_ = get_parameter("annotated_topic").as_string();
     image_qos_reliability_ = get_parameter("image_qos_reliability").as_string();
     mask_topic_ = get_parameter("mask_topic").as_string();
+    mask_is_instance_id_ = get_parameter("mask_is_instance_id").as_bool();
     mask_threshold_ = get_parameter("mask_threshold").as_int();
     mask_alpha_ = get_parameter("mask_overlay_alpha").as_double();
     mask_color_bgr_[0] = get_parameter("mask_overlay_color_bgr[0]").as_int();
@@ -137,6 +146,9 @@ public:
     draw_metrics_ = get_parameter("draw_metrics").as_bool();
     draw_root_tip_ = get_parameter("draw_root_tip").as_bool();
     draw_root_xyz_ = get_parameter("draw_root_xyz").as_bool();
+    draw_skeleton_ = get_parameter("draw_skeleton").as_bool();
+    skeleton_num_points_ = std::max(2, static_cast<int>(get_parameter("skeleton.num_points").as_int()));
+    skeleton_point_radius_ = std::max(1, static_cast<int>(get_parameter("skeleton.point_radius").as_int()));
     length_unit_ = get_parameter("metrics.length_unit").as_string();
     diameter_unit_ = get_parameter("metrics.diameter_unit").as_string();
     proj_transform_to_cinfo_ = get_parameter("projection.transform_to_camera_info").as_bool();
@@ -179,38 +191,27 @@ public:
     metrics_draw_even_if_filtered_ = get_parameter("metrics.draw_even_if_filtered").as_bool();
     overlay_only_selected_ = get_parameter("overlay.show_only_selected").as_bool();
     overlay_min_conf_draw_ = get_parameter("overlay.min_confidence").as_double();
+    output_max_fps_ = get_parameter("output.max_fps").as_double();
 
     // TF buffer/listener/broadcaster for alignment and selected TF
     tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
-    rclcpp::QoS qos_sensor(5);
-    {
-      std::string rel = image_qos_reliability_;
-      std::transform(rel.begin(), rel.end(), rel.begin(), ::tolower);
-      if (rel == "reliable") qos_sensor.reliable();
-      else if (rel == "system_default" || rel == "system-default") {
-        // leave as default
-      } else {
-        qos_sensor.best_effort();
-      }
-    }
+    // 全てBEST_EFFORT + queue=1（最新フレームのみ処理、遅延最小化）
+    rclcpp::QoS qos_sensor(1);
+    qos_sensor.best_effort();
 
     sub_img_ = create_subscription<sensor_msgs::msg::Image>(image_topic_, qos_sensor,
       std::bind(&AsparaUiCppNode::onImage, this, std::placeholders::_1));
-    sub_det_ = create_subscription<fv_msgs::msg::DetectionArray>(detections_topic_, 10,
+    sub_det_ = create_subscription<fv_msgs::msg::DetectionArray>(detections_topic_, rclcpp::QoS(1).best_effort(),
       std::bind(&AsparaUiCppNode::onDetections, this, std::placeholders::_1));
     if (!metrics_topic_.empty()) {
-      sub_metrics_ = create_subscription<fv_msgs::msg::StalkMetricsArray>(metrics_topic_, 10,
+      sub_metrics_ = create_subscription<fv_msgs::msg::StalkMetricsArray>(metrics_topic_, rclcpp::QoS(1).best_effort(),
         std::bind(&AsparaUiCppNode::onMetrics, this, std::placeholders::_1));
     }
     if (!mask_topic_.empty()) {
-      // detection_fusion の roi_mask はデフォルトで reliable 発行
-      // QoSをreliableに合わせて互換性を確保
-      rclcpp::QoS qos_mask(rclcpp::KeepLast(5));
-      qos_mask.reliable();
-      sub_mask_ = create_subscription<sensor_msgs::msg::Image>(mask_topic_, qos_mask,
+      sub_mask_ = create_subscription<sensor_msgs::msg::Image>(mask_topic_, rclcpp::QoS(1).best_effort(),
         std::bind(&AsparaUiCppNode::onMask, this, std::placeholders::_1));
     }
     if (!camera_info_topic_.empty()) {
@@ -222,8 +223,10 @@ public:
 
     pub_anno_ = create_publisher<sensor_msgs::msg::Image>(annotated_topic_, qos_sensor);
 
-    RCLCPP_INFO(get_logger(), "Aspara UI CPP started: img=%s det=%s met=%s out=%s",
-                image_topic_.c_str(), detections_topic_.c_str(), metrics_topic_.c_str(), annotated_topic_.c_str());
+    RCLCPP_INFO(get_logger(), "Aspara UI CPP started: img=%s det=%s met=%s mask=%s (instance_id=%s) out=%s",
+                image_topic_.c_str(), detections_topic_.c_str(), metrics_topic_.c_str(),
+                mask_topic_.c_str(), mask_is_instance_id_ ? "true" : "false",
+                annotated_topic_.c_str());
 
     srv_get_sel_ = create_service<std_srvs::srv::Trigger>(
       "/get_selected_asparagus",
@@ -251,13 +254,21 @@ private:
   }
 
   void onImage(const sensor_msgs::msg::Image::SharedPtr msg) {
+    auto callback_start = std::chrono::steady_clock::now();
+
     cv::Mat view;
+    auto cvbridge_start = std::chrono::steady_clock::now();
     try {
       auto cvp = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
       view = cvp->image;
     } catch (const cv_bridge::Exception &ex) {
       RCLCPP_WARN(get_logger(), "cv_bridge convert to BGR8 failed: %s", ex.what());
       return;
+    }
+    auto cvbridge_end = std::chrono::steady_clock::now();
+    double cvbridge_ms = std::chrono::duration<double, std::milli>(cvbridge_end - cvbridge_start).count();
+    if (cvbridge_ms > 10.0) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "⚠️ cv_bridge took %.1fms", cvbridge_ms);
     }
 
     // compute invalid area rect in pixels if enabled
@@ -426,7 +437,10 @@ private:
           }
           // build LUT for instance id -> BGR based on current detections
           cv::Vec3b lut[256];
-          for (int i=0;i<256;++i) lut[i] = cv::Vec3b((uchar)mask_color_bgr_[0], (uchar)mask_color_bgr_[1], (uchar)mask_color_bgr_[2]);
+          for (int i = 0; i < 256; ++i) {
+            lut[i] = cv::Vec3b(
+                (uchar)mask_color_bgr_[0], (uchar)mask_color_bgr_[1], (uchar)mask_color_bgr_[2]);
+          }
           if (last_dets_) {
             for (const auto &d : last_dets_->detections) {
               uint32_t inst = d.mask_instance_id;
@@ -435,48 +449,59 @@ private:
               lut[inst & 0xFF] = c;
             }
           }
+
           cv::Mat overlay = view.clone();
-          if (mask.type() == CV_8UC1) {
-            for (int y = 0; y < mask.rows; ++y) {
-              const uint8_t* mr = mask.ptr<uint8_t>(y);
-              cv::Vec3b* ov = overlay.ptr<cv::Vec3b>(y);
-              for (int x = 0; x < mask.cols; ++x) {
-                uint8_t m = mr[x];
-                // インスタンスID（0=背景）。非ゼロを着色対象とする
-                if (m != 0) { ov[x] = lut[m]; }
-              }
+          if (mask_is_instance_id_ && mask.type() == CV_8UC1) {
+            // 高速: 1ch mask (instance id) を LUT で 3ch に変換して合成
+            cv::Mat lut_mat(1, 256, CV_8UC3);
+            for (int i = 0; i < 256; ++i) {
+              lut_mat.at<cv::Vec3b>(0, i) = lut[i];
             }
-            // ROIマスク（二値, detection_fusionのroi_maskなど）の場合でも
-            // 検出ごとに矩形領域を自色で上書きしてインスタンス別の色分けを担保する
-            if (last_dets_) {
-              for (const auto &d : last_dets_->detections) {
-                int x1 = std::max(0, (int)std::floor(d.bbox_min.x));
-                int y1 = std::max(0, (int)std::floor(d.bbox_min.y));
-                int x2 = std::min(view.cols, (int)std::ceil(d.bbox_max.x));
-                int y2 = std::min(view.rows, (int)std::ceil(d.bbox_max.y));
-                if (x2 <= x1 || y2 <= y1) continue;
-                cv::Rect roi(x1,y1,x2-x1,y2-y1);
-                cv::Vec3b ic = colorForDetId(d.id);
-                for (int y = roi.y; y < roi.y + roi.height; ++y) {
-                  const uint8_t* mr = mask.ptr<uint8_t>(y);
-                  cv::Vec3b* ov = overlay.ptr<cv::Vec3b>(y);
-                  for (int x = roi.x; x < roi.x + roi.width; ++x) {
-                    if (mr[x] != 0) ov[x] = ic;
+            cv::Mat colored;
+            cv::LUT(mask, lut_mat, colored);
+            cv::Mat nonzero = (mask != 0);
+            colored.copyTo(overlay, nonzero);
+          } else {
+            // 互換: 二値/その他のマスクは従来ロジック（重い）
+            if (mask.type() == CV_8UC1) {
+              for (int y = 0; y < mask.rows; ++y) {
+                const uint8_t* mr = mask.ptr<uint8_t>(y);
+                cv::Vec3b* ov = overlay.ptr<cv::Vec3b>(y);
+                for (int x = 0; x < mask.cols; ++x) {
+                  uint8_t m = mr[x];
+                  if (m != 0) { ov[x] = lut[m]; }
+                }
+              }
+              if (last_dets_) {
+                for (const auto &d : last_dets_->detections) {
+                  int x1 = std::max(0, (int)std::floor(d.bbox_min.x));
+                  int y1 = std::max(0, (int)std::floor(d.bbox_min.y));
+                  int x2 = std::min(view.cols, (int)std::ceil(d.bbox_max.x));
+                  int y2 = std::min(view.rows, (int)std::ceil(d.bbox_max.y));
+                  if (x2 <= x1 || y2 <= y1) continue;
+                  cv::Rect roi(x1,y1,x2-x1,y2-y1);
+                  cv::Vec3b ic = colorForDetId(d.id);
+                  for (int yy = roi.y; yy < roi.y + roi.height; ++yy) {
+                    const uint8_t* mr = mask.ptr<uint8_t>(yy);
+                    cv::Vec3b* ov = overlay.ptr<cv::Vec3b>(yy);
+                    for (int xx = roi.x; xx < roi.x + roi.width; ++xx) {
+                      if (mr[xx] != 0) ov[xx] = ic;
+                    }
                   }
                 }
               }
-            }
-          } else {
-            // fallback for other types: threshold and uniform palette[0]
-            for (int y = 0; y < mask.rows; ++y) {
-              const uint16_t* mr = mask.ptr<uint16_t>(y);
-              cv::Vec3b* ov = overlay.ptr<cv::Vec3b>(y);
-              for (int x = 0; x < mask.cols; ++x) {
-                uint16_t m = mr[x];
-                if ((m & 0xFF) != 0) { ov[x] = lut[(m & 0xFF)]; }
+            } else {
+              for (int y = 0; y < mask.rows; ++y) {
+                const uint16_t* mr = mask.ptr<uint16_t>(y);
+                cv::Vec3b* ov = overlay.ptr<cv::Vec3b>(y);
+                for (int x = 0; x < mask.cols; ++x) {
+                  uint16_t m = mr[x];
+                  if ((m & 0xFF) != 0) { ov[x] = lut[(m & 0xFF)]; }
+                }
               }
             }
           }
+
           double a = std::clamp(mask_alpha_, 0.0, 1.0);
           cv::addWeighted(overlay, a, view, 1.0 - a, 0.0, view);
         } catch (...) {}
@@ -575,6 +600,12 @@ private:
           std::snprintf(diajp, sizeof(diajp), "直径 %.1f %s", m.thickness_m * diameter_scale_, diameter_unit_.c_str());
           fluent::text::drawShadow(view, std::string(diajp), mid_pt + cv::Point(8,14),
                                    cv::Scalar(200,255,200), cv::Scalar(0,0,0), 0.6, 1, 0);
+          // 曲げ角度を表示
+          double bend_angle = computeBendAngle(m.root_camera, m.tip_camera);
+          char anglejp[64];
+          std::snprintf(anglejp, sizeof(anglejp), "角度 %.1f°", bend_angle);
+          fluent::text::drawShadow(view, std::string(anglejp), mid_pt + cv::Point(8,36),
+                                   cv::Scalar(255,200,200), cv::Scalar(0,0,0), 0.6, 1, 0);
 
           if (draw_root_tip_ && validIntrinsics()) {
             geometry_msgs::msg::Point root_p = m.root_camera;
@@ -601,8 +632,18 @@ private:
               auto uv1 = project(tip_p.x, tip_p.y, tip_p.z);
               cv::circle(view, cv::Point((int)uv1.first,(int)uv1.second), 4, cv::Scalar(255,0,0), -1);
               if (root_p.z > 0.0) {
-                auto uv0 = project(root_p.x, root_p.y, root_p.z);
-                cv::line(view, cv::Point((int)uv0.first,(int)uv0.second), cv::Point((int)uv1.first,(int)uv1.second), cv::Scalar(0,200,255), 2);
+                // オレンジ色のroot-tip直線は削除（骨格点で表現）
+
+                // スケルトン描画: skeleton_pointsがあれば実際の形状、なければ直線補間
+                if (draw_skeleton_) {
+                  if (!m.skeleton_points.empty()) {
+                    // 半径（直径の半分）を渡して円柱輪郭も描画
+                    double radius_m = m.thickness_m * 0.5;
+                    drawSkeletonFromPoints(view, m.skeleton_points, radius_m);
+                  } else {
+                    drawSkeleton(view, root_p, tip_p);
+                  }
+                }
               }
             }
 
@@ -628,6 +669,13 @@ private:
                               m.thickness_m * diameter_scale_, diameter_unit_.c_str());
                 fluent::text::drawShadow(view, ln4, cv::Point(x,y),
                                          cv::Scalar(255,255,255), cv::Scalar(0,0,0),
+                                         selinfo_font_scale_, selinfo_thickness_, 0);
+                y += 14;
+                double bend_angle = computeBendAngle(root_p, tip_p);
+                char ln5[128];
+                std::snprintf(ln5, sizeof(ln5), "曲げ角度 %.1f°", bend_angle);
+                fluent::text::drawShadow(view, ln5, cv::Point(x,y),
+                                         cv::Scalar(255,200,200), cv::Scalar(0,0,0),
                                          selinfo_font_scale_, selinfo_thickness_, 0);
               }
 
@@ -658,11 +706,43 @@ private:
 
     // no global title; each bbox has its own JP title
 
+    auto publish_start = std::chrono::steady_clock::now();
     auto out = cv_bridge::CvImage(msg->header, sensor_msgs::image_encodings::BGR8, view).toImageMsg();
     pub_anno_->publish(*out);
+    auto publish_end = std::chrono::steady_clock::now();
+
+    auto callback_end = std::chrono::steady_clock::now();
+    double publish_ms = std::chrono::duration<double, std::milli>(publish_end - publish_start).count();
+    double total_ms = std::chrono::duration<double, std::milli>(callback_end - callback_start).count();
+
+    if (publish_ms > 10.0) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "⚠️ UI publish took %.1fms", publish_ms);
+    }
+    if (total_ms > 50.0) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "⚠️ UI total processing took %.1fms", total_ms);
+    }
+
+    static int frame_count = 0;
+    if (++frame_count % 50 == 0) {
+      RCLCPP_INFO(get_logger(), "🎨 UI Performance: Total=%.1fms (%.1f fps)", total_ms, 1000.0 / total_ms);
+    }
   }
 
   bool validIntrinsics() const { return fx_ > 0.0 && fy_ > 0.0; }
+
+  // 曲げ角度を計算: X方向（左右）の傾きのみ（Z方向の奥行きは除外）
+  static double computeBendAngle(const geometry_msgs::msg::Point &root, const geometry_msgs::msg::Point &tip) {
+    double dx = tip.x - root.x;
+    double dy = tip.y - root.y;
+    double dz = tip.z - root.z;
+    if (std::abs(dy) < 1e-6) return 0.0;
+    // カメラ座標系: X軸が左右、Y軸が上下、Z軸が奥行き
+    // 左右方向（X）の曲がりのみを計算（Z方向の遠近は曲がりではないので除外）
+    double horizontal_x = std::abs(dx);  // X方向（左右）の距離のみ
+    double vertical = std::abs(dy);      // 垂直方向の距離
+    double angle_rad = std::atan2(horizontal_x, vertical);
+    return angle_rad * 180.0 / M_PI;
+  }
   geometry_msgs::msg::Point transformToCinfo(const geometry_msgs::msg::Point &p, const std::string &from_frame, const rclcpp::Time &stamp) {
     geometry_msgs::msg::Point out = p;
     if (!proj_transform_to_cinfo_) return out;
@@ -684,6 +764,133 @@ private:
     double u = cx_ + fx_ * (x / z);
     double v = cy_ + fy_ * (y / z);
     return {u, v};
+  }
+
+  // スケルトン描画: root→tip間を等間隔にサンプリングして色付き点列を描画（直線補間版）
+  // 根本=赤(255,0,0)、先端=緑(0,255,0)のグラデーション
+  void drawSkeleton(cv::Mat &img, const geometry_msgs::msg::Point &root, const geometry_msgs::msg::Point &tip) {
+    if (!validIntrinsics()) return;
+    int n = skeleton_num_points_;
+    if (n < 2) n = 2;
+    for (int i = 0; i < n; ++i) {
+      double t = static_cast<double>(i) / static_cast<double>(n - 1);  // 0.0 〜 1.0
+      // 3D点を補間
+      double px = root.x + t * (tip.x - root.x);
+      double py = root.y + t * (tip.y - root.y);
+      double pz = root.z + t * (tip.z - root.z);
+      if (pz <= 0.0) continue;
+      // 2Dに投影
+      auto uv = project(px, py, pz);
+      cv::Point pt(static_cast<int>(uv.first), static_cast<int>(uv.second));
+      // 画面外チェック
+      if (pt.x < 0 || pt.x >= img.cols || pt.y < 0 || pt.y >= img.rows) continue;
+      // グラデーション色: BGR形式 root=赤(0,0,255) → tip=緑(0,255,0)
+      int b = 0;
+      int g = static_cast<int>(255.0 * t);
+      int r = static_cast<int>(255.0 * (1.0 - t));
+      cv::Scalar color(b, g, r);
+      cv::circle(img, pt, skeleton_point_radius_, color, -1);
+      // 外枠（視認性向上）
+      cv::circle(img, pt, skeleton_point_radius_, cv::Scalar(0, 0, 0), 1);
+    }
+  }
+
+  // 実際の骨格点列から描画（曲がりを反映）
+  void drawSkeletonFromPoints(cv::Mat &img, const std::vector<geometry_msgs::msg::Point> &points, double radius_m = 0.0) {
+    if (!validIntrinsics() || points.empty()) return;
+    size_t n = points.size();
+    std::vector<cv::Point> pts2d;
+    std::vector<geometry_msgs::msg::Point> pts3d_valid;
+    pts2d.reserve(n);
+    pts3d_valid.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+      const auto &p = points[i];
+      if (p.z <= 0.0) continue;
+      auto uv = project(p.x, p.y, p.z);
+      cv::Point pt(static_cast<int>(uv.first), static_cast<int>(uv.second));
+      if (pt.x < 0 || pt.x >= img.cols || pt.y < 0 || pt.y >= img.rows) continue;
+      pts2d.push_back(pt);
+      pts3d_valid.push_back(p);
+    }
+    if (pts2d.empty()) return;
+
+    // 円柱の輪郭線を描画（半径情報がある場合）
+    if (radius_m > 0.0 && pts2d.size() >= 2) {
+      std::vector<cv::Point> left_contour, right_contour;
+      left_contour.reserve(pts2d.size());
+      right_contour.reserve(pts2d.size());
+
+      for (size_t i = 0; i < pts2d.size(); ++i) {
+        // セグメントの方向ベクトルを計算
+        cv::Point2f dir;
+        if (i == 0) {
+          // 最初の点: 次の点との方向
+          dir = cv::Point2f(pts2d[1].x - pts2d[0].x, pts2d[1].y - pts2d[0].y);
+        } else if (i == pts2d.size() - 1) {
+          // 最後の点: 前の点との方向
+          dir = cv::Point2f(pts2d[i].x - pts2d[i-1].x, pts2d[i].y - pts2d[i-1].y);
+        } else {
+          // 中間点: 前後の平均方向
+          cv::Point2f dir1(pts2d[i].x - pts2d[i-1].x, pts2d[i].y - pts2d[i-1].y);
+          cv::Point2f dir2(pts2d[i+1].x - pts2d[i].x, pts2d[i+1].y - pts2d[i+1].y);
+          dir = cv::Point2f((dir1.x + dir2.x) * 0.5f, (dir1.y + dir2.y) * 0.5f);
+        }
+
+        // 正規化
+        float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        if (len > 1e-6f) {
+          dir.x /= len;
+          dir.y /= len;
+        }
+
+        // 垂直ベクトル（右回り90度回転）
+        cv::Point2f perp(-dir.y, dir.x);
+
+        // 3D半径を2D画像上のピクセル半径に変換
+        const auto &p3d = pts3d_valid[i];
+        // 半径をカメラ座標系のX方向オフセットとして扱い、投影
+        auto uv_center = project(p3d.x, p3d.y, p3d.z);
+        auto uv_right = project(p3d.x + radius_m, p3d.y, p3d.z);
+        float pixel_radius = static_cast<float>(std::abs(uv_right.first - uv_center.first));
+
+        // 左右の輪郭点
+        cv::Point left_pt(
+          static_cast<int>(pts2d[i].x + perp.x * pixel_radius),
+          static_cast<int>(pts2d[i].y + perp.y * pixel_radius)
+        );
+        cv::Point right_pt(
+          static_cast<int>(pts2d[i].x - perp.x * pixel_radius),
+          static_cast<int>(pts2d[i].y - perp.y * pixel_radius)
+        );
+        left_contour.push_back(left_pt);
+        right_contour.push_back(right_pt);
+      }
+
+      // 円柱の輪郭線を白い1ピクセルラインで描画
+      for (size_t i = 1; i < left_contour.size(); ++i) {
+        cv::line(img, left_contour[i-1], left_contour[i], cv::Scalar(255, 255, 255), 1);
+        cv::line(img, right_contour[i-1], right_contour[i], cv::Scalar(255, 255, 255), 1);
+      }
+    }
+
+    // 中心線を描画（骨格線）
+    for (size_t i = 1; i < pts2d.size(); ++i) {
+      double t = static_cast<double>(i) / static_cast<double>(pts2d.size() - 1);
+      int b = 0;
+      int g = static_cast<int>(255.0 * t);
+      int r = static_cast<int>(255.0 * (1.0 - t));
+      cv::line(img, pts2d[i-1], pts2d[i], cv::Scalar(b, g, r), 2);
+    }
+    // 点を描画
+    for (size_t i = 0; i < pts2d.size(); ++i) {
+      double t = static_cast<double>(i) / static_cast<double>(pts2d.size() > 1 ? pts2d.size() - 1 : 1);
+      int b = 0;
+      int g = static_cast<int>(255.0 * t);
+      int r = static_cast<int>(255.0 * (1.0 - t));
+      cv::Scalar color(b, g, r);
+      cv::circle(img, pts2d[i], skeleton_point_radius_, color, -1);
+      cv::circle(img, pts2d[i], skeleton_point_radius_, cv::Scalar(0, 0, 0), 1);
+    }
   }
 
   cv::Rect makeInvalidRect(int width, int height) const {
@@ -760,6 +967,9 @@ private:
   bool draw_metrics_{true};
   bool draw_root_tip_{true};
   bool draw_root_xyz_{false};
+  bool draw_skeleton_{true};
+  int skeleton_num_points_{10};
+  int skeleton_point_radius_{3};
   bool draw_invalid_area_{true};
   bool invalid_enabled_{false};
   bool invalid_any_overlap_{true};
@@ -787,6 +997,7 @@ private:
   bool disp_draw_filtered_boxes_{true};
   bool overlay_only_selected_{false};
   double overlay_min_conf_draw_{0.0};
+  double output_max_fps_{0.0};
 
   // subs/pubs
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_img_;
@@ -809,6 +1020,7 @@ private:
 
   // mask params
   std::string mask_topic_;
+  bool mask_is_instance_id_{false};
   int mask_threshold_{128};
   double mask_alpha_{0.3};
   int mask_color_bgr_[3]{0,255,0};
@@ -890,7 +1102,7 @@ private:
     double x1 = d.bbox_min.x, y1 = d.bbox_min.y, x2 = d.bbox_max.x, y2 = d.bbox_max.y;
     double conf = static_cast<double>(d.conf_fused);
     double length_m = -1.0, thickness_m = -1.0;
-    geometry_msgs::msg::Point root = {}, tip = {};
+    geometry_msgs::msg::Point root, tip;
     std::string frame = cinfo_frame_;
     if (last_metrics_) {
       for (const auto &m : last_metrics_->stalks) {

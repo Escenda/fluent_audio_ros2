@@ -169,12 +169,42 @@ def launch_setup(context, *args, **kwargs):
             actions.append(LogInfo(msg="[fluent_vision_system] No RealSense devices detected to update camera serials"))
 
     # foxglove_bridgeの起動
-    if cfg.get('system', {}).get('enable_foxglove', False):
+    # - Config: system.enable_foxglove / system.foxglove.port
+    # - Env override:
+    #     FV_ENABLE_FOXGLOVE=1|0
+    #     FV_FOXGLOVE_PORT=8765
+    enable_fox = bool(cfg.get('system', {}).get('enable_foxglove', False))
+    env_enable = os.environ.get('FV_ENABLE_FOXGLOVE')
+    if env_enable is not None:
+        enable_fox = str(env_enable).strip().lower() in ('1', 'true', 'yes', 'on')
+
+    if enable_fox:
+        fox_cfg = cfg.get('system', {}).get('foxglove', {}) or {}
+        fox_port = int(fox_cfg.get('port', 8765))
+        env_port = os.environ.get('FV_FOXGLOVE_PORT')
+        if env_port:
+            try:
+                fox_port = int(str(env_port).strip())
+            except Exception:
+                pass
+        fox_params = [{'port': fox_port}]
+        fox_log_level = str(fox_cfg.get('log_level', '')).strip()
+        env_log_level = os.environ.get('FV_FOXGLOVE_LOG_LEVEL')
+        if env_log_level:
+            fox_log_level = str(env_log_level).strip()
+
+        # Humble環境では type_description_interfaces が存在せず WARN が大量に出ることがあるため、
+        # 必要なら log_level を設定して抑制できるようにする（例: error）。
+        fox_args = []
+        if fox_log_level:
+            fox_args = ['--ros-args', '--log-level', f'foxglove_bridge:={fox_log_level}']
         foxglove_bridge = Node(
             package='foxglove_bridge',
             executable='foxglove_bridge',
             name='foxglove_bridge',
-            output='screen'
+            output='screen',
+            parameters=fox_params,
+            arguments=fox_args,
         )
         actions.append(foxglove_bridge)
 
@@ -280,6 +310,11 @@ def launch_setup(context, *args, **kwargs):
                     output='screen',
                 )
             else:
+                respawn = bool(n.get('respawn', False))
+                respawn_delay = float(n.get('respawn_delay', 2.0))
+                # Instance segmentation occasionally hangs inside GPU inference; allow respawn.
+                if n.get('package') == 'fv_instance_seg':
+                    respawn = True
                 node = Node(
                     package=n['package'],
                     executable=n['exec'],
@@ -288,6 +323,8 @@ def launch_setup(context, *args, **kwargs):
                     # パラメータはフラット辞書として渡す
                     parameters=node_parameters,
                     output='screen',
+                    respawn=respawn,
+                    respawn_delay=respawn_delay,
                 )
 
             # 個別にlaunch_delayが指定されていれば優先
