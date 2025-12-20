@@ -29,14 +29,44 @@ FvAudioOutputNode::FvAudioOutputNode()
     throw std::runtime_error("Failed to open ALSA playback device");
   }
 
+  // QoS は fv_tts 側と合わせ、reliable/best_effort をパラメータで切り替える。
+  rclcpp::QoS audio_qos(config_.qos_depth);
+  if (config_.qos_reliable) {
+    audio_qos.reliable();
+  } else {
+    audio_qos.best_effort();
+  }
   audio_sub_ = this->create_subscription<fv_audio::msg::AudioFrame>(
-    "audio/output/frame", rclcpp::SensorDataQoS(),
+    "audio/output/frame", audio_qos,
     std::bind(&FvAudioOutputNode::handleFrame, this, std::placeholders::_1));
 
   play_file_srv_ = this->create_service<fv_audio_output::srv::PlayFile>(
     "audio/output/play_file",
     std::bind(&FvAudioOutputNode::handlePlayFile, this,
       std::placeholders::_1, std::placeholders::_2));
+
+  // 停止リクエスト subscription
+  stop_sub_ = this->create_subscription<std_msgs::msg::Empty>(
+    "audio/output/stop", 10,
+    std::bind(&FvAudioOutputNode::handleStop, this, std::placeholders::_1));
+
+  // 一時停止リクエスト subscription
+  pause_sub_ = this->create_subscription<std_msgs::msg::Empty>(
+    "audio/output/pause", 10,
+    std::bind(&FvAudioOutputNode::handlePause, this, std::placeholders::_1));
+
+  // 再開リクエスト subscription
+  resume_sub_ = this->create_subscription<std_msgs::msg::Empty>(
+    "audio/output/resume", 10,
+    std::bind(&FvAudioOutputNode::handleResume, this, std::placeholders::_1));
+
+  // 再生完了通知 publisher
+  playback_done_pub_ = this->create_publisher<fv_audio::msg::PlaybackDone>(
+    "audio/output/playback_done", 10);
+
+  // 一時停止完了通知 publisher
+  paused_pub_ = this->create_publisher<std_msgs::msg::Empty>(
+    "audio/output/paused", 10);
 
   running_.store(true);
   playback_thread_ = std::thread(&FvAudioOutputNode::playbackThread, this);
@@ -54,11 +84,18 @@ FvAudioOutputNode::~FvAudioOutputNode()
 
 void FvAudioOutputNode::loadParameters()
 {
+  const uint32_t default_chunk_duration_ms = config_.chunk_duration_ms;
+  const size_t default_qos_depth = config_.qos_depth;
+  const bool default_qos_reliable = config_.qos_reliable;
+
   this->declare_parameter("audio.device_id", config_.device_id);
   this->declare_parameter<int>("audio.sample_rate", static_cast<int>(config_.sample_rate));
   this->declare_parameter<int>("audio.channels", static_cast<int>(config_.channels));
   this->declare_parameter<int>("audio.bit_depth", static_cast<int>(config_.bit_depth));
   this->declare_parameter<int>("queue.max_frames", static_cast<int>(config_.max_queue_frames));
+  this->declare_parameter<int>("audio.chunk_duration_ms", static_cast<int>(default_chunk_duration_ms));
+  this->declare_parameter<int>("audio.qos.depth", static_cast<int>(default_qos_depth));
+  this->declare_parameter<bool>("audio.qos.reliable", default_qos_reliable);
 
   config_.device_id = this->get_parameter("audio.device_id").as_string();
   config_.sample_rate = this->get_parameter("audio.sample_rate").as_int();
@@ -66,11 +103,38 @@ void FvAudioOutputNode::loadParameters()
   config_.bit_depth = this->get_parameter("audio.bit_depth").as_int();
   const int64_t max_frames_param = this->get_parameter("queue.max_frames").as_int();
   config_.max_queue_frames = static_cast<size_t>(std::max<int64_t>(1, max_frames_param));
+  const int64_t chunk_duration_ms_param = this->get_parameter("audio.chunk_duration_ms").as_int();
+  if (chunk_duration_ms_param <= 0) {
+    RCLCPP_WARN(this->get_logger(),
+      "audio.chunk_duration_ms must be > 0, fallback to default: %u",
+      default_chunk_duration_ms);
+    config_.chunk_duration_ms = default_chunk_duration_ms;
+  } else if (chunk_duration_ms_param > 1000) {
+    RCLCPP_WARN(this->get_logger(),
+      "audio.chunk_duration_ms too large (%ld), clamp to 1000",
+      static_cast<long>(chunk_duration_ms_param));
+    config_.chunk_duration_ms = 1000;
+  } else {
+    config_.chunk_duration_ms = static_cast<uint32_t>(chunk_duration_ms_param);
+  }
+
+  const int64_t qos_depth_param = this->get_parameter("audio.qos.depth").as_int();
+  if (qos_depth_param <= 0) {
+    RCLCPP_WARN(this->get_logger(),
+      "audio.qos.depth must be > 0, fallback to default: %zu",
+      default_qos_depth);
+    config_.qos_depth = default_qos_depth;
+  } else {
+    config_.qos_depth = static_cast<size_t>(qos_depth_param);
+  }
+  config_.qos_reliable = this->get_parameter("audio.qos.reliable").as_bool();
 
   RCLCPP_INFO(this->get_logger(),
-    "Output config: device=%s rate=%uHz channels=%u bits=%u queue=%zu",
+    "Output config: device=%s rate=%uHz channels=%u bits=%u queue=%zu "
+    "chunk=%ums qos_depth=%zu reliable=%s",
     config_.device_id.c_str(), config_.sample_rate, config_.channels, config_.bit_depth,
-    config_.max_queue_frames);
+    config_.max_queue_frames, config_.chunk_duration_ms, config_.qos_depth,
+    config_.qos_reliable ? "true" : "false");
 }
 
 bool FvAudioOutputNode::openDevice()
@@ -214,11 +278,43 @@ void FvAudioOutputNode::closeDevice()
 
 void FvAudioOutputNode::handleFrame(const fv_audio::msg::AudioFrame::SharedPtr msg)
 {
+  RCLCPP_DEBUG_THROTTLE(
+    this->get_logger(), *this->get_clock(), 2000,
+    "Frame received: %zu bytes, %uHz, %u ch, encoding=%s",
+    msg->data.size(), msg->sample_rate, msg->channels, msg->encoding.c_str());
+
   if (!validateFrame(*msg)) {
     return;
   }
 
-  std::vector<uint8_t> buffer(msg->data.begin(), msg->data.end());
+  // Barge-in 後の古いフレームをフィルタリング
+  {
+    std::lock_guard<std::mutex> lock(stop_time_mutex_);
+    rclcpp::Time frame_time(msg->header.stamp);
+    if (last_stop_time_.nanoseconds() > 0 && frame_time < last_stop_time_) {
+      RCLCPP_WARN(this->get_logger(),
+        "Dropping stale frame (frame_time < last_stop_time): %.3f < %.3f",
+        frame_time.seconds(), last_stop_time_.seconds());
+      return;
+    }
+  }
+
+  // stop 後に遅れて到着した「旧リクエスト由来のフレーム」を破棄する。
+  // publish 時刻 stamp では判別できないため epoch を使う。
+  const uint32_t frame_epoch = msg->epoch;
+  const uint32_t current_epoch = current_epoch_.load();
+  if (frame_epoch != 0 && frame_epoch < current_epoch) {
+    RCLCPP_WARN(this->get_logger(),
+      "Dropping stale frame (epoch < current_epoch): %u < %u",
+      static_cast<unsigned int>(frame_epoch),
+      static_cast<unsigned int>(current_epoch));
+    return;
+  }
+
+  QueuedFrame queued_frame;
+  queued_frame.data = std::vector<uint8_t>(msg->data.begin(), msg->data.end());
+  queued_frame.header = msg->header;
+  queued_frame.epoch = msg->epoch;
   {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     if (frame_queue_.size() >= config_.max_queue_frames) {
@@ -227,9 +323,75 @@ void FvAudioOutputNode::handleFrame(const fv_audio::msg::AudioFrame::SharedPtr m
         this->get_logger(), *this->get_clock(), 2000,
         "Playback queue overflow, dropping oldest frame");
     }
-    frame_queue_.emplace_back(std::move(buffer));
+    frame_queue_.emplace_back(std::move(queued_frame));
   }
   queue_cv_.notify_one();
+  RCLCPP_DEBUG_THROTTLE(
+    this->get_logger(), *this->get_clock(), 2000,
+    "Frame queued for playback");
+}
+
+void FvAudioOutputNode::handleStop(const std_msgs::msg::Empty::SharedPtr /*msg*/)
+{
+  RCLCPP_INFO(this->get_logger(), "Stop requested");
+
+  const auto new_epoch = current_epoch_.fetch_add(1) + 1;
+  RCLCPP_INFO(this->get_logger(), "Playback epoch advanced: %u", static_cast<unsigned int>(new_epoch));
+
+  // 停止時刻を記録（この時刻より前のフレームは無視される）
+  {
+    std::lock_guard<std::mutex> lock(stop_time_mutex_);
+    last_stop_time_ = this->now();
+    RCLCPP_INFO(this->get_logger(), "Recording stop time: %.3f", last_stop_time_.seconds());
+  }
+
+  // 停止フラグを立てる
+  stop_requested_.store(true);
+
+  // キューをクリア
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    frame_queue_.clear();
+  }
+
+  // ALSA バッファをドロップ（即座に停止）
+  if (pcm_handle_) {
+    snd_pcm_drop(pcm_handle_);
+    snd_pcm_prepare(pcm_handle_);
+  }
+
+  // 停止フラグをリセット
+  stop_requested_.store(false);
+
+  // 一時停止も解除
+  is_paused_.store(false);
+  pause_requested_.store(false);
+
+  RCLCPP_INFO(this->get_logger(), "Playback stopped");
+}
+
+void FvAudioOutputNode::handlePause(const std_msgs::msg::Empty::SharedPtr /*msg*/)
+{
+  if (is_paused_.load()) {
+    RCLCPP_INFO(this->get_logger(), "Already paused, ignoring pause request");
+    return;
+  }
+
+  RCLCPP_INFO(this->get_logger(), "Pause requested");
+  pause_requested_.store(true);
+  queue_cv_.notify_one();  // playbackThreadを起こす
+}
+
+void FvAudioOutputNode::handleResume(const std_msgs::msg::Empty::SharedPtr /*msg*/)
+{
+  if (!is_paused_.load()) {
+    RCLCPP_DEBUG(this->get_logger(), "Not paused, ignoring resume request");
+    return;
+  }
+
+  RCLCPP_INFO(this->get_logger(), "Resume requested");
+  is_paused_.store(false);
+  queue_cv_.notify_all();  // playbackThreadを起こす
 }
 
 bool FvAudioOutputNode::validateFrame(const fv_audio::msg::AudioFrame & msg) const
@@ -241,8 +403,7 @@ bool FvAudioOutputNode::validateFrame(const fv_audio::msg::AudioFrame & msg) con
     return false;
   }
   if (msg.sample_rate != config_.sample_rate || msg.channels != config_.channels ||
-    msg.bit_depth != config_.bit_depth)
-  {
+    msg.bit_depth != config_.bit_depth) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "Frame format mismatch: frame=%uHz/%u/%u config=%uHz/%u/%u",
@@ -250,26 +411,70 @@ bool FvAudioOutputNode::validateFrame(const fv_audio::msg::AudioFrame & msg) con
       config_.sample_rate, config_.channels, config_.bit_depth);
     return false;
   }
+  if (msg.data.empty()) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Empty audio frame data, dropping");
+    return false;
+  }
+  if (bytes_per_frame_ > 0 && (msg.data.size() % bytes_per_frame_) != 0) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Invalid audio frame size: %zu (bytes_per_frame=%zu)",
+      msg.data.size(), bytes_per_frame_);
+    return false;
+  }
   return true;
 }
 
 void FvAudioOutputNode::playbackThread()
 {
+  // チャンクのサンプル数を計算（停止/一時停止の応答性向上用）
+  const uint64_t chunk_samples_u64 =
+    (static_cast<uint64_t>(config_.sample_rate) * config_.chunk_duration_ms) / 1000;
+  const size_t chunk_samples = std::max<size_t>(1, static_cast<size_t>(chunk_samples_u64));
+  const size_t chunk_bytes = chunk_samples * bytes_per_frame_;
+
   rclcpp::Rate idle_rate(50);
   while (running_.load()) {
-    std::vector<uint8_t> frame;
+    // 一時停止中なら待機
+    if (is_paused_.load()) {
+      std::unique_lock<std::mutex> lock(queue_mutex_);
+      queue_cv_.wait_for(lock, std::chrono::milliseconds(100), [this]() {
+        return !is_paused_.load() || !running_.load() || stop_requested_.load();
+      });
+      continue;
+    }
+
+    // 一時停止リクエストがあれば即座に停止
+    if (pause_requested_.load()) {
+      // ALSAバッファをドロップして即座に停止
+      if (pcm_handle_) {
+        snd_pcm_drop(pcm_handle_);
+        snd_pcm_prepare(pcm_handle_);
+      }
+      is_paused_.store(true);
+      pause_requested_.store(false);
+      RCLCPP_INFO(this->get_logger(), "Playback paused immediately");
+      paused_pub_->publish(std_msgs::msg::Empty());
+      continue;
+    }
+
+    QueuedFrame queued_frame;
+    bool has_frame = false;
     {
       std::unique_lock<std::mutex> lock(queue_mutex_);
       queue_cv_.wait_for(lock, std::chrono::milliseconds(100), [this]() {
-        return !frame_queue_.empty() || !running_.load();
+        return !frame_queue_.empty() || !running_.load() || pause_requested_.load();
       });
-      if (!frame_queue_.empty()) {
-        frame = std::move(frame_queue_.front());
+      if (!frame_queue_.empty() && !pause_requested_.load()) {
+        queued_frame = std::move(frame_queue_.front());
         frame_queue_.pop_front();
+        has_frame = true;
       }
     }
 
-    if (!frame.empty()) {
+    if (has_frame && !queued_frame.data.empty()) {
       if (!pcm_handle_) {
         if (!openDevice()) {
           RCLCPP_ERROR_THROTTLE(
@@ -279,21 +484,35 @@ void FvAudioOutputNode::playbackThread()
         }
       }
 
-      size_t frames_total = frame.size() / bytes_per_frame_;
-      size_t frames_written = 0;
-      uint8_t * data_ptr = frame.data();
+      size_t total_bytes = queued_frame.data.size();
+      size_t bytes_written = 0;
+      uint8_t * data_ptr = queued_frame.data.data();
+      bool interrupted = false;
 
-      while (frames_written < frames_total && running_.load()) {
+      // チャンク単位で書き込み（停止/一時停止の応答性向上）
+      while (bytes_written < total_bytes && running_.load()) {
+        // 停止/一時停止チェック
+        if (stop_requested_.load() || pause_requested_.load()) {
+          interrupted = true;
+          break;
+        }
+
+        // 今回書き込むバイト数（最大chunk_bytes）
+        size_t write_bytes = std::min(chunk_bytes, total_bytes - bytes_written);
+        size_t write_frames = write_bytes / bytes_per_frame_;
+
         snd_pcm_sframes_t result = snd_pcm_writei(
           pcm_handle_,
-          data_ptr + frames_written * bytes_per_frame_,
-          frames_total - frames_written);
+          data_ptr + bytes_written,
+          write_frames);
 
         if (result == -EPIPE) {
           RCLCPP_WARN(this->get_logger(), "XRUN detected, preparing device");
           snd_pcm_prepare(pcm_handle_);
           continue;
         } else if (result == -EAGAIN) {
+          // バッファがいっぱい、少し待つ
+          std::this_thread::sleep_for(std::chrono::microseconds(500));
           continue;
         } else if (result < 0) {
           RCLCPP_ERROR(this->get_logger(), "snd_pcm_writei failed: %s", snd_strerror(result));
@@ -301,9 +520,36 @@ void FvAudioOutputNode::playbackThread()
           break;
         }
 
-        frames_written += static_cast<size_t>(result);
+        bytes_written += static_cast<size_t>(result) * bytes_per_frame_;
+      }
+
+      if (interrupted) {
+        // 中断時: ALSAバッファをドロップして即停止
+        if (pcm_handle_) {
+          snd_pcm_drop(pcm_handle_);
+          snd_pcm_prepare(pcm_handle_);
+        }
+        RCLCPP_INFO(this->get_logger(), "Playback interrupted, dropped remaining audio");
+      } else if (bytes_written > 0) {
+        // 正常完了: drain せずに即座に playback_done を送信
+        // （次のフレームがあれば連続再生される）
+        RCLCPP_INFO(this->get_logger(), "Playback done, publishing notification");
+        fv_audio::msg::PlaybackDone done_msg;
+        done_msg.header = queued_frame.header;
+        done_msg.request_id = queued_frame.header.frame_id;
+        done_msg.epoch = queued_frame.epoch;
+        playback_done_pub_->publish(done_msg);
       }
     } else {
+      // キューが空の場合のみ、残りのALSAバッファを再生完了待ち
+      if (pcm_handle_) {
+        snd_pcm_state_t state = snd_pcm_state(pcm_handle_);
+        if (state == SND_PCM_STATE_RUNNING) {
+          // まだ再生中なら少し待つ
+          idle_rate.sleep();
+          continue;
+        }
+      }
       idle_rate.sleep();
     }
   }
@@ -340,6 +586,10 @@ void FvAudioOutputNode::handlePlayFile(
     applyVolumeScale(wav_data, request->volume_scale);
   }
 
+  QueuedFrame queued_frame;
+  queued_frame.data = std::move(wav_data);
+  queued_frame.header.stamp = this->now();
+  queued_frame.header.frame_id = "file:" + request->file_path;
   {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     if (request->interrupt) {
@@ -349,7 +599,7 @@ void FvAudioOutputNode::handlePlayFile(
       frame_queue_.pop_front();
       RCLCPP_WARN(this->get_logger(), "Queue overflow, dropping oldest frame for file playback");
     }
-    frame_queue_.emplace_back(std::move(wav_data));
+    frame_queue_.emplace_back(std::move(queued_frame));
   }
   queue_cv_.notify_one();
 

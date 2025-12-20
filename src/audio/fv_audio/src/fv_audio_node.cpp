@@ -165,12 +165,18 @@ bool FvAudioNode::reopenStream(const std::string &device_id)
     return false;
   }
 
-  if ((err = snd_pcm_hw_params_set_channels(pcm_handle_, params, config_.channels)) < 0) {
+  unsigned int channels = config_.channels;
+  if ((err = snd_pcm_hw_params_set_channels_near(pcm_handle_, params, &channels)) < 0) {
     RCLCPP_ERROR(this->get_logger(), "Failed to set channels: %s", snd_strerror(err));
     snd_pcm_hw_params_free(params);
     snd_pcm_close(pcm_handle_);
     pcm_handle_ = nullptr;
     return false;
+  }
+  if (channels != config_.channels) {
+    RCLCPP_WARN(this->get_logger(), "Requested channels %u, but device set %u", config_.channels, channels);
+    config_.channels = channels;
+    bytes_per_frame_ = config_.channels * (config_.bit_depth / 8);
   }
 
   unsigned int rate = config_.sample_rate;
@@ -181,6 +187,12 @@ bool FvAudioNode::reopenStream(const std::string &device_id)
     snd_pcm_close(pcm_handle_);
     pcm_handle_ = nullptr;
     return false;
+  }
+  if (rate != config_.sample_rate) {
+    RCLCPP_WARN(this->get_logger(), "Requested sample rate %u, but device set %u", config_.sample_rate, rate);
+    config_.sample_rate = rate;
+    frames_per_buffer_ = std::max<uint32_t>(config_.sample_rate * config_.chunk_ms / 1000, 64u);
+    bytes_per_frame_ = config_.channels * (config_.bit_depth / 8);
   }
 
   snd_pcm_uframes_t period_size = static_cast<snd_pcm_uframes_t>(frames_per_buffer_);
@@ -439,6 +451,10 @@ void FvAudioNode::handleListDevices(
   response->success = true;
   response->message = "ok";
 
+  response->active_device_id = active_device_id_;
+  response->active_device_name = active_device_name_;
+  response->active_device_index = -1;
+
   int index = 0;
   for (const auto &dev : devices) {
     response->device_ids.push_back(dev.first);
@@ -448,6 +464,18 @@ void FvAudioNode::handleListDevices(
     response->max_input_channels.push_back(config_.channels);
     response->default_sample_rates.push_back(config_.sample_rate);
   }
+
+  if (!active_device_id_.empty()) {
+    for (size_t i = 0; i < devices.size(); ++i) {
+      if (devices[i].first == active_device_id_) {
+        response->active_device_index = static_cast<int32_t>(i);
+        if (response->active_device_name.empty()) {
+          response->active_device_name = devices[i].second.empty() ? devices[i].first : devices[i].second;
+        }
+        break;
+      }
+    }
+  }
 }
 
 void FvAudioNode::handleSwitchDevice(
@@ -456,17 +484,33 @@ void FvAudioNode::handleSwitchDevice(
 {
   auto devices = enumerateCaptureDevices();
   std::string device_id;
+  std::string device_name;
 
   if (request->target_index >= 0 &&
-      static_cast<size_t>(request->target_index) < devices.size())
-  {
+      static_cast<size_t>(request->target_index) < devices.size()) {
     device_id = devices[request->target_index].first;
+    device_name = devices[request->target_index].second.empty()
+      ? device_id
+      : devices[request->target_index].second;
   } else if (!request->target_identifier.empty()) {
+    // Prefer matching device_id (ALSA identifier) directly.
     for (const auto &dev : devices) {
-      std::string label = dev.second.empty() ? dev.first : dev.second;
-      if (label.find(request->target_identifier) != std::string::npos) {
+      if (dev.first == request->target_identifier) {
         device_id = dev.first;
+        device_name = dev.second.empty() ? dev.first : dev.second;
         break;
+      }
+    }
+
+    if (device_id.empty()) {
+      for (const auto &dev : devices) {
+        std::string label = dev.second.empty() ? dev.first : dev.second;
+        if (dev.first.find(request->target_identifier) != std::string::npos ||
+            label.find(request->target_identifier) != std::string::npos) {
+          device_id = dev.first;
+          device_name = label;
+          break;
+        }
       }
     }
   }
@@ -477,11 +521,20 @@ void FvAudioNode::handleSwitchDevice(
     return;
   }
 
+  if (!request->restart) {
+    response->success = true;
+    response->message = "device selected (restart=false)";
+    return;
+  }
+
   if (!reopenStream(device_id)) {
     response->success = false;
     response->message = "failed to open device";
     return;
   }
+
+  active_device_id_ = device_id;
+  active_device_name_ = device_name.empty() ? device_id : device_name;
 
   startCaptureThread();
   response->success = true;

@@ -33,6 +33,7 @@ set(service_files
 
 set(message_files
   "msg/AudioFrame.msg"
+  "msg/PlaybackDone.msg"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

@@ -8,3 +8,6 @@ int32[] device_indices
 uint32[] max_input_channels
 uint32[] default_sample_rates
 string[] device_ids
+string active_device_id
+string active_device_name
+int32 active_device_index

@@ -7,3 +7,4 @@ float32 rms
 float32 peak
 bool vad
 uint8[] data
+uint32 epoch

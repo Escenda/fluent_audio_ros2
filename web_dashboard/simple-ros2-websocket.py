@@ -16,7 +16,6 @@ try:
     import rclpy
     from rclpy.node import Node
     from sensor_msgs.msg import Image, CompressedImage
-    from cv_bridge import CvBridge
     ROS2_AVAILABLE = True
 except ImportError:
     ROS2_AVAILABLE = False
@@ -25,7 +24,6 @@ except ImportError:
 class SimpleROS2Bridge:
     def __init__(self):
         self.clients = set()
-        self.bridge = CvBridge() if ROS2_AVAILABLE else None
         self.node = None
         self.subscriptions = {}
         
@@ -104,8 +102,47 @@ class SimpleROS2Bridge:
                 # 既に圧縮済み
                 jpeg_data = msg.data
             else:
-                # OpenCVで変換
-                cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                # cv_bridge を使わず、最低限のencodingのみ自前で変換する（環境差で落ちやすいため）
+                encoding = (msg.encoding or "").lower()
+                height = int(msg.height)
+                width = int(msg.width)
+                if height <= 0 or width <= 0:
+                    return
+                if not msg.data:
+                    return
+
+                if encoding in ("bgr8", "rgb8"):
+                    channels = 3
+                elif encoding in ("bgra8", "rgba8"):
+                    channels = 4
+                elif encoding == "mono8":
+                    channels = 1
+                elif encoding in ("8uc3", "8uc4", "8uc1"):
+                    channels = int(encoding[-1])
+                else:
+                    raise ValueError(f"Unsupported Image encoding: {msg.encoding}")
+
+                row_bytes = int(msg.step)
+                needed = row_bytes * height
+                buf = bytes(msg.data)
+                if len(buf) < needed:
+                    raise ValueError(f"Image data too short: len={len(buf)} needed={needed} encoding={msg.encoding}")
+
+                raw = np.frombuffer(buf[:needed], dtype=np.uint8).reshape((height, row_bytes))
+                pixel_bytes = width * channels
+                if row_bytes < pixel_bytes:
+                    raise ValueError(f"Invalid step: step={row_bytes} < width*channels={pixel_bytes} encoding={msg.encoding}")
+
+                cropped = raw[:, :pixel_bytes]
+                if channels == 1:
+                    cv_image = cropped.reshape((height, width))
+                else:
+                    cv_image = cropped.reshape((height, width, channels))
+                    if encoding in ("rgb8", "rgba8"):
+                        cv_image = cv_image[:, :, ::-1]
+                    if channels == 4:
+                        cv_image = cv_image[:, :, :3]
+
                 _, jpeg = cv2.imencode('.jpg', cv_image)
                 jpeg_data = jpeg.tobytes()
             

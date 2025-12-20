@@ -15,7 +15,10 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "fv_audio/msg/audio_frame.hpp"
+#include "fv_audio/msg/playback_done.hpp"
 #include "fv_audio_output/srv/play_file.hpp"
+#include "std_msgs/msg/empty.hpp"
+#include "std_msgs/msg/header.hpp"
 
 namespace fv_audio_output
 {
@@ -27,6 +30,17 @@ struct OutputConfig
   uint32_t channels = 1;
   uint32_t bit_depth = 16;
   size_t max_queue_frames = 8;
+  uint32_t chunk_duration_ms = 30;  // 内部チャンク分割サイズ（停止応答性向上用）
+  size_t qos_depth = 10;
+  bool qos_reliable = true;
+};
+
+// 再生キュー用の構造体（フレームデータとヘッダーをペアで保持）
+struct QueuedFrame
+{
+  std::vector<uint8_t> data;
+  std_msgs::msg::Header header;
+  uint32_t epoch{0};
 };
 
 class FvAudioOutputNode : public rclcpp::Node
@@ -41,6 +55,9 @@ private:
   void closeDevice();
   void playbackThread();
   void handleFrame(const fv_audio::msg::AudioFrame::SharedPtr msg);
+  void handleStop(const std_msgs::msg::Empty::SharedPtr msg);
+  void handlePause(const std_msgs::msg::Empty::SharedPtr msg);
+  void handleResume(const std_msgs::msg::Empty::SharedPtr msg);
   bool validateFrame(const fv_audio::msg::AudioFrame & msg) const;
   void handlePlayFile(
     const std::shared_ptr<fv_audio_output::srv::PlayFile::Request> request,
@@ -55,12 +72,29 @@ private:
 
   std::mutex queue_mutex_;
   std::condition_variable queue_cv_;
-  std::deque<std::vector<uint8_t>> frame_queue_;
+  std::deque<QueuedFrame> frame_queue_;
   std::thread playback_thread_;
   std::atomic<bool> running_{false};
 
   rclcpp::Subscription<fv_audio::msg::AudioFrame>::SharedPtr audio_sub_;
+  rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr stop_sub_;
+  rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr pause_sub_;
+  rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr resume_sub_;
   rclcpp::Service<fv_audio_output::srv::PlayFile>::SharedPtr play_file_srv_;
+  rclcpp::Publisher<fv_audio::msg::PlaybackDone>::SharedPtr playback_done_pub_;
+  rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr paused_pub_;  // 一時停止完了通知
+
+  std::atomic<bool> stop_requested_{false};  // 停止リクエストフラグ
+  std::atomic<bool> pause_requested_{false};  // 一時停止リクエストフラグ
+  std::atomic<bool> is_paused_{false};  // 一時停止中フラグ
+
+  // Barge-in 後の古いフレームをフィルタリングするためのタイムスタンプ
+  std::mutex stop_time_mutex_;
+  rclcpp::Time last_stop_time_{0, 0, RCL_ROS_TIME};
+
+  // stop 世代（epoch）。
+  // stop を受けたらインクリメントし、古い epoch のフレームは破棄する。
+  std::atomic<uint32_t> current_epoch_{1};
 };
 
 }  // namespace fv_audio_output

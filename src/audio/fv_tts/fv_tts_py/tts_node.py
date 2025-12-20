@@ -10,7 +10,9 @@ from typing import Dict, Optional
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+
+from std_msgs.msg import Empty
 
 from fv_audio.msg import AudioFrame
 from fv_tts.srv import Speak
@@ -60,6 +62,7 @@ class FvTtsNode(Node):
         self.declare_parameter("output_topic", "audio/tts/frame")
         self.declare_parameter("playback_topic", "audio/output/frame")
         self.declare_parameter("use_playback_topic", True)
+        self.declare_parameter("stop_topic", "audio/output/stop")
         self.declare_parameter("cache_dir", "")
         self.declare_parameter("default_volume_db", 0.0)
 
@@ -67,6 +70,7 @@ class FvTtsNode(Node):
         self.output_topic = self.get_parameter("output_topic").get_parameter_value().string_value
         self.playback_topic = self.get_parameter("playback_topic").get_parameter_value().string_value
         self.publish_playback = self.get_parameter("use_playback_topic").get_parameter_value().bool_value
+        self.stop_topic = self.get_parameter("stop_topic").get_parameter_value().string_value
         self.default_volume_db = self.get_parameter("default_volume_db").get_parameter_value().double_value
 
         cache_dir_param = self.get_parameter("cache_dir").get_parameter_value().string_value
@@ -74,22 +78,41 @@ class FvTtsNode(Node):
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # RELIABLE QoS でメッセージドロップを防ぐ
         qos = QoSProfile(depth=10)
-        qos.reliability = ReliabilityPolicy.BEST_EFFORT
+        qos.reliability = ReliabilityPolicy.RELIABLE
+        qos.durability = DurabilityPolicy.VOLATILE
         qos.history = HistoryPolicy.KEEP_LAST
 
         self.tts_pub = self.create_publisher(AudioFrame, self.output_topic, qos)
         self.play_pub = self.create_publisher(AudioFrame, self.playback_topic, qos)
         self.srv = self.create_service(Speak, "speak", self.handle_speak)
 
+        # Barge-in/stop 後に古い音声が鳴らないよう、再生世代(epoch)を管理する。
+        # epoch は AudioFrame.epoch に埋め込み、audio_output 側で stop 時に世代を進めて破棄する。
+        self.playback_epoch = 1
+        self.stop_sub = self.create_subscription(Empty, self.stop_topic, self.on_stop, qos)
+
         self.cache: Dict[str, CachedAudio] = {}
+
+    def on_stop(self, _msg: Empty) -> None:
+        """音声停止を受けたら再生世代を進める。"""
+        self.playback_epoch += 1
 
     def handle_speak(self, request: Speak.Request, response: Speak.Response) -> Speak.Response:
         text = request.text.strip()
+        self.get_logger().info(f"TTS request: text={text[:50]}... play={request.play}")
+
         if not text:
             response.success = False
             response.message = "text is empty"
+            self.get_logger().warn("TTS rejected: empty text")
             return response
+
+        # stop 後に遅れて publish される旧音声を確実に drop できるよう、
+        # stamp/epoch はリクエスト受領時点で確定させて全フレームに適用する。
+        request_stamp = self.get_clock().now().to_msg()
+        request_epoch = self.playback_epoch
 
         voice_id = request.voice_id or self.default_voice
         volume_db = request.volume_db if request.volume_db != 0.0 else self.default_volume_db
@@ -100,6 +123,7 @@ class FvTtsNode(Node):
             cached = self.load_cache_from_disk(cache_key)
 
         if cached is None:
+            self.get_logger().info("TTS cache miss, synthesizing...")
             try:
                 cached = self.synthesize(text, voice_id, volume_db)
             except Exception as exc:  # pylint: disable=broad-except
@@ -110,8 +134,11 @@ class FvTtsNode(Node):
             self.cache[cache_key] = cached
             if self.cache_dir:
                 self.write_cache_to_disk(cache_key, cached)
+            self.get_logger().info(f"TTS synthesized: {len(cached.audio_bytes)} bytes, {cached.sample_rate}Hz")
+        else:
+            self.get_logger().info("TTS cache hit")
 
-        frame = self.build_frame(cached)
+        frame = self.build_frame(cached, stamp=request_stamp, epoch=request_epoch)
         response.frame = frame
         response.success = True
         response.message = "ok"
@@ -121,6 +148,10 @@ class FvTtsNode(Node):
         if request.play and self.publish_playback:
             self.play_pub.publish(frame)
             response.played = True
+            audio_duration = len(cached.audio_bytes) / 2 / cached.sample_rate  # 16bit mono
+            self.get_logger().info(f"TTS published to playback: {audio_duration:.2f}s")
+        else:
+            self.get_logger().warn(f"TTS NOT published to playback: play={request.play}, publish_playback={self.publish_playback}")
 
         return response
 
@@ -152,9 +183,9 @@ class FvTtsNode(Node):
         peak = float(np.max(np.abs(float_samples))) if float_samples.size else 0.0
         return CachedAudio(audio_bytes, int(sample_rate), 1, 16, rms, peak)
 
-    def build_frame(self, cached: CachedAudio) -> AudioFrame:
+    def build_frame(self, cached: CachedAudio, *, stamp=None, epoch: int | None = None) -> AudioFrame:
         frame = AudioFrame()
-        frame.header.stamp = self.get_clock().now().to_msg()
+        frame.header.stamp = stamp if stamp is not None else self.get_clock().now().to_msg()
         frame.encoding = "PCM16LE"
         frame.sample_rate = cached.sample_rate
         frame.channels = cached.channels
@@ -163,6 +194,7 @@ class FvTtsNode(Node):
         frame.peak = cached.peak
         frame.vad = False
         frame.data = array('B', cached.audio_bytes)
+        frame.epoch = int(epoch) if epoch is not None else 0
         return frame
 
     def make_cache_key(self, text: str, voice_id: str, volume_db: float) -> str:
