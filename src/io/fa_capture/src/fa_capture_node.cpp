@@ -1,4 +1,4 @@
-#include "fv_audio/fv_audio_node.hpp"
+#include "fa_capture/fa_capture_node.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace fv_audio
+namespace fa_capture
 {
 
 namespace
@@ -22,33 +22,29 @@ void silenceAlsaErrors(const char * /*file*/, int /*line*/, const char * /*funct
 }
 }  // namespace
 
-FvAudioNode::FvAudioNode()
-: rclcpp::Node("fv_audio_node")
+FaCaptureNode::FaCaptureNode()
+: rclcpp::Node("fa_capture_node")
 {
-  RCLCPP_INFO(this->get_logger(), "Initializing FV Audio node");
+  RCLCPP_INFO(this->get_logger(), "Initializing FA Capture node");
   loadParameters();
 
-  audio_pub_ = this->create_publisher<fv_audio::msg::AudioFrame>("audio/frame", rclcpp::SensorDataQoS());
+  audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>("audio/frame", rclcpp::SensorDataQoS());
   levels_pub_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("audio/levels", rclcpp::SystemDefaultsQoS());
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("diagnostics", rclcpp::SystemDefaultsQoS());
 
-  list_devices_srv_ = this->create_service<fv_audio::srv::ListDevices>(
+  list_devices_srv_ = this->create_service<fa_interfaces::srv::ListDevices>(
     "list_devices",
-    std::bind(&FvAudioNode::handleListDevices, this, std::placeholders::_1, std::placeholders::_2));
+    std::bind(&FaCaptureNode::handleListDevices, this, std::placeholders::_1, std::placeholders::_2));
 
-  switch_device_srv_ = this->create_service<fv_audio::srv::SwitchDevice>(
+  switch_device_srv_ = this->create_service<fa_interfaces::srv::SwitchDevice>(
     "switch_device",
-    std::bind(&FvAudioNode::handleSwitchDevice, this, std::placeholders::_1, std::placeholders::_2));
-
-  record_srv_ = this->create_service<fv_audio::srv::Record>(
-    "record",
-    std::bind(&FvAudioNode::handleRecord, this, std::placeholders::_1, std::placeholders::_2));
+    std::bind(&FaCaptureNode::handleSwitchDevice, this, std::placeholders::_1, std::placeholders::_2));
 
   diag_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.diag_period_ms),
-    std::bind(&FvAudioNode::publishDiagnostics, this));
+    std::bind(&FaCaptureNode::publishDiagnostics, this));
 
-  initializePortAudio();
+  initializeAlsa();
   if (configureDevice()) {
     startCaptureThread();
   } else {
@@ -56,13 +52,13 @@ FvAudioNode::FvAudioNode()
   }
 }
 
-FvAudioNode::~FvAudioNode()
+FaCaptureNode::~FaCaptureNode()
 {
   stopCaptureThread();
-  shutdownPortAudio();
+  shutdownAlsa();
 }
 
-void FvAudioNode::loadParameters()
+void FaCaptureNode::loadParameters()
 {
   this->declare_parameter("audio.device_selector.mode", config_.device_mode);
   this->declare_parameter("audio.device_selector.identifier", config_.device_identifier);
@@ -74,7 +70,6 @@ void FvAudioNode::loadParameters()
   this->declare_parameter("audio.encoding", config_.encoding);
   this->declare_parameter("pipeline.publish_waveform", config_.publish_waveform);
   this->declare_parameter("pipeline.gain_db", config_.gain_db);
-  this->declare_parameter("recorder.auto_attach", config_.auto_attach);
   this->declare_parameter<int>("diagnostics.publish_period_ms", static_cast<int>(config_.diag_period_ms));
 
   config_.device_mode = this->get_parameter("audio.device_selector.mode").as_string();
@@ -87,7 +82,6 @@ void FvAudioNode::loadParameters()
   config_.encoding = this->get_parameter("audio.encoding").as_string();
   config_.publish_waveform = this->get_parameter("pipeline.publish_waveform").as_bool();
   config_.gain_db = this->get_parameter("pipeline.gain_db").as_double();
-  config_.auto_attach = this->get_parameter("recorder.auto_attach").as_bool();
   config_.diag_period_ms = this->get_parameter("diagnostics.publish_period_ms").as_int();
 
   gain_linear_ = std::pow(10.0, config_.gain_db / 20.0);
@@ -99,12 +93,12 @@ void FvAudioNode::loadParameters()
     config_.device_mode.c_str(), config_.sample_rate, config_.channels, config_.bit_depth, config_.chunk_ms);
 }
 
-void FvAudioNode::initializePortAudio()
+void FaCaptureNode::initializeAlsa()
 {
   snd_lib_error_set_handler(silenceAlsaErrors);
 }
 
-void FvAudioNode::shutdownPortAudio()
+void FaCaptureNode::shutdownAlsa()
 {
   if (pcm_handle_) {
     snd_pcm_drop(pcm_handle_);
@@ -113,7 +107,7 @@ void FvAudioNode::shutdownPortAudio()
   }
 }
 
-bool FvAudioNode::configureDevice()
+bool FaCaptureNode::configureDevice()
 {
   std::string device_id;
   std::string device_name;
@@ -133,7 +127,7 @@ bool FvAudioNode::configureDevice()
   return true;
 }
 
-bool FvAudioNode::reopenStream(const std::string &device_id)
+bool FaCaptureNode::reopenStream(const std::string &device_id)
 {
   stopCaptureThread();
 
@@ -225,16 +219,16 @@ bool FvAudioNode::reopenStream(const std::string &device_id)
   return true;
 }
 
-void FvAudioNode::startCaptureThread()
+void FaCaptureNode::startCaptureThread()
 {
   if (capturing_.load()) {
     return;
   }
   capturing_.store(true);
-  capture_thread_ = std::thread(&FvAudioNode::captureLoop, this);
+  capture_thread_ = std::thread(&FaCaptureNode::captureLoop, this);
 }
 
-void FvAudioNode::stopCaptureThread()
+void FaCaptureNode::stopCaptureThread()
 {
   if (!capturing_.load()) {
     if (capture_thread_.joinable()) {
@@ -251,7 +245,7 @@ void FvAudioNode::stopCaptureThread()
   }
 }
 
-void FvAudioNode::captureLoop()
+void FaCaptureNode::captureLoop()
 {
   if (!pcm_handle_) {
     RCLCPP_ERROR(this->get_logger(), "Capture loop started without ALSA handle");
@@ -277,16 +271,15 @@ void FvAudioNode::captureLoop()
     size_t byte_count = static_cast<size_t>(frames) * bytes_per_frame_;
     double peak = 0.0;
     double rms = computeRms(buffer.data(), sample_count, peak);
-    appendRecordingData(buffer.data(), byte_count);
     publishFrame(buffer.data(), byte_count, rms, peak);
     frames_published_.fetch_add(1);
     last_frame_time_ = std::chrono::steady_clock::now();
   }
 }
 
-void FvAudioNode::publishFrame(const uint8_t *data, size_t data_size, double rms, double peak)
+void FaCaptureNode::publishFrame(const uint8_t *data, size_t data_size, double rms, double peak)
 {
-  fv_audio::msg::AudioFrame frame_msg;
+  fa_interfaces::msg::AudioFrame frame_msg;
   frame_msg.header.stamp = this->now();
   frame_msg.encoding = config_.encoding;
   frame_msg.sample_rate = config_.sample_rate;
@@ -304,12 +297,12 @@ void FvAudioNode::publishFrame(const uint8_t *data, size_t data_size, double rms
 
 }
 
-void FvAudioNode::publishDiagnostics()
+void FaCaptureNode::publishDiagnostics()
 {
   diagnostic_msgs::msg::DiagnosticArray array_msg;
   array_msg.header.stamp = this->now();
   diagnostic_msgs::msg::DiagnosticStatus status;
-  status.name = "fv_audio_node";
+  status.name = "fa_capture_node";
   status.hardware_id = active_device_name_;
   status.level = capturing_.load() ? diagnostic_msgs::msg::DiagnosticStatus::OK
                                    : diagnostic_msgs::msg::DiagnosticStatus::WARN;
@@ -338,7 +331,7 @@ void FvAudioNode::publishDiagnostics()
   diag_pub_->publish(array_msg);
 }
 
-double FvAudioNode::computeRms(const void *data, size_t samples, double &peak) const
+double FaCaptureNode::computeRms(const void *data, size_t samples, double &peak) const
 {
   peak = 0.0;
   double accum = 0.0;
@@ -364,7 +357,7 @@ double FvAudioNode::computeRms(const void *data, size_t samples, double &peak) c
   return std::sqrt(accum / static_cast<double>(samples));
 }
 
-std::vector<std::pair<std::string, std::string>> FvAudioNode::enumerateCaptureDevices() const
+std::vector<std::pair<std::string, std::string>> FaCaptureNode::enumerateCaptureDevices() const
 {
   std::vector<std::pair<std::string, std::string>> devices;
   void **hints = nullptr;
@@ -400,7 +393,7 @@ std::vector<std::pair<std::string, std::string>> FvAudioNode::enumerateCaptureDe
   return devices;
 }
 
-bool FvAudioNode::determineDeviceFromConfig(std::string &device_id, std::string &device_name)
+bool FaCaptureNode::determineDeviceFromConfig(std::string &device_id, std::string &device_name)
 {
   auto devices = enumerateCaptureDevices();
   if (devices.empty()) {
@@ -443,9 +436,9 @@ bool FvAudioNode::determineDeviceFromConfig(std::string &device_id, std::string 
   return true;
 }
 
-void FvAudioNode::handleListDevices(
-  const std::shared_ptr<fv_audio::srv::ListDevices::Request> /*request*/,
-  std::shared_ptr<fv_audio::srv::ListDevices::Response> response)
+void FaCaptureNode::handleListDevices(
+  const std::shared_ptr<fa_interfaces::srv::ListDevices::Request> /*request*/,
+  std::shared_ptr<fa_interfaces::srv::ListDevices::Response> response)
 {
   auto devices = enumerateCaptureDevices();
   response->success = true;
@@ -478,9 +471,9 @@ void FvAudioNode::handleListDevices(
   }
 }
 
-void FvAudioNode::handleSwitchDevice(
-  const std::shared_ptr<fv_audio::srv::SwitchDevice::Request> request,
-  std::shared_ptr<fv_audio::srv::SwitchDevice::Response> response)
+void FaCaptureNode::handleSwitchDevice(
+  const std::shared_ptr<fa_interfaces::srv::SwitchDevice::Request> request,
+  std::shared_ptr<fa_interfaces::srv::SwitchDevice::Response> response)
 {
   auto devices = enumerateCaptureDevices();
   std::string device_id;
@@ -540,159 +533,16 @@ void FvAudioNode::handleSwitchDevice(
   response->success = true;
   response->message = "switched";
 }
-
-void FvAudioNode::handleRecord(
-  const std::shared_ptr<fv_audio::srv::Record::Request> request,
-  std::shared_ptr<fv_audio::srv::Record::Response> response)
-{
-  if (request->command == "start") {
-    if (startRecordingToFile(request->file_path)) {
-      response->success = true;
-      response->message = "recording started";
-    } else {
-      response->success = false;
-      response->message = "failed to start recording";
-    }
-    return;
-  }
-
-  if (request->command == "stop") {
-    if (stopRecordingToFile()) {
-      response->success = true;
-      response->message = "recording stopped";
-    } else {
-      response->success = false;
-      response->message = "recording was not active";
-    }
-    return;
-  }
-
-  response->success = false;
-  response->message = "unknown command";
-}
-
-bool FvAudioNode::startRecordingToFile(const std::string &path)
-{
-  if (path.empty()) {
-    RCLCPP_ERROR(this->get_logger(), "record path is empty");
-    return false;
-  }
-
-  std::lock_guard<std::mutex> lock(record_mutex_);
-  if (recording_) {
-    RCLCPP_WARN(this->get_logger(), "already recording");
-    return false;
-  }
-
-  std::filesystem::path target_path(path);
-  auto parent = target_path.parent_path();
-  if (!parent.empty()) {
-    std::error_code ec;
-    std::filesystem::create_directories(parent, ec);
-    if (ec) {
-      RCLCPP_ERROR(this->get_logger(), "failed to create directory: %s", ec.message().c_str());
-      return false;
-    }
-  }
-
-  record_stream_.open(target_path, std::ios::binary | std::ios::out | std::ios::trunc);
-  if (!record_stream_.is_open()) {
-    RCLCPP_ERROR(this->get_logger(), "failed to open record file %s", path.c_str());
-    return false;
-  }
-
-  recorded_bytes_ = 0;
-  record_path_ = target_path.string();
-  writeWavHeader(record_stream_, 0);
-  recording_ = true;
-  RCLCPP_INFO(this->get_logger(), "Recording to %s", record_path_.c_str());
-  return true;
-}
-
-bool FvAudioNode::stopRecordingToFile()
-{
-  std::lock_guard<std::mutex> lock(record_mutex_);
-  if (!recording_) {
-    return false;
-  }
-
-  finalizeWavHeader(record_stream_, recorded_bytes_);
-  record_stream_.close();
-  recording_ = false;
-  recorded_bytes_ = 0;
-  record_path_.clear();
-  return true;
-}
-
-void FvAudioNode::appendRecordingData(const uint8_t *data, size_t size)
-{
-  std::lock_guard<std::mutex> lock(record_mutex_);
-  if (!recording_ || !record_stream_.is_open()) {
-    return;
-  }
-
-  record_stream_.write(reinterpret_cast<const char *>(data), static_cast<std::streamsize>(size));
-  recorded_bytes_ += static_cast<uint32_t>(size);
-}
-
-void FvAudioNode::writeWavHeader(std::fstream &stream, uint32_t data_length)
-{
-  struct WavHeader
-  {
-    char riff[4];
-    uint32_t chunk_size;
-    char wave[4];
-    char fmt[4];
-    uint32_t subchunk1_size;
-    uint16_t audio_format;
-    uint16_t num_channels;
-    uint32_t sample_rate;
-    uint32_t byte_rate;
-    uint16_t block_align;
-    uint16_t bits_per_sample;
-    char data[4];
-    uint32_t subchunk2_size;
-  } header{};
-
-  std::memcpy(header.riff, "RIFF", 4);
-  std::memcpy(header.wave, "WAVE", 4);
-  std::memcpy(header.fmt, "fmt ", 4);
-  std::memcpy(header.data, "data", 4);
-
-  header.subchunk1_size = 16;
-  header.audio_format = (config_.bit_depth == 16) ? 1 : 3;
-  header.num_channels = static_cast<uint16_t>(config_.channels);
-  header.sample_rate = config_.sample_rate;
-  uint16_t bytes_per_sample = static_cast<uint16_t>(config_.bit_depth / 8);
-  header.byte_rate = config_.sample_rate * config_.channels * bytes_per_sample;
-  header.block_align = config_.channels * bytes_per_sample;
-  header.bits_per_sample = config_.bit_depth;
-  header.subchunk2_size = data_length;
-  header.chunk_size = 36 + data_length;
-
-  stream.write(reinterpret_cast<const char *>(&header), sizeof(header));
-}
-
-void FvAudioNode::finalizeWavHeader(std::fstream &stream, uint32_t data_length)
-{
-  stream.seekp(4, std::ios::beg);
-  uint32_t chunk_size = 36 + data_length;
-  stream.write(reinterpret_cast<const char *>(&chunk_size), sizeof(chunk_size));
-
-  stream.seekp(40, std::ios::beg);
-  stream.write(reinterpret_cast<const char *>(&data_length), sizeof(data_length));
-}
-
-}  // namespace fv_audio
+}  // namespace fa_capture
 
 int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
   try {
-    auto node = std::make_shared<fv_audio::FvAudioNode>();
+    auto node = std::make_shared<fa_capture::FaCaptureNode>();
     rclcpp::spin(node);
   } catch (const std::exception &e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fv_audio_node"), "Exception: %s", e.what());
+    RCLCPP_FATAL(rclcpp::get_logger("fa_capture_node"), "Exception: %s", e.what());
     return EXIT_FAILURE;
   }
   rclcpp::shutdown();

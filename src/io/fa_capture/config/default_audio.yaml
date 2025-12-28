@@ -1,7 +1,5 @@
-fv_audio_node:
+fa_capture_node:
   ros__parameters:
-    node:
-      input_topic: "/fv/audio/frame"
     audio:
       device_selector:
         mode: "auto"        # auto | index | name
@@ -15,7 +13,5 @@ fv_audio_node:
     pipeline:
       publish_waveform: false
       gain_db: 0.0
-    recorder:
-      auto_attach: true
     diagnostics:
       publish_period_ms: 1000

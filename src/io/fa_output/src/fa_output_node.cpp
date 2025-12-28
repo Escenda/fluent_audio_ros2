@@ -1,4 +1,4 @@
-#include "fv_audio_output/fv_audio_output_node.hpp"
+#include "fa_output/fa_output_node.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -6,7 +6,7 @@
 #include <fstream>
 #include <utility>
 
-namespace fv_audio_output
+namespace fa_output
 {
 
 namespace
@@ -14,10 +14,10 @@ namespace
 constexpr const char * kEncodingPcm16 = "PCM16LE";
 }
 
-FvAudioOutputNode::FvAudioOutputNode()
-: rclcpp::Node("fv_audio_output")
+FaOutputNode::FaOutputNode()
+: rclcpp::Node("fa_output")
 {
-  RCLCPP_INFO(this->get_logger(), "Starting FV Audio Output node");
+  RCLCPP_INFO(this->get_logger(), "Starting FA Output node");
   loadParameters();
 
   bytes_per_frame_ = config_.channels * (config_.bit_depth / 8);
@@ -29,39 +29,39 @@ FvAudioOutputNode::FvAudioOutputNode()
     throw std::runtime_error("Failed to open ALSA playback device");
   }
 
-  // QoS は fv_tts 側と合わせ、reliable/best_effort をパラメータで切り替える。
+  // QoS は fa_tts 側と合わせ、reliable/best_effort をパラメータで切り替える。
   rclcpp::QoS audio_qos(config_.qos_depth);
   if (config_.qos_reliable) {
     audio_qos.reliable();
   } else {
     audio_qos.best_effort();
   }
-  audio_sub_ = this->create_subscription<fv_audio::msg::AudioFrame>(
+  audio_sub_ = this->create_subscription<fa_interfaces::msg::AudioFrame>(
     "audio/output/frame", audio_qos,
-    std::bind(&FvAudioOutputNode::handleFrame, this, std::placeholders::_1));
+    std::bind(&FaOutputNode::handleFrame, this, std::placeholders::_1));
 
-  play_file_srv_ = this->create_service<fv_audio_output::srv::PlayFile>(
+  play_file_srv_ = this->create_service<fa_interfaces::srv::PlayFile>(
     "audio/output/play_file",
-    std::bind(&FvAudioOutputNode::handlePlayFile, this,
+    std::bind(&FaOutputNode::handlePlayFile, this,
       std::placeholders::_1, std::placeholders::_2));
 
   // 停止リクエスト subscription
   stop_sub_ = this->create_subscription<std_msgs::msg::Empty>(
     "audio/output/stop", 10,
-    std::bind(&FvAudioOutputNode::handleStop, this, std::placeholders::_1));
+    std::bind(&FaOutputNode::handleStop, this, std::placeholders::_1));
 
   // 一時停止リクエスト subscription
   pause_sub_ = this->create_subscription<std_msgs::msg::Empty>(
     "audio/output/pause", 10,
-    std::bind(&FvAudioOutputNode::handlePause, this, std::placeholders::_1));
+    std::bind(&FaOutputNode::handlePause, this, std::placeholders::_1));
 
   // 再開リクエスト subscription
   resume_sub_ = this->create_subscription<std_msgs::msg::Empty>(
     "audio/output/resume", 10,
-    std::bind(&FvAudioOutputNode::handleResume, this, std::placeholders::_1));
+    std::bind(&FaOutputNode::handleResume, this, std::placeholders::_1));
 
   // 再生完了通知 publisher
-  playback_done_pub_ = this->create_publisher<fv_audio::msg::PlaybackDone>(
+  playback_done_pub_ = this->create_publisher<fa_interfaces::msg::PlaybackDone>(
     "audio/output/playback_done", 10);
 
   // 一時停止完了通知 publisher
@@ -69,10 +69,10 @@ FvAudioOutputNode::FvAudioOutputNode()
     "audio/output/paused", 10);
 
   running_.store(true);
-  playback_thread_ = std::thread(&FvAudioOutputNode::playbackThread, this);
+  playback_thread_ = std::thread(&FaOutputNode::playbackThread, this);
 }
 
-FvAudioOutputNode::~FvAudioOutputNode()
+FaOutputNode::~FaOutputNode()
 {
   running_.store(false);
   queue_cv_.notify_all();
@@ -82,7 +82,7 @@ FvAudioOutputNode::~FvAudioOutputNode()
   closeDevice();
 }
 
-void FvAudioOutputNode::loadParameters()
+void FaOutputNode::loadParameters()
 {
   const uint32_t default_chunk_duration_ms = config_.chunk_duration_ms;
   const size_t default_qos_depth = config_.qos_depth;
@@ -137,7 +137,7 @@ void FvAudioOutputNode::loadParameters()
     config_.qos_reliable ? "true" : "false");
 }
 
-bool FvAudioOutputNode::openDevice()
+bool FaOutputNode::openDevice()
 {
   closeDevice();
 
@@ -267,7 +267,7 @@ bool FvAudioOutputNode::openDevice()
   return true;
 }
 
-void FvAudioOutputNode::closeDevice()
+void FaOutputNode::closeDevice()
 {
   if (pcm_handle_) {
     snd_pcm_drop(pcm_handle_);
@@ -276,7 +276,7 @@ void FvAudioOutputNode::closeDevice()
   }
 }
 
-void FvAudioOutputNode::handleFrame(const fv_audio::msg::AudioFrame::SharedPtr msg)
+void FaOutputNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   RCLCPP_DEBUG_THROTTLE(
     this->get_logger(), *this->get_clock(), 2000,
@@ -332,7 +332,7 @@ void FvAudioOutputNode::handleFrame(const fv_audio::msg::AudioFrame::SharedPtr m
     "Frame queued for playback");
 }
 
-void FvAudioOutputNode::handleStop(const std_msgs::msg::Empty::SharedPtr /*msg*/)
+void FaOutputNode::handleStop(const std_msgs::msg::Empty::SharedPtr /*msg*/)
 {
   RCLCPP_INFO(this->get_logger(), "Stop requested");
 
@@ -371,7 +371,7 @@ void FvAudioOutputNode::handleStop(const std_msgs::msg::Empty::SharedPtr /*msg*/
   RCLCPP_INFO(this->get_logger(), "Playback stopped");
 }
 
-void FvAudioOutputNode::handlePause(const std_msgs::msg::Empty::SharedPtr /*msg*/)
+void FaOutputNode::handlePause(const std_msgs::msg::Empty::SharedPtr /*msg*/)
 {
   if (is_paused_.load()) {
     RCLCPP_INFO(this->get_logger(), "Already paused, ignoring pause request");
@@ -383,7 +383,7 @@ void FvAudioOutputNode::handlePause(const std_msgs::msg::Empty::SharedPtr /*msg*
   queue_cv_.notify_one();  // playbackThreadを起こす
 }
 
-void FvAudioOutputNode::handleResume(const std_msgs::msg::Empty::SharedPtr /*msg*/)
+void FaOutputNode::handleResume(const std_msgs::msg::Empty::SharedPtr /*msg*/)
 {
   if (!is_paused_.load()) {
     RCLCPP_DEBUG(this->get_logger(), "Not paused, ignoring resume request");
@@ -395,7 +395,7 @@ void FvAudioOutputNode::handleResume(const std_msgs::msg::Empty::SharedPtr /*msg
   queue_cv_.notify_all();  // playbackThreadを起こす
 }
 
-bool FvAudioOutputNode::validateFrame(const fv_audio::msg::AudioFrame & msg) const
+bool FaOutputNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
 {
   // Note: const_cast is needed because RCLCPP_WARN_THROTTLE requires non-const Clock
   // but get_clock() returns const in const methods. This is safe because the macro
@@ -432,7 +432,7 @@ bool FvAudioOutputNode::validateFrame(const fv_audio::msg::AudioFrame & msg) con
   return true;
 }
 
-void FvAudioOutputNode::playbackThread()
+void FaOutputNode::playbackThread()
 {
   // チャンクのサンプル数を計算（停止/一時停止の応答性向上用）
   const uint64_t chunk_samples_u64 =
@@ -540,7 +540,7 @@ void FvAudioOutputNode::playbackThread()
         // 正常完了: drain せずに即座に playback_done を送信
         // （次のフレームがあれば連続再生される）
         RCLCPP_INFO(this->get_logger(), "Playback done, publishing notification");
-        fv_audio::msg::PlaybackDone done_msg;
+        fa_interfaces::msg::PlaybackDone done_msg;
         done_msg.header = queued_frame.header;
         done_msg.request_id = queued_frame.header.frame_id;
         done_msg.epoch = queued_frame.epoch;
@@ -561,9 +561,9 @@ void FvAudioOutputNode::playbackThread()
   }
 }
 
-void FvAudioOutputNode::handlePlayFile(
-  const std::shared_ptr<fv_audio_output::srv::PlayFile::Request> request,
-  std::shared_ptr<fv_audio_output::srv::PlayFile::Response> response)
+void FaOutputNode::handlePlayFile(
+  const std::shared_ptr<fa_interfaces::srv::PlayFile::Request> request,
+  std::shared_ptr<fa_interfaces::srv::PlayFile::Response> response)
 {
   std::vector<uint8_t> wav_data;
   uint32_t sample_rate, channels, bit_depth;
@@ -614,7 +614,7 @@ void FvAudioOutputNode::handlePlayFile(
   RCLCPP_INFO(this->get_logger(), "Queued audio file: %s", request->file_path.c_str());
 }
 
-bool FvAudioOutputNode::loadWavFile(const std::string & file_path, std::vector<uint8_t> & out_data,
+bool FaOutputNode::loadWavFile(const std::string & file_path, std::vector<uint8_t> & out_data,
   uint32_t & out_sample_rate, uint32_t & out_channels, uint32_t & out_bit_depth)
 {
   std::ifstream file(file_path, std::ios::binary);
@@ -696,7 +696,7 @@ bool FvAudioOutputNode::loadWavFile(const std::string & file_path, std::vector<u
   return false;
 }
 
-void FvAudioOutputNode::applyVolumeScale(std::vector<uint8_t> & data, float volume_scale)
+void FaOutputNode::applyVolumeScale(std::vector<uint8_t> & data, float volume_scale)
 {
   if (config_.bit_depth == 16) {
     int16_t * samples = reinterpret_cast<int16_t*>(data.data());
@@ -708,12 +708,12 @@ void FvAudioOutputNode::applyVolumeScale(std::vector<uint8_t> & data, float volu
   }
 }
 
-}  // namespace fv_audio_output
+}  // namespace fa_output
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<fv_audio_output::FvAudioOutputNode>();
+  auto node = std::make_shared<fa_output::FaOutputNode>();
   rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;

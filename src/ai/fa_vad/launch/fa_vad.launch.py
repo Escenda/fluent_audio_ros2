@@ -1,7 +1,8 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
@@ -11,17 +12,19 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "node_name",
-            default_value="fv_audio_vad_node",
+            default_value="fa_vad_node",
             description="ノード名"
         ),
         DeclareLaunchArgument(
             "config_file",
-            default_value="config/default_vad.yaml",
+            default_value=PathJoinSubstitution(
+                [FindPackageShare("fa_vad"), "config", "default_vad.yaml"]
+            ),
             description="設定ファイルへのパス"
         ),
         Node(
-            package="fv_audio_vad",
-            executable="fv_audio_vad_node",
+            package="fa_vad",
+            executable="fa_vad_node",
             name=node_name,
             output="screen",
             parameters=[config_file]

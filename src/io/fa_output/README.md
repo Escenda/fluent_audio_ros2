@@ -1,14 +1,14 @@
-# FV Audio Output
+# FA Output
 
-`fv_audio_output`は`fv_audio/msg/AudioFrame`をALSAデバイスに出力するROS2ノードです。`fv_tts`や通知ノードがPublishする`audio/output/frame`を購読し、スピーカーへPCM16LEのまま再生します。
+`fa_output`は`fa_interfaces/msg/AudioFrame`をALSAデバイスに出力するROS2ノードです。`fa_tts`や通知ノードがPublishする`audio/output/frame`を購読し、スピーカーへPCM16LEのまま再生します。
 
 ## 依存
 - ALSA (`libasound2-dev`)
-- `fv_audio`メッセージ
+- `fa_interfaces`メッセージ
 
 ## 起動
 ```bash
-ros2 run fv_audio_output fv_audio_output_node --ros-args --params-file install/fv_audio_output/share/fv_audio_output/config/default.yaml
+ros2 run fa_output fa_output_node --ros-args --params-file install/fa_output/share/fa_output/config/default.yaml
 ```
 
 主なパラメータ:
@@ -16,7 +16,7 @@ ros2 run fv_audio_output fv_audio_output_node --ros-args --params-file install/f
 - `audio.sample_rate`, `audio.channels`, `audio.bit_depth`: フレームと一致している必要があります。
 - `queue.max_frames`: バッファに保持するフレーム数。溢れると古いフレームから破棄します。
 
-`fv_tts`と組み合わせる場合、`audio/output/frame`トピックを共有すればテキスト合成結果が自動で再生されます。
+`fa_tts`と組み合わせる場合、`audio/output/frame`トピックを共有すればテキスト合成結果が自動で再生されます。
 
 ## ファイル再生サービス
 
@@ -24,20 +24,20 @@ ros2 run fv_audio_output fv_audio_output_node --ros-args --params-file install/f
 
 ### サービス定義
 ```bash
-ros2 interface show fv_audio_output/srv/PlayFile
+ros2 interface show fa_interfaces/srv/PlayFile
 ```
 
 ### 使用例
 
 警告音を再生:
 ```bash
-ros2 service call /audio/output/play_file fv_audio_output/srv/PlayFile \
+ros2 service call /audio/output/play_file fa_interfaces/srv/PlayFile \
   "{file_path: '/home/aspa/ros2_ws/sounds/warning.wav', volume_scale: 1.0, interrupt: false}"
 ```
 
 ビープ音を即座に再生（キューをクリア）:
 ```bash
-ros2 service call /audio/output/play_file fv_audio_output/srv/PlayFile \
+ros2 service call /audio/output/play_file fa_interfaces/srv/PlayFile \
   "{file_path: '/home/aspa/ros2_ws/sounds/beep.wav', volume_scale: 0.5, interrupt: true}"
 ```
 

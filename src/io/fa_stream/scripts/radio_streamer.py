@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-fv_audio radio streamer example.
+fa_stream radio streamer example.
 
-This node subscribes to fv_audio/msg/AudioFrame and pipes the raw PCM samples
+This node subscribes to fa_interfaces/msg/AudioFrame and pipes the raw PCM samples
 to an ffmpeg process that publishes to an Icecast/Shoutcast style URL.
 """
 
@@ -15,12 +15,12 @@ from typing import Optional
 import rclpy
 from rclpy.node import Node
 
-from fv_audio.msg import AudioFrame
+from fa_interfaces.msg import AudioFrame
 
 
 class RadioStreamer(Node):
     def __init__(self) -> None:
-        super().__init__("fv_audio_radio_streamer")
+        super().__init__("fa_radio_streamer")
 
         self.declare_parameter("input_topic", "audio/frame")
         self.declare_parameter("ffmpeg_path", "ffmpeg")
@@ -52,8 +52,8 @@ class RadioStreamer(Node):
 
     def _audio_callback(self, msg: AudioFrame) -> None:
         if msg.bit_depth != 16:
-            self.get_logger().throttle_error(
-                5000, "Only 16-bit PCM is supported. Received %d-bit frame", msg.bit_depth
+            self.get_logger().error(
+                "Only 16-bit PCM is supported. Received %d-bit frame", msg.bit_depth
             )
             return
 

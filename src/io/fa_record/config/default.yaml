@@ -1,0 +1,4 @@
+fa_record:
+  ros__parameters:
+    input_topic: "audio/frame"
+

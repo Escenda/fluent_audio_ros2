@@ -14,8 +14,8 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPo
 
 from std_msgs.msg import Empty
 
-from fv_audio.msg import AudioFrame
-from fv_tts.srv import Speak
+from fa_interfaces.msg import AudioFrame
+from fa_interfaces.srv import Speak
 
 # Set pyopenjtalk dictionary directory to user's home directory
 os.environ.setdefault("OPEN_JTALK_DICT_DIR", str(Path.home() / ".pyopenjtalk"))
@@ -51,10 +51,10 @@ class CachedAudio:
         self.peak = peak
 
 
-class FvTtsNode(Node):
+class FaTtsNode(Node):
     def __init__(self) -> None:
-        super().__init__("fv_tts")
-        self.get_logger().info("Starting FV TTS node (pyopenjtalk backend)")
+        super().__init__("fa_tts")
+        self.get_logger().info("Starting FA TTS node (pyopenjtalk backend)")
         if pyopenjtalk is None:
             raise RuntimeError(f"pyopenjtalk is not available: {_IMPORT_ERROR}") from _IMPORT_ERROR
 
@@ -267,7 +267,7 @@ class FvTtsNode(Node):
 
 def main(args=None) -> None:
     rclpy.init(args=args)
-    node = FvTtsNode()
+    node = FaTtsNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

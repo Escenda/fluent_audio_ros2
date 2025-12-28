@@ -7,5 +7,5 @@ string cache_key
 ---
 bool success
 string message
-fv_audio/AudioFrame frame
+fa_interfaces/AudioFrame frame
 bool played

@@ -14,13 +14,13 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include "fv_audio/msg/audio_frame.hpp"
-#include "fv_audio/msg/playback_done.hpp"
-#include "fv_audio_output/srv/play_file.hpp"
+#include "fa_interfaces/msg/audio_frame.hpp"
+#include "fa_interfaces/msg/playback_done.hpp"
+#include "fa_interfaces/srv/play_file.hpp"
 #include "std_msgs/msg/empty.hpp"
 #include "std_msgs/msg/header.hpp"
 
-namespace fv_audio_output
+namespace fa_output
 {
 
 struct OutputConfig
@@ -43,25 +43,25 @@ struct QueuedFrame
   uint32_t epoch{0};
 };
 
-class FvAudioOutputNode : public rclcpp::Node
+class FaOutputNode : public rclcpp::Node
 {
 public:
-  FvAudioOutputNode();
-  ~FvAudioOutputNode() override;
+  FaOutputNode();
+  ~FaOutputNode() override;
 
 private:
   void loadParameters();
   bool openDevice();
   void closeDevice();
   void playbackThread();
-  void handleFrame(const fv_audio::msg::AudioFrame::SharedPtr msg);
+  void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void handleStop(const std_msgs::msg::Empty::SharedPtr msg);
   void handlePause(const std_msgs::msg::Empty::SharedPtr msg);
   void handleResume(const std_msgs::msg::Empty::SharedPtr msg);
-  bool validateFrame(const fv_audio::msg::AudioFrame & msg) const;
+  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
   void handlePlayFile(
-    const std::shared_ptr<fv_audio_output::srv::PlayFile::Request> request,
-    std::shared_ptr<fv_audio_output::srv::PlayFile::Response> response);
+    const std::shared_ptr<fa_interfaces::srv::PlayFile::Request> request,
+    std::shared_ptr<fa_interfaces::srv::PlayFile::Response> response);
   bool loadWavFile(const std::string & file_path, std::vector<uint8_t> & out_data,
     uint32_t & out_sample_rate, uint32_t & out_channels, uint32_t & out_bit_depth);
   void applyVolumeScale(std::vector<uint8_t> & data, float volume_scale);
@@ -76,12 +76,12 @@ private:
   std::thread playback_thread_;
   std::atomic<bool> running_{false};
 
-  rclcpp::Subscription<fv_audio::msg::AudioFrame>::SharedPtr audio_sub_;
+  rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr stop_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr pause_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr resume_sub_;
-  rclcpp::Service<fv_audio_output::srv::PlayFile>::SharedPtr play_file_srv_;
-  rclcpp::Publisher<fv_audio::msg::PlaybackDone>::SharedPtr playback_done_pub_;
+  rclcpp::Service<fa_interfaces::srv::PlayFile>::SharedPtr play_file_srv_;
+  rclcpp::Publisher<fa_interfaces::msg::PlaybackDone>::SharedPtr playback_done_pub_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr paused_pub_;  // 一時停止完了通知
 
   std::atomic<bool> stop_requested_{false};  // 停止リクエストフラグ
@@ -97,4 +97,4 @@ private:
   std::atomic<uint32_t> current_epoch_{1};
 };
 
-}  // namespace fv_audio_output
+}  // namespace fa_output

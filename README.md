@@ -1,185 +1,81 @@
-# FluentVision ROS2
+# FluentAudio ROS2
 
-ROS2ベースのリアルタイムビジョンシステム - アスパラガス収穫ロボット向けに最適化
+`fluent_vision_ros2`（設計・開発: Takashi Otsuka / @takatronix）をベースに、ROS2上で「聴覚（Audio）」を扱うためのノード群を追加したフォークです。
 
-## 🚀 概要
+- Upstream: https://github.com/takatronix/fluent_vision_ros2
+- This fork: https://github.com/Escenda/fluent_audio_ros2
 
-FluentVision ROS2は、Intel RealSense深度カメラとAI技術を組み合わせた高精度ビジョンシステムです。アスパラガス収穫ロボットのための物体検出、セグメンテーション、距離測定機能を提供します。
+## このリポジトリの位置づけ
+- upstream の設計思想（ノード分割、低遅延、YAML/launch 運用）を踏襲します
+- `src/` 以下を用途別（`io/`, `dsp/`, `features/`, `ai/`, `apps/`, `interfaces/`）に分割して管理します
+- クラウドを使わず、音声入力で「起動/停止/モード切替」できる運用を目標にしています
+- 音声にフォーカスするため、vision 系パッケージ（カメラ/AI/UI/配信/SLAM など）は本リポジトリから削除しています（視覚系は upstream を参照してください）
 
-## 📦 パッケージ構成
+## 主要パッケージ（Audio）
+- `fa_capture`（`src/io/fa_capture/`）: マイク入力（ALSA）→ `audio/frame` を Publish、デバイス列挙/切替、Diagnostics
+- `fa_output`（`src/io/fa_output/`）: `audio/output/frame` をスピーカーへ再生、`audio/output/play_file` でWAVを直接再生
+- `fa_record`（`src/io/fa_record/`）: `audio/frame` をWAVへ録音（`record` サービス）
+- `fa_stream`（`src/io/fa_stream/`）: `audio/frame` を外部へ配信するサンプル（Icecast向け `radio_streamer.py`）
+- `fa_vad`（`src/ai/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と`voice/vad_state`を提供
+- `fa_tts`（`src/ai/fa_tts/`）: pyopenjtalk(Open JTalk) によるTTS（`speak` サービス）/ `AudioFrame` 出力
+- `fa_voice_command_router`（`src/apps/fa_voice_command_router/`）: 音声コマンドの起動/停止/モード切替（MVP: 文字列コマンド入力）
+- `fa_interfaces`（`src/interfaces/fa_interfaces/`）: `AudioFrame` 等の msg/srv を集約
 
-### 🤖 AI/ML (`src/ai/`)
-- **fv_object_detector**: YOLOv10を使用した汎用物体検出システム
-- **fv_object_mask_generator**: UNet使用のセマンティックセグメンテーション
-- **fv_aspara_analyzer**: アスパラガス品質分析システム
-- **fv_face_recognizer**: リアルタイム顔認識システム（開発中）
+## セットアップ
 
-### 📷 センサー (`src/sensors/`)
-- **fv_realsense**: Intel RealSense深度カメラドライバ（D415, D405対応）
-  - キャリブレーション支援機能（表示モード0/1/2）
-  - クリック座標取得・3D距離測定
-- **fv_camera**: 汎用カメラドライバ
-
-### 🌐 ストリーミング (`src/streaming/`)
-- **fv_recorder**: 録画・再生システム
-- **fv_mjpeg_server**: MJPEGストリーミングサーバー（開発中）
-- **fv_websocket_server**: WebSocketリアルタイムストリーミング（開発中）
-- **fv_image_distributor**: 画像配信サーバー（開発中）
-- **fv_rtmp_server**: RTMPストリーミングサーバー
-
-### 🛠️ ユーティリティ (`src/utils/`)
-- **fv_image_filter**: 画像フィルタリング・処理ユーティリティ
-- **fv_topic_relay**: トピック中継・変換ツール（開発中）
-
-## 🎯 主要機能
-
-### アスパラガス収穫支援
-- **高精度検出**: YOLOv10ベースのアスパラガス検出
-- **品質分析**: サイズ・形状・成熟度の自動判定
-- **距離測定**: 3D座標による収穫位置の正確な特定
-- **キャリブレーション**: 視覚的支援機能付きカメラ校正
-
-### リアルタイム処理
-- **低遅延**: 最適化されたパイプライン処理
-- **マルチスレッド**: 並列処理による高効率化
-- **GPU加速**: CUDA対応（オプション）
-
-### 柔軟なストリーミング
-- **複数フォーマット**: MJPEG, WebSocket, RTMP対応
-- **マルチクライアント**: 同時接続対応
-- **圧縮最適化**: 帯域幅に応じた自動調整
-
-## 🛠️ インストール
-
-### 前提条件
-- ROS2 Humble
-- Intel RealSense SDK 2.0
-- OpenCV 4.x
-- CUDA 11.x（オプション）
+### 前提
+- ROS 2（Humble/Jazzy など）
+- ALSA: `libasound2-dev`
+- TTS: `pyopenjtalk`, `python3-numpy`
+- （任意）`ffmpeg`: `fa_stream` の `radio_streamer.py` サンプルで使用
 
 ### ビルド
 ```bash
-cd /home/aspara/seedbox-r1/fluent_vision_ros2
 colcon build --symlink-install
 source install/setup.bash
 ```
 
-## 🚀 使用方法
+## クイックスタート
 
-### CLI（統合コマンド）
-プロジェクト直下の`fv`で主要操作を一元管理できます：
-
+### 1) TTS をスピーカーへ再生
 ```bash
-# 起動・停止
-./fv start             # 全ノード起動
-./fv stop              # 全ノード停止
-./fv status            # 主要ノードの状態確認
+# Terminal A
+ros2 launch fa_output fa_output.launch.py
 
-# AI ノード操作
-./fv ai start [d415|d405|both]   # 既定: both
-./fv ai stop  [d415|d405|both]
-./fv ai status [d415|d405|both]
+# Terminal B
+ros2 launch fa_tts fa_tts.launch.py
 
-# カメラ関連
-./fv cameras list      # 接続カメラ/シリアル一覧
-./fv serials update    # シリアルマッピング更新
+# Terminal C（サービス名は namespace により変わる場合があります。`ros2 service list | grep speak` で確認）
+ros2 service call /speak fa_interfaces/srv/Speak "{text: 'こんにちは', voice_id: '', play: true}"
 ```
 
-### 全システム起動
+### 2) マイク入力 + VAD
 ```bash
-cd launch
-./start_fv.sh
+ros2 launch fa_capture fa_capture.launch.py
+ros2 launch fa_vad fa_vad.launch.py
 ```
 
-### アスパラガス収穫システム起動
-```bash
-# D415使用
-./start_asparagus_d415.sh
+## インターフェース（抜粋）
+- Topics:
+  - `audio/frame`（`fa_interfaces/msg/AudioFrame`）
+  - `audio/levels`（`std_msgs/msg/Float32MultiArray`）
+  - `audio/vad`（`std_msgs/msg/Bool`）
+  - `voice/vad_state`（`fa_interfaces/msg/VadState`）
+  - `audio/output/frame`（`fa_interfaces/msg/AudioFrame`）
+- Services:
+  - `list_devices`, `switch_device`（`fa_capture`）
+  - `record`（`fa_record`）
+  - `audio/output/play_file`（`fa_output`）
+  - `speak`（`fa_tts`）
 
-# D405使用  
-./start_asparagus_d405.sh
-```
+## ドキュメント
+- `docs/fa_audio_system.md`: 全体像・データフロー
+- `docs/fa_audio_design.md`: 設計メモ
+- 各パッケージ配下の `README.md`
 
-### AI制御
-```bash
-# AI開始
-./ai_start
+## ライセンス
+このリポジトリには MIT / Apache-2.0 など複数ライセンスのパッケージが含まれます。各パッケージの `package.xml` の `<license>` を参照してください。
 
-# AI停止
-./ai_stop
-
-# AI状態確認
-./ai_status
-```
-
-### システム停止
-```bash
-./stop_fv.sh
-```
-
-## 📊 トピック構成
-
-### カメラストリーム
-- **D415**: `/fv/d415/color/image_raw`, `/fv/d415/depth/image_rect_raw`
-- **D405**: `/fv/d405/color/image_raw`, `/fv/d405/depth/image_rect_raw`
-
-### AI処理結果
-- **物体検出**: `/fv/object_detection/result`
-- **セグメンテーション**: `/fv/segmentation/result`
-- **アスパラガス検出**: `/fv/aspara_detection/result`
-- **品質分析**: `/fv/aspara_analysis/result`
-
-### サービス
-- **モード設定**: `/fv_realsense/set_mode` - 表示モード切り替え（0: 表示なし, 1: カーソルのみ, 2: カーソル+座標+距離）
-- **距離取得**: `/fv_realsense/get_distance` - ピクセル座標から3D距離を取得
-- **カメラ情報**: `/fv_realsense/get_camera_info` - カメラ設定・仕様情報を取得
-- **ポイントクラウド**: `/fv_realsense/get_point_cloud` - 3Dポイントクラウドデータを取得
-
-## ⚙️ 設定
-
-### カメラ設定
-各カメラ用の設定ファイルが`launch/`ディレクトリに用意されています：
-- `fv_realsense_d415.yaml` / `fv_realsense_d405.yaml`
-- `fv_aspara_analyzer_d415.yaml` / `fv_aspara_analyzer_d405.yaml`
-
-### パフォーマンス調整
-- 解像度: 320x240（Raspberry Pi対応）〜 1280x720
-- FPS: 10fps（標準）〜 30fps（高品質）
-- AI推論: CPU/GPU選択可能
-
-## 🔧 開発・デバッグ
-
-### ログ確認
-```bash
-# リアルタイムログ
-ros2 topic echo /fv/aspara_detection/result
-
-# ノード状態
-ros2 node list
-ros2 node info /fv_aspara_detector
-```
-
-### カメラ確認
-```bash
-# シリアル番号確認
-python3 check_camera_serials.py
-
-# トピック一覧
-ros2 topic list | grep fv
-```
-
-## 📝 ライセンス
-
-MIT License
-
-## 👨‍💻 作者
-
-Takashi Otsuka (@takatronix)
-
-## 🤝 貢献
-
-プルリクエストやイシューの報告を歓迎します。
-
----
-
-**FluentVision ROS2** - 未来の農業を支えるビジョンシステム 🌱
+## クレジット
+- Original project: Takashi Otsuka (@takatronix) / FluentVision ROS2
+- This fork: Escenda + contributors

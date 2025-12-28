@@ -4,16 +4,16 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-#include "fv_audio/msg/audio_frame.hpp"
+#include "fa_interfaces/msg/audio_frame.hpp"
 
-namespace fv_audio
+namespace fa_capture
 {
 
 class SineWaveGenerator : public rclcpp::Node
 {
 public:
   SineWaveGenerator()
-  : rclcpp::Node("fv_sine_wave_generator"),
+  : rclcpp::Node("fa_sine_wave_generator"),
     phase_(0.0)
   {
     // パラメータの宣言と取得
@@ -39,7 +39,7 @@ public:
                 frequency_, amplitude_, sample_rate_, channels_, bit_depth_);
 
     // パブリッシャーの作成
-    audio_pub_ = this->create_publisher<fv_audio::msg::AudioFrame>(
+    audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(
       "audio/frame", rclcpp::SensorDataQoS());
 
     // タイマーの作成（chunk_msごとに発火）
@@ -51,7 +51,7 @@ public:
 private:
   void generateAndPublish()
   {
-    fv_audio::msg::AudioFrame frame_msg;
+    fa_interfaces::msg::AudioFrame frame_msg;
     frame_msg.header.stamp = this->now();
     frame_msg.encoding = (bit_depth_ == 16) ? "pcm16" : "float32";
     frame_msg.sample_rate = sample_rate_;
@@ -68,7 +68,7 @@ private:
     audio_pub_->publish(frame_msg);
   }
 
-  void generateSineWaveInt16(fv_audio::msg::AudioFrame &frame_msg)
+  void generateSineWaveInt16(fa_interfaces::msg::AudioFrame &frame_msg)
   {
     constexpr double kInt16Scale = 32767.0;
     const size_t total_samples = samples_per_chunk_ * channels_;
@@ -109,7 +109,7 @@ private:
     frame_msg.vad = false;
   }
 
-  void generateSineWaveFloat32(fv_audio::msg::AudioFrame &frame_msg)
+  void generateSineWaveFloat32(fa_interfaces::msg::AudioFrame &frame_msg)
   {
     const size_t total_samples = samples_per_chunk_ * channels_;
     const size_t byte_count = total_samples * sizeof(float);
@@ -145,7 +145,7 @@ private:
     frame_msg.vad = false;
   }
 
-  rclcpp::Publisher<fv_audio::msg::AudioFrame>::SharedPtr audio_pub_;
+  rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   double frequency_;
@@ -158,12 +158,12 @@ private:
   double phase_;
 };
 
-}  // namespace fv_audio
+}  // namespace fa_capture
 
 int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<fv_audio::SineWaveGenerator>();
+  auto node = std::make_shared<fa_capture::SineWaveGenerator>();
   rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;

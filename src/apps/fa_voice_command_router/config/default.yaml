@@ -1,0 +1,15 @@
+fa_voice_command_router:
+  ros__parameters:
+    command_topic: "voice/command"
+    state_topic: "voice/router/state"
+    active: false
+    mode: "standby"
+    allowed_modes: ["standby", "command", "dictation", "mute"]
+    announce_tts: false
+    tts_service: "speak"
+    tts_voice_id: ""
+    tts_play: true
+    tts_volume_db: 0.0
+    stop_output_on_stop: true
+    output_stop_topic: "audio/output/stop"
+

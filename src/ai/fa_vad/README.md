@@ -1,24 +1,29 @@
-# FV Audio VAD
+# FA VAD
 
-`fv_audio_vad`は`fv_audio`ノードが配信するPCMフレームを購読し、簡易的なVAD（音声活動検知）をROSトピックで提供するノードです。
+`fa_vad`は`fa_capture`等が配信するPCMフレームを購読し、Silero VAD（PyTorch）で音声活動検知を行うノードです（オフライン前提）。
 
 ## 機能
-- `fv_audio/msg/AudioFrame`購読（`audio/frame`）
-- RMSベースの判定で`audio/vad`(std_msgs/Bool)をPublish
-- ヒステリシス/ホールド時間パラメータで検知を安定化
-- 将来的にWakeword/MLモデルと置き換え可能な構造
+- `fa_interfaces/msg/AudioFrame`購読（`audio/frame`）
+- `audio/vad`（`std_msgs/msg/Bool`）をPublish（状態変化時）
+- `voice/vad_state`（`fa_interfaces/msg/VadState`）をPublish（確率/開始/終了を含む）
+- 閾値（start/end）とハングオーバーで検知を安定化
 
 ## 起動
 ```bash
-ros2 launch fv_audio_vad fv_audio_vad_launch.py
+ros2 launch fa_vad fa_vad.launch.py
 ```
 
 ## パラメータ例
 ```yaml
-fv_audio_vad_node:
+fa_vad_node:
   ros__parameters:
-    vad:
-      threshold: 0.05
-      release_ms: 200
-      min_active_ms: 100
+    target_sample_rate: 16000
+    threshold_start: 0.5
+    threshold_end: 0.1
+    hangover_ms: 300
+    silero:
+      # torch.hub のローカルキャッシュ（オフライン用）
+      repo_dir: "~/.cache/torch/hub/snakers4_silero-vad_master"
+      # オフライン前提のため既定はfalse（セットアップ時のみtrueにする運用）
+      allow_online: false
 ```

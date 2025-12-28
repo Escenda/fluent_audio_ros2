@@ -1,6 +1,0 @@
-# Topic Relay Configuration
-fv_topic_relay:
-  ros__parameters:
-    # フォーマット: "from_topic:to_topic"
-    # /vision_ai への中継は不要。
-    relay_mappings: []

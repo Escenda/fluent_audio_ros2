@@ -1,6 +1,19 @@
-fv_audio_vad_node:
+fa_vad_node:
   ros__parameters:
-    vad:
-      threshold: 0.05
-      release_ms: 200
-      min_active_ms: 100
+    input_topic: "audio/frame"
+    output_topic: "audio/vad"
+    vad_state_topic: "voice/vad_state"
+    publish_vad_state: true
+    publish_probability: false
+    probability_topic: "audio/vad/probability"
+
+    target_sample_rate: 16000
+    threshold_start: 0.5
+    threshold_end: 0.1
+    hangover_ms: 300
+
+    silero:
+      repo_dir: ""
+      allow_online: false
+
+    log_speech_events: true

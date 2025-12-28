@@ -1,4 +1,4 @@
-fv_audio_output:
+fa_output:
   ros__parameters:
     audio.device_id: "default"
     audio.sample_rate: 48000

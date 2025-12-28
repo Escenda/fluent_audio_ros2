@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(fv_audio)
+project(fa_capture)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -13,68 +13,40 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
-find_package(builtin_interfaces REQUIRED)
-find_package(fluent_lib REQUIRED)
-find_package(rosidl_default_generators REQUIRED)
+find_package(fa_interfaces REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ALSA REQUIRED alsa)
 
-include_directories(
-  include
-  ${ALSA_INCLUDE_DIRS}
+add_executable(fa_capture_node
+  src/fa_capture_node.cpp
 )
 
-set(service_files
-  "srv/ListDevices.srv"
-  "srv/SwitchDevice.srv"
-  "srv/Record.srv"
-)
-
-set(message_files
-  "msg/AudioFrame.msg"
-  "msg/PlaybackDone.msg"
-)
-
-rosidl_generate_interfaces(${PROJECT_NAME}
-  ${service_files}
-  ${message_files}
-  DEPENDENCIES builtin_interfaces std_msgs
-)
-
-ament_export_dependencies(rosidl_default_runtime)
-
-add_executable(fv_audio_node
-  src/fv_audio_node.cpp
-)
-
-ament_target_dependencies(fv_audio_node
+ament_target_dependencies(fa_capture_node
   rclcpp
   std_msgs
   std_srvs
   diagnostic_msgs
-  fluent_lib
+  fa_interfaces
 )
 
-target_include_directories(fv_audio_node PRIVATE ${ALSA_INCLUDE_DIRS})
-target_link_libraries(fv_audio_node ${ALSA_LIBRARIES})
+target_include_directories(fa_capture_node PRIVATE
+  include
+  ${ALSA_INCLUDE_DIRS}
+)
+target_link_libraries(fa_capture_node ${ALSA_LIBRARIES})
 
-rosidl_target_interfaces(fv_audio_node
-  ${PROJECT_NAME} "rosidl_typesupport_cpp")
-
-add_executable(sine_wave_generator
+add_executable(fa_sine_wave_generator
   src/sine_wave_generator.cpp
 )
 
-ament_target_dependencies(sine_wave_generator
+ament_target_dependencies(fa_sine_wave_generator
   rclcpp
   std_msgs
+  fa_interfaces
 )
 
-rosidl_target_interfaces(sine_wave_generator
-  ${PROJECT_NAME} "rosidl_typesupport_cpp")
-
-install(TARGETS fv_audio_node sine_wave_generator
+install(TARGETS fa_capture_node fa_sine_wave_generator
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -86,11 +58,6 @@ install(DIRECTORY
 
 install(DIRECTORY include/
   DESTINATION include/
-)
-
-install(PROGRAMS
-  scripts/radio_streamer.py
-  DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)
