@@ -1,0 +1,24 @@
+fa_resample:
+  ros__parameters:
+    target_sample_rate: 16000
+    output:
+      encoding: "pcm16"
+      bit_depth: 16
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000
+
+    mic:
+      enabled: true
+      input_topic: "audio/frame"
+      output_topic: "audio/resample16k/mic"
+
+    ref:
+      enabled: false
+      input_topic: "audio/output/frame"
+      output_topic: "audio/resample16k/ref"
+

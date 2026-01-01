@@ -1,0 +1,23 @@
+fa_mix:
+  ros__parameters:
+    input_topics: ["audio/tts/frame"]
+    input_gains_db: [0.0]
+    master_index: 0
+
+    output_topic: "audio/output/frame"
+
+    expected:
+      sample_rate: 48000
+      channels: 1
+      bit_depth: 16
+      encoding: "PCM16LE"
+
+    max_frame_age_ms: 60
+
+    qos:
+      depth: 10
+      reliable: true
+
+    diagnostics:
+      publish_period_ms: 1000
+

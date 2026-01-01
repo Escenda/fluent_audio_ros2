@@ -1,0 +1,21 @@
+fa_aec_nn:
+  ros__parameters:
+    enabled: true
+    backend: "passthrough"   # passthrough | onnxruntime（未実装）
+
+    input_topic: "audio/aec_linear/frame"
+    output_topic: "audio/aec/frame"
+
+    expected_sample_rate: 16000
+    expected_channels: 1     # -1で無効
+
+    onnx:
+      model_path: ""
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000
+

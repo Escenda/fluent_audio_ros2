@@ -1,0 +1,21 @@
+fa_aec_linear:
+  ros__parameters:
+    enabled: true
+
+    mic_topic: "audio/resample16k/mic"
+    ref_topic: "audio/resample16k/ref"
+    output_topic: "audio/aec_linear/frame"
+
+    expected_sample_rate: 16000
+    expected_channels: 1     # -1で無効
+
+    ref_timeout_ms: 200
+    cancel_gain: 1.0
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000
+

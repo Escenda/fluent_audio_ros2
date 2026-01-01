@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fa_mix</name>
+  <version>0.1.0</version>
+  <description>Audio mixer/ducker node for FluentAudio (C++). MVP: N-input gain mix to a single AudioFrame output.</description>
+  <maintainer email="maintainer@example.com">FluentAudio</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>fa_interfaces</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+

@@ -1,0 +1,32 @@
+fa_ns:
+  ros__parameters:
+    enabled: true
+    backend: "dtln_onnx"   # passthrough | dtln_onnx
+
+    input_topic: "audio/resample16k/mic"
+    output_topic: "audio/ns/frame"
+
+    expected_sample_rate: 16000
+    expected_channels: 1     # -1で無効
+
+    output:
+      encoding: "pcm16"
+      bit_depth: 16
+
+    dtln:
+      # These are fixed for the pretrained DTLN models (16kHz only).
+      block_len: 512
+      block_shift: 128
+      # Empty = use package default models (share/fa_ns/models)
+      model_1_path: ""
+      model_2_path: ""
+      intra_op_num_threads: 1
+      inter_op_num_threads: 1
+      enable_ort_optimizations: true
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fa_resample</name>
+  <version>0.1.0</version>
+  <description>Centralized sample-rate conversion node for FluentAudio (e.g., 48kHz mic/ref -> 16kHz streams for DSP/AI).</description>
+  <maintainer email="maintainer@example.com">FluentAudio</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>fa_interfaces</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+

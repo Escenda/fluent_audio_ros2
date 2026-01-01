@@ -50,3 +50,7 @@ docs/_build/
 .env
 .env.local
 config/secrets.yaml
+
+# Benchmarks (large / possibly non-redistributable)
+benchmarks/**/data/
+benchmarks/**/runs/

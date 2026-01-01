@@ -18,6 +18,11 @@
 - `fa_stream`（`src/io/fa_stream/`）: `audio/frame` を外部へ配信するサンプル（Icecast向け `radio_streamer.py`）
 - `fa_vad`（`src/ai/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と`voice/vad_state`を提供
 - `fa_tts`（`src/ai/fa_tts/`）: pyopenjtalk(Open JTalk) によるTTS（`speak` サービス）/ `AudioFrame` 出力
+- `fa_resample`（`src/dsp/fa_resample/`）: 16k ストリーム供給（`audio/frame`→`audio/resample16k/mic`）
+- `fa_aec_linear`（`src/dsp/fa_aec_linear/`）: 線形AEC（`mic/ref`→`audio/aec_linear/frame`）
+- `fa_aec_nn`（`src/dsp/fa_aec_nn/`）: NN残差抑圧（骨組み、`audio/aec_linear/frame`→`audio/aec/frame`）
+- `fa_ns`（`src/dsp/fa_ns/`）: ノイズ抑制（DTLN/ONNX、`audio/resample16k/mic`→`audio/ns/frame`）
+- `fa_mix`（`src/dsp/fa_mix/`）: ミキサ（MVP、`input_topics`→`audio/output/frame`）
 - `fa_voice_command_router`（`src/apps/fa_voice_command_router/`）: 音声コマンドの起動/停止/モード切替（MVP: 文字列コマンド入力）
 - `fa_interfaces`（`src/interfaces/fa_interfaces/`）: `AudioFrame` 等の msg/srv を集約
 
@@ -71,6 +76,8 @@ ros2 launch fa_vad fa_vad.launch.py
 ## ドキュメント
 - `docs/fa_audio_system.md`: 全体像・データフロー
 - `docs/fa_audio_design.md`: 設計メモ
+- `docs/fa_dsp_design.md`: DSP（NS/AEC/Resample/Mix）設計メモ
+- `docs/fa_benchmark_policy.md`: ベンチマークの保存ポリシー
 - 各パッケージ配下の `README.md`
 
 ## ライセンス
