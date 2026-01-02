@@ -1,0 +1,56 @@
+# Prepare "reverberant LibriCHiME-5" dataset (close-to-in-domain) for CHiME-7 UDASE.
+# This generates reference-paired data (mix/speech/noise) needed for intrusive metrics.
+
+chime5:
+  # CHiME dataset root (not redistributed).
+  # You can use either:
+  # - CHiME-5 (manual): https://www.chimechallenge.org/datasets/chime5
+  # - CHiME-6 eval (auto-download): https://openslr.org/150/ (SLR150, CC BY-SA 4.0)
+  # Must contain: audio/*/Sxx_Pxx.wav
+  original_data_dir: /path/to/CHiME5
+
+  # Output directory for extracted audio segments (will be created).
+  segments_output_dir: benchmarks/ns_chime7_udase/data/segmented_chime5
+
+  # Segment definition JSONs (vendored, MIT).
+  json_dir: benchmarks/ns_chime7_udase/third_party/udase_chime5/json_files/eval
+
+  extractor:
+    extract_stereo: false
+    eval_only: true
+
+datasets:
+  # LibriSpeech root (must contain dev-clean/ and test-clean/).
+  librispeech_dir: benchmarks/ns_chime7_udase/data/librispeech
+
+  # VoiceHome corpus root (extracted from Zenodo 1314196; must contain audio/rirs/...).
+  voicehome_dir: benchmarks/ns_chime7_udase/data/voicehome_1314196/extracted/voiceHome_corpus v0.2
+
+reverberant_librichime5:
+  metadata_dir: benchmarks/ns_chime7_udase/third_party/udase_reverberant_librichime5/metadata
+  output_dir: benchmarks/ns_chime7_udase/data/reverberant_librichime5_audio
+  subsets: [eval]  # [dev, eval]
+
+audio:
+  sample_rate_hz: 16000
+
+  # When reading extracted CHiME-5 noise segments that may be stereo, select channel index.
+  # (UDASE scripts use right channel = index 1 when stereo.)
+  chime5_noise_channel_index: 1
+
+  clipping:
+    threshold: 1.0
+    max_amp: 0.9
+
+  output:
+    format: WAV
+    subtype: PCM_16
+
+snr:
+  verify_isclose: true
+  atol: 1.0e-4
+  rtol: 1.0e-4
+
+run:
+  overwrite: false
+  limit: 0  # 0 = no limit

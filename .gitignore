@@ -51,6 +51,12 @@ docs/_build/
 .env.local
 config/secrets.yaml
 
+# Agents
+agents/
+
 # Benchmarks (large / possibly non-redistributable)
 benchmarks/**/data/
 benchmarks/**/runs/
+benchmarks/**/archives/
+benchmarks/**/models/
+benchmarks/**/eval/

@@ -1,0 +1,28 @@
+# Intrusive objective metrics config for reverberant LibriCHiME-5 (reference-paired).
+
+audio:
+  sample_rate_hz: 16000
+
+alignment:
+  # DTLN streaming introduces algorithmic delay ~= (block_len - block_shift).
+  # With the default DTLN config (512/128), delay = 384 samples (=24ms @ 16kHz).
+  mode: min  # strict|min
+  pred_trim_start_samples: 384
+  pred_pad_end: false
+
+si_sdr:
+  enabled: true
+  zero_mean: true
+  eps: 1.0e-8
+
+pesq:
+  enabled: true
+  mode: wb  # nb|wb
+
+stoi:
+  enabled: true
+  extended: false  # false=STOI, true=ESTOI
+
+run:
+  glob_mix: "*_mix.wav"
+  sort: true

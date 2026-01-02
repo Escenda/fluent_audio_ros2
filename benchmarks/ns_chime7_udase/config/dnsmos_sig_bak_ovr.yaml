@@ -1,0 +1,28 @@
+# DNSMOS (SIG/BAK/OVR) config for CHiME-7 UDASE NS benchmark.
+# This uses Microsoft DNSMOS (non-personalized) ONNX model.
+
+dnsmos:
+  model_path: benchmarks/ns_chime7_udase/models/dnsmos/sig_bak_ovr.onnx
+
+  sample_rate_hz: 16000
+  input_length_sec: 9.01
+  hop_sec: 1.0
+
+  # If input is shorter than input_length_sec, repeat (append to itself) until long enough.
+  repeat_short_audio: true
+
+  # Polyfit mapping (non-personalized) from raw model outputs to MOS.
+  # Matches microsoft/DNS-Challenge DNSMOS/dnsmos_local.py (get_polyfit_val, non-personalized path).
+  polyfit:
+    sig: [-0.08397278, 1.22083953, 0.0052439]
+    bak: [-0.13166888, 1.60915514, -0.39604546]
+    ovr: [-0.06766283, 1.11546468, 0.04602535]
+
+audio:
+  expected_channels: 1
+  multi_channel_mode: error  # error|first|average
+
+run:
+  glob: "*.wav"
+  sort: true
+
