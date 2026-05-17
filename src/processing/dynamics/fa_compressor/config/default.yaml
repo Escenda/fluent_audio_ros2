@@ -1,0 +1,23 @@
+fa_compressor:
+  ros__parameters:
+    input_topic: "audio/normalized/mic"
+    output_topic: "audio/compressed/mic"
+
+    compressor:
+      threshold_linear: 0.5
+      ratio: 4.0
+      makeup_gain_linear: 1.0
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

@@ -1,0 +1,25 @@
+# fa_window
+
+`fa_window` は、`fa_interfaces/msg/AudioFrame` の `FLOAT32LE` interleaved stream に解析窓を適用する ROS2 processing package です。
+
+## ノード
+
+- package: `fa_window`
+- executable: `fa_window_node`
+- node name default: `fa_window`
+- subscribe: `input_topic`
+- publish: `output_topic`
+
+## 入出力契約
+
+入力は `sample_rate > 0`、`channels > 0`、`encoding=FLOAT32LE`、`bit_depth=32`、`layout=interleaved` の `AudioFrame` に限定します。`source_id` と `stream_id` は空文字を許可しません。入力 `stream_id` は `input_topic` と一致する必要があります。
+
+出力は入力の `header`、`source_id`、`sample_rate`、`channels`、`bit_depth`、`encoding`、`layout`、`epoch` を保持し、`stream_id` と `data` のみを更新します。
+
+## パラメータ
+
+- `window.type`: `hann` または `hamming`。既定値は `hann`
+- `window.expected_frames`: `> 1`。既定値は `512`
+- `window.strict_frame_count`: 既定値は `true`
+
+`strict_frame_count=true` では入力フレーム数が `expected_frames` と一致しない場合に破棄します。`false` では実際の入力フレーム数で係数を計算しますが、`frame_count > 1` は必須です。

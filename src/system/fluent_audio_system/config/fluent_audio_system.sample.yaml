@@ -102,6 +102,26 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_compressor
+        enable: false
+        package: fa_compressor
+        exec: fa_compressor_node
+        node_name: fa_compressor
+        namespace: ""
+        params_file: "${share:fa_compressor}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_expander
+        enable: false
+        package: fa_expander
+        exec: fa_expander_node
+        node_name: fa_expander
+        namespace: ""
+        params_file: "${share:fa_expander}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
   - id: frequency
     enable: true
     nodes:
@@ -125,6 +145,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_band_pass
+        enable: false
+        package: fa_band_pass
+        exec: fa_band_pass_node
+        node_name: fa_band_pass
+        namespace: ""
+        params_file: "${share:fa_band_pass}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_notch
         enable: false
         package: fa_notch
@@ -145,6 +175,16 @@ groups:
         node_name: fa_fade
         namespace: ""
         params_file: "${share:fa_fade}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_window
+        enable: false
+        package: fa_window
+        exec: fa_window_node
+        node_name: fa_window
+        namespace: ""
+        params_file: "${share:fa_window}/config/default.yaml"
         remappings: {}
         parameters: {}
 
