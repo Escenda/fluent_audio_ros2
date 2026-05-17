@@ -17,6 +17,18 @@ find_package(fa_interfaces REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ALSA REQUIRED alsa)
 
+add_library(fa_out_backends
+  src/backends/alsa_playback_backend.cpp
+)
+
+target_include_directories(fa_out_backends
+  PUBLIC
+  include
+  PRIVATE
+  ${ALSA_INCLUDE_DIRS}
+)
+target_link_libraries(fa_out_backends PUBLIC ${ALSA_LIBRARIES})
+
 add_executable(fa_out_node
   src/fa_out_node.cpp
 )
@@ -30,12 +42,17 @@ ament_target_dependencies(fa_out_node
 
 target_include_directories(fa_out_node PRIVATE
   include
-  ${ALSA_INCLUDE_DIRS}
 )
-target_link_libraries(fa_out_node ${ALSA_LIBRARIES})
+target_link_libraries(fa_out_node fa_out_backends)
 
 install(TARGETS fa_out_node
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(TARGETS fa_out_backends
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
 
 install(DIRECTORY

@@ -1,5 +1,7 @@
 #include "fa_out/fa_out_node.hpp"
 
+#include "fa_out/backends/alsa_playback_backend.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -13,11 +15,6 @@ namespace
 {
 constexpr const char * kEncodingPcm16 = "PCM16LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-
-bool isRawAlsaPlaybackDevice(const std::string & device_id)
-{
-  return device_id.rfind("hw:", 0) == 0;
-}
 }
 
 FaOutNode::FaOutNode()
@@ -31,9 +28,7 @@ FaOutNode::FaOutNode()
     throw std::runtime_error("Invalid audio configuration: bytes_per_frame is zero");
   }
 
-  if (!openDevice()) {
-    throw std::runtime_error("Failed to open ALSA playback device");
-  }
+  openBackend();
 
   // QoS は fa_tts 側と合わせ、reliable/best_effort をパラメータで切り替える。
   rclcpp::QoS audio_qos(config_.qos_depth);
@@ -80,7 +75,7 @@ FaOutNode::~FaOutNode()
   if (playback_thread_.joinable()) {
     playback_thread_.join();
   }
-  closeDevice();
+  closeBackend();
 }
 
 bool FaOutNode::hasFatalError() const
@@ -116,7 +111,7 @@ void FaOutNode::loadParameters()
   if (config_.encoding != kEncodingPcm16) {
     throw std::invalid_argument("audio.encoding must be PCM16LE for backend.name=alsa_playback");
   }
-  if (!isRawAlsaPlaybackDevice(config_.device_id)) {
+  if (!backends::AlsaPlaybackBackend::isRawHardwareDevice(config_.device_id)) {
     throw std::invalid_argument(
       "audio.device_id must be an ALSA raw hardware id starting with hw: for backend.name=alsa_playback");
   }
@@ -162,150 +157,56 @@ void FaOutNode::loadParameters()
     config_.chunk_duration_ms, config_.qos_depth, config_.qos_reliable ? "true" : "false");
 }
 
-bool FaOutNode::openDevice()
+void FaOutNode::openBackend()
 {
-  closeDevice();
+  closeBackend();
 
-  snd_pcm_t * handle = nullptr;
-  int err = snd_pcm_open(&handle, config_.device_id.c_str(), SND_PCM_STREAM_PLAYBACK, 0);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_open failed: %s", snd_strerror(err));
-    return false;
-  }
+  backends::AlsaPlaybackConfig backend_config;
+  backend_config.device_id = config_.device_id;
+  backend_config.encoding = config_.encoding;
+  backend_config.sample_rate = config_.sample_rate;
+  backend_config.channels = config_.channels;
+  backend_config.bit_depth = config_.bit_depth;
 
-  snd_pcm_format_t format = SND_PCM_FORMAT_S16_LE;
-
-  // Use hardware parameters for more control over buffer settings
-  snd_pcm_hw_params_t *hw_params;
-  snd_pcm_hw_params_alloca(&hw_params);
-
-  err = snd_pcm_hw_params_any(handle, hw_params);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_hw_params_any failed: %s", snd_strerror(err));
-    snd_pcm_close(handle);
-    return false;
-  }
-
-  err = snd_pcm_hw_params_set_rate_resample(handle, hw_params, 0);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to disable ALSA software resampling: %s", snd_strerror(err));
-    snd_pcm_close(handle);
-    return false;
-  }
-
-  err = snd_pcm_hw_params_set_access(handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_hw_params_set_access failed: %s", snd_strerror(err));
-    snd_pcm_close(handle);
-    return false;
-  }
-
-  err = snd_pcm_hw_params_set_format(handle, hw_params, format);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_hw_params_set_format failed: %s", snd_strerror(err));
-    snd_pcm_close(handle);
-    return false;
-  }
-
-  err = snd_pcm_hw_params_set_channels(handle, hw_params, config_.channels);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_hw_params_set_channels failed: %s", snd_strerror(err));
-    snd_pcm_close(handle);
-    return false;
-  }
-
-  unsigned int rate = config_.sample_rate;
-  err = snd_pcm_hw_params_set_rate(handle, hw_params, rate, 0);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_hw_params_set_rate failed: %s", snd_strerror(err));
-    snd_pcm_close(handle);
-    return false;
-  }
-
-  // Set larger buffer size to prevent XRUNs: 16384 frames = ~341ms at 48kHz
-  snd_pcm_uframes_t buffer_size = 16384;
-  err = snd_pcm_hw_params_set_buffer_size_near(handle, hw_params, &buffer_size);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_hw_params_set_buffer_size_near failed: %s", snd_strerror(err));
-    snd_pcm_close(handle);
-    return false;
-  }
-
-  // Set period size: buffer_size / 4
-  snd_pcm_uframes_t period_size = buffer_size / 4;
-  err = snd_pcm_hw_params_set_period_size_near(handle, hw_params, &period_size, 0);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_hw_params_set_period_size_near failed: %s", snd_strerror(err));
-    snd_pcm_close(handle);
-    return false;
-  }
-
-  err = snd_pcm_hw_params(handle, hw_params);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_hw_params failed: %s", snd_strerror(err));
-    snd_pcm_close(handle);
-    return false;
-  }
-
-  RCLCPP_INFO(this->get_logger(), "ALSA buffer: %lu frames, period: %lu frames",
-              buffer_size, period_size);
-
-  // Configure software parameters for better playback behavior
-  snd_pcm_sw_params_t *sw_params;
-  snd_pcm_sw_params_alloca(&sw_params);
-
-  err = snd_pcm_sw_params_current(handle, sw_params);
-  if (err < 0) {
-    RCLCPP_WARN(this->get_logger(), "snd_pcm_sw_params_current failed: %s", snd_strerror(err));
-  } else {
-    // Start playback automatically when buffer is at least half full
-    err = snd_pcm_sw_params_set_start_threshold(handle, sw_params, buffer_size / 2);
-    if (err < 0) {
-      RCLCPP_WARN(this->get_logger(), "snd_pcm_sw_params_set_start_threshold failed: %s", snd_strerror(err));
+  auto backend = std::make_unique<backends::AlsaPlaybackBackend>(backend_config);
+  try {
+    const backends::AlsaPlaybackOpenInfo open_info = backend->open();
+    RCLCPP_INFO(this->get_logger(), "ALSA buffer: %lu frames, period: %lu frames",
+      open_info.buffer_size_frames, open_info.period_size_frames);
+    for (const auto & warning : open_info.warnings) {
+      RCLCPP_WARN(this->get_logger(), "%s", warning.c_str());
     }
-
-    // Wake up the writer when at least one period of space is available
-    err = snd_pcm_sw_params_set_avail_min(handle, sw_params, period_size);
-    if (err < 0) {
-      RCLCPP_WARN(this->get_logger(), "snd_pcm_sw_params_set_avail_min failed: %s", snd_strerror(err));
+    if (open_info.software_params_applied) {
+      RCLCPP_INFO(
+        this->get_logger(), "ALSA software params: start_threshold=%lu frames",
+        open_info.start_threshold_frames);
     }
-
-    err = snd_pcm_sw_params(handle, sw_params);
-    if (err < 0) {
-      RCLCPP_WARN(this->get_logger(), "snd_pcm_sw_params failed: %s", snd_strerror(err));
-    } else {
-      RCLCPP_INFO(this->get_logger(), "ALSA software params: start_threshold=%lu frames", buffer_size / 2);
-    }
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to open ALSA playback device: %s", e.what());
+    throw std::runtime_error("Failed to open ALSA playback device");
   }
-
-  pcm_handle_ = handle;
-  return true;
+  sink_backend_ = std::move(backend);
 }
 
-void FaOutNode::closeDevice()
+void FaOutNode::closeBackend()
 {
-  if (pcm_handle_) {
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
+  if (sink_backend_) {
+    sink_backend_->close();
+    sink_backend_.reset();
   }
 }
 
-bool FaOutNode::discardDeviceBuffer(const char *operation)
+bool FaOutNode::discardBackendBuffer(const char *operation)
 {
-  if (!pcm_handle_) {
+  if (!sink_backend_ || !sink_backend_->isOpen()) {
     failClosed(std::string(operation) + " requested without an open ALSA playback device");
     return false;
   }
 
-  int err = snd_pcm_drop(pcm_handle_);
-  if (err < 0) {
-    failClosed(std::string("snd_pcm_drop failed during ") + operation + ": " + snd_strerror(err));
-    return false;
-  }
-
-  err = snd_pcm_prepare(pcm_handle_);
-  if (err < 0) {
-    failClosed(std::string("snd_pcm_prepare failed during ") + operation + ": " + snd_strerror(err));
+  try {
+    sink_backend_->discardBuffer(operation);
+  } catch (const std::exception & e) {
+    failClosed(e.what());
     return false;
   }
   return true;
@@ -323,7 +224,7 @@ void FaOutNode::failClosed(const std::string &reason)
     std::lock_guard<std::mutex> lock(queue_mutex_);
     frame_queue_.clear();
   }
-  closeDevice();
+  closeBackend();
   queue_cv_.notify_all();
   rclcpp::shutdown();
 }
@@ -415,8 +316,8 @@ void FaOutNode::handleStop(const std_msgs::msg::Empty::SharedPtr /*msg*/)
   }
 
   // ALSA バッファをドロップ（即座に停止）
-  if (pcm_handle_) {
-    if (!discardDeviceBuffer("stop")) {
+  if (sink_backend_ && sink_backend_->isOpen()) {
+    if (!discardBackendBuffer("stop")) {
       return;
     }
   }
@@ -522,8 +423,8 @@ void FaOutNode::playbackThread()
     // 一時停止リクエストがあれば即座に停止
     if (pause_requested_.load()) {
       // ALSAバッファをドロップして即座に停止
-      if (pcm_handle_) {
-        if (!discardDeviceBuffer("pause")) {
+      if (sink_backend_ && sink_backend_->isOpen()) {
+        if (!discardBackendBuffer("pause")) {
           continue;
         }
       }
@@ -549,7 +450,7 @@ void FaOutNode::playbackThread()
     }
 
     if (has_frame && !queued_frame.data.empty()) {
-      if (!pcm_handle_) {
+      if (!sink_backend_ || !sink_backend_->isOpen()) {
         failClosed("ALSA playback handle closed while the configured sink is required");
         continue;
       }
@@ -571,28 +472,15 @@ void FaOutNode::playbackThread()
         size_t write_bytes = std::min(chunk_bytes, total_bytes - bytes_written);
         size_t write_frames = write_bytes / bytes_per_frame_;
 
-        snd_pcm_sframes_t result = snd_pcm_writei(
-          pcm_handle_,
-          data_ptr + bytes_written,
-          write_frames);
-
-        if (result == -EPIPE) {
-          failClosed("ALSA playback XRUN on required sink " + config_.device_id);
-          break;
-        } else if (result == -EAGAIN) {
-          failClosed("snd_pcm_writei returned EAGAIN on required sink " + config_.device_id);
-          break;
-        } else if (result < 0) {
-          failClosed(
-            "snd_pcm_writei failed on required sink " + config_.device_id + ": " +
-            snd_strerror(static_cast<int>(result)));
-          break;
-        } else if (result == 0) {
-          failClosed("snd_pcm_writei wrote zero frames on required sink " + config_.device_id);
+        try {
+          const size_t frames_written = sink_backend_->writeFrames(
+            data_ptr + bytes_written,
+            write_frames);
+          bytes_written += frames_written * bytes_per_frame_;
+        } catch (const std::exception & e) {
+          failClosed(e.what());
           break;
         }
-
-        bytes_written += static_cast<size_t>(result) * bytes_per_frame_;
       }
 
       if (fatal_error_.load()) {
@@ -601,8 +489,8 @@ void FaOutNode::playbackThread()
 
       if (interrupted) {
         // 中断時: ALSAバッファをドロップして即停止
-        if (pcm_handle_) {
-          if (!discardDeviceBuffer("interruption")) {
+        if (sink_backend_ && sink_backend_->isOpen()) {
+          if (!discardBackendBuffer("interruption")) {
             continue;
           }
         }
@@ -619,13 +507,10 @@ void FaOutNode::playbackThread()
       }
     } else {
       // キューが空の場合のみ、残りのALSAバッファを再生完了待ち
-      if (pcm_handle_) {
-        snd_pcm_state_t state = snd_pcm_state(pcm_handle_);
-        if (state == SND_PCM_STATE_RUNNING) {
-          // まだ再生中なら少し待つ
-          idle_rate.sleep();
-          continue;
-        }
+      if (sink_backend_ && sink_backend_->isRunning()) {
+        // まだ再生中なら少し待つ
+        idle_rate.sleep();
+        continue;
       }
       idle_rate.sleep();
     }

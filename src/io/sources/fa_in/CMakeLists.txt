@@ -17,6 +17,18 @@ find_package(fa_interfaces REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ALSA REQUIRED alsa)
 
+add_library(fa_in_backends
+  src/backends/alsa_capture_backend.cpp
+)
+
+target_include_directories(fa_in_backends
+  PUBLIC
+  include
+  PRIVATE
+  ${ALSA_INCLUDE_DIRS}
+)
+target_link_libraries(fa_in_backends PUBLIC ${ALSA_LIBRARIES})
+
 add_executable(fa_in_node
   src/fa_in_node.cpp
 )
@@ -30,12 +42,17 @@ ament_target_dependencies(fa_in_node
 
 target_include_directories(fa_in_node PRIVATE
   include
-  ${ALSA_INCLUDE_DIRS}
 )
-target_link_libraries(fa_in_node ${ALSA_LIBRARIES})
+target_link_libraries(fa_in_node fa_in_backends)
 
 install(TARGETS fa_in_node
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(TARGETS fa_in_backends
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
 
 install(DIRECTORY

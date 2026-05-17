@@ -35,12 +35,14 @@ def test_sink_backend_has_no_struct_default() -> None:
 
 
 def test_alsa_sink_rejects_plugin_pcm_devices() -> None:
-    source_path = Path(__file__).parents[2] / "src" / "fa_out_node.cpp"
-    source = source_path.read_text(encoding="utf-8")
+    backend_source_path = (
+        Path(__file__).parents[2] / "src" / "backends" / "alsa_playback_backend.cpp"
+    )
+    backend_source = backend_source_path.read_text(encoding="utf-8")
 
-    assert "isRawAlsaPlaybackDevice" in source
-    assert 'rfind("hw:", 0)' in source
-    assert "audio.device_id must be an ALSA raw hardware id" in source
+    assert "isRawHardwareDevice" in backend_source
+    assert 'rfind("hw:", 0)' in backend_source
+    assert "audio.device_id must be an ALSA raw hardware id" in backend_source
 
 
 def test_required_parameters_are_declared_without_runtime_defaults() -> None:
@@ -59,12 +61,17 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
 
 def test_playback_contract_is_pcm16_only_at_startup() -> None:
     source_path = Path(__file__).parents[2] / "src" / "fa_out_node.cpp"
+    backend_source_path = (
+        Path(__file__).parents[2] / "src" / "backends" / "alsa_playback_backend.cpp"
+    )
     source = source_path.read_text(encoding="utf-8")
+    backend_source = backend_source_path.read_text(encoding="utf-8")
 
     assert "audio.encoding must be PCM16LE for backend.name=alsa_playback" in source
     assert "audio.bit_depth must be 16 for PCM16LE playback" in source
-    assert "SND_PCM_FORMAT_S16_LE" in source
+    assert "SND_PCM_FORMAT_S16_LE" in backend_source
     assert "SND_PCM_FORMAT_S32_LE" not in source
+    assert "SND_PCM_FORMAT_S32_LE" not in backend_source
     assert "msg.encoding != config_.encoding" in source
     assert "AudioFrame source_id and stream_id are required" in source
     assert "Unsupported audio layout" in source
@@ -78,10 +85,49 @@ def test_runtime_write_failure_fails_closed_without_reopen_retry() -> None:
     )[0]
 
     assert "failClosed(" in playback_thread
-    assert "openDevice()" not in playback_thread
+    assert "openBackend()" not in playback_thread
     assert "ALSA device unavailable, dropping frame" not in playback_thread
-    assert "snd_pcm_prepare(pcm_handle_);" not in playback_thread
+    assert "snd_pcm_prepare" not in playback_thread
+    assert "writeFrames(" in playback_thread
     assert "rclcpp::shutdown()" in source
+
+
+def test_alsa_backend_files_are_ros_free() -> None:
+    package_root = Path(__file__).parents[2]
+    backend_paths = [
+        package_root / "include" / "fa_out" / "backends" / "alsa_playback_backend.hpp",
+        package_root / "src" / "backends" / "alsa_playback_backend.cpp",
+    ]
+    forbidden_tokens = [
+        "rclcpp",
+        "fa_interfaces",
+        "std_msgs/msg",
+        "diagnostic_msgs",
+        "rosidl",
+    ]
+
+    for backend_path in backend_paths:
+        backend_text = backend_path.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            assert token not in backend_text
+
+
+def test_backend_builds_as_separate_library() -> None:
+    package_root = Path(__file__).parents[2]
+    cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert "add_library(fa_out_backends" in cmake_text
+    assert "src/backends/alsa_playback_backend.cpp" in cmake_text
+    assert "target_link_libraries(fa_out_node fa_out_backends)" in cmake_text
+
+
+def test_fa_out_node_header_does_not_store_alsa_handle() -> None:
+    header_path = Path(__file__).parents[2] / "include" / "fa_out" / "fa_out_node.hpp"
+    header_text = header_path.read_text(encoding="utf-8")
+
+    assert "snd_pcm_t" not in header_text
+    assert "#include <alsa/asoundlib.h>" not in header_text
+    assert "std::unique_ptr<backends::AlsaPlaybackBackend> sink_backend_;" in header_text
 
 
 def test_colcon_runs_pytest_contracts() -> None:

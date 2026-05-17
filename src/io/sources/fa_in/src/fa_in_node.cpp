@@ -1,12 +1,12 @@
 #include "fa_in/fa_in_node.hpp"
 
 #include <algorithm>
-#include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+
+#include "fa_in/backends/alsa_capture_backend.hpp"
 
 namespace fa_in
 {
@@ -18,29 +18,38 @@ constexpr const char * kEncodingPcm32 = "PCM32LE";
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
 
-void silenceAlsaErrors(const char * /*file*/, int /*line*/, const char * /*function*/,
-                       int /*err*/, const char * /*fmt*/, ...)
+bool isSupportedEncodingPair(const AudioConfig & config)
 {
-  // prevent ALSA from printing to stderr when devices are unplugged
+  return (config.encoding == kEncodingPcm16 && config.bit_depth == 16) ||
+         (config.encoding == kEncodingPcm32 && config.bit_depth == 32) ||
+         (config.encoding == kEncodingFloat32 && config.bit_depth == 32);
 }
 
-bool isRawAlsaHardwareSource(const std::string & source_id)
+backends::AudioFormat backendFormatFromConfig(const AudioConfig & config)
 {
-  return source_id.rfind("hw:", 0) == 0;
+  return backends::AudioFormat{
+    config.sample_rate,
+    config.channels,
+    config.bit_depth,
+    config.chunk_ms,
+    config.encoding,
+    config.layout};
 }
 
-snd_pcm_format_t alsaFormatForConfig(const AudioConfig & config)
+backends::DeviceSelector backendSelectorFromConfig(const AudioConfig & config)
 {
-  if (config.encoding == kEncodingPcm16 && config.bit_depth == 16) {
-    return SND_PCM_FORMAT_S16_LE;
+  return backends::DeviceSelector{
+    config.device_mode,
+    config.device_identifier,
+    config.device_index};
+}
+
+std::string displayName(const backends::DeviceInfo & device)
+{
+  if (device.name.empty()) {
+    return device.id;
   }
-  if (config.encoding == kEncodingPcm32 && config.bit_depth == 32) {
-    return SND_PCM_FORMAT_S32_LE;
-  }
-  if (config.encoding == kEncodingFloat32 && config.bit_depth == 32) {
-    return SND_PCM_FORMAT_FLOAT_LE;
-  }
-  return SND_PCM_FORMAT_UNKNOWN;
+  return device.name;
 }
 }  // namespace
 
@@ -65,7 +74,7 @@ FaInNode::FaInNode()
     std::chrono::milliseconds(config_.diag_period_ms),
     std::bind(&FaInNode::publishDiagnostics, this));
 
-  initializeAlsa();
+  initializeBackend();
   if (!configureDevice()) {
     throw std::runtime_error("Failed to configure audio input source");
   }
@@ -75,7 +84,7 @@ FaInNode::FaInNode()
 FaInNode::~FaInNode()
 {
   stopCaptureThread();
-  shutdownAlsa();
+  shutdownBackend();
 }
 
 bool FaInNode::hasFatalError() const
@@ -135,7 +144,7 @@ void FaInNode::loadParameters()
   if (config_.diag_period_ms == 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
-  if (alsaFormatForConfig(config_) == SND_PCM_FORMAT_UNKNOWN) {
+  if (!isSupportedEncodingPair(config_)) {
     throw std::runtime_error(
       "audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32");
   }
@@ -149,17 +158,19 @@ void FaInNode::loadParameters()
     config_.bit_depth, config_.chunk_ms);
 }
 
-void FaInNode::initializeAlsa()
+void FaInNode::initializeBackend()
 {
-  snd_lib_error_set_handler(silenceAlsaErrors);
+  if (config_.backend_name == "alsa_capture") {
+    source_backend_ = std::make_unique<backends::AlsaCaptureBackend>();
+    return;
+  }
+  throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
 }
 
-void FaInNode::shutdownAlsa()
+void FaInNode::shutdownBackend()
 {
-  if (pcm_handle_) {
-    snd_pcm_drop(pcm_handle_);
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
+  if (source_backend_) {
+    source_backend_->close();
   }
 }
 
@@ -171,30 +182,34 @@ void FaInNode::failClosed(const std::string &reason)
 
   RCLCPP_FATAL(this->get_logger(), "Failing closed: %s", reason.c_str());
   capturing_.store(false);
-  if (pcm_handle_) {
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
+  if (source_backend_) {
+    source_backend_->close();
   }
   rclcpp::shutdown();
 }
 
 bool FaInNode::configureDevice()
 {
-  std::string device_id;
-  std::string device_name;
-  if (!determineDeviceFromConfig(device_id, device_name)) {
-    RCLCPP_ERROR(this->get_logger(), "No suitable ALSA capture device found");
+  backends::DeviceInfo device;
+  try {
+    device = determineDeviceFromConfig();
+  } catch (const backends::BackendError &e) {
+    RCLCPP_ERROR(this->get_logger(), "%s", e.what());
     return false;
   }
 
-  if (!reopenStream(device_id)) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to open ALSA device %s", device_id.c_str());
+  if (!reopenStream(device.id)) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to open audio input source %s", device.id.c_str());
     return false;
   }
 
-  active_device_name_ = device_name.empty() ? device_id : device_name;
-  active_device_id_ = device_id;
-  RCLCPP_INFO(this->get_logger(), "Using ALSA device: %s (%s)", active_device_id_.c_str(), active_device_name_.c_str());
+  active_device_name_ = displayName(device);
+  active_device_id_ = device.id;
+  RCLCPP_INFO(
+    this->get_logger(),
+    "Using ALSA device: %s (%s)",
+    active_device_id_.c_str(),
+    active_device_name_.c_str());
   return true;
 }
 
@@ -202,93 +217,18 @@ bool FaInNode::reopenStream(const std::string &device_id)
 {
   stopCaptureThread();
 
-  if (pcm_handle_) {
-    snd_pcm_drop(pcm_handle_);
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
-  }
-
-  if (device_id.empty()) {
-    RCLCPP_ERROR(this->get_logger(), "audio input source id is required");
+  if (!source_backend_) {
+    RCLCPP_ERROR(this->get_logger(), "source backend is not initialized");
     return false;
   }
 
-  int err = snd_pcm_open(&pcm_handle_, device_id.c_str(), SND_PCM_STREAM_CAPTURE, 0);
-  if (err < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_open failed for %s: %s", device_id.c_str(), snd_strerror(err));
-    pcm_handle_ = nullptr;
+  try {
+    frames_per_buffer_ = source_backend_->open(device_id, backendFormatFromConfig(config_), frames_per_buffer_);
+  } catch (const backends::BackendError &e) {
+    RCLCPP_ERROR(this->get_logger(), "%s", e.what());
     return false;
   }
 
-  snd_pcm_hw_params_t *params = nullptr;
-  snd_pcm_hw_params_malloc(&params);
-  snd_pcm_hw_params_any(pcm_handle_, params);
-
-  if ((err = snd_pcm_hw_params_set_rate_resample(pcm_handle_, params, 0)) < 0) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to disable ALSA software resampling: %s", snd_strerror(err));
-    snd_pcm_hw_params_free(params);
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
-    return false;
-  }
-
-  snd_pcm_hw_params_set_access(pcm_handle_, params, SND_PCM_ACCESS_RW_INTERLEAVED);
-
-  snd_pcm_format_t format = alsaFormatForConfig(config_);
-  if ((err = snd_pcm_hw_params_set_format(pcm_handle_, params, format)) < 0) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to set format: %s", snd_strerror(err));
-    snd_pcm_hw_params_free(params);
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
-    return false;
-  }
-
-  unsigned int channels = config_.channels;
-  if ((err = snd_pcm_hw_params_set_channels(pcm_handle_, params, channels)) < 0) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to set channels: %s", snd_strerror(err));
-    snd_pcm_hw_params_free(params);
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
-    return false;
-  }
-
-  unsigned int rate = config_.sample_rate;
-  int dir = 0;
-  if ((err = snd_pcm_hw_params_set_rate(pcm_handle_, params, rate, dir)) < 0) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to set rate: %s", snd_strerror(err));
-    snd_pcm_hw_params_free(params);
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
-    return false;
-  }
-
-  snd_pcm_uframes_t period_size = static_cast<snd_pcm_uframes_t>(frames_per_buffer_);
-  if ((err = snd_pcm_hw_params_set_period_size_near(pcm_handle_, params, &period_size, &dir)) < 0) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to set period size: %s", snd_strerror(err));
-    snd_pcm_hw_params_free(params);
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
-    return false;
-  }
-
-  if ((err = snd_pcm_hw_params(pcm_handle_, params)) < 0) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to apply hw params: %s", snd_strerror(err));
-    snd_pcm_hw_params_free(params);
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
-    return false;
-  }
-
-  snd_pcm_hw_params_free(params);
-
-  if ((err = snd_pcm_prepare(pcm_handle_)) < 0) {
-    RCLCPP_ERROR(this->get_logger(), "snd_pcm_prepare failed: %s", snd_strerror(err));
-    snd_pcm_close(pcm_handle_);
-    pcm_handle_ = nullptr;
-    return false;
-  }
-
-  frames_per_buffer_ = static_cast<size_t>(period_size);
   return true;
 }
 
@@ -313,14 +253,14 @@ void FaInNode::stopCaptureThread()
   if (capture_thread_.joinable()) {
     capture_thread_.join();
   }
-  if (pcm_handle_) {
-    snd_pcm_drop(pcm_handle_);
+  if (source_backend_) {
+    source_backend_->drop();
   }
 }
 
 void FaInNode::captureLoop()
 {
-  if (!pcm_handle_) {
+  if (!source_backend_) {
     RCLCPP_ERROR(this->get_logger(), "Capture loop started without ALSA handle");
     return;
   }
@@ -328,22 +268,21 @@ void FaInNode::captureLoop()
   std::vector<uint8_t> buffer(frames_per_buffer_ * bytes_per_frame_);
 
   while (rclcpp::ok() && capturing_.load()) {
-    snd_pcm_sframes_t frames = snd_pcm_readi(pcm_handle_, buffer.data(), frames_per_buffer_);
-    if (frames == -EPIPE) {
+    const auto read_result = source_backend_->read(buffer.data(), frames_per_buffer_);
+    if (read_result.status == backends::ReadStatus::kXrun) {
       xruns_.fetch_add(1);
       failClosed("ALSA capture XRUN on required input source " + active_device_id_);
       break;
-    } else if (frames < 0) {
+    } else if (read_result.status == backends::ReadStatus::kError) {
       failClosed(
-        "snd_pcm_readi failed on required input source " + active_device_id_ + ": " +
-        snd_strerror(static_cast<int>(frames)));
+        "snd_pcm_readi failed on required input source " + active_device_id_ + ": " + read_result.message);
       break;
-    } else if (frames == 0) {
+    } else if (read_result.status == backends::ReadStatus::kZeroFrames) {
       failClosed("snd_pcm_readi returned zero frames on required input source " + active_device_id_);
       break;
     }
 
-    size_t byte_count = static_cast<size_t>(frames) * bytes_per_frame_;
+    size_t byte_count = read_result.frames * bytes_per_frame_;
     publishFrame(buffer.data(), byte_count);
     frames_published_.fetch_add(1);
     last_frame_time_ = std::chrono::steady_clock::now();
@@ -399,87 +338,20 @@ void FaInNode::publishDiagnostics()
   diag_pub_->publish(array_msg);
 }
 
-std::vector<std::pair<std::string, std::string>> FaInNode::enumerateCaptureDevices() const
+std::vector<backends::DeviceInfo> FaInNode::enumerateCaptureDevices() const
 {
-  std::vector<std::pair<std::string, std::string>> devices;
-  void **hints = nullptr;
-  if (snd_device_name_hint(-1, "pcm", &hints) != 0) {
-    return devices;
+  if (!source_backend_) {
+    return {};
   }
-
-  for (void **hint = hints; *hint != nullptr; ++hint) {
-    char *name = snd_device_name_get_hint(*hint, "NAME");
-    char *desc = snd_device_name_get_hint(*hint, "DESC");
-    char *io = snd_device_name_get_hint(*hint, "IOID");
-    bool is_input = (io == nullptr) || (std::strcmp(io, "Input") == 0);
-    if (name && is_input) {
-      const std::string source_id{name};
-      if (isRawAlsaHardwareSource(source_id)) {
-        devices.emplace_back(source_id, desc ? std::string(desc) : "");
-      }
-    }
-    if (name) {
-      free(name);
-    }
-    if (desc) {
-      free(desc);
-    }
-    if (io) {
-      free(io);
-    }
-  }
-  snd_device_name_free_hint(hints);
-
-  return devices;
+  return source_backend_->listDevices();
 }
 
-bool FaInNode::determineDeviceFromConfig(std::string &device_id, std::string &device_name)
+backends::DeviceInfo FaInNode::determineDeviceFromConfig()
 {
-  auto devices = enumerateCaptureDevices();
-  if (devices.empty()) {
-    RCLCPP_ERROR(this->get_logger(), "No ALSA input source candidates were enumerated");
-    return false;
+  if (!source_backend_) {
+    throw backends::BackendError("source backend is not initialized");
   }
-
-  if (config_.device_mode == "index" &&
-      config_.device_index >= 0 &&
-      static_cast<size_t>(config_.device_index) < devices.size())
-  {
-    device_id = devices[config_.device_index].first;
-    device_name = devices[config_.device_index].second.empty() ?
-      devices[config_.device_index].first : devices[config_.device_index].second;
-    return true;
-  }
-
-  if (config_.device_mode == "name" && !config_.device_identifier.empty()) {
-    for (const auto &dev : devices) {
-      std::string label = dev.second.empty() ? dev.first : dev.second;
-      if (dev.first == config_.device_identifier ||
-          label == config_.device_identifier) {
-        device_id = dev.first;
-        device_name = label;
-        return true;
-      }
-    }
-    RCLCPP_ERROR(
-      this->get_logger(),
-      "Configured ALSA input source name was not found: %s",
-      config_.device_identifier.c_str());
-    return false;
-  }
-
-  if (config_.device_mode == "index") {
-    RCLCPP_ERROR(this->get_logger(), "Configured ALSA input source index is invalid: %d", config_.device_index);
-    return false;
-  }
-
-  if (config_.device_mode == "name") {
-    RCLCPP_ERROR(this->get_logger(), "audio.device_selector.identifier is required when mode is name");
-    return false;
-  }
-
-  RCLCPP_ERROR(this->get_logger(), "Unsupported audio.device_selector.mode: %s", config_.device_mode.c_str());
-  return false;
+  return source_backend_->selectDevice(backendSelectorFromConfig(config_));
 }
 
 void FaInNode::handleListDevices(
@@ -496,8 +368,8 @@ void FaInNode::handleListDevices(
 
   int index = 0;
   for (const auto &dev : devices) {
-    response->device_ids.push_back(dev.first);
-    response->device_names.push_back(dev.second.empty() ? dev.first : dev.second);
+    response->device_ids.push_back(dev.id);
+    response->device_names.push_back(displayName(dev));
     response->host_api_names.push_back("ALSA");
     response->device_indices.push_back(index++);
     response->max_input_channels.push_back(config_.channels);
@@ -506,10 +378,10 @@ void FaInNode::handleListDevices(
 
   if (!active_device_id_.empty()) {
     for (size_t i = 0; i < devices.size(); ++i) {
-      if (devices[i].first == active_device_id_) {
+      if (devices[i].id == active_device_id_) {
         response->active_device_index = static_cast<int32_t>(i);
         if (response->active_device_name.empty()) {
-          response->active_device_name = devices[i].second.empty() ? devices[i].first : devices[i].second;
+          response->active_device_name = displayName(devices[i]);
         }
         break;
       }
@@ -527,15 +399,13 @@ void FaInNode::handleSwitchDevice(
 
   if (request->target_index >= 0 &&
       static_cast<size_t>(request->target_index) < devices.size()) {
-    device_id = devices[request->target_index].first;
-    device_name = devices[request->target_index].second.empty()
-      ? device_id
-      : devices[request->target_index].second;
+    device_id = devices[request->target_index].id;
+    device_name = displayName(devices[request->target_index]);
   } else if (!request->target_identifier.empty()) {
     for (const auto &dev : devices) {
-      std::string label = dev.second.empty() ? dev.first : dev.second;
-      if (dev.first == request->target_identifier || label == request->target_identifier) {
-        device_id = dev.first;
+      std::string label = displayName(dev);
+      if (dev.id == request->target_identifier || label == request->target_identifier) {
+        device_id = dev.id;
         device_name = label;
         break;
       }

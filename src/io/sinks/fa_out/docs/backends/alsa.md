@@ -8,6 +8,8 @@
 
 `backend.name=alsa_playback` の backend です。ALSA raw hardware playback device を明示 id で開き、validated PCM frame を device へ書き込みます。
 
+実装は `fa_out::backends::AlsaPlaybackBackend` です。この class は ROS2 adapter ではなく device backend なので、`rclcpp`、`fa_interfaces`、ROS message header を include しません。
+
 ## Input
 
 - ALSA playback device id。`hw:` で始まる raw hardware device のみ許可する

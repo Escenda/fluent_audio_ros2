@@ -1,7 +1,5 @@
 #pragma once
 
-#include <alsa/asoundlib.h>
-
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -21,6 +19,11 @@
 
 namespace fa_out
 {
+
+namespace backends
+{
+class AlsaPlaybackBackend;
+}  // namespace backends
 
 struct OutputConfig
 {
@@ -53,9 +56,9 @@ public:
 
 private:
   void loadParameters();
-  bool openDevice();
-  void closeDevice();
-  bool discardDeviceBuffer(const char *operation);
+  void openBackend();
+  void closeBackend();
+  bool discardBackendBuffer(const char *operation);
   void failClosed(const std::string &reason);
   void playbackThread();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
@@ -65,7 +68,7 @@ private:
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
 
   OutputConfig config_;
-  snd_pcm_t * pcm_handle_ = nullptr;
+  std::unique_ptr<backends::AlsaPlaybackBackend> sink_backend_;
   size_t bytes_per_frame_ = 0;
 
   std::mutex queue_mutex_;

@@ -65,16 +65,16 @@ def test_publish_frame_sets_required_audio_frame_identity_without_analysis_field
 
 
 def test_alsa_backend_filters_plugin_pcm_sources() -> None:
-    source_path = Path(__file__).parents[2] / "src" / "fa_in_node.cpp"
+    source_path = Path(__file__).parents[2] / "src" / "backends" / "alsa_capture_backend.cpp"
     source = source_path.read_text(encoding="utf-8")
 
     assert "isRawAlsaHardwareSource" in source
     assert 'rfind("hw:", 0)' in source
-    assert "devices.emplace_back(source_id" in source
+    assert "devices.push_back(DeviceInfo{source_id" in source
 
 
 def test_alsa_backend_validates_format_contract_and_disables_resampling() -> None:
-    source_path = Path(__file__).parents[2] / "src" / "fa_in_node.cpp"
+    source_path = Path(__file__).parents[2] / "src" / "backends" / "alsa_capture_backend.cpp"
     source = source_path.read_text(encoding="utf-8")
 
     assert "alsaFormatForConfig" in source
@@ -93,6 +93,42 @@ def test_runtime_read_failure_fails_closed_without_prepare_retry() -> None:
     assert "snd_pcm_prepare" not in capture_loop
     assert "std::this_thread::sleep_for" not in capture_loop
     assert "rclcpp::shutdown()" in source
+
+
+def test_backend_implementation_files_are_ros_free() -> None:
+    package_root = Path(__file__).parents[2]
+    backend_paths = sorted((package_root / "src" / "backends").glob("*.cpp"))
+    forbidden_tokens = (
+        "rclcpp",
+        "fa_interfaces",
+        "diagnostic_msgs",
+        "std_msgs/msg",
+    )
+
+    assert backend_paths
+    for path in backend_paths:
+        source = path.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            assert token not in source
+
+
+def test_backend_builds_as_separate_library() -> None:
+    package_root = Path(__file__).parents[2]
+    cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert "add_library(fa_in_backends" in cmake_text
+    assert "src/backends/alsa_capture_backend.cpp" in cmake_text
+    assert "target_link_libraries(fa_in_node fa_in_backends)" in cmake_text
+
+
+def test_node_header_does_not_store_alsa_pcm_handle() -> None:
+    header_path = Path(__file__).parents[2] / "include" / "fa_in" / "fa_in_node.hpp"
+    header = header_path.read_text(encoding="utf-8")
+
+    assert "snd_pcm_t" not in header
+    assert "pcm_handle_" not in header
+    assert "alsa/asoundlib.h" not in header
+    assert "std::unique_ptr<fa_in::backends::SourceBackend> source_backend_;" in header
 
 
 def test_colcon_runs_pytest_contracts() -> None:

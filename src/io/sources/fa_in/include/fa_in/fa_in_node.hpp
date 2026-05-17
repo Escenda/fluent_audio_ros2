@@ -1,7 +1,5 @@
 #pragma once
 
-#include <alsa/asoundlib.h>
-
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -19,6 +17,7 @@
 #include "fa_interfaces/msg/audio_frame.hpp"
 #include "fa_interfaces/srv/list_devices.hpp"
 #include "fa_interfaces/srv/switch_device.hpp"
+#include "fa_in/backends/source_backend.hpp"
 
 namespace fa_in
 {
@@ -48,8 +47,8 @@ public:
 
 private:
   void loadParameters();
-  void initializeAlsa();
-  void shutdownAlsa();
+  void initializeBackend();
+  void shutdownBackend();
   void failClosed(const std::string &reason);
   bool configureDevice();
   bool reopenStream(const std::string &device_id);
@@ -58,8 +57,8 @@ private:
   void captureLoop();
   void publishFrame(const uint8_t *data, size_t data_size);
   void publishDiagnostics();
-  bool determineDeviceFromConfig(std::string &device_id, std::string &device_name);
-  std::vector<std::pair<std::string, std::string>> enumerateCaptureDevices() const;
+  fa_in::backends::DeviceInfo determineDeviceFromConfig();
+  std::vector<fa_in::backends::DeviceInfo> enumerateCaptureDevices() const;
 
   // Services
   void handleListDevices(
@@ -79,10 +78,10 @@ private:
 
   rclcpp::TimerBase::SharedPtr diag_timer_;
 
+  std::unique_ptr<fa_in::backends::SourceBackend> source_backend_;
   std::atomic<bool> capturing_{false};
   std::atomic<bool> fatal_error_{false};
   std::thread capture_thread_;
-  snd_pcm_t *pcm_handle_{nullptr};
   std::string active_device_id_;
   std::string active_device_name_;
   size_t frames_per_buffer_{0};
