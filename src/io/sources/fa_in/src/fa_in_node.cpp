@@ -282,10 +282,11 @@ void FaInNode::captureLoop()
       break;
     }
 
-    if (read_result.frames > frames_per_buffer_) {
+    if (read_result.frames != frames_per_buffer_) {
       failClosed(
-        "snd_pcm_readi returned more frames than requested on required input source " +
-        active_device_id_);
+        "snd_pcm_readi returned " + std::to_string(read_result.frames) +
+        " frames, expected configured capture chunk " + std::to_string(frames_per_buffer_) +
+        " on required input source " + active_device_id_);
       break;
     }
 
