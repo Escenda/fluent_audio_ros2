@@ -24,7 +24,15 @@ namespace fa_denoise
 namespace
 {
 constexpr int kRequiredSampleRate = 16000;
+constexpr const char * kEncodingPcm16 = "PCM16LE";
+constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
+
+bool isSupportedAudioFormatPair(const std::string & encoding, int bit_depth)
+{
+  return (encoding == kEncodingPcm16 && bit_depth == 16) ||
+         (encoding == kEncodingFloat32 && bit_depth == 32);
+}
 
 #ifdef FA_DENOISE_WITH_ONNXRUNTIME
 std::string resolveModelPathOrThrow(const std::string & path_or_empty, const std::string & parameter_name)
@@ -74,6 +82,8 @@ void FaDenoiseNode::loadParameters()
   this->declare_parameter("output_topic", config_.output_topic);
   this->declare_parameter<int>("expected_sample_rate", config_.expected_sample_rate);
   this->declare_parameter<int>("expected_channels", config_.expected_channels);
+  this->declare_parameter("expected.encoding", config_.expected_encoding);
+  this->declare_parameter<int>("expected.bit_depth", config_.expected_bit_depth);
   this->declare_parameter("output.encoding", config_.output_encoding);
   this->declare_parameter<int>("output.bit_depth", config_.output_bit_depth);
 
@@ -98,6 +108,8 @@ void FaDenoiseNode::loadParameters()
   config_.output_topic = this->get_parameter("output_topic").as_string();
   config_.expected_sample_rate = this->get_parameter("expected_sample_rate").as_int();
   config_.expected_channels = this->get_parameter("expected_channels").as_int();
+  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
+  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
   config_.output_encoding = this->get_parameter("output.encoding").as_string();
   config_.output_bit_depth = this->get_parameter("output.bit_depth").as_int();
 
@@ -124,17 +136,22 @@ void FaDenoiseNode::loadParameters()
             "fa_denoise requires expected_sample_rate=16000 by design (got " +
             std::to_string(config_.expected_sample_rate) + ")");
   }
+  if (config_.expected_channels <= 0) {
+    throw std::runtime_error("expected_channels must be > 0 (set via YAML)");
+  }
+  if (!isSupportedAudioFormatPair(config_.expected_encoding, config_.expected_bit_depth)) {
+    throw std::runtime_error(
+      "expected.encoding/expected.bit_depth must be PCM16LE/16 or FLOAT32LE/32");
+  }
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0 (set via YAML)");
   }
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0 (set via YAML)");
   }
-  if (config_.output_encoding.empty()) {
-    throw std::runtime_error("output.encoding is required (set via YAML)");
-  }
-  if (config_.output_bit_depth != 16 && config_.output_bit_depth != 32) {
-    throw std::runtime_error("output.bit_depth must be 16 or 32 (set via YAML)");
+  if (!isSupportedAudioFormatPair(config_.output_encoding, config_.output_bit_depth)) {
+    throw std::runtime_error(
+      "output.encoding/output.bit_depth must be PCM16LE/16 or FLOAT32LE/32");
   }
   if (config_.backend_name.empty()) {
     throw std::runtime_error("backend.name is required (set via YAML)");
@@ -175,13 +192,15 @@ void FaDenoiseNode::loadParameters()
 
   RCLCPP_INFO(this->get_logger(),
     "NS config: enabled=%s backend.name=%s input=%s output=%s expected_sr=%d expected_ch=%d "
-    "out_enc=%s out_bits=%d qos_depth=%d reliable=%s",
+    "expected_enc=%s expected_bits=%d out_enc=%s out_bits=%d qos_depth=%d reliable=%s",
     config_.enabled ? "true" : "false",
     config_.backend_name.c_str(),
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
+    config_.expected_encoding.c_str(),
+    config_.expected_bit_depth,
     config_.output_encoding.c_str(),
     config_.output_bit_depth,
     config_.qos_depth,
@@ -220,7 +239,10 @@ bool FaDenoiseNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) co
   if (msg.channels == 0 || msg.sample_rate == 0) {
     return false;
   }
-  if (msg.bit_depth != 16 && msg.bit_depth != 32) {
+  if (msg.encoding != config_.expected_encoding) {
+    return false;
+  }
+  if (msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)) {
     return false;
   }
   if (msg.source_id.empty() || msg.stream_id.empty()) {
@@ -246,7 +268,7 @@ bool FaDenoiseNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, st
   if (msg.channels == 0) {
     return false;
   }
-  if (msg.bit_depth != 16 && msg.bit_depth != 32) {
+  if (!isSupportedAudioFormatPair(msg.encoding, static_cast<int>(msg.bit_depth))) {
     return false;
   }
   const size_t bytes_per_sample = static_cast<size_t>(msg.bit_depth / 8);
@@ -262,7 +284,7 @@ bool FaDenoiseNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, st
   }
 
   out.resize(sample_count);
-  if (msg.bit_depth == 16) {
+  if (msg.encoding == kEncodingPcm16 && msg.bit_depth == 16) {
     std::vector<int16_t> tmp(sample_count);
     std::memcpy(tmp.data(), msg.data.data(), msg.data.size());
     for (size_t i = 0; i < sample_count; ++i) {
@@ -271,34 +293,64 @@ bool FaDenoiseNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, st
     return true;
   }
 
+  if (msg.encoding != kEncodingFloat32 || msg.bit_depth != 32) {
+    return false;
+  }
   std::memcpy(out.data(), msg.data.data(), msg.data.size());
+  for (const float sample : out) {
+    if (!std::isfinite(sample) || sample < -1.0f || sample > 1.0f) {
+      return false;
+    }
+  }
   return true;
 }
 
-void FaDenoiseNode::encodeFromFloat(
+bool FaDenoiseNode::encodeFromFloat(
   const std::vector<float> & samples,
   int bit_depth,
-  std::vector<uint8_t> & out_bytes)
+  std::vector<uint8_t> & out_bytes,
+  std::string & error_message)
 {
   out_bytes.clear();
+  error_message.clear();
   if (samples.empty()) {
-    return;
+    error_message = "denoise output sample buffer is empty";
+    return false;
+  }
+  for (const float sample : samples) {
+    if (!std::isfinite(sample)) {
+      error_message = "denoise output sample is not finite";
+      return false;
+    }
+    if (sample < -1.0f || sample > 1.0f) {
+      error_message = "denoise output sample out of normalized range";
+      return false;
+    }
   }
   if (bit_depth == 16) {
     std::vector<int16_t> pcm(samples.size());
     for (size_t i = 0; i < samples.size(); ++i) {
-      const float s = std::clamp(samples[i], -1.0f, 1.0f);
-      const int32_t scaled = static_cast<int32_t>(std::lround(static_cast<double>(s) * 32767.0));
-      pcm[i] = static_cast<int16_t>(std::clamp<int32_t>(scaled, -32768, 32767));
+      const double scaled = samples[i] < 0.0f ?
+        static_cast<double>(samples[i]) * 32768.0 :
+        static_cast<double>(samples[i]) * 32767.0;
+      const int32_t rounded = static_cast<int32_t>(std::lround(scaled));
+      if (rounded < -32768 || rounded > 32767) {
+        error_message = "denoise output sample does not fit PCM16 after scaling";
+        return false;
+      }
+      pcm[i] = static_cast<int16_t>(rounded);
     }
     out_bytes.resize(pcm.size() * sizeof(int16_t));
     std::memcpy(out_bytes.data(), pcm.data(), out_bytes.size());
-    return;
+    return true;
   }
   if (bit_depth == 32) {
     out_bytes.resize(samples.size() * sizeof(float));
     std::memcpy(out_bytes.data(), samples.data(), out_bytes.size());
+    return true;
   }
+  error_message = "unsupported denoise output bit depth";
+  return false;
 }
 
 void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
@@ -383,9 +435,13 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   }
 
   std::vector<uint8_t> out_bytes;
-  encodeFromFloat(out_f32, config_.output_bit_depth, out_bytes);
-  if (out_bytes.empty()) {
+  std::string encode_error;
+  if (!encodeFromFloat(out_f32, config_.output_bit_depth, out_bytes, encode_error)) {
     drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping denoise output frame: %s. Add an explicit dynamics/limiter node if range control is required.",
+      encode_error.c_str());
     return;
   }
 
@@ -439,6 +495,8 @@ void FaDenoiseNode::publishDiagnostics()
   push_kv("output_topic", config_.output_topic);
   push_kv("expected_sample_rate", std::to_string(config_.expected_sample_rate));
   push_kv("expected_channels", std::to_string(config_.expected_channels));
+  push_kv("expected.encoding", config_.expected_encoding);
+  push_kv("expected.bit_depth", std::to_string(config_.expected_bit_depth));
   push_kv("output.encoding", config_.output_encoding);
   push_kv("output.bit_depth", std::to_string(config_.output_bit_depth));
   push_kv("frames.in", std::to_string(in_.load()));

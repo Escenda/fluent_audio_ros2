@@ -8,6 +8,9 @@ fa_denoise:
 
     expected_sample_rate: 16000
     expected_channels: 1
+    expected:
+      encoding: "PCM16LE"
+      bit_depth: 16
 
     output:
       encoding: "PCM16LE"

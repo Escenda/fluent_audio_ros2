@@ -12,6 +12,8 @@ def test_default_config_requires_explicit_dtln_models() -> None:
     assert params["enabled"] is True
     assert params["backend.name"] == "dtln_onnx"
     assert "backend" not in params
+    assert params["expected"]["encoding"] == "PCM16LE"
+    assert params["expected"]["bit_depth"] == 16
     assert params["dtln"]["model_1_path"] == ""
     assert params["dtln"]["model_2_path"] == ""
 
@@ -104,3 +106,25 @@ def test_node_fails_closed_when_dtln_selected_without_onnxruntime() -> None:
         "(FA_DENOISE_WITH_ONNXRUNTIME=0)"
     ) in node_text
     assert "別 backend へ暗黙に切り替えない" in spec_text
+
+
+def test_denoise_requires_explicit_format_pairs_and_no_hidden_clamp() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (package_root / "src" / "fa_denoise_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    spec = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
+    algorithm = (package_root / "docs" / "アルゴリズム詳細説明書.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "isSupportedAudioFormatPair" in source
+    assert "expected.encoding/expected.bit_depth must be PCM16LE/16 or FLOAT32LE/32" in source
+    assert "output.encoding/output.bit_depth must be PCM16LE/16 or FLOAT32LE/32" in source
+    assert "msg.encoding != config_.expected_encoding" in source
+    assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in source
+    assert "msg.encoding != kEncodingFloat32 || msg.bit_depth != 32" in source
+    assert "denoise output sample out of normalized range" in source
+    assert "std::clamp" not in source
+    assert "hidden range clamp" in spec
+    assert "PCM32LE/32" in algorithm

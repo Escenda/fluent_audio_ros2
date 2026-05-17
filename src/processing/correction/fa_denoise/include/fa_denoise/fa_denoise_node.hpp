@@ -24,6 +24,8 @@ struct DenoiseConfig
 
   int expected_sample_rate = -1;
   int expected_channels = -1;
+  std::string expected_encoding;
+  int expected_bit_depth = -1;
 
   std::string output_encoding;
   int output_bit_depth = -1;
@@ -61,8 +63,11 @@ private:
   void publishDiagnostics();
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
   static bool decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out);
-  static void encodeFromFloat(const std::vector<float> & samples, int bit_depth,
-    std::vector<uint8_t> & out_bytes);
+  static bool encodeFromFloat(
+    const std::vector<float> & samples,
+    int bit_depth,
+    std::vector<uint8_t> & out_bytes,
+    std::string & error_message);
 
   DenoiseConfig config_;
 
