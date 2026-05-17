@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from fluent_audio_system import config_schema
 from fluent_audio_system.config_schema import load_system_config
@@ -37,6 +38,10 @@ def test_valid_fixture_expands_enabled_nodes_and_remappings(
     assert node.executable == "fa_in_node"
     assert node.params_file == str(FIXTURE_DIR / "fa_in.params.yaml")
     assert node.launch_remappings() == [("audio/frame", "robot/audio/input")]
+
+    params = _load_fixture_params("fa_in.params.yaml", "fa_in_node")
+    assert params["audio.stream_id"] == "audio/frame"
+    assert params["audio.layout"] == "interleaved"
 
 
 def test_missing_fixture_params_file_fails_closed(
@@ -76,3 +81,8 @@ def test_sequence_remapping_fixture_expands_to_launch_pairs(
         ("audio/frame", "robot/audio/input"),
         ("vad/state", "robot/audio/vad/state"),
     ]
+
+
+def _load_fixture_params(fixture_name: str, node_name: str) -> dict[str, str | int | bool]:
+    raw = yaml.safe_load((FIXTURE_DIR / fixture_name).read_text(encoding="utf-8"))
+    return raw[node_name]["ros__parameters"]

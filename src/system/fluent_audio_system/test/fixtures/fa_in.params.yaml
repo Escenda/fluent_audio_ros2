@@ -8,4 +8,6 @@ fa_in_node:
     audio.bit_depth: 16
     audio.chunk_ms: 20
     audio.encoding: "PCM16LE"
+    audio.stream_id: "audio/frame"
+    audio.layout: "interleaved"
     diagnostics.publish_period_ms: 1000

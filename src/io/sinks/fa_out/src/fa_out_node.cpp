@@ -181,11 +181,13 @@ void FaOutNode::openBackend()
     RCLCPP_ERROR(this->get_logger(), "Failed to open ALSA playback device: %s", e.what());
     throw std::runtime_error("Failed to open ALSA playback device");
   }
+  std::lock_guard<std::mutex> lock(backend_mutex_);
   sink_backend_ = std::move(backend);
 }
 
 void FaOutNode::closeBackend()
 {
+  std::lock_guard<std::mutex> lock(backend_mutex_);
   if (sink_backend_) {
     sink_backend_->close();
     sink_backend_.reset();
@@ -194,18 +196,55 @@ void FaOutNode::closeBackend()
 
 bool FaOutNode::discardBackendBuffer(const char *operation)
 {
-  if (!sink_backend_ || !sink_backend_->isOpen()) {
-    failClosed(std::string(operation) + " requested without an open ALSA playback device");
-    return false;
+  std::string error_message;
+  {
+    std::lock_guard<std::mutex> lock(backend_mutex_);
+    if (!sink_backend_ || !sink_backend_->isOpen()) {
+      error_message = std::string(operation) + " requested without an open ALSA playback device";
+    } else {
+      try {
+        sink_backend_->discardBuffer(operation);
+      } catch (const std::exception & e) {
+        error_message = e.what();
+      }
+    }
   }
-
-  try {
-    sink_backend_->discardBuffer(operation);
-  } catch (const std::exception & e) {
-    failClosed(e.what());
+  if (!error_message.empty()) {
+    failClosed(error_message);
     return false;
   }
   return true;
+}
+
+size_t FaOutNode::writeBackendFrames(const uint8_t * data, size_t frame_count)
+{
+  std::lock_guard<std::mutex> lock(backend_mutex_);
+  if (!sink_backend_ || !sink_backend_->isOpen()) {
+    throw std::runtime_error("ALSA playback handle closed while the configured sink is required");
+  }
+  return sink_backend_->writeFrames(data, frame_count);
+}
+
+bool FaOutNode::isBackendRunning()
+{
+  std::string error_message;
+  bool running = false;
+  {
+    std::lock_guard<std::mutex> lock(backend_mutex_);
+    if (!sink_backend_) {
+      return false;
+    }
+    try {
+      running = sink_backend_->isRunning();
+    } catch (const std::exception & e) {
+      error_message = e.what();
+    }
+  }
+  if (!error_message.empty()) {
+    failClosed(error_message);
+    return false;
+  }
+  return running;
 }
 
 void FaOutNode::failClosed(const std::string &reason)
@@ -271,16 +310,20 @@ void FaOutNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
   queued_frame.data = std::vector<uint8_t>(msg->data.begin(), msg->data.end());
   queued_frame.header = msg->header;
   queued_frame.epoch = msg->epoch;
+  bool queue_overflow = false;
   {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     if (frame_queue_.size() >= config_.max_queue_frames) {
-      frame_queue_.pop_front();
-      auto & clk = *this->get_clock();
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), clk, 2000,
-        "Playback queue overflow, dropping oldest frame");
+      queue_overflow = true;
+    } else {
+      frame_queue_.emplace_back(std::move(queued_frame));
     }
-    frame_queue_.emplace_back(std::move(queued_frame));
+  }
+  if (queue_overflow) {
+    failClosed(
+      "playback queue exceeded queue.max_frames=" + std::to_string(config_.max_queue_frames) +
+      " for required sink " + config_.device_id);
+    return;
   }
   queue_cv_.notify_one();
   RCLCPP_DEBUG_THROTTLE(
@@ -312,10 +355,8 @@ void FaOutNode::handleStop(const std_msgs::msg::Empty::SharedPtr /*msg*/)
   }
 
   // ALSA バッファをドロップ（即座に停止）
-  if (sink_backend_ && sink_backend_->isOpen()) {
-    if (!discardBackendBuffer("stop")) {
-      return;
-    }
+  if (!discardBackendBuffer("stop")) {
+    return;
   }
 
   // 停止フラグをリセット
@@ -419,10 +460,8 @@ void FaOutNode::playbackThread()
     // 一時停止リクエストがあれば即座に停止
     if (pause_requested_.load()) {
       // ALSAバッファをドロップして即座に停止
-      if (sink_backend_ && sink_backend_->isOpen()) {
-        if (!discardBackendBuffer("pause")) {
-          continue;
-        }
+      if (!discardBackendBuffer("pause")) {
+        continue;
       }
       is_paused_.store(true);
       pause_requested_.store(false);
@@ -446,11 +485,6 @@ void FaOutNode::playbackThread()
     }
 
     if (has_frame && !queued_frame.data.empty()) {
-      if (!sink_backend_ || !sink_backend_->isOpen()) {
-        failClosed("ALSA playback handle closed while the configured sink is required");
-        continue;
-      }
-
       size_t total_bytes = queued_frame.data.size();
       size_t bytes_written = 0;
       uint8_t * data_ptr = queued_frame.data.data();
@@ -469,7 +503,7 @@ void FaOutNode::playbackThread()
         size_t write_frames = write_bytes / bytes_per_frame_;
 
         try {
-          const size_t frames_written = sink_backend_->writeFrames(
+          const size_t frames_written = writeBackendFrames(
             data_ptr + bytes_written,
             write_frames);
           bytes_written += frames_written * bytes_per_frame_;
@@ -485,10 +519,8 @@ void FaOutNode::playbackThread()
 
       if (interrupted) {
         // 中断時: ALSAバッファをドロップして即停止
-        if (sink_backend_ && sink_backend_->isOpen()) {
-          if (!discardBackendBuffer("interruption")) {
-            continue;
-          }
+        if (!discardBackendBuffer("interruption")) {
+          continue;
         }
         RCLCPP_INFO(this->get_logger(), "Playback interrupted, dropped remaining audio");
       } else if (bytes_written > 0) {
@@ -503,7 +535,7 @@ void FaOutNode::playbackThread()
       }
     } else {
       // キューが空の場合のみ、残りのALSAバッファを再生完了待ち
-      if (sink_backend_ && sink_backend_->isRunning()) {
+      if (isBackendRunning()) {
         // まだ再生中なら少し待つ
         idle_rate.sleep();
         continue;

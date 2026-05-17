@@ -88,8 +88,45 @@ def test_runtime_write_failure_fails_closed_without_reopen_retry() -> None:
     assert "openBackend()" not in playback_thread
     assert "ALSA device unavailable, dropping frame" not in playback_thread
     assert "snd_pcm_prepare" not in playback_thread
-    assert "writeFrames(" in playback_thread
+    assert "writeBackendFrames(" in playback_thread
+    assert "sink_backend_->writeFrames(" in source
     assert "rclcpp::shutdown()" in source
+
+
+def test_queue_overflow_fails_closed_without_dropping_oldest_frame() -> None:
+    source_path = Path(__file__).parents[2] / "src" / "fa_out_node.cpp"
+    source = source_path.read_text(encoding="utf-8")
+    handle_frame = source.split("void FaOutNode::handleFrame")[1].split(
+        "void FaOutNode::handleStop"
+    )[0]
+
+    assert "playback queue exceeded queue.max_frames" in handle_frame
+    assert "failClosed(" in handle_frame
+    assert "frame_queue_.pop_front()" not in handle_frame
+    assert "dropping oldest frame" not in handle_frame
+
+
+def test_playback_backend_access_is_serialized() -> None:
+    package_root = Path(__file__).parents[2]
+    header_text = (package_root / "include" / "fa_out" / "fa_out_node.hpp").read_text(
+        encoding="utf-8"
+    )
+    source = (package_root / "src" / "fa_out_node.cpp").read_text(encoding="utf-8")
+    playback_thread = source.split("void FaOutNode::playbackThread()")[1].split(
+        "}  // namespace fa_out"
+    )[0]
+    handle_frame = source.split("void FaOutNode::handleFrame")[1].split(
+        "void FaOutNode::handleStop"
+    )[0]
+
+    assert "std::mutex backend_mutex_;" in header_text
+    assert "size_t writeBackendFrames(" in header_text
+    assert "bool isBackendRunning();" in header_text
+    assert "std::lock_guard<std::mutex> lock(backend_mutex_);" in source
+    assert "sink_backend_" not in playback_thread
+    assert "sink_backend_" not in handle_frame
+    assert "writeBackendFrames(" in playback_thread
+    assert "isBackendRunning()" in playback_thread
 
 
 def test_alsa_backend_files_are_ros_free() -> None:

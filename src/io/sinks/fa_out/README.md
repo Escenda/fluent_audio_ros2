@@ -14,7 +14,7 @@ ros2 run fa_out fa_out_node --ros-args --params-file install/fa_out/share/fa_out
 主なパラメータ:
 - `audio.device_id`: ALSA raw hardware device id（例: `hw:1,0`）
 - `audio.sample_rate`, `audio.channels`, `audio.bit_depth`: フレームと一致している必要があります。
-- `queue.max_frames`: バッファに保持するフレーム数。溢れると古いフレームから破棄します。
+- `queue.max_frames`: バッファに保持するフレーム数。溢れた場合は frame drop で継続せず fail closed します。
 
 `fa_tts`と組み合わせる場合、`fa_tts` の `audio/tts/frame` を `fa_mix` などの routing node で `audio/output/frame` へ流してから再生します。
 

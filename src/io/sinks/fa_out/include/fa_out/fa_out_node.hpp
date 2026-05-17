@@ -55,6 +55,8 @@ private:
   void openBackend();
   void closeBackend();
   bool discardBackendBuffer(const char *operation);
+  size_t writeBackendFrames(const uint8_t * data, size_t frame_count);
+  bool isBackendRunning();
   void failClosed(const std::string &reason);
   void playbackThread();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
@@ -65,6 +67,7 @@ private:
 
   OutputConfig config_;
   std::unique_ptr<backends::SinkBackend> sink_backend_;
+  std::mutex backend_mutex_;
   size_t bytes_per_frame_ = 0;
 
   std::mutex queue_mutex_;
