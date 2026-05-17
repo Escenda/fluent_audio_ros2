@@ -227,10 +227,34 @@ def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame channels must be 1" in source
     assert "AudioFrame source_id and stream_id are required" in source
     assert "AudioFrame layout must be interleaved" in source
+    assert "AudioFrame encoding must be FLOAT32LE" in source
     assert "AudioFrame bit_depth must be 32" in source
     assert "AudioFrame data is required" in source
     assert "AudioFrame sample_rate must match backend sample_rate" in source
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
+
+
+def test_frame_to_float_rejects_pcm32_payload_before_float_interpretation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = Path(__file__).parents[2]
+    shutdown_calls: list[bool] = []
+    _install_turn_detector_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(package_root))
+    sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+    module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
+    msg = _FakeAudioFrame()
+    msg.source_id = "mic"
+    msg.stream_id = "audio/frame"
+    msg.layout = "interleaved"
+    msg.channels = 1
+    msg.encoding = "PCM32LE"
+    msg.bit_depth = 32
+    msg.data = np.array([0.0, 0.5], dtype=np.float32).tobytes()
+
+    with pytest.raises(ValueError, match="AudioFrame encoding must be FLOAT32LE"):
+        module.FaTurnDetectorNode._frame_to_float(msg)
 
 
 def test_turn_detector_backend_runtime_failure_is_fail_closed(
