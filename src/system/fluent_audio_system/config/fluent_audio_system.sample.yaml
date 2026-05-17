@@ -39,6 +39,19 @@ groups:
         remappings: {}
         parameters: {}
 
+  - id: dynamics
+    enable: true
+    nodes:
+      - id: fa_gain
+        enable: false
+        package: fa_gain
+        exec: fa_gain_node
+        node_name: fa_gain
+        namespace: ""
+        params_file: "${share:fa_gain}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
   - id: correction
     enable: true
     nodes:
