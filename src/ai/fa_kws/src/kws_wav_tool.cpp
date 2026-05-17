@@ -168,6 +168,7 @@ struct Args
   int chunk_ms{20};
   int max_active_paths{4};
   bool batch_mode{false};
+  bool assume_vad_speech{false};
 };
 
 Args parse_args(int argc, char **argv)
@@ -176,9 +177,10 @@ Args parse_args(int argc, char **argv)
     throw std::runtime_error(
       "Usage: kws_wav_tool --wav <path> --encoder <path> --decoder <path> "
       "--joiner <path> --tokens <path> --keywords <path> --provider <provider> [--threshold 0.25] "
-      "[--sample_rate 16000] [--chunk_ms 20]\n"
+      "[--sample_rate 16000] [--chunk_ms 20] --assume-vad-speech\n"
       "   or: kws_wav_tool --batch <dir> --encoder <path> --decoder <path> "
-      "--joiner <path> --tokens <path> --keywords <path> --provider <provider> [--threshold 0.25]");
+      "--joiner <path> --tokens <path> --keywords <path> --provider <provider> [--threshold 0.25] "
+      "--assume-vad-speech");
   }
   Args args;
   for (int i = 1; i < argc; ++i) {
@@ -208,6 +210,8 @@ Args parse_args(int argc, char **argv)
       args.chunk_ms = std::stoi(argv[++i]);
     } else if (arg == "--max_active_paths" && i + 1 < argc) {
       args.max_active_paths = std::stoi(argv[++i]);
+    } else if (arg == "--assume-vad-speech") {
+      args.assume_vad_speech = true;
     }
   }
   if (args.batch_mode) {
@@ -233,6 +237,11 @@ Args parse_args(int argc, char **argv)
   }
   if (args.chunk_ms <= 0) {
     throw std::runtime_error("chunk_ms must be positive");
+  }
+  if (!args.assume_vad_speech) {
+    throw std::runtime_error(
+      "kws_wav_tool requires explicit VAD policy: "
+      "pass --assume-vad-speech for canonical speech fixtures");
   }
   return args;
 }
@@ -278,6 +287,7 @@ bool process_single_wav(fa_kws::SherpaOnnxKwsBackend &engine,
               << " frames=" << wav.samples.size()
               << " chunk=" << chunk
               << " threshold=" << args.keywords_threshold
+              << " vad_policy=assume_speech"
               << std::endl;
   }
 
@@ -317,7 +327,7 @@ int main(int argc, char **argv)
     cfg.execution_provider = args.provider;
     cfg.keywords_threshold = args.keywords_threshold;
     cfg.max_active_paths = args.max_active_paths;
-    cfg.vad_threshold = 0.0f;  // disable gating
+    cfg.vad_threshold = 1.0f;
     cfg.cooldown = std::chrono::milliseconds{0};
 
     if (args.batch_mode) {
@@ -332,7 +342,9 @@ int main(int argc, char **argv)
       }
 
       std::cout << "Batch mode: " << wav_files.size() << " files, threshold="
-                << args.keywords_threshold << std::endl;
+                << args.keywords_threshold
+                << " vad_policy=assume_speech"
+                << std::endl;
 
       // Create engine once
       fa_kws::SherpaOnnxKwsBackend engine(cfg);
@@ -382,6 +394,7 @@ int main(int argc, char **argv)
                 << " frames=" << wav.samples.size()
                 << " chunk=" << chunk
                 << " threshold=" << args.keywords_threshold
+                << " vad_policy=assume_speech"
                 << std::endl;
 
       std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();

@@ -65,11 +65,54 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     node_text = node_path.read_text(encoding="utf-8")
 
     assert '"backend.execution_provider", ""' in node_text
+    assert '"vad.probability_gate", 0.35' in node_text
     assert "backend.execution_provider is required" in node_text
     assert '"vad.max_age_ms", 1000' in node_text
+    assert "vad.probability_gate must be finite and in (0.0, 1.0]" in node_text
     assert "vad.max_age_ms must be greater than zero" in node_text
+    assert "Rejecting invalid VadState.probability" in node_text
+    assert "last_vad_rx_ns_.store(0" in node_text
+    assert "vad_prob < static_cast<float>(probability_gate_)" in node_text
     assert "readFreshVadProbability" in node_text
     assert "model.provider" not in node_text
+
+    gate_index = node_text.index("vad_prob < static_cast<float>(probability_gate_)")
+    process_index = node_text.index("kws_backend_->process")
+    assert gate_index < process_index
+
+
+def test_backend_keeps_vad_gate_mandatory() -> None:
+    header_text = (
+        PACKAGE_ROOT
+        / "include"
+        / "fa_kws"
+        / "backends"
+        / "sherpa_onnx_kws_backend.hpp"
+    ).read_text(encoding="utf-8")
+    backend_text = (
+        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
+    ).read_text(encoding="utf-8")
+    tool_text = (PACKAGE_ROOT / "src" / "kws_wav_tool.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "float vad_threshold{0.35f};" in header_text
+    assert "vad_threshold must be finite and in (0.0, 1.0]" in backend_text
+    assert "vad_prob must be finite and in [0.0, 1.0]" in backend_text
+    assert "vad_prob < config_.vad_threshold" in backend_text
+    assert "SherpaOnnxResetKeywordStream(spotter_, stream_);" in backend_text
+    assert "config_.vad_threshold > 0.0f &&" not in backend_text
+    assert 'treat it as "no VAD gating"' not in backend_text
+    assert "disable gating" not in tool_text
+    assert "cfg.vad_threshold = 1.0f;" in tool_text
+    assert "/*vad_prob=*/1.0f" in tool_text
+    assert "--assume-vad-speech" in tool_text
+    assert "kws_wav_tool requires explicit VAD policy" in tool_text
+    assert "vad_policy=assume_speech" in tool_text
+
+    gate_index = backend_text.index("vad_prob < config_.vad_threshold")
+    accept_index = backend_text.index("SherpaOnnxOnlineStreamAcceptWaveform")
+    assert gate_index < accept_index
 
 
 def test_kws_node_rejects_non_canonical_audio_frames() -> None:

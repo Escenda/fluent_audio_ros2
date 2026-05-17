@@ -1,5 +1,6 @@
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdarg>
 #include <cstdio>
@@ -170,6 +171,11 @@ private:
 
   void validateVadInputOrThrow() const
   {
+    if (!std::isfinite(probability_gate_) ||
+        probability_gate_ <= 0.0 ||
+        probability_gate_ > 1.0) {
+      throw std::runtime_error("vad.probability_gate must be finite and in (0.0, 1.0]");
+    }
     if (vad_max_age_ms_ <= 0) {
       throw std::runtime_error("vad.max_age_ms must be greater than zero");
     }
@@ -308,6 +314,19 @@ private:
     if (!msg) {
       return;
     }
+    if (!std::isfinite(msg->probability) ||
+        msg->probability < 0.0f ||
+        msg->probability > 1.0f) {
+      current_vad_prob_.store(0.0f, std::memory_order_relaxed);
+      last_vad_rx_ns_.store(0, std::memory_order_relaxed);
+      RCLCPP_ERROR_THROTTLE(
+        this->get_logger(),
+        *this->get_clock(),
+        2000,
+        "Rejecting invalid VadState.probability %.6f; probability must be finite in [0.0, 1.0]",
+        static_cast<double>(msg->probability));
+      return;
+    }
     current_vad_prob_.store(msg->probability, std::memory_order_relaxed);
     const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                           std::chrono::steady_clock::now().time_since_epoch())
@@ -413,6 +432,14 @@ private:
 
     float vad_prob = 0.0f;
     if (!readFreshVadProbability(now_rx_ns, vad_prob)) {
+      return;
+    }
+    if (vad_prob < static_cast<float>(probability_gate_)) {
+      RCLCPP_DEBUG(
+        this->get_logger(),
+        "Dropping AudioFrame below VAD probability gate: vad_prob=%.6f threshold=%.6f",
+        static_cast<double>(vad_prob),
+        probability_gate_);
       return;
     }
 
