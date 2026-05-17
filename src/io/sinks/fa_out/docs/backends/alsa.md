@@ -23,7 +23,6 @@
 ## Output
 
 - device playback
-- playback completion event
 
 ## Failure Conditions
 

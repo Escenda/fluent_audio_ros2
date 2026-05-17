@@ -20,4 +20,7 @@ source install/setup.bash
 ros2 launch fa_in fa_in.launch.py
 ```
 
+`config/default.yaml` は site 固有の source id を空にしています。
+`audio.device_selector.identifier` または `audio.device_selector.index` を明示しない起動は fail closed します。
+
 詳細な設計は `docs/仕様書.md`、backend 契約は `docs/backends/alsa.md` を参照してください。

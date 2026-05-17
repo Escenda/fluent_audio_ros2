@@ -11,6 +11,9 @@
 ros2 run fa_out fa_out_node --ros-args --params-file install/fa_out/share/fa_out/config/default.yaml
 ```
 
+`config/default.yaml` は site 固有の sink id を空にしています。
+`audio.device_id` を明示しない起動は fail closed します。
+
 主なパラメータ:
 - `audio.device_id`: ALSA raw hardware device id（例: `hw:1,0`）
 - `audio.sample_rate`, `audio.channels`, `audio.bit_depth`: フレームと一致している必要があります。

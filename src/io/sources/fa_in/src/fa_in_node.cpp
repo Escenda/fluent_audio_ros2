@@ -258,7 +258,7 @@ void FaInNode::stopCaptureThread()
 void FaInNode::captureLoop()
 {
   if (!source_backend_) {
-    RCLCPP_ERROR(this->get_logger(), "Capture loop started without ALSA handle");
+    failClosed("capture loop started without required source backend");
     return;
   }
 

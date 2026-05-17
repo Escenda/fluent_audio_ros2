@@ -104,6 +104,7 @@ def test_runtime_read_failure_fails_closed_without_prepare_retry() -> None:
     )[0]
 
     assert "failClosed(" in capture_loop
+    assert "capture loop started without required source backend" in capture_loop
     assert "snd_pcm_prepare" not in capture_loop
     assert "std::this_thread::sleep_for" not in capture_loop
     assert "rclcpp::shutdown()" in source
