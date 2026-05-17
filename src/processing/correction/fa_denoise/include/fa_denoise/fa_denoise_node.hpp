@@ -11,10 +11,10 @@
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "fa_interfaces/msg/audio_frame.hpp"
 
-namespace fa_ns
+namespace fa_denoise
 {
 
-struct NsConfig
+struct DenoiseConfig
 {
   bool enabled = false;
   std::string backend;
@@ -45,11 +45,11 @@ struct NsConfig
 
 class DtlnOnnxEngine;
 
-class FaNsNode : public rclcpp::Node
+class FaDenoiseNode : public rclcpp::Node
 {
 public:
-  FaNsNode();
-  ~FaNsNode() override;
+  FaDenoiseNode();
+  ~FaDenoiseNode() override;
 
 private:
   void loadParameters();
@@ -62,7 +62,7 @@ private:
     std::vector<uint8_t> & out_bytes);
   static void computeRmsPeak(const std::vector<float> & interleaved, float & out_rms, float & out_peak);
 
-  NsConfig config_;
+  DenoiseConfig config_;
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr pub_;
@@ -77,9 +77,9 @@ private:
   std::atomic<uint64_t> process_ns_max_{0};
   std::atomic<uint64_t> process_count_{0};
 
-#ifdef FA_NS_WITH_ONNXRUNTIME
+#ifdef FA_DENOISE_WITH_ONNXRUNTIME
   std::unique_ptr<DtlnOnnxEngine> dtln_;
 #endif
 };
 
-}  // namespace fa_ns
+}  // namespace fa_denoise

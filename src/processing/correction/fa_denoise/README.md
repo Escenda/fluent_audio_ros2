@@ -18,7 +18,7 @@ DeepFIR 設計メモ: `docs/deepfir_ns_design_memo.md`
 - `backend=passthrough`: 入力をそのまま出力（デバッグ用）
 
 ## Build（ONNX Runtime）
-`backend=dtln_onnx` を使うには、ビルド時に ONNX Runtime（C++）が必要です。
+`fa_denoise` は DTLN ONNX backend を前提に build します。ビルド時に ONNX Runtime（C++）が見つからない場合は configure で失敗します。
 
 - CMake 検出:
   - `ONNXRUNTIME_ROOT`（`include/` と `lib/` を含むディレクトリ）または

@@ -33,7 +33,6 @@ void FaAecNnNode::loadParameters()
   this->declare_parameter("output_topic", config_.output_topic);
   this->declare_parameter<int>("expected_sample_rate", config_.expected_sample_rate);
   this->declare_parameter<int>("expected_channels", config_.expected_channels);
-  this->declare_parameter("onnx.model_path", config_.onnx_model_path);
   this->declare_parameter<int>("qos.depth", config_.qos_depth);
   this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
   this->declare_parameter<int>(
@@ -46,7 +45,6 @@ void FaAecNnNode::loadParameters()
   config_.output_topic = this->get_parameter("output_topic").as_string();
   config_.expected_sample_rate = this->get_parameter("expected_sample_rate").as_int();
   config_.expected_channels = this->get_parameter("expected_channels").as_int();
-  config_.onnx_model_path = this->get_parameter("onnx.model_path").as_string();
   config_.qos_depth = this->get_parameter("qos.depth").as_int();
   config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
   config_.diagnostics_publish_period_ms =
@@ -72,11 +70,8 @@ void FaAecNnNode::loadParameters()
   if (config_.backend.empty()) {
     throw std::runtime_error("backend is required (set via YAML)");
   }
-  if (config_.backend != "passthrough" && config_.backend != "onnxruntime") {
-    throw std::runtime_error("backend must be passthrough or onnxruntime");
-  }
-  if (config_.backend == "onnxruntime") {
-    RCLCPP_WARN(this->get_logger(), "backend=onnxruntime is not implemented yet; passthrough behavior");
+  if (config_.backend != "passthrough") {
+    throw std::runtime_error("backend must be passthrough");
   }
 
   RCLCPP_INFO(this->get_logger(),
@@ -207,4 +202,3 @@ int main(int argc, char ** argv)
   rclcpp::shutdown();
   return EXIT_SUCCESS;
 }
-

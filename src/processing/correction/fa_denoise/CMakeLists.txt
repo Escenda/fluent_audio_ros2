@@ -15,7 +15,7 @@ find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
 add_executable(fa_denoise_node
-  src/fa_ns_node.cpp
+  src/fa_denoise_node.cpp
 )
 
 target_include_directories(fa_denoise_node PRIVATE
@@ -29,45 +29,47 @@ ament_target_dependencies(fa_denoise_node
   fa_interfaces
 )
 
-option(FA_NS_ENABLE_ONNXRUNTIME "Enable ONNX Runtime backend" ON)
+option(FA_DENOISE_ENABLE_ONNXRUNTIME "Enable ONNX Runtime backend" ON)
 
-if(FA_NS_ENABLE_ONNXRUNTIME)
-  set(ONNXRUNTIME_INCLUDE_DIR "" CACHE PATH "ONNX Runtime include directory (contains onnxruntime/core/session/onnxruntime_cxx_api.h)")
-  set(ONNXRUNTIME_LIBRARY "" CACHE FILEPATH "ONNX Runtime library file (e.g. libonnxruntime.so)")
-
-  if(NOT ONNXRUNTIME_INCLUDE_DIR)
-    find_path(ONNXRUNTIME_INCLUDE_DIR
-      NAMES onnxruntime/core/session/onnxruntime_cxx_api.h
-      HINTS ENV ONNXRUNTIME_ROOT ENV ONNXRUNTIME_DIR
-      PATH_SUFFIXES include
-    )
-  endif()
-
-  if(NOT ONNXRUNTIME_LIBRARY)
-    find_library(ONNXRUNTIME_LIBRARY
-      NAMES onnxruntime
-      HINTS ENV ONNXRUNTIME_ROOT ENV ONNXRUNTIME_DIR
-      PATH_SUFFIXES lib lib64
-    )
-  endif()
-
-  if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
-    message(STATUS "ONNX Runtime found: include=${ONNXRUNTIME_INCLUDE_DIR} lib=${ONNXRUNTIME_LIBRARY}")
-    target_compile_definitions(fa_denoise_node PRIVATE FA_NS_WITH_ONNXRUNTIME=1)
-    target_include_directories(fa_denoise_node PRIVATE
-      ${ONNXRUNTIME_INCLUDE_DIR}
-      third_party/kissfft
-    )
-    target_link_libraries(fa_denoise_node ${ONNXRUNTIME_LIBRARY})
-    target_sources(fa_denoise_node PRIVATE
-      src/dtln_onnx_engine.cpp
-      third_party/kissfft/kiss_fft.c
-      third_party/kissfft/kiss_fftr.c
-    )
-  else()
-    message(WARNING "ONNX Runtime not found; building fa_denoise without dtln_onnx backend. Set ONNXRUNTIME_ROOT or ONNXRUNTIME_INCLUDE_DIR/ONNXRUNTIME_LIBRARY.")
-  endif()
+if(NOT FA_DENOISE_ENABLE_ONNXRUNTIME)
+  message(FATAL_ERROR "fa_denoise requires ONNX Runtime. Set FA_DENOISE_ENABLE_ONNXRUNTIME=ON and provide ONNXRUNTIME_ROOT or ONNXRUNTIME_INCLUDE_DIR/ONNXRUNTIME_LIBRARY.")
 endif()
+
+set(ONNXRUNTIME_INCLUDE_DIR "" CACHE PATH "ONNX Runtime include directory (contains onnxruntime/core/session/onnxruntime_cxx_api.h)")
+set(ONNXRUNTIME_LIBRARY "" CACHE FILEPATH "ONNX Runtime library file (e.g. libonnxruntime.so)")
+
+if(NOT ONNXRUNTIME_INCLUDE_DIR)
+  find_path(ONNXRUNTIME_INCLUDE_DIR
+    NAMES onnxruntime/core/session/onnxruntime_cxx_api.h
+    HINTS ENV ONNXRUNTIME_ROOT ENV ONNXRUNTIME_DIR
+    PATH_SUFFIXES include
+  )
+endif()
+
+if(NOT ONNXRUNTIME_LIBRARY)
+  find_library(ONNXRUNTIME_LIBRARY
+    NAMES onnxruntime
+    HINTS ENV ONNXRUNTIME_ROOT ENV ONNXRUNTIME_DIR
+    PATH_SUFFIXES lib lib64
+  )
+endif()
+
+if(NOT ONNXRUNTIME_INCLUDE_DIR OR NOT ONNXRUNTIME_LIBRARY)
+  message(FATAL_ERROR "ONNX Runtime is required for fa_denoise dtln_onnx backend. Set ONNXRUNTIME_ROOT or ONNXRUNTIME_INCLUDE_DIR/ONNXRUNTIME_LIBRARY.")
+endif()
+
+message(STATUS "ONNX Runtime found: include=${ONNXRUNTIME_INCLUDE_DIR} lib=${ONNXRUNTIME_LIBRARY}")
+target_compile_definitions(fa_denoise_node PRIVATE FA_DENOISE_WITH_ONNXRUNTIME=1)
+target_include_directories(fa_denoise_node PRIVATE
+  ${ONNXRUNTIME_INCLUDE_DIR}
+  third_party/kissfft
+)
+target_link_libraries(fa_denoise_node ${ONNXRUNTIME_LIBRARY})
+target_sources(fa_denoise_node PRIVATE
+  src/dtln_onnx_engine.cpp
+  third_party/kissfft/kiss_fft.c
+  third_party/kissfft/kiss_fftr.c
+)
 
 install(TARGETS fa_denoise_node
   DESTINATION lib/${PROJECT_NAME}

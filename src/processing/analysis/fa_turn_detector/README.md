@@ -10,3 +10,7 @@
 - Pub: `voice/turn_end` (`fa_interfaces/msg/TurnEnd`)
 
 `TurnContext.active=true` の間だけ音声をバッファします。モデルファイルが無い場合は起動時に失敗します。
+
+## Runtime
+
+ONNX Runtime は ROS package dependency ではなく、node 実行環境に明示的に provision します。`backend.name: smart_turn_onnx` では ONNX model path が必須です。

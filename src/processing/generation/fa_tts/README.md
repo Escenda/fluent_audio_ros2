@@ -3,8 +3,9 @@
 `fa_tts`はpyopenjtalk(Open JTalk)を利用したシンプルなTTSノードです。`fa_interfaces/msg/AudioFrame`をPublishしつつ`fa_interfaces/srv/Speak`サービスで合成を提供します。
 
 ## 依存
-- `pyopenjtalk`
 - `python3-numpy`
+
+`pyopenjtalk` は ROS package dependency ではなく、node 実行環境に明示的に provision します。
 
 ## 起動
 ```bash

@@ -1,4 +1,4 @@
-#include "fa_ns/dtln_onnx_engine.hpp"
+#include "fa_denoise/dtln_onnx_engine.hpp"
 
 #include <array>
 #include <algorithm>
@@ -15,7 +15,7 @@
 
 #include <onnxruntime/core/session/onnxruntime_cxx_api.h>
 
-namespace fa_ns
+namespace fa_denoise
 {
 
 namespace
@@ -60,7 +60,7 @@ struct DtlnOnnxEngine::Impl
 {
   explicit Impl(const DtlnOnnxConfig & config)
   : config_(config),
-    env_(ORT_LOGGING_LEVEL_WARNING, "fa_ns_dtln"),
+    env_(ORT_LOGGING_LEVEL_WARNING, "fa_denoise_dtln"),
     memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault))
   {
     if (config_.block_len <= 0 || config_.block_shift <= 0) {
@@ -417,4 +417,4 @@ std::vector<float> DtlnOnnxEngine::process(const float * samples, size_t sample_
   return out;
 }
 
-}  // namespace fa_ns
+}  // namespace fa_denoise

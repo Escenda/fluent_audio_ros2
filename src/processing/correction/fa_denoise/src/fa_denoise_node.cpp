@@ -1,4 +1,4 @@
-#include "fa_ns/fa_ns_node.hpp"
+#include "fa_denoise/fa_denoise_node.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -15,11 +15,11 @@
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
 
-#ifdef FA_NS_WITH_ONNXRUNTIME
-#include "fa_ns/dtln_onnx_engine.hpp"
+#ifdef FA_DENOISE_WITH_ONNXRUNTIME
+#include "fa_denoise/dtln_onnx_engine.hpp"
 #endif
 
-namespace fa_ns
+namespace fa_denoise
 {
 
 namespace
@@ -55,17 +55,17 @@ void updateMaxAtomic(std::atomic<uint64_t> & target, uint64_t value)
 }
 }
 
-FaNsNode::FaNsNode()
+FaDenoiseNode::FaDenoiseNode()
 : rclcpp::Node("fa_denoise")
 {
-  RCLCPP_INFO(this->get_logger(), "Starting FA NS node");
+  RCLCPP_INFO(this->get_logger(), "Starting FA Denoise node");
   loadParameters();
   setupInterfaces();
 }
 
-FaNsNode::~FaNsNode() = default;
+FaDenoiseNode::~FaDenoiseNode() = default;
 
-void FaNsNode::loadParameters()
+void FaDenoiseNode::loadParameters()
 {
   this->declare_parameter<bool>("enabled", config_.enabled);
   this->declare_parameter("backend", config_.backend);
@@ -139,11 +139,6 @@ void FaNsNode::loadParameters()
     throw std::runtime_error("backend is required (set via YAML)");
   }
 
-  if (config_.backend == "onnxruntime") {
-    RCLCPP_WARN(this->get_logger(), "backend=onnxruntime is deprecated; use backend=dtln_onnx");
-    config_.backend = "dtln_onnx";
-  }
-
   if (config_.backend != "passthrough" && config_.backend != "dtln_onnx") {
     throw std::runtime_error("backend must be passthrough or dtln_onnx");
   }
@@ -156,7 +151,7 @@ void FaNsNode::loadParameters()
       throw std::runtime_error("dtln.block_shift must be <= dtln.block_len");
     }
 
-#ifdef FA_NS_WITH_ONNXRUNTIME
+#ifdef FA_DENOISE_WITH_ONNXRUNTIME
     DtlnOnnxConfig dtln_cfg;
     dtln_cfg.block_len = config_.dtln_block_len;
     dtln_cfg.block_shift = config_.dtln_block_shift;
@@ -167,7 +162,7 @@ void FaNsNode::loadParameters()
     dtln_cfg.enable_ort_optimizations = config_.dtln_enable_ort_optimizations;
     dtln_ = std::make_unique<DtlnOnnxEngine>(dtln_cfg);
 #else
-    throw std::runtime_error("fa_denoise was built without ONNX Runtime support (FA_NS_WITH_ONNXRUNTIME=0)");
+    throw std::runtime_error("fa_denoise was built without ONNX Runtime support (FA_DENOISE_WITH_ONNXRUNTIME=0)");
 #endif
   }
 
@@ -186,7 +181,7 @@ void FaNsNode::loadParameters()
     config_.qos_reliable ? "true" : "false");
 }
 
-void FaNsNode::setupInterfaces()
+void FaDenoiseNode::setupInterfaces()
 {
   rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
   if (config_.qos_reliable) {
@@ -198,16 +193,16 @@ void FaNsNode::setupInterfaces()
   pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(config_.output_topic, qos);
   sub_ = this->create_subscription<fa_interfaces::msg::AudioFrame>(
     config_.input_topic, qos,
-    std::bind(&FaNsNode::onAudioFrame, this, std::placeholders::_1));
+    std::bind(&FaDenoiseNode::onAudioFrame, this, std::placeholders::_1));
 
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics", rclcpp::SystemDefaultsQoS());
   diag_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.diagnostics_publish_period_ms),
-    std::bind(&FaNsNode::publishDiagnostics, this));
+    std::bind(&FaDenoiseNode::publishDiagnostics, this));
 }
 
-bool FaNsNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
+bool FaDenoiseNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
 {
   if (msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)) {
     return false;
@@ -232,7 +227,7 @@ bool FaNsNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
   return true;
 }
 
-bool FaNsNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out)
+bool FaDenoiseNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out)
 {
   out.clear();
   if (msg.channels == 0) {
@@ -267,7 +262,7 @@ bool FaNsNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::ve
   return true;
 }
 
-void FaNsNode::encodeFromFloat(
+void FaDenoiseNode::encodeFromFloat(
   const std::vector<float> & samples,
   int bit_depth,
   std::vector<uint8_t> & out_bytes)
@@ -293,7 +288,7 @@ void FaNsNode::encodeFromFloat(
   }
 }
 
-void FaNsNode::computeRmsPeak(const std::vector<float> & interleaved, float & out_rms, float & out_peak)
+void FaDenoiseNode::computeRmsPeak(const std::vector<float> & interleaved, float & out_rms, float & out_peak)
 {
   out_rms = 0.0f;
   out_peak = 0.0f;
@@ -311,7 +306,7 @@ void FaNsNode::computeRmsPeak(const std::vector<float> & interleaved, float & ou
   out_peak = static_cast<float>(peak);
 }
 
-void FaNsNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
+void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   in_.fetch_add(1);
   if (!msg || !pub_) {
@@ -346,7 +341,7 @@ void FaNsNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
     return;
   }
 
-#ifdef FA_NS_WITH_ONNXRUNTIME
+#ifdef FA_DENOISE_WITH_ONNXRUNTIME
   if (!dtln_) {
     drop_.fetch_add(1);
     return;
@@ -417,7 +412,7 @@ void FaNsNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
   updateMaxAtomic(process_ns_max_, elapsed_ns);
 }
 
-void FaNsNode::publishDiagnostics()
+void FaDenoiseNode::publishDiagnostics()
 {
   diagnostic_msgs::msg::DiagnosticArray array_msg;
   array_msg.header.stamp = this->now();
@@ -458,7 +453,7 @@ void FaNsNode::publishDiagnostics()
     push_kv("process.max_ms", std::to_string(max_ms));
   }
 
-#ifdef FA_NS_WITH_ONNXRUNTIME
+#ifdef FA_DENOISE_WITH_ONNXRUNTIME
   if (dtln_) {
     push_kv("dtln.pending_samples", std::to_string(dtln_->pendingInputSamples()));
   }
@@ -468,13 +463,13 @@ void FaNsNode::publishDiagnostics()
   diag_pub_->publish(array_msg);
 }
 
-}  // namespace fa_ns
+}  // namespace fa_denoise
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
   try {
-    auto node = std::make_shared<fa_ns::FaNsNode>();
+    auto node = std::make_shared<fa_denoise::FaDenoiseNode>();
     rclcpp::spin(node);
   } catch (const std::exception & e) {
     RCLCPP_FATAL(rclcpp::get_logger("fa_denoise"), "Exception: %s", e.what());

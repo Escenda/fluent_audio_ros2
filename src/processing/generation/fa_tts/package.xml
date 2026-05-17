@@ -12,7 +12,6 @@
   <depend>rclpy</depend>
   <depend>fa_interfaces</depend>
   <exec_depend>python3-numpy</exec_depend>
-  <exec_depend>pyopenjtalk</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

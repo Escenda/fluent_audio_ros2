@@ -23,8 +23,6 @@ struct AecNnConfig
   int expected_sample_rate = -1;
   int expected_channels = -1;
 
-  std::string onnx_model_path;
-
   int qos_depth = -1;
   bool qos_reliable = false;
 
@@ -57,4 +55,3 @@ private:
 };
 
 }  // namespace fa_aec_nn
-

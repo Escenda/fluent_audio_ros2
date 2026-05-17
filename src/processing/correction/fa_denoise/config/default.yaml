@@ -4,7 +4,7 @@ fa_denoise:
     backend: "dtln_onnx"   # passthrough | dtln_onnx
 
     input_topic: "audio/resample16k/mic"
-      output_topic: "audio/denoise/frame"
+    output_topic: "audio/denoise/frame"
 
     expected_sample_rate: 16000
     expected_channels: 1     # -1で無効

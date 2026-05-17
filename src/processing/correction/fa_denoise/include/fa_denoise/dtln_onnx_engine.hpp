@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace fa_ns
+namespace fa_denoise
 {
 
 struct DtlnOnnxConfig
@@ -59,5 +59,5 @@ private:
   Impl * impl_{nullptr};
 };
 
-}  // namespace fa_ns
+}  // namespace fa_denoise
 
