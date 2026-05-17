@@ -37,6 +37,23 @@ class FaVadNode(Node):
         self.declare_parameter("backend.name", "")
         self.declare_parameter("backend.model_path", "")
         self.declare_parameter("backend.execution_provider", "")
+        self.declare_parameter("backend.command", "")
+        self.declare_parameter(
+            "backend.args",
+            [
+                "--audio",
+                "{audio}",
+                "--model",
+                "{model}",
+                "--provider",
+                "{provider}",
+                "--sample-rate",
+                "{sample_rate}",
+            ],
+        )
+        self.declare_parameter("backend.timeout_sec", 1.0)
+        self.declare_parameter("backend.workspace_dir", "/tmp/fluent_audio/fa_vad")
+        self.declare_parameter("backend.cleanup_audio_files", True)
 
         self.declare_parameter("log_speech_events", True)
 
@@ -61,6 +78,15 @@ class FaVadNode(Node):
         execution_provider = str(
             self.get_parameter("backend.execution_provider").value
         ).strip()
+        command = str(self.get_parameter("backend.command").value).strip()
+        backend_args = tuple(
+            str(item) for item in self.get_parameter("backend.args").value
+        )
+        timeout_sec = float(self.get_parameter("backend.timeout_sec").value)
+        workspace_dir = str(self.get_parameter("backend.workspace_dir").value).strip()
+        cleanup_audio_files = bool(
+            self.get_parameter("backend.cleanup_audio_files").value
+        )
 
         depth = int(self.get_parameter("qos.depth").value)
         reliable = bool(self.get_parameter("qos.reliable").value)
@@ -90,13 +116,18 @@ class FaVadNode(Node):
             hangover_ms=hangover_ms,
             model_path=model_path,
             execution_provider=execution_provider,
+            command=command,
+            args=backend_args,
+            timeout_sec=timeout_sec,
+            workspace_dir=workspace_dir,
+            cleanup_audio_files=cleanup_audio_files,
         )
 
         self._last_is_speech: Optional[bool] = None
 
         self.get_logger().info(
             "FA VAD (Silero): input=%s output=%s vad_state=%s "
-            "target_sr=%d start=%.2f end=%.2f hangover=%dms provider=%s model_path=%s",
+            "target_sr=%d start=%.2f end=%.2f hangover=%dms provider=%s model_path=%s command=%s",
             self._input_topic,
             self._output_topic,
             self._vad_state_topic if self._publish_vad_state else "(disabled)",
@@ -106,6 +137,7 @@ class FaVadNode(Node):
             hangover_ms,
             execution_provider,
             model_path,
+            command,
         )
 
     def _load_backend(
@@ -116,6 +148,11 @@ class FaVadNode(Node):
         hangover_ms: int,
         model_path: str,
         execution_provider: str,
+        command: str,
+        args: tuple[str, ...],
+        timeout_sec: float,
+        workspace_dir: str,
+        cleanup_audio_files: bool,
     ) -> VADBackend:
         backend_name = str(self.get_parameter("backend.name").value).strip()
         if not backend_name:
@@ -130,6 +167,11 @@ class FaVadNode(Node):
             threshold_end=threshold_end,
             model_path=model_path,
             execution_provider=execution_provider,
+            command=command,
+            args=args,
+            timeout_sec=timeout_sec,
+            workspace_dir=workspace_dir,
+            cleanup_audio_files=cleanup_audio_files,
         )
 
     def _on_audio_frame(self, msg: AudioFrame) -> None:
@@ -147,7 +189,12 @@ class FaVadNode(Node):
             return
 
         pcm_bytes = _float_to_pcm16(samples)
-        probability, is_speech, start, end = self._vad.update(pcm_bytes)
+        try:
+            probability, is_speech, start, end = self._vad.update(pcm_bytes)
+        except (RuntimeError, TimeoutError) as exc:
+            self.get_logger().fatal("VAD backend failed: %s", exc)
+            rclpy.shutdown()
+            raise
 
         if self._log_events:
             if start:

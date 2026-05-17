@@ -1,22 +1,26 @@
 from __future__ import annotations
 
-import logging
+import os
+import shutil
+import subprocess
+import time
+import wave
 from pathlib import Path
-
-import numpy as np
-import torch
 
 from fa_vad_py.backends.base import VADResult
 
-
-logger = logging.getLogger(__name__)
 
 VAD_THRESHOLD_START = 0.5
 VAD_THRESHOLD_END = 0.1
 
 
 class SileroVAD:
-    """Streaming Silero VAD wrapper with hysteresis (offline-first)."""
+    """External-process Silero VAD adapter.
+
+    The ROS2 node owns topic/message conversion. The Silero runtime runs behind
+    an explicit command boundary so PyTorch/Python-version requirements do not
+    leak into this node process.
+    """
 
     name = "silero"
 
@@ -30,6 +34,11 @@ class SileroVAD:
         threshold_end: float | None = None,
         model_path: str,
         execution_provider: str,
+        command: str,
+        args: tuple[str, ...],
+        timeout_sec: float,
+        workspace_dir: str,
+        cleanup_audio_files: bool,
     ) -> None:
         self.sample_rate = int(sample_rate)
         self.frame_ms = int(frame_ms)
@@ -44,19 +53,19 @@ class SileroVAD:
         self.hangover_frames = max(1, int(hangover_ms) // int(frame_ms))
 
         self._model_path = self._validate_model_path(model_path)
-        self.device = self._validate_execution_provider(execution_provider)
-
-        self._load_model()
+        self._execution_provider = self._validate_execution_provider(execution_provider)
+        self._command = self._validate_command(command)
+        self._args = self._validate_args(args)
+        self._timeout_sec = self._validate_timeout(timeout_sec)
+        self._workspace_dir = self._validate_workspace_dir(workspace_dir)
+        self._cleanup_audio_files = bool(cleanup_audio_files)
 
         self._triggered = False
         self._hang_counter = 0
         self._required_samples = 512 if self.sample_rate == 16000 else 256
-        self._min_window = self._required_samples
-        self._target_window = self._required_samples
-        self._max_window = max(self._target_window, int(self.sample_rate * 0.2))
-        self._buffer = np.zeros(0, dtype=np.float32)
+        self._max_samples = max(self._required_samples, int(self.sample_rate * 0.2))
+        self._buffer = bytearray()
         self._buf_ready = False
-        self._warmup_logged = False
 
     def update(self, pcm16_bytes: bytes) -> VADResult:
         probability = self._probability(pcm16_bytes)
@@ -82,41 +91,63 @@ class SileroVAD:
         return VADResult(probability, self._triggered, start, end)
 
     def _probability(self, pcm16_bytes: bytes) -> float:
-        samples = np.frombuffer(pcm16_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-        if samples.size == 0:
+        if not pcm16_bytes:
             return 0.0
 
-        if self._buffer.size == 0:
-            self._buffer = samples
-        else:
-            self._buffer = np.concatenate([self._buffer, samples])
-        if self._buffer.size > self._max_window:
-            self._buffer = self._buffer[-self._max_window :]
+        self._buffer.extend(pcm16_bytes)
+        max_bytes = self._max_samples * 2
+        if len(self._buffer) > max_bytes:
+            self._buffer = self._buffer[-max_bytes:]
 
-        if self._buffer.size < self._min_window:
-            if not self._warmup_logged:
-                logger.info(
-                    "VAD warmup buffering... need>=%d have=%d",
-                    self._min_window,
-                    self._buffer.size,
+        required_bytes = self._required_samples * 2
+        if len(self._buffer) < required_bytes:
+            return 0.0
+
+        self._buf_ready = True
+        window = bytes(self._buffer[-required_bytes:])
+        wav_path = self._workspace_dir / f"{time.time_ns()}_vad.wav"
+        try:
+            self._write_wav(wav_path, window)
+            command = [self._command]
+            command.extend(self._format_args(wav_path))
+            try:
+                completed = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=self._timeout_sec,
+                    check=False,
                 )
-                self._warmup_logged = True
-            return 0.0
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError("Silero VAD backend command timed out") from exc
+            if completed.returncode != 0:
+                stderr = completed.stderr.strip()
+                raise RuntimeError(
+                    "Silero VAD backend command failed: "
+                    f"code={completed.returncode} stderr={stderr}"
+                )
+            return self._parse_probability(completed.stdout)
+        finally:
+            if self._cleanup_audio_files and wav_path.exists():
+                wav_path.unlink()
 
-        if not self._buf_ready:
-            self._buf_ready = True
-            logger.info("VAD buffer ready: size=%d -> start inference", self._buffer.size)
+    def _format_args(self, wav_path: Path) -> list[str]:
+        return [
+            item.format(
+                audio=str(wav_path),
+                model=str(self._model_path),
+                provider=self._execution_provider,
+                sample_rate=str(self.sample_rate),
+            )
+            for item in self._args
+        ]
 
-        window = self._buffer[-self._target_window :]
-        if window.size > self._required_samples:
-            window = window[-self._required_samples :]
-        if window.size < self._required_samples:
-            return 0.0
-
-        tensor = torch.from_numpy(window).to(self.device)
-        with torch.no_grad():
-            probability = self.model(tensor, self.sample_rate).item()
-        return float(probability)
+    def _write_wav(self, wav_path: Path, pcm16_bytes: bytes) -> None:
+        with wave.open(str(wav_path), "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(self.sample_rate)
+            wav_file.writeframes(pcm16_bytes)
 
     @staticmethod
     def _validate_model_path(model_path: str) -> Path:
@@ -129,40 +160,72 @@ class SileroVAD:
         return path
 
     @staticmethod
-    def _validate_execution_provider(execution_provider: str) -> torch.device:
+    def _validate_execution_provider(execution_provider: str) -> str:
         provider = execution_provider.strip()
         if not provider:
             raise RuntimeError("backend.execution_provider is required")
         if provider == "cpu":
-            return torch.device("cpu")
-        if provider == "cuda" or (
-            provider.startswith("cuda:") and provider.removeprefix("cuda:").isdigit()
-        ):
-            if not torch.cuda.is_available():
-                raise RuntimeError(
-                    "backend.execution_provider requires CUDA but torch.cuda.is_available() is false"
-                )
-            if provider.startswith("cuda:"):
-                device_index = int(provider.removeprefix("cuda:"))
-                if device_index >= torch.cuda.device_count():
-                    raise RuntimeError(
-                        "backend.execution_provider CUDA device index is unavailable: "
-                        f"{provider}"
-                    )
-            return torch.device(provider)
+            return provider
+        if provider == "cuda":
+            return provider
+        if provider.startswith("cuda:") and provider.removeprefix("cuda:").isdigit():
+            return provider
         raise RuntimeError(
             "unsupported backend.execution_provider for silero: "
             f"{provider}; supported providers: cpu, cuda, cuda:<index>"
         )
 
-    def _load_model(self) -> None:
-        logger.info("Loading Silero VAD model from local path: %s", self._model_path)
-        self.model, _ = torch.hub.load(
-            str(self._model_path),
-            "silero_vad",
-            source="local",
-            trust_repo=True,
-        )
-        self.model.eval()
-        self.model.to(self.device)
-        logger.info("Silero VAD model loaded. device=%s", self.device)
+    @staticmethod
+    def _validate_command(command: str) -> str:
+        command_value = command.strip()
+        if not command_value:
+            raise RuntimeError("backend.command is required")
+        if "/" in command_value:
+            command_path = Path(command_value).expanduser()
+            if not command_path.is_file() or not os.access(command_path, os.X_OK):
+                raise RuntimeError(f"backend.command is not executable: {command_path}")
+            return str(command_path)
+        resolved = shutil.which(command_value)
+        if resolved is None:
+            raise RuntimeError(f"backend.command not found on PATH: {command_value}")
+        return resolved
+
+    @staticmethod
+    def _validate_args(args: tuple[str, ...]) -> tuple[str, ...]:
+        if not args:
+            raise RuntimeError("backend.args is required")
+        rendered = " ".join(args)
+        for placeholder in ("{audio}", "{model}", "{provider}", "{sample_rate}"):
+            if placeholder not in rendered:
+                raise RuntimeError(f"backend.args must include the {placeholder} placeholder")
+        return args
+
+    @staticmethod
+    def _validate_timeout(timeout_sec: float) -> float:
+        if timeout_sec <= 0.0:
+            raise RuntimeError("backend.timeout_sec must be > 0")
+        return timeout_sec
+
+    @staticmethod
+    def _validate_workspace_dir(workspace_dir: str) -> Path:
+        path_value = workspace_dir.strip()
+        if not path_value:
+            raise RuntimeError("backend.workspace_dir is required")
+        path = Path(path_value).expanduser()
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @staticmethod
+    def _parse_probability(stdout_text: str) -> float:
+        values = [line.strip() for line in stdout_text.splitlines() if line.strip()]
+        if not values:
+            raise RuntimeError("Silero VAD backend command returned empty stdout")
+        try:
+            probability = float(values[-1])
+        except ValueError as exc:
+            raise RuntimeError(
+                "Silero VAD backend command must print probability as a float"
+            ) from exc
+        if probability < 0.0 or probability > 1.0:
+            raise RuntimeError("Silero VAD backend probability must be in [0.0, 1.0]")
+        return probability

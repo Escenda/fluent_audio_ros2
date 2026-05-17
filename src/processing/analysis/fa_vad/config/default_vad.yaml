@@ -17,5 +17,19 @@ fa_vad_node:
     backend.model_path: ""
     # Required PyTorch device: cpu, cuda, or cuda:<index>. Empty means startup fails closed.
     backend.execution_provider: ""
+    # Required external Silero worker command. It must print a probability float to stdout.
+    backend.command: ""
+    backend.args:
+      - "--audio"
+      - "{audio}"
+      - "--model"
+      - "{model}"
+      - "--provider"
+      - "{provider}"
+      - "--sample-rate"
+      - "{sample_rate}"
+    backend.timeout_sec: 1.0
+    backend.workspace_dir: "/tmp/fluent_audio/fa_vad"
+    backend.cleanup_audio_files: true
 
     log_speech_events: true

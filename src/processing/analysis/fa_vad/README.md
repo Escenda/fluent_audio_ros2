@@ -1,6 +1,6 @@
 # FA VAD
 
-`fa_vad`は`fa_in`等が配信するPCMフレームを購読し、Silero VAD（PyTorch）で音声活動検知を行うノードです（オフライン前提）。
+`fa_vad`は`fa_in`等が配信するPCMフレームを購読し、外部 Silero VAD worker process で音声活動検知を行うノードです（オフライン前提）。
 
 ## 機能
 - `fa_interfaces/msg/AudioFrame`購読（`audio/frame`）
@@ -15,7 +15,7 @@ ros2 launch fa_vad fa_vad.launch.py
 
 ## Runtime
 
-PyTorch / Silero VAD は ROS package dependency ではなく、node 実行環境に明示的に provision します。`backend.model_path` は local torch.hub repository directory を指し、空または存在しない場合は起動失敗します。online download fallback はありません。`backend.execution_provider` も必須です。
+PyTorch / Silero VAD は ROS package dependency ではなく、`backend.command` で指定する外部 process 側に明示的に provision します。`backend.model_path` は local torch.hub repository directory を指し、空または存在しない場合は起動失敗します。online download fallback はありません。`backend.execution_provider` と `backend.command` も必須です。
 
 ## パラメータ例
 ```yaml
@@ -28,4 +28,14 @@ fa_vad_node:
     backend.name: "silero"
     backend.model_path: "~/.cache/torch/hub/snakers4_silero-vad_master"
     backend.execution_provider: "cpu"
+    backend.command: "/opt/fa-vad/bin/silero_vad_worker"
+    backend.args:
+      - "--audio"
+      - "{audio}"
+      - "--model"
+      - "{model}"
+      - "--provider"
+      - "{provider}"
+      - "--sample-rate"
+      - "{sample_rate}"
 ```

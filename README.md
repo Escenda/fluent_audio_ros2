@@ -35,7 +35,7 @@
 - ROS 2（Humble/Jazzy など）
 - ALSA: `libasound2-dev`
 - TTS: `pyopenjtalk`, `python3-numpy`
-- VAD/ASR/TD: `python3-numpy`, `torch`（VAD）, `onnxruntime`（TD）, ローカルASR実行ファイル（例: whisper.cpp）
+- VAD/ASR/TD: `python3-numpy`, 外部 VAD worker command, `onnxruntime`（TD）, ローカルASR実行ファイル（例: whisper.cpp）
 - KWS: sherpa-onnx C API
 - （任意）`ffmpeg`: `fa_stream` の `fa_stream_node.py` で使用
 
