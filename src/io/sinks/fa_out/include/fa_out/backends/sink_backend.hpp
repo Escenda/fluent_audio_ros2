@@ -12,7 +12,6 @@ namespace fa_out::backends
 struct SinkOpenInfo
 {
   std::vector<std::string> info_messages;
-  std::vector<std::string> warnings;
 };
 
 class SinkBackendError : public std::runtime_error

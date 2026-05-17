@@ -132,6 +132,9 @@ def test_alsa_playback_backend_rejects_negotiated_timing_changes() -> None:
     assert "ALSA period size negotiation changed requested playback period" in backend_source
     assert "audio.alsa.period_frames must be <= audio.alsa.buffer_frames" in backend_source
     assert "open_info.warnings.emplace_back" not in backend_source
+    assert "std::vector<std::string> warnings" not in backend_header_path.with_name(
+        "sink_backend.hpp"
+    ).read_text(encoding="utf-8")
     assert "snd_pcm_sw_params_current" in backend_source
     assert "snd_pcm_sw_params_set_start_threshold" in backend_source
     assert "snd_pcm_sw_params_set_avail_min" in backend_source
@@ -302,3 +305,32 @@ def test_sink_adapter_exposes_no_file_or_dsp_surface() -> None:
     ]
     for token in forbidden_tokens:
         assert token not in combined
+
+
+def test_backend_open_result_is_info_only_without_warning_continuation() -> None:
+    package_root = Path(__file__).parents[2]
+    sink_backend_header = (
+        package_root / "include" / "fa_out" / "backends" / "sink_backend.hpp"
+    ).read_text(encoding="utf-8")
+    node_source = (package_root / "src" / "fa_out_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    spec = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
+    algorithm = (package_root / "docs" / "アルゴリズム詳細説明書.md").read_text(
+        encoding="utf-8"
+    )
+    test_plan = (package_root / "docs" / "テスト設計.md").read_text(
+        encoding="utf-8"
+    )
+    backend_doc = (package_root / "docs" / "backends" / "alsa.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "std::vector<std::string> info_messages;" in sink_backend_header
+    assert "warnings" not in sink_backend_header
+    assert "open_info.info_messages" in node_source
+    assert "open_info.warnings" not in node_source
+    assert "warning 継続チャネルを持たない" in spec
+    assert "warning で継続する経路は持たない" in algorithm
+    assert "FA-OUT-SPEC-021" in test_plan
+    assert "warning で継続する output は持たない" in backend_doc

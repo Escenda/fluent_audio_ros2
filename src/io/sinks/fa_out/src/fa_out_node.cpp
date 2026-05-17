@@ -196,9 +196,6 @@ void FaOutNode::openBackend()
     for (const auto & info : open_info.info_messages) {
       RCLCPP_INFO(this->get_logger(), "%s", info.c_str());
     }
-    for (const auto & warning : open_info.warnings) {
-      RCLCPP_WARN(this->get_logger(), "%s", warning.c_str());
-    }
   } catch (const std::exception & e) {
     RCLCPP_ERROR(this->get_logger(), "Failed to open ALSA playback device: %s", e.what());
     throw std::runtime_error("Failed to open ALSA playback device");

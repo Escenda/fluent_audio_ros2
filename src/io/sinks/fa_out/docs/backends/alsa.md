@@ -23,6 +23,7 @@
 ## Output
 
 - device playback
+- backend open info messages。warning で継続する output は持たない
 
 ## Failure Conditions
 
