@@ -50,7 +50,7 @@ struct ActiveStreamIdentity
 class FaJitterBufferNode : public rclcpp::Node
 {
 public:
-  FaJitterBufferNode();
+  explicit FaJitterBufferNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaJitterBufferNode() override = default;
 
 private:

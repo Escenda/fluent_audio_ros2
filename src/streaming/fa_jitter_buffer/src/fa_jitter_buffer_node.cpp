@@ -3,10 +3,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 #include <functional>
-#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -33,8 +31,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaJitterBufferNode::FaJitterBufferNode()
-: rclcpp::Node("fa_jitter_buffer_node")
+FaJitterBufferNode::FaJitterBufferNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_jitter_buffer_node", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Jitter Buffer node");
   loadParameters();
@@ -432,18 +430,3 @@ void FaJitterBufferNode::publishDiagnostics()
 }
 
 }  // namespace fa_jitter_buffer
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_jitter_buffer::FaJitterBufferNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_jitter_buffer"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}
