@@ -1,6 +1,6 @@
 # fa_turn_detector
 
-`fa_turn_detector` runs a local Smart Turn v3 ONNX model to estimate whether the user has finished their turn.
+`fa_turn_detector` estimates whether the user has finished their turn through an external Smart Turn v3 ONNX worker.
 
 ## 入出力
 
@@ -13,4 +13,4 @@
 
 ## Runtime
 
-ONNX Runtime は ROS package dependency ではなく、node 実行環境に明示的に provision します。`backend.name: smart_turn_onnx` では ONNX model path と execution provider が必須です。空 model path から package share の model は推測しません。
+ONNX Runtime は ROS2 node process では import しません。`backend.command` で指定した external worker 側の Python / venv / container に明示的に provision します。`backend.name: smart_turn_onnx` では ONNX model path、execution provider、worker command、inference args、health-check args が必須です。空 model path から package share の model は推測しません。

@@ -14,6 +14,7 @@ ament_python_install_package(fa_turn_detector_py PACKAGE_DIR fa_turn_detector_py
 
 install(PROGRAMS
   scripts/fa_turn_detector_node
+  scripts/smart_turn_onnx_worker
   DESTINATION lib/${PROJECT_NAME}
 )
 

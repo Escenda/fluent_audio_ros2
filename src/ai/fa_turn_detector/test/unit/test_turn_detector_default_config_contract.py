@@ -8,6 +8,8 @@ import numpy as np
 import pytest
 import yaml
 
+from fa_turn_detector_py.backends.smart_turn_onnx import SmartTurnOnnxBackend
+
 
 class _BackendError(Exception):
     pass
@@ -58,12 +60,6 @@ class _FakeVadState:
     pass
 
 
-class _FakeInferenceSession:
-    def __init__(self, model_path: str, *, providers: list[str]) -> None:
-        self.model_path = model_path
-        self.providers = providers
-
-
 class _FailingBackend:
     name = "failing"
     sample_rate = 16000
@@ -109,20 +105,100 @@ def _install_turn_detector_import_fakes(
     fa_interfaces_msg_module.TurnEnd = _FakeTurnEnd
     fa_interfaces_msg_module.VadState = _FakeVadState
 
-    ort_module = ModuleType("onnxruntime")
-
-    def get_available_providers() -> list[str]:
-        return ["CPUExecutionProvider"]
-
-    ort_module.get_available_providers = get_available_providers
-    ort_module.InferenceSession = _FakeInferenceSession
-
     monkeypatch.setitem(sys.modules, "rclpy", rclpy_module)
     monkeypatch.setitem(sys.modules, "rclpy.node", node_module)
     monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
     monkeypatch.setitem(sys.modules, "fa_interfaces", fa_interfaces_module)
     monkeypatch.setitem(sys.modules, "fa_interfaces.msg", fa_interfaces_msg_module)
+
+
+def _write_fake_model(path: Path, *, probability: str = "0.75") -> None:
+    path.write_text(probability + "\n" + ("x" * 2048), encoding="utf-8")
+
+
+def _smart_turn_backend(tmp_path: Path, *, probability: str = "0.75") -> SmartTurnOnnxBackend:
+    model_path = tmp_path / "smart_turn.onnx"
+    _write_fake_model(model_path, probability=probability)
+    worker = Path(__file__).parents[1] / "fixtures" / "fake_turn_worker.py"
+    return SmartTurnOnnxBackend(
+        model_path=str(model_path),
+        threshold=0.5,
+        execution_provider="CPUExecutionProvider",
+        command=sys.executable,
+        args=(
+            str(worker),
+            "--audio",
+            "{audio}",
+            "--model",
+            "{model}",
+            "--provider",
+            "{provider}",
+        ),
+        health_args=(
+            str(worker),
+            "--model",
+            "{model}",
+            "--provider",
+            "{provider}",
+            "--health-check",
+        ),
+        timeout_sec=1.0,
+        workspace_dir=str(tmp_path / "workspace"),
+        cleanup_audio_files=True,
+    )
+
+
+def _install_onnxruntime_fake(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    input_name: str = "input_features",
+) -> None:
+    ort_module = ModuleType("onnxruntime")
+
+    class _FakeMeta:
+        def __init__(
+            self,
+            *,
+            name: str,
+            type_name: str,
+            shape: tuple[int | str | None, ...],
+        ) -> None:
+            self.name = name
+            self.type = type_name
+            self.shape = shape
+
+    class _RuntimeInferenceSession:
+        def __init__(self, model_path: str, *, providers: list[str]) -> None:
+            self.model_path = model_path
+            self.providers = providers
+
+        def get_inputs(self) -> list[_FakeMeta]:
+            return [
+                _FakeMeta(
+                    name=input_name,
+                    type_name="tensor(float)",
+                    shape=(1, 80, 800),
+                )
+            ]
+
+        def get_outputs(self) -> list[_FakeMeta]:
+            return [_FakeMeta(name="logits", type_name="tensor(float)", shape=(1, 1))]
+
+        def run(
+            self,
+            output_names: None,
+            feeds: dict[str, np.ndarray],
+        ) -> list[np.ndarray]:
+            del output_names, feeds
+            return [np.array([[0.0]], dtype=np.float32)]
+
+    def get_available_providers() -> list[str]:
+        return ["CPUExecutionProvider"]
+
+    ort_module.get_available_providers = get_available_providers
+    ort_module.InferenceSession = _RuntimeInferenceSession
     monkeypatch.setitem(sys.modules, "onnxruntime", ort_module)
+    sys.modules.pop("fa_turn_detector_py.backends.smart_turn_onnx_runtime", None)
 
 
 def test_default_config_requires_explicit_model_and_provider() -> None:
@@ -134,6 +210,9 @@ def test_default_config_requires_explicit_model_and_provider() -> None:
     assert params["backend.name"] == "smart_turn_onnx"
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""
+    assert params["backend.command"] == ""
+    assert params["backend.args"] == []
+    assert params["backend.health_args"] == []
 
 
 def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
@@ -149,6 +228,7 @@ def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame source_id and stream_id are required" in source
     assert "AudioFrame layout must be interleaved" in source
     assert "AudioFrame bit_depth must be 32" in source
+    assert "AudioFrame data is required" in source
     assert "AudioFrame sample_rate must match backend sample_rate" in source
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
 
@@ -191,4 +271,174 @@ def test_smart_turn_backend_rejects_out_of_range_audio() -> None:
     ).read_text(encoding="utf-8")
 
     assert "audio = audio / max_abs" not in source
-    assert "audio samples must be normalized to [-1.0, 1.0]" in source
+    assert "turn detector audio samples must be normalized to [-1.0, 1.0]" in source
+
+
+def test_turn_detector_node_does_not_import_onnxruntime() -> None:
+    package_root = Path(__file__).parents[2]
+    node_source = (
+        package_root / "fa_turn_detector_py" / "turn_detector_node.py"
+    ).read_text(encoding="utf-8")
+    backend_source = (
+        package_root / "fa_turn_detector_py" / "backends" / "smart_turn_onnx.py"
+    ).read_text(encoding="utf-8")
+    init_source = (
+        package_root / "fa_turn_detector_py" / "backends" / "__init__.py"
+    ).read_text(encoding="utf-8")
+
+    assert "onnxruntime" not in node_source
+    assert "onnxruntime" not in backend_source
+    assert "onnxruntime" not in init_source
+    assert "subprocess.run" in backend_source
+
+
+def test_smart_turn_backend_external_worker_contract(tmp_path: Path) -> None:
+    backend = _smart_turn_backend(tmp_path)
+    audio = np.full(backend.sample_rate, 0.1, dtype=np.float32)
+
+    result = backend.detect(audio)
+
+    assert result.probability == 0.75
+    assert result.is_end is True
+    assert list((tmp_path / "workspace").iterdir()) == []
+
+
+def test_smart_turn_backend_rejects_invalid_worker_probability(tmp_path: Path) -> None:
+    backend = _smart_turn_backend(tmp_path, probability="nan")
+    audio = np.full(backend.sample_rate, 0.1, dtype=np.float32)
+
+    with pytest.raises(RuntimeError, match="probability must be finite"):
+        backend.detect(audio)
+
+
+def test_smart_turn_backend_rejects_missing_command_args(tmp_path: Path) -> None:
+    model_path = tmp_path / "smart_turn.onnx"
+    _write_fake_model(model_path)
+    worker = Path(__file__).parents[1] / "fixtures" / "fake_turn_worker.py"
+
+    with pytest.raises(RuntimeError, match="backend.args must include placeholders"):
+        SmartTurnOnnxBackend(
+            model_path=str(model_path),
+            threshold=0.5,
+            execution_provider="CPUExecutionProvider",
+            command=sys.executable,
+            args=(str(worker), "--model", "{model}", "--provider", "{provider}"),
+            health_args=(
+                str(worker),
+                "--model",
+                "{model}",
+                "--provider",
+                "{provider}",
+                "--health-check",
+            ),
+            timeout_sec=1.0,
+            workspace_dir=str(tmp_path / "workspace"),
+            cleanup_audio_files=True,
+        )
+
+
+def test_smart_turn_backend_rejects_unknown_arg_placeholder(tmp_path: Path) -> None:
+    model_path = tmp_path / "smart_turn.onnx"
+    _write_fake_model(model_path)
+    worker = Path(__file__).parents[1] / "fixtures" / "fake_turn_worker.py"
+
+    with pytest.raises(RuntimeError, match="unsupported backend.args placeholder: threshold"):
+        SmartTurnOnnxBackend(
+            model_path=str(model_path),
+            threshold=0.5,
+            execution_provider="CPUExecutionProvider",
+            command=sys.executable,
+            args=(
+                str(worker),
+                "--audio",
+                "{audio}",
+                "--model",
+                "{model}",
+                "--provider",
+                "{provider}",
+                "{threshold}",
+            ),
+            health_args=(
+                str(worker),
+                "--model",
+                "{model}",
+                "--provider",
+                "{provider}",
+                "--health-check",
+            ),
+            timeout_sec=1.0,
+            workspace_dir=str(tmp_path / "workspace"),
+            cleanup_audio_files=True,
+        )
+
+
+def test_smart_turn_backend_health_check_failure_is_startup_failure(tmp_path: Path) -> None:
+    model_path = tmp_path / "smart_turn.onnx"
+    _write_fake_model(model_path, probability="healthfail")
+    worker = Path(__file__).parents[1] / "fixtures" / "fake_turn_worker.py"
+
+    with pytest.raises(RuntimeError, match="health check failed"):
+        SmartTurnOnnxBackend(
+            model_path=str(model_path),
+            threshold=0.5,
+            execution_provider="CPUExecutionProvider",
+            command=sys.executable,
+            args=(
+                str(worker),
+                "--audio",
+                "{audio}",
+                "--model",
+                "{model}",
+                "--provider",
+                "{provider}",
+            ),
+            health_args=(
+                str(worker),
+                "--model",
+                "{model}",
+                "--provider",
+                "{provider}",
+                "--health-check",
+            ),
+            timeout_sec=1.0,
+            workspace_dir=str(tmp_path / "workspace"),
+            cleanup_audio_files=True,
+        )
+
+
+def test_smart_turn_runtime_validates_model_io_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_onnxruntime_fake(monkeypatch)
+    runtime_module = importlib.import_module(
+        "fa_turn_detector_py.backends.smart_turn_onnx_runtime"
+    )
+    model_path = tmp_path / "smart_turn.onnx"
+    _write_fake_model(model_path)
+
+    runtime = runtime_module.SmartTurnOnnxRuntime(
+        model_path=model_path,
+        execution_provider="CPUExecutionProvider",
+    )
+    probability = runtime.detect_probability(np.full(16000, 0.1, dtype=np.float32))
+
+    assert probability == 0.5
+
+
+def test_smart_turn_runtime_rejects_wrong_input_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_onnxruntime_fake(monkeypatch, input_name="wrong_input")
+    runtime_module = importlib.import_module(
+        "fa_turn_detector_py.backends.smart_turn_onnx_runtime"
+    )
+    model_path = tmp_path / "smart_turn.onnx"
+    _write_fake_model(model_path)
+
+    with pytest.raises(RuntimeError, match="input must be named input_features"):
+        runtime_module.SmartTurnOnnxRuntime(
+            model_path=model_path,
+            execution_provider="CPUExecutionProvider",
+        )

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from collections import deque
-from pathlib import Path
 from typing import Iterable
 
 import numpy as np
@@ -29,6 +28,12 @@ class FaTurnDetectorNode(Node):
         self.declare_parameter("backend.model_path", "")
         self.declare_parameter("backend.threshold", 0.5)
         self.declare_parameter("backend.execution_provider", "")
+        self.declare_parameter("backend.command", "")
+        self.declare_parameter("backend.args", [])
+        self.declare_parameter("backend.health_args", [])
+        self.declare_parameter("backend.timeout_sec", 5.0)
+        self.declare_parameter("backend.workspace_dir", "/tmp/fluent_audio_fa_turn_detector")
+        self.declare_parameter("backend.cleanup_audio_files", True)
 
         self.audio_topic = str(self.get_parameter("audio_topic").value)
         self.vad_topic = str(self.get_parameter("vad_topic").value)
@@ -87,16 +92,22 @@ class FaTurnDetectorNode(Node):
         if backend_name != SmartTurnOnnxBackend.name:
             raise RuntimeError(f"unsupported turn detector backend.name: {backend_name}")
         return SmartTurnOnnxBackend(
-            model_path=self._resolve_model_path(),
+            model_path=str(self.get_parameter("backend.model_path").value).strip(),
             threshold=float(self.get_parameter("backend.threshold").value),
             execution_provider=str(self.get_parameter("backend.execution_provider").value).strip(),
+            command=str(self.get_parameter("backend.command").value).strip(),
+            args=self._string_tuple_parameter("backend.args"),
+            health_args=self._string_tuple_parameter("backend.health_args"),
+            timeout_sec=float(self.get_parameter("backend.timeout_sec").value),
+            workspace_dir=str(self.get_parameter("backend.workspace_dir").value).strip(),
+            cleanup_audio_files=bool(self.get_parameter("backend.cleanup_audio_files").value),
         )
 
-    def _resolve_model_path(self) -> Path:
-        model_path_param = str(self.get_parameter("backend.model_path").value).strip()
-        if not model_path_param:
-            raise RuntimeError("backend.model_path is required")
-        return Path(model_path_param).expanduser()
+    def _string_tuple_parameter(self, name: str) -> tuple[str, ...]:
+        value = self.get_parameter(name).value
+        if not isinstance(value, (list, tuple)):
+            raise RuntimeError(f"{name} must be a string list")
+        return tuple(str(item) for item in value)
 
     def on_turn_context(self, msg: TurnContext) -> None:
         self._active_session_id = str(msg.session_id)
@@ -117,8 +128,6 @@ class FaTurnDetectorNode(Node):
             audio_data = self._frame_to_float(msg)
         except ValueError as exc:
             self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
-            return
-        if audio_data.size == 0:
             return
         self.audio_buffer.extend(audio_data.tolist())
 
@@ -165,7 +174,7 @@ class FaTurnDetectorNode(Node):
     @staticmethod
     def _frame_to_float(msg: AudioFrame) -> np.ndarray:
         if not msg.data:
-            return np.zeros(0, dtype=np.float32)
+            raise ValueError("AudioFrame data is required")
         if not msg.source_id or not msg.stream_id:
             raise ValueError("AudioFrame source_id and stream_id are required")
         if msg.layout != "interleaved":

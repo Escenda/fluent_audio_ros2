@@ -1,15 +1,27 @@
 from __future__ import annotations
 
+import math
+import os
+import shutil
+import string
+import subprocess
+import time
 from pathlib import Path
 
 import numpy as np
-import onnxruntime as ort
 
 from fa_turn_detector_py.backends.base import TurnDetectionResult
 
 
+_PAYLOAD_ENCODING = "float32_npy"
+_ALLOWED_ARG_FIELDS = frozenset(("audio", "model", "provider"))
+_ALLOWED_HEALTH_ARG_FIELDS = frozenset(("model", "provider"))
+_REQUIRED_ARG_FIELDS = frozenset(("audio", "model", "provider"))
+_REQUIRED_HEALTH_ARG_FIELDS = frozenset(("model", "provider"))
+
+
 class SmartTurnOnnxBackend:
-    """Smart Turn v3 ONNX inference backend."""
+    """External-process Smart Turn v3 ONNX backend adapter."""
 
     name = "smart_turn_onnx"
     sample_rate = 16000
@@ -20,114 +32,247 @@ class SmartTurnOnnxBackend:
     min_samples = sample_rate
     max_samples = hop_length * n_frames + n_fft
 
-    def __init__(self, *, model_path: Path, threshold: float, execution_provider: str) -> None:
-        if threshold < 0.0 or threshold > 1.0:
-            raise RuntimeError("backend.threshold must be between 0.0 and 1.0")
-        if not execution_provider.strip():
-            raise RuntimeError("backend.execution_provider is required")
-        available_providers = ort.get_available_providers()
-        if execution_provider not in available_providers:
-            raise RuntimeError(
-                "ONNX Runtime execution provider is not available: "
-                f"{execution_provider}; available={available_providers}"
-            )
-        self._threshold = float(threshold)
-        self._validate_model_file(model_path)
-        self._session = ort.InferenceSession(
-            str(model_path),
-            providers=[execution_provider],
+    def __init__(
+        self,
+        *,
+        model_path: str,
+        threshold: float,
+        execution_provider: str,
+        command: str,
+        args: tuple[str, ...],
+        health_args: tuple[str, ...],
+        timeout_sec: float,
+        workspace_dir: str,
+        cleanup_audio_files: bool,
+    ) -> None:
+        self.model_path = self._validate_model_file(model_path)
+        self._threshold = self._validate_threshold(threshold)
+        self._execution_provider = self._validate_execution_provider(execution_provider)
+        self._command = self._validate_command(command)
+        self._args = self._validate_args(
+            args=args,
+            allowed_fields=_ALLOWED_ARG_FIELDS,
+            required_fields=_REQUIRED_ARG_FIELDS,
+            field_label="backend.args",
         )
-        self._mel_filters_cache = self._mel_filterbank()
-        self.model_path = model_path
+        self._health_args = self._validate_args(
+            args=health_args,
+            allowed_fields=_ALLOWED_HEALTH_ARG_FIELDS,
+            required_fields=_REQUIRED_HEALTH_ARG_FIELDS,
+            field_label="backend.health_args",
+        )
+        self._timeout_sec = self._validate_timeout(timeout_sec)
+        self._workspace_dir = self._validate_workspace_dir(workspace_dir)
+        self._cleanup_audio_files = bool(cleanup_audio_files)
+        self._payload_encoding = _PAYLOAD_ENCODING
+        self._run_health_check()
 
     def detect(self, audio: np.ndarray) -> TurnDetectionResult:
-        if audio.size == 0:
-            raise ValueError("audio is empty")
-
-        mel = self._compute_mel_spectrogram(audio)
-        n_frames = mel.shape[1]
-        if n_frames < self.n_frames:
-            pad_width = self.n_frames - n_frames
-            mel = np.pad(
-                mel,
-                ((0, 0), (pad_width, 0)),
-                mode="constant",
-                constant_values=-4.0,
+        self._validate_audio(audio)
+        audio_path = self._workspace_dir / f"{time.time_ns()}_turn_audio.npy"
+        try:
+            self._write_audio_payload(audio_path, audio)
+            command = [self._command]
+            command.extend(self._format_args(self._args, audio_path=audio_path))
+            try:
+                completed = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=self._timeout_sec,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError("Smart Turn backend command timed out") from exc
+            if completed.returncode != 0:
+                stderr = completed.stderr.strip()
+                raise RuntimeError(
+                    "Smart Turn backend command failed: "
+                    f"code={completed.returncode} stderr={stderr}"
+                )
+            probability = self._parse_probability(completed.stdout)
+            return TurnDetectionResult(
+                probability=probability,
+                is_end=bool(probability >= self._threshold),
             )
-        elif n_frames > self.n_frames:
-            mel = mel[:, -self.n_frames :]
+        finally:
+            if self._cleanup_audio_files and audio_path.exists():
+                audio_path.unlink()
 
-        input_features = mel[np.newaxis, :, :].astype(np.float32)
-        outputs = self._session.run(None, {"input_features": input_features})
-        logits = outputs[0][0, 0]
-        probability = 1.0 / (1.0 + np.exp(-float(logits)))
-        return TurnDetectionResult(
-            probability=float(probability),
-            is_end=bool(probability >= self._threshold),
-        )
+    def _run_health_check(self) -> None:
+        command = [self._command]
+        command.extend(self._format_args(self._health_args, audio_path=None))
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout_sec,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError("Smart Turn backend health check timed out") from exc
+        if completed.returncode != 0:
+            stderr = completed.stderr.strip()
+            raise RuntimeError(
+                "Smart Turn backend health check failed: "
+                f"code={completed.returncode} stderr={stderr}"
+            )
+
+    def _format_args(self, args: tuple[str, ...], *, audio_path: Path | None) -> list[str]:
+        audio_value = "" if audio_path is None else str(audio_path)
+        return [
+            item.format(
+                audio=audio_value,
+                model=str(self.model_path),
+                provider=self._execution_provider,
+            )
+            for item in args
+        ]
+
+    def _write_audio_payload(self, audio_path: Path, audio: np.ndarray) -> None:
+        if self._payload_encoding != _PAYLOAD_ENCODING:
+            raise RuntimeError(
+                f"unsupported Smart Turn payload_encoding: {self._payload_encoding}"
+            )
+        np.save(audio_path, audio, allow_pickle=False)
 
     @staticmethod
-    def _validate_model_file(model_path: Path) -> None:
-        if not model_path.is_file():
-            raise RuntimeError(f"Smart Turn model not found: {model_path}")
-        if model_path.stat().st_size < 1024:
-            header = model_path.read_text(encoding="utf-8", errors="ignore")[:128]
+    def _validate_audio(audio: np.ndarray) -> None:
+        if audio.dtype != np.float32:
+            raise ValueError("turn detector audio must be float32")
+        if audio.ndim != 1:
+            raise ValueError("turn detector audio must be one-dimensional")
+        if audio.size == 0:
+            raise ValueError("turn detector audio is required")
+        if not np.all(np.isfinite(audio)):
+            raise ValueError("turn detector audio contains non-finite samples")
+        if np.any(audio < -1.0) or np.any(audio > 1.0):
+            raise ValueError("turn detector audio samples must be normalized to [-1.0, 1.0]")
+
+    @staticmethod
+    def _validate_model_file(model_path: str) -> Path:
+        path_value = model_path.strip()
+        if not path_value:
+            raise RuntimeError("backend.model_path is required")
+        try:
+            path = Path(path_value).expanduser().resolve(strict=True)
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"Smart Turn model not found: {path_value}") from exc
+        if not path.is_file():
+            raise RuntimeError(f"Smart Turn model not found: {path}")
+        if not os.access(path, os.R_OK):
+            raise RuntimeError(f"Smart Turn model is not readable: {path}")
+        if path.stat().st_size < 1024:
+            header = path.read_text(encoding="utf-8", errors="ignore")[:128]
             if header.startswith("version https://git-lfs.github.com/spec"):
                 raise RuntimeError(
-                    f"Smart Turn model is a Git LFS pointer, not an ONNX file: {model_path}"
+                    f"Smart Turn model is a Git LFS pointer, not an ONNX file: {path}"
                 )
-            raise RuntimeError(f"Smart Turn model file is too small: {model_path}")
+            raise RuntimeError(f"Smart Turn model file is too small: {path}")
+        return path
 
-    def _compute_mel_spectrogram(self, audio: np.ndarray) -> np.ndarray:
-        if not np.all(np.isfinite(audio)):
-            raise ValueError("audio contains non-finite samples")
-        max_abs = float(np.max(np.abs(audio)))
-        if max_abs > 1.0:
-            raise ValueError("audio samples must be normalized to [-1.0, 1.0]")
+    @staticmethod
+    def _validate_threshold(threshold: float) -> float:
+        threshold_value = float(threshold)
+        if not math.isfinite(threshold_value):
+            raise RuntimeError("backend.threshold must be finite")
+        if threshold_value < 0.0 or threshold_value > 1.0:
+            raise RuntimeError("backend.threshold must be between 0.0 and 1.0")
+        return threshold_value
 
-        padded = np.pad(audio, (self.n_fft // 2, self.n_fft // 2), mode="reflect")
-        window = np.hanning(self.n_fft + 1)[:-1].astype(np.float32)
-        n_frames = (len(padded) - self.n_fft) // self.hop_length + 1
-        if n_frames <= 0:
-            raise ValueError("audio is too short for STFT")
+    @staticmethod
+    def _validate_execution_provider(execution_provider: str) -> str:
+        provider = execution_provider.strip()
+        if not provider:
+            raise RuntimeError("backend.execution_provider is required")
+        return provider
 
-        shape = (n_frames, self.n_fft)
-        strides = (padded.strides[0] * self.hop_length, padded.strides[0])
-        frames = np.lib.stride_tricks.as_strided(padded, shape=shape, strides=strides)
-        windowed = frames * window
-        stft_matrix = np.fft.rfft(windowed, axis=1).T
-        magnitudes = np.abs(stft_matrix) ** 2
-        mel = self._mel_filters_cache @ magnitudes
-        log_mel = np.log10(np.maximum(mel, 1e-10))
-        log_mel = np.maximum(log_mel, log_mel.max() - 8.0)
-        log_mel = (log_mel + 4.0) / 4.0
-        return log_mel.astype(np.float32)
+    @staticmethod
+    def _validate_command(command: str) -> str:
+        command_value = command.strip()
+        if not command_value:
+            raise RuntimeError("backend.command is required")
+        command_path = Path(command_value).expanduser()
+        if "/" in command_value or command_path.is_absolute():
+            try:
+                resolved_path = command_path.resolve(strict=True)
+            except FileNotFoundError as exc:
+                raise RuntimeError(f"backend.command does not exist: {command_path}") from exc
+            if not resolved_path.is_file():
+                raise RuntimeError(f"backend.command is not a file: {resolved_path}")
+            if not os.access(resolved_path, os.X_OK):
+                raise RuntimeError(f"backend.command is not executable: {resolved_path}")
+            return str(resolved_path)
+        resolved = shutil.which(command_value)
+        if resolved is None:
+            raise RuntimeError(f"backend.command not found on PATH: {command_value}")
+        return str(Path(resolved).resolve(strict=True))
 
-    def _mel_filterbank(self) -> np.ndarray:
-        def hz_to_mel(hz: np.ndarray) -> np.ndarray:
-            return 2595.0 * np.log10(1.0 + hz / 700.0)
+    @staticmethod
+    def _validate_args(
+        *,
+        args: tuple[str, ...],
+        allowed_fields: frozenset[str],
+        required_fields: frozenset[str],
+        field_label: str,
+    ) -> tuple[str, ...]:
+        if not args:
+            raise RuntimeError(f"{field_label} must not be empty")
+        fields: set[str] = set()
+        formatter = string.Formatter()
+        for part in args:
+            try:
+                parsed_parts = tuple(formatter.parse(part))
+            except ValueError as exc:
+                raise RuntimeError(f"{field_label} contains malformed format string: {part}") from exc
+            for _, field_name, format_spec, conversion in parsed_parts:
+                if field_name is None:
+                    continue
+                if conversion is not None or format_spec:
+                    raise RuntimeError(
+                        f"{field_label} placeholders must not use conversion or format spec"
+                    )
+                if field_name not in allowed_fields:
+                    raise RuntimeError(f"unsupported {field_label} placeholder: {field_name}")
+                fields.add(field_name)
+        missing = sorted(required_fields.difference(fields))
+        if missing:
+            raise RuntimeError(
+                f"{field_label} must include placeholders: "
+                + ", ".join(f"{{{field}}}" for field in missing)
+            )
+        return args
 
-        def mel_to_hz(mel: np.ndarray) -> np.ndarray:
-            return 700.0 * (10.0 ** (mel / 2595.0) - 1.0)
+    @staticmethod
+    def _validate_timeout(timeout_sec: float) -> float:
+        timeout_value = float(timeout_sec)
+        if timeout_value <= 0.0:
+            raise RuntimeError("backend.timeout_sec must be greater than zero")
+        return timeout_value
 
-        n_fft_bins = self.n_fft // 2 + 1
-        fmin = 0.0
-        fmax = self.sample_rate / 2.0
-        mel_min = hz_to_mel(np.array([fmin]))[0]
-        mel_max = hz_to_mel(np.array([fmax]))[0]
-        mel_points = np.linspace(mel_min, mel_max, self.n_mels + 2)
-        hz_points = mel_to_hz(mel_points)
-        fft_freqs = np.linspace(0, self.sample_rate / 2, n_fft_bins)
-        filters = np.zeros((self.n_mels, n_fft_bins), dtype=np.float32)
+    @staticmethod
+    def _validate_workspace_dir(workspace_dir: str) -> Path:
+        path_value = workspace_dir.strip()
+        if not path_value:
+            raise RuntimeError("backend.workspace_dir is required")
+        path = Path(path_value).expanduser()
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
-        for i in range(self.n_mels):
-            left_hz = hz_points[i]
-            center_hz = hz_points[i + 1]
-            right_hz = hz_points[i + 2]
-            left_slope = (fft_freqs - left_hz) / (center_hz - left_hz + 1e-10)
-            right_slope = (right_hz - fft_freqs) / (right_hz - center_hz + 1e-10)
-            filters[i] = np.maximum(0, np.minimum(left_slope, right_slope))
-
-        enorm = 2.0 / (hz_points[2 : self.n_mels + 2] - hz_points[: self.n_mels])
-        filters *= enorm[:, np.newaxis]
-        return filters
+    @staticmethod
+    def _parse_probability(stdout_text: str) -> float:
+        values = [line.strip() for line in stdout_text.splitlines() if line.strip()]
+        if not values:
+            raise RuntimeError("Smart Turn backend command returned empty stdout")
+        try:
+            probability = float(values[-1])
+        except ValueError as exc:
+            raise RuntimeError(
+                "Smart Turn backend command must print probability as a float"
+            ) from exc
+        if not math.isfinite(probability):
+            raise RuntimeError("Smart Turn backend probability must be finite")
+        if probability < 0.0 or probability > 1.0:
+            raise RuntimeError("Smart Turn backend probability must be in [0.0, 1.0]")
+        return probability

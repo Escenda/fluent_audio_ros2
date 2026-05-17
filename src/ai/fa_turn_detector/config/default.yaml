@@ -9,4 +9,13 @@ fa_turn_detector:
     backend.model_path: ""
     # Required ONNX Runtime provider, e.g. CPUExecutionProvider or CUDAExecutionProvider.
     backend.execution_provider: ""
+    # Required. External worker command. Example: smart_turn_onnx_worker.
+    backend.command: ""
+    # Required worker args for inference. Must include {audio}, {model}, {provider}.
+    backend.args: []
+    # Required startup health-check args. Must include {model}, {provider}.
+    backend.health_args: []
+    backend.timeout_sec: 5.0
+    backend.workspace_dir: "/tmp/fluent_audio_fa_turn_detector"
+    backend.cleanup_audio_files: true
     backend.threshold: 0.5

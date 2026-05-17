@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+from fa_turn_detector_py.backends.smart_turn_onnx_worker import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
