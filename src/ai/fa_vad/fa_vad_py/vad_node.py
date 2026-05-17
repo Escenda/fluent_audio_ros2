@@ -10,7 +10,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import Bool, Float32
 
 from fa_interfaces.msg import AudioFrame, VadState
-from fa_vad_py.backends.base import VADBackend
+from fa_vad_py.backends.base import Pcm16MonoWindow, VADBackend
 from fa_vad_py.backends.silero import SileroVAD
 from fa_vad_py.contracts import (
     audio_frame_to_float_samples,
@@ -196,16 +196,19 @@ class FaVadNode(Node):
         except ValueError as exc:
             self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
             return
-        if samples.size == 0:
-            return
-
-        pcm_bytes = _float_to_pcm16(samples)
+        pcm_window = Pcm16MonoWindow(
+            sample_rate=self._target_sample_rate,
+            data=_float_to_pcm16(samples),
+        )
         try:
-            probability, is_speech, start, end = self._vad.update(pcm_bytes)
+            decision = self._vad.update(pcm_window)
         except Exception as exc:
             self.get_logger().fatal("VAD backend failed: %s", exc)
             rclpy.shutdown()
             raise
+        if decision is None:
+            return
+        probability, is_speech, start, end = decision
 
         if self._log_events:
             if start:

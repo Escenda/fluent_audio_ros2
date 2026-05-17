@@ -7,7 +7,9 @@ import numpy as np
 import pytest
 import yaml
 
+from fa_vad_py.backends.base import Pcm16MonoWindow
 from fa_vad_py.backends.silero import SileroVAD
+from fa_vad_py.backends.silero_worker import parse_args
 from fa_vad_py.contracts import (
     audio_frame_to_float_samples,
     validate_node_config,
@@ -90,7 +92,8 @@ class _FakeVadState:
 
 
 class _FailingVadBackend:
-    def update(self, pcm16_bytes: bytes) -> tuple[float, bool, bool, bool]:
+    def update(self, window: Pcm16MonoWindow) -> tuple[float, bool, bool, bool]:
+        del window
         raise _BackendCrash("vad backend down")
 
 
@@ -168,6 +171,25 @@ def _silero_backend(
         workspace_dir=workspace_dir,
         cleanup_audio_files=True,
     )
+
+
+def _pcm16_window(*, sample_rate: int = 16000, sample_count: int = 512) -> Pcm16MonoWindow:
+    return Pcm16MonoWindow(sample_rate=sample_rate, data=bytes(sample_count * 2))
+
+
+def _write_wav(path: Path, *, sample_rate: int, sample_count: int) -> None:
+    import wave
+
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(bytes(sample_count * 2))
+
+
+def _write_executable(path: Path) -> None:
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    path.chmod(0o755)
 
 
 def test_default_config_requires_explicit_silero_model_path() -> None:
@@ -346,8 +368,52 @@ def test_silero_backend_rejects_missing_command(tmp_path: Path) -> None:
 
 
 def test_silero_backend_rejects_missing_command_placeholders(tmp_path: Path) -> None:
-    with pytest.raises(RuntimeError, match="backend.args must include the \\{audio\\} placeholder"):
+    with pytest.raises(RuntimeError, match="backend.args must include placeholders"):
         _silero_backend(model_path=str(tmp_path), args=("--model", "{model}"))
+
+
+def test_silero_backend_rejects_unsupported_arg_placeholder(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="unsupported backend.args placeholder: device"):
+        _silero_backend(
+            model_path=str(tmp_path),
+            args=DEFAULT_ARGS + ("{device}",),
+        )
+
+
+def test_silero_backend_rejects_malformed_arg_placeholder(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.args contains malformed format string"):
+        _silero_backend(
+            model_path=str(tmp_path),
+            args=DEFAULT_ARGS + ("{audio",),
+        )
+
+
+def test_silero_backend_rejects_arg_format_spec(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="placeholders must not use conversion or format spec"):
+        _silero_backend(
+            model_path=str(tmp_path),
+            args=DEFAULT_ARGS + ("{audio!r}",),
+        )
+
+
+def test_silero_backend_resolves_model_and_command_paths(tmp_path: Path) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    command_path = tmp_path / "worker"
+    _write_executable(command_path)
+
+    backend = _silero_backend(model_path=str(model_dir), command=str(command_path))
+
+    assert backend._model_path == model_dir.resolve()
+    assert backend._command == str(command_path.resolve())
+
+
+def test_silero_backend_rejects_non_executable_command(tmp_path: Path) -> None:
+    command_path = tmp_path / "worker"
+    command_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="backend.command is not executable"):
+        _silero_backend(model_path=str(tmp_path), command=str(command_path))
 
 
 def test_silero_backend_rejects_invalid_sample_rate(tmp_path: Path) -> None:
@@ -437,13 +503,68 @@ def test_silero_backend_runs_external_worker_contract(tmp_path: Path) -> None:
         workspace_dir=str(workspace_dir),
     )
 
-    result = backend.update(bytes(512 * 2))
+    result = backend.update(_pcm16_window())
 
+    assert result is not None
     assert result.probability == 0.75
     assert result.is_speech is True
     assert result.start is True
     assert result.end is False
     assert list(workspace_dir.iterdir()) == []
+
+
+def test_silero_backend_returns_explicit_no_decision_for_short_window(tmp_path: Path) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    backend = _silero_backend(model_path=str(model_dir))
+
+    assert backend.update(_pcm16_window(sample_count=128)) is None
+
+
+def test_silero_backend_rejects_window_sample_rate_mismatch(tmp_path: Path) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    backend = _silero_backend(model_path=str(model_dir), sample_rate=16000)
+
+    with pytest.raises(ValueError, match="sample_rate must match backend sample_rate"):
+        backend.update(_pcm16_window(sample_rate=8000, sample_count=256))
+
+
+def test_pcm16_window_rejects_invalid_boundary_values() -> None:
+    with pytest.raises(ValueError, match="sample_rate must be 8000 or 16000"):
+        Pcm16MonoWindow(sample_rate=44100, data=b"\x00\x00")
+    with pytest.raises(ValueError, match="data is required"):
+        Pcm16MonoWindow(sample_rate=16000, data=b"")
+    with pytest.raises(ValueError, match="PCM16 byte-aligned"):
+        Pcm16MonoWindow(sample_rate=16000, data=b"\x00")
+
+
+def test_silero_worker_rejects_unsupported_sample_rate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    audio_path = tmp_path / "audio.wav"
+    _write_wav(audio_path, sample_rate=44100, sample_count=512)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "silero_vad_worker",
+            "--audio",
+            str(audio_path),
+            "--model",
+            str(model_dir),
+            "--provider",
+            "cpu",
+            "--sample-rate",
+            "44100",
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="sample-rate must be 8000 or 16000"):
+        parse_args()
 
 
 def test_silero_worker_is_installed_by_cmake() -> None:

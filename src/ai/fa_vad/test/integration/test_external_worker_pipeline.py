@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 
+from fa_vad_py.backends.base import Pcm16MonoWindow
 from fa_vad_py.backends.silero import SileroVAD
 
 
@@ -45,8 +46,9 @@ def test_external_worker_pipeline_reports_speech_start(tmp_path: Path) -> None:
     (model_dir / "probability.txt").write_text("0.75", encoding="utf-8")
     backend = _backend(tmp_path=tmp_path, model_dir=model_dir)
 
-    result = backend.update(bytes(512 * 2))
+    result = backend.update(Pcm16MonoWindow(sample_rate=16000, data=bytes(512 * 2)))
 
+    assert result is not None
     assert result.probability == 0.75
     assert result.is_speech is True
     assert result.start is True
@@ -60,12 +62,14 @@ def test_external_worker_pipeline_reports_speech_end_after_hangover(tmp_path: Pa
     (model_dir / "probability.txt").write_text("0.75", encoding="utf-8")
     backend = _backend(tmp_path=tmp_path, model_dir=model_dir, hangover_ms=20)
 
-    start = backend.update(bytes(512 * 2))
+    start = backend.update(Pcm16MonoWindow(sample_rate=16000, data=bytes(512 * 2)))
+    assert start is not None
     assert start.start is True
 
     (model_dir / "probability.txt").write_text("0.10", encoding="utf-8")
-    end = backend.update(bytes(512 * 2))
+    end = backend.update(Pcm16MonoWindow(sample_rate=16000, data=bytes(512 * 2)))
 
+    assert end is not None
     assert end.probability == 0.1
     assert end.is_speech is False
     assert end.start is False

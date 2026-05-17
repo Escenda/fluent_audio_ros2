@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import os
 import shutil
+import string
 import subprocess
 import time
 import wave
 from pathlib import Path
 
-from fa_vad_py.backends.base import VADResult
+from fa_vad_py.backends.base import Pcm16MonoWindow, VADDecision, VADResult
+
+
+_PAYLOAD_ENCODING = "pcm16_wav"
+_ALLOWED_ARG_FIELDS = frozenset(("audio", "model", "provider", "sample_rate"))
+_REQUIRED_ARG_FIELDS = frozenset(("audio", "model", "provider", "sample_rate"))
 
 
 class SileroVAD:
@@ -54,6 +60,7 @@ class SileroVAD:
         self._timeout_sec = self._validate_timeout(timeout_sec)
         self._workspace_dir = self._validate_workspace_dir(workspace_dir)
         self._cleanup_audio_files = bool(cleanup_audio_files)
+        self._payload_encoding = _PAYLOAD_ENCODING
 
         self._triggered = False
         self._hang_counter = 0
@@ -62,8 +69,15 @@ class SileroVAD:
         self._buffer = bytearray()
         self._buf_ready = False
 
-    def update(self, pcm16_bytes: bytes) -> VADResult:
-        probability = self._probability(pcm16_bytes)
+    def update(self, window: Pcm16MonoWindow) -> VADDecision:
+        if window.sample_rate != self.sample_rate:
+            raise ValueError(
+                "Pcm16MonoWindow sample_rate must match backend sample_rate "
+                f"{self.sample_rate}, got {window.sample_rate}"
+            )
+        probability = self._probability(window.data)
+        if probability is None:
+            return None
         is_speech = probability >= self.threshold_start
 
         start = False
@@ -85,10 +99,7 @@ class SileroVAD:
 
         return VADResult(probability, self._triggered, start, end)
 
-    def _probability(self, pcm16_bytes: bytes) -> float:
-        if not pcm16_bytes:
-            return 0.0
-
+    def _probability(self, pcm16_bytes: bytes) -> float | None:
         self._buffer.extend(pcm16_bytes)
         max_bytes = self._max_samples * 2
         if len(self._buffer) > max_bytes:
@@ -96,13 +107,13 @@ class SileroVAD:
 
         required_bytes = self._required_samples * 2
         if len(self._buffer) < required_bytes:
-            return 0.0
+            return None
 
         self._buf_ready = True
         window = bytes(self._buffer[-required_bytes:])
         wav_path = self._workspace_dir / f"{time.time_ns()}_vad.wav"
         try:
-            self._write_wav(wav_path, window)
+            self._write_audio_payload(wav_path, window)
             command = [self._command]
             command.extend(self._format_args(wav_path))
             try:
@@ -143,6 +154,11 @@ class SileroVAD:
             wav_file.setsampwidth(2)
             wav_file.setframerate(self.sample_rate)
             wav_file.writeframes(pcm16_bytes)
+
+    def _write_audio_payload(self, wav_path: Path, pcm16_bytes: bytes) -> None:
+        if self._payload_encoding != _PAYLOAD_ENCODING:
+            raise RuntimeError(f"unsupported VAD payload_encoding: {self._payload_encoding}")
+        self._write_wav(wav_path, pcm16_bytes)
 
     @staticmethod
     def _validate_sample_rate(sample_rate: int) -> int:
@@ -190,9 +206,14 @@ class SileroVAD:
         path_value = model_path.strip()
         if not path_value:
             raise RuntimeError("backend.model_path is required")
-        path = Path(path_value).expanduser()
+        try:
+            path = Path(path_value).expanduser().resolve(strict=True)
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"backend.model_path does not exist: {path_value}") from exc
         if not path.is_dir():
             raise RuntimeError(f"backend.model_path does not exist: {path}")
+        if not os.access(path, os.R_OK | os.X_OK):
+            raise RuntimeError(f"backend.model_path is not readable: {path}")
         return path
 
     @staticmethod
@@ -216,24 +237,51 @@ class SileroVAD:
         command_value = command.strip()
         if not command_value:
             raise RuntimeError("backend.command is required")
-        if "/" in command_value:
-            command_path = Path(command_value).expanduser()
-            if not command_path.is_file() or not os.access(command_path, os.X_OK):
-                raise RuntimeError(f"backend.command is not executable: {command_path}")
-            return str(command_path)
+        command_path = Path(command_value).expanduser()
+        if "/" in command_value or command_path.is_absolute():
+            try:
+                resolved_path = command_path.resolve(strict=True)
+            except FileNotFoundError as exc:
+                raise RuntimeError(f"backend.command does not exist: {command_path}") from exc
+            if not resolved_path.is_file():
+                raise RuntimeError(f"backend.command is not a file: {resolved_path}")
+            if not os.access(resolved_path, os.X_OK):
+                raise RuntimeError(f"backend.command is not executable: {resolved_path}")
+            return str(resolved_path)
         resolved = shutil.which(command_value)
         if resolved is None:
             raise RuntimeError(f"backend.command not found on PATH: {command_value}")
-        return resolved
+        return str(Path(resolved).resolve(strict=True))
 
     @staticmethod
     def _validate_args(args: tuple[str, ...]) -> tuple[str, ...]:
         if not args:
-            raise RuntimeError("backend.args is required")
-        rendered = " ".join(args)
-        for placeholder in ("{audio}", "{model}", "{provider}", "{sample_rate}"):
-            if placeholder not in rendered:
-                raise RuntimeError(f"backend.args must include the {placeholder} placeholder")
+            raise RuntimeError("backend.args must not be empty")
+        fields: set[str] = set()
+        formatter = string.Formatter()
+        for part in args:
+            try:
+                parsed_parts = tuple(formatter.parse(part))
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"backend.args contains malformed format string: {part}"
+                ) from exc
+            for _, field_name, format_spec, conversion in parsed_parts:
+                if field_name is None:
+                    continue
+                if conversion is not None or format_spec:
+                    raise RuntimeError(
+                        "backend.args placeholders must not use conversion or format spec"
+                    )
+                if field_name not in _ALLOWED_ARG_FIELDS:
+                    raise RuntimeError(f"unsupported backend.args placeholder: {field_name}")
+                fields.add(field_name)
+        missing = sorted(_REQUIRED_ARG_FIELDS.difference(fields))
+        if missing:
+            raise RuntimeError(
+                "backend.args must include placeholders: "
+                + ", ".join(f"{{{field}}}" for field in missing)
+            )
         return args
 
     @staticmethod

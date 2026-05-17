@@ -31,8 +31,8 @@ def parse_args() -> WorkerConfig:
     model_path = Path(args.model).expanduser()
     if not model_path.is_dir():
         raise RuntimeError(f"model directory does not exist: {model_path}")
-    if args.sample_rate <= 0:
-        raise RuntimeError("sample-rate must be > 0")
+    if args.sample_rate not in (8000, 16000):
+        raise RuntimeError("sample-rate must be 8000 or 16000")
 
     return WorkerConfig(
         audio_path=audio_path,
