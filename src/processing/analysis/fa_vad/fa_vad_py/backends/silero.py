@@ -122,13 +122,11 @@ class SileroVAD:
         logger.info("Loading Silero VAD model (offline-first)")
 
         repo_dir = self._silero_repo_dir.strip() if self._silero_repo_dir else ""
-        if not repo_dir:
-            repo_dir = os.path.expanduser("~/.cache/torch/hub/snakers4_silero-vad_master")
         repo_dir = os.path.expanduser(repo_dir)
 
-        try:
+        if repo_dir:
             if not os.path.isdir(repo_dir):
-                raise FileNotFoundError(f"Silero repo dir not found: {repo_dir}")
+                raise RuntimeError(f"silero.repo_dir does not exist: {repo_dir}")
             self.model, _ = torch.hub.load(
                 repo_dir,
                 "silero_vad",
@@ -136,22 +134,17 @@ class SileroVAD:
                 trust_repo=True,
             )
             logger.info("Loaded Silero VAD from local repo: %s", repo_dir)
-        except Exception as exc:
-            if not self._allow_online:
-                raise RuntimeError(
-                    "Failed to load Silero VAD model from local repo. "
-                    "Set parameter 'silero.repo_dir' to a local clone/cache of "
-                    "'snakers4/silero-vad' (torch.hub format), or enable "
-                    "'silero.allow_online:=true' for one-time download. "
-                    f"repo_dir={repo_dir} error={exc}"
-                ) from exc
-
-            logger.warning("Local repo load failed (%s), trying online...", exc)
+        elif self._allow_online:
+            logger.warning("Loading Silero VAD from torch.hub online source")
             self.model, _ = torch.hub.load(
                 "snakers4/silero-vad",
                 "silero_vad",
                 force_reload=False,
                 trust_repo=True,
+            )
+        else:
+            raise RuntimeError(
+                "silero.repo_dir is required when silero.allow_online is false"
             )
 
         self.model.eval()

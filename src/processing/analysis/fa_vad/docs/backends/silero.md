@@ -26,4 +26,7 @@ Python / PyTorch Silero VAD。
 - online download が disabled かつ local repo がない
 - model load failure
 
-online download は fallback ではありません。`silero.allow_online` を明示した場合だけ許可します。
+`silero.repo_dir` は `silero.allow_online=false` のとき必須です。空の場合は
+`~/.cache/torch/hub` などを推測せず起動失敗します。online download は
+fallback ではありません。`silero.allow_online=true` かつ repo dir 未指定の
+場合だけ、明示された online source として使います。
