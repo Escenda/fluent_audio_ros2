@@ -51,6 +51,31 @@ TEST(AudioUtilsContract, RejectsPcm32PayloadBeforeFloatInterpretation)
     std::invalid_argument);
 }
 
+TEST(AudioUtilsContract, RejectsEmptyPayloadAfterMetadataValidation)
+{
+  auto msg = makeCanonicalFrame();
+  msg.data.clear();
+
+  EXPECT_THROW(
+    {
+      (void)fa_kws::frameToCanonicalFloat(msg);
+    },
+    std::invalid_argument);
+}
+
+TEST(AudioUtilsContract, RejectsBadMetadataBeforeEmptyPayloadPolicy)
+{
+  auto msg = makeCanonicalFrame();
+  msg.data.clear();
+  msg.encoding = "PCM32LE";
+
+  EXPECT_THROW(
+    {
+      (void)fa_kws::frameToCanonicalFloat(msg);
+    },
+    std::invalid_argument);
+}
+
 TEST(AudioUtilsContract, RejectsNonNormalizedFloatSamples)
 {
   auto msg = makeCanonicalFrame();

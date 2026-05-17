@@ -56,6 +56,9 @@ public:
   void resetHard() override;
 
 private:
+  void validateConfig() const;
+  void requireReady(const char *operation) const;
+
   SherpaOnnxKwsBackendConfig config_;
   const SherpaOnnxKeywordSpotter *spotter_{nullptr};
   SherpaOnnxOnlineStream *stream_{nullptr};  // non-const for resetHard()

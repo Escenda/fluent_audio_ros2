@@ -44,6 +44,8 @@ def test_backend_config_has_no_provider_default() -> None:
 def test_cmake_accepts_sherpa_prefix_from_environment() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
+    assert "set(CMAKE_CXX_STANDARD 17)" in cmake_text
+    assert "set(CMAKE_CXX_STANDARD_REQUIRED ON)" in cmake_text
     assert 'DEFINED ENV{SHERPA_ONNX_PREFIX}' in cmake_text
     assert '$ENV{SHERPA_ONNX_PREFIX}' in cmake_text
 
@@ -197,9 +199,11 @@ def test_kws_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame layout must be interleaved" in audio_utils_text
     assert "AudioFrame encoding must be FLOAT32LE" in audio_utils_text
     assert "AudioFrame bit_depth must be 32" in audio_utils_text
+    assert "AudioFrame data is required" in audio_utils_text
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in audio_utils_text
     assert "sherpa-onnx will resample internally" not in node_text
     assert "Dropping AudioFrame with sample_rate" in node_text
+    assert "if (samples.empty())" not in node_text
     assert "dump_audio" not in node_text
     assert "writeWav" not in node_text
     assert "capture_buffer_" not in node_text
@@ -261,3 +265,45 @@ def test_wav_tool_validates_wav_before_backend_initialization() -> None:
 
     assert batch_validation < batch_engine
     assert single_validation < single_engine
+
+
+def test_backend_boundary_fails_closed_for_invalid_runtime_state() -> None:
+    backend_text = (
+        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
+    ).read_text(encoding="utf-8")
+    header_text = (
+        PACKAGE_ROOT
+        / "include"
+        / "fa_kws"
+        / "backends"
+        / "sherpa_onnx_kws_backend.hpp"
+    ).read_text(encoding="utf-8")
+
+    assert "void validateConfig() const;" in header_text
+    assert "void requireReady(const char *operation) const;" in header_text
+    assert "requireReady(\"process\");" in backend_text
+    assert "KWS backend samples are required" in backend_text
+    assert "sample_rate must match configured target_sample_rate" in backend_text
+    assert "SherpaOnnxKwsBackend resetHard requested without keyword spotter" in backend_text
+    assert "failed during resetHard" in backend_text
+    assert "if (!spotter_ || !stream_ || samples.empty())" not in backend_text
+    assert "return std::nullopt;" in backend_text
+
+
+def test_backend_validates_model_paths_and_numeric_config_before_c_api() -> None:
+    backend_text = (
+        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert backend_text.index("validateConfig();") < backend_text.index("SherpaOnnxFeatureConfig")
+    assert "requireReadableRegularFile(\"backend.encoder\"" in backend_text
+    assert "requireReadableRegularFile(\"backend.decoder\"" in backend_text
+    assert "requireReadableRegularFile(\"backend.joiner\"" in backend_text
+    assert "requireReadableRegularFile(\"backend.tokens\"" in backend_text
+    assert "requireReadableRegularFile(\"backend.keywords\"" in backend_text
+    assert "backend.target_sample_rate must be > 0" in backend_text
+    assert "backend.model_num_threads must be > 0" in backend_text
+    assert "backend.max_active_paths must be > 0" in backend_text
+    assert "backend.num_trailing_blanks must be >= 0" in backend_text
+    assert "backend.keywords_score must be finite and > 0" in backend_text
+    assert "backend.keywords_threshold must be finite and > 0" in backend_text

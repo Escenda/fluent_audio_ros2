@@ -4,6 +4,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -34,6 +37,25 @@ void tracef(const char *fmt, ...)
   std::fflush(stderr);
 }
 
+void requireReadableRegularFile(const char *config_name, const std::string &path_value)
+{
+  if (path_value.empty()) {
+    throw std::invalid_argument(std::string(config_name) + " is required");
+  }
+
+  const std::filesystem::path path(path_value);
+  std::error_code ec;
+  if (!std::filesystem::is_regular_file(path, ec)) {
+    throw std::invalid_argument(std::string(config_name) + " must be a regular readable file: " +
+                                path_value);
+  }
+
+  std::ifstream probe(path, std::ios::binary);
+  if (!probe.good()) {
+    throw std::invalid_argument(std::string(config_name) + " is not readable: " + path_value);
+  }
+}
+
 }  // namespace
 
 namespace fa_kws
@@ -56,16 +78,7 @@ SherpaOnnxKwsBackend::SherpaOnnxKwsBackend(const SherpaOnnxKwsBackendConfig &con
   last_detect_time_(std::chrono::steady_clock::now()),
   has_detect_time_(false)
 {
-  if (!isSupportedSherpaOnnxExecutionProvider(config_.execution_provider)) {
-    throw std::invalid_argument(
-      "unsupported backend.execution_provider for sherpa_onnx_kws: " +
-      config_.execution_provider +
-      "; supported providers: " +
-      supportedSherpaOnnxExecutionProvidersForMessage());
-  }
-  if (!isValidVadGateThreshold(static_cast<double>(config_.vad_threshold))) {
-    throw std::invalid_argument("vad_threshold must be finite and in (0.0, 1.0]");
-  }
+  validateConfig();
 
   SherpaOnnxFeatureConfig feat_config;
   std::memset(&feat_config, 0, sizeof(feat_config));
@@ -134,8 +147,14 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
   float vad_prob,
   std::chrono::steady_clock::time_point now)
 {
-  if (!spotter_ || !stream_ || samples.empty()) {
-    return std::nullopt;
+  requireReady("process");
+  if (samples.empty()) {
+    throw std::invalid_argument("KWS backend samples are required");
+  }
+  if (sample_rate != config_.target_sample_rate) {
+    throw std::invalid_argument(
+      "KWS backend sample_rate must match configured target_sample_rate " +
+      std::to_string(config_.target_sample_rate) + ", got " + std::to_string(sample_rate));
   }
   if (!isValidVadProbability(vad_prob)) {
     throw std::invalid_argument("vad_prob must be finite and in [0.0, 1.0]");
@@ -218,22 +237,78 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
 
 void SherpaOnnxKwsBackend::reset()
 {
-  if (spotter_ && stream_) {
-    SherpaOnnxResetKeywordStream(spotter_, stream_);
-    has_detect_time_ = false;
-  }
+  requireReady("reset");
+  SherpaOnnxResetKeywordStream(spotter_, stream_);
+  has_detect_time_ = false;
 }
 
 void SherpaOnnxKwsBackend::resetHard()
 {
+  if (!spotter_) {
+    throw std::runtime_error("SherpaOnnxKwsBackend resetHard requested without keyword spotter");
+  }
   if (stream_) {
     SherpaOnnxDestroyOnlineStream(stream_);
     stream_ = nullptr;
   }
-  if (spotter_) {
-    stream_ = const_cast<SherpaOnnxOnlineStream*>(SherpaOnnxCreateKeywordStream(spotter_));
+  stream_ = const_cast<SherpaOnnxOnlineStream*>(SherpaOnnxCreateKeywordStream(spotter_));
+  if (!stream_) {
+    throw std::runtime_error(
+      "SherpaOnnxKwsBackend: SherpaOnnxCreateKeywordStream() failed during resetHard");
   }
   has_detect_time_ = false;
+}
+
+void SherpaOnnxKwsBackend::validateConfig() const
+{
+  if (config_.target_sample_rate <= 0) {
+    throw std::invalid_argument("backend.target_sample_rate must be > 0");
+  }
+  if (config_.model_num_threads <= 0) {
+    throw std::invalid_argument("backend.model_num_threads must be > 0");
+  }
+  if (!isSupportedSherpaOnnxExecutionProvider(config_.execution_provider)) {
+    throw std::invalid_argument(
+      "unsupported backend.execution_provider for sherpa_onnx_kws: " +
+      config_.execution_provider +
+      "; supported providers: " +
+      supportedSherpaOnnxExecutionProvidersForMessage());
+  }
+  requireReadableRegularFile("backend.encoder", config_.encoder_path);
+  requireReadableRegularFile("backend.decoder", config_.decoder_path);
+  requireReadableRegularFile("backend.joiner", config_.joiner_path);
+  requireReadableRegularFile("backend.tokens", config_.tokens_path);
+  requireReadableRegularFile("backend.keywords", config_.keywords_path);
+  if (config_.max_active_paths <= 0) {
+    throw std::invalid_argument("backend.max_active_paths must be > 0");
+  }
+  if (config_.num_trailing_blanks < 0) {
+    throw std::invalid_argument("backend.num_trailing_blanks must be >= 0");
+  }
+  if (!std::isfinite(config_.keywords_score) || config_.keywords_score <= 0.0f) {
+    throw std::invalid_argument("backend.keywords_score must be finite and > 0");
+  }
+  if (!std::isfinite(config_.keywords_threshold) || config_.keywords_threshold <= 0.0f) {
+    throw std::invalid_argument("backend.keywords_threshold must be finite and > 0");
+  }
+  if (!isValidVadGateThreshold(static_cast<double>(config_.vad_threshold))) {
+    throw std::invalid_argument("vad_threshold must be finite and in (0.0, 1.0]");
+  }
+  if (config_.cooldown.count() < 0) {
+    throw std::invalid_argument("backend.cooldown must be >= 0 ms");
+  }
+}
+
+void SherpaOnnxKwsBackend::requireReady(const char *operation) const
+{
+  if (!spotter_) {
+    throw std::runtime_error(std::string("SherpaOnnxKwsBackend ") + operation +
+                             " requested without keyword spotter");
+  }
+  if (!stream_) {
+    throw std::runtime_error(std::string("SherpaOnnxKwsBackend ") + operation +
+                             " requested without keyword stream");
+  }
 }
 
 }  // namespace fa_kws

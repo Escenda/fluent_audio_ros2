@@ -354,10 +354,6 @@ private:
       RCLCPP_ERROR(this->get_logger(), "Dropping invalid AudioFrame: %s", e.what());
       return;
     }
-    if (samples.empty()) {
-      return;
-    }
-
     const std::int32_t src_rate = static_cast<std::int32_t>(msg->sample_rate);
     if (src_rate <= 0) {
       RCLCPP_ERROR(this->get_logger(), "Dropping AudioFrame with invalid sample_rate=%d", src_rate);

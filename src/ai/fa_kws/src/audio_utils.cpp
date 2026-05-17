@@ -16,10 +16,6 @@ constexpr const char * kInterleavedLayout = "interleaved";
 
 std::vector<float> frameToCanonicalFloat(const fa_interfaces::msg::AudioFrame &msg)
 {
-  if (msg.data.empty()) {
-    return {};
-  }
-
   if (msg.channels != 1u) {
     throw std::invalid_argument(
       "AudioFrame channels must be 1, got " + std::to_string(msg.channels));
@@ -36,6 +32,9 @@ std::vector<float> frameToCanonicalFloat(const fa_interfaces::msg::AudioFrame &m
   if (msg.bit_depth != 32u) {
     throw std::invalid_argument(
       "AudioFrame bit_depth must be 32, got " + std::to_string(msg.bit_depth));
+  }
+  if (msg.data.empty()) {
+    throw std::invalid_argument("AudioFrame data is required");
   }
   if (msg.data.size() % sizeof(float) != 0u) {
     throw std::invalid_argument("AudioFrame float32 data length is not byte-aligned");
