@@ -4,9 +4,11 @@ from pathlib import Path
 import sys
 from types import ModuleType
 
+import numpy as np
 import pytest
 import yaml
 
+from fa_asr_py.backends.base import AsrRequest
 from fa_asr_py.backends.factory import AsrBackendSettings, build_asr_backend
 from fa_asr_py.backends.local_command import LocalCommandAsrBackend, load_local_command_config
 from fa_asr_py.backends.openai_realtime import (
@@ -34,9 +36,9 @@ class _FakeNode:
 
 class _FakeLogger:
     def __init__(self) -> None:
-        self.error_records: list[tuple[str, ValueError]] = []
+        self.error_records: list[tuple[str, Exception]] = []
 
-    def error(self, message: str, exc: ValueError) -> None:
+    def error(self, message: str, exc: Exception) -> None:
         self.error_records.append((message, exc))
 
 
@@ -84,6 +86,17 @@ class _FakeTurnContext:
 
 class _FakeVadState:
     pass
+
+
+class _BackendCrash(Exception):
+    pass
+
+
+class _FailingAsrBackend:
+    name = "failing"
+
+    def transcribe(self, request: AsrRequest) -> str:
+        raise _BackendCrash("asr backend crashed")
 
 
 def _install_asr_node_import_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,6 +251,50 @@ def test_asr_node_rejects_empty_audio_data_from_callback(
         error_message, error_exception = node._logger.error_records[0]
         assert error_message == "Dropping invalid AudioFrame: %s"
         assert str(error_exception) == "AudioFrame data is required"
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
+def test_asr_node_maps_unexpected_backend_exception_to_error_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        node = module.FaAsrNode.__new__(module.FaAsrNode)
+        node._logger = _FakeLogger()
+        node.backend = _FailingAsrBackend()
+        published: list[tuple[str, int, int, str, str]] = []
+
+        def publish_result(
+            session_id: str,
+            user_turn_id: int,
+            status: int,
+            reason: str,
+            text: str,
+        ) -> None:
+            published.append((session_id, user_turn_id, status, reason, text))
+
+        node._publish_result = publish_result
+        job = module.TranscriptionJob(
+            session_id="session-1",
+            user_turn_id=9,
+            samples=np.zeros(1, dtype=np.float32),
+            sample_rate=16000,
+            reason="vad_end",
+        )
+
+        node._run_transcription(job)
+
+        assert published == [("session-1", 9, _FakeAsrResult.STATUS_ERROR, "backend_error", "")]
+        assert len(node._logger.error_records) == 1
+        error_message, error_exception = node._logger.error_records[0]
+        assert error_message == "ASR transcription failed: %s"
+        assert isinstance(error_exception, _BackendCrash)
+        assert str(error_exception) == "asr backend crashed"
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 

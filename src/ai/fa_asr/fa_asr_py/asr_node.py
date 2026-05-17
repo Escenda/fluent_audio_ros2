@@ -272,7 +272,7 @@ class FaAsrNode(Node):
                 "backend_timeout",
                 "",
             )
-        except (OSError, ValueError, RuntimeError) as exc:
+        except Exception as exc:
             self.get_logger().error("ASR transcription failed: %s", exc)
             self._publish_result(
                 job.session_id,
