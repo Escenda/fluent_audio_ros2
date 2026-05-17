@@ -30,6 +30,10 @@ PROCESSING_CATEGORIES = (
     "routing",
 )
 
+ANALYSIS_PACKAGE_NAMES = (
+    "fa_log_mel",
+)
+
 
 AI_PACKAGE_NAMES = (
     "fa_asr",
@@ -168,6 +172,17 @@ def test_processing_ros_packages_live_under_taxonomy_categories() -> None:
     assert invalid == []
 
 
+def test_analysis_category_contains_only_non_ai_feature_packages() -> None:
+    invalid: list[str] = []
+    analysis_root = SRC_ROOT / "processing" / "analysis"
+
+    for package_root in sorted(path.parent for path in analysis_root.rglob("package.xml")):
+        if package_root.name not in ANALYSIS_PACKAGE_NAMES:
+            invalid.append(str(package_root.relative_to(REPO_ROOT)))
+
+    assert invalid == []
+
+
 def test_ai_ros_packages_live_under_src_ai() -> None:
     missing: list[str] = []
 
@@ -209,6 +224,17 @@ def test_streaming_ros_packages_live_under_src_streaming() -> None:
             missing.append(str(package_root.relative_to(REPO_ROOT)))
 
     assert missing == []
+
+
+def test_network_stream_sink_utility_is_not_transport_streaming() -> None:
+    package_path = SRC_ROOT / "io" / "utilities" / "fa_stream"
+    streaming_path = SRC_ROOT / "streaming" / "fa_stream"
+    docs = (package_path / "docs" / "仕様書.md").read_text(encoding="utf-8")
+
+    assert (package_path / "package.xml").is_file()
+    assert not streaming_path.exists()
+    assert "src/streaming" in docs
+    assert "リアルタイム伝送安定化" in docs
 
 
 def test_processing_does_not_contain_ai_or_streaming_packages() -> None:

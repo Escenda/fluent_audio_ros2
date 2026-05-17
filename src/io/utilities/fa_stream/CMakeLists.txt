@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.8)
 project(fa_stream)
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
+
+ament_python_install_package(fa_stream_py PACKAGE_DIR fa_stream_py)
 
 install(PROGRAMS
   scripts/fa_stream_node.py

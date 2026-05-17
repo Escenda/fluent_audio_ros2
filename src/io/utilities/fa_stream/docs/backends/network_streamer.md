@@ -4,6 +4,8 @@
 
 `network_streamer` は validated audio chunk を外部 endpoint へ送る backend である。ROS2 topic を知らず、endpoint / codec / transport config と chunk のみを扱う。
 
+`network_streamer` は network sink backend であり、`src/streaming` 配下の transport stabilization node ではない。jitter buffer、clock drift correction、PLC、time alignment はこの backend に混ぜない。
+
 ## 入力
 
 - endpoint URI

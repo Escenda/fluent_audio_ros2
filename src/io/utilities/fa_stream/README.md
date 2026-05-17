@@ -1,6 +1,8 @@
 # FA Stream
 
-`fa_stream`は`audio/frame`（`fa_interfaces/msg/AudioFrame`）を購読し、`ffmpeg`へパイプしてIcecast/Shoutcast系エンドポイントへ送る streaming sink です（クラウド依存はなく、任意のHTTP PUT先へ送出できます）。
+`fa_stream`は`audio/frame`（`fa_interfaces/msg/AudioFrame`）を購読し、`ffmpeg`へパイプしてIcecast/Shoutcast系エンドポイントへ送る network stream sink utility です（クラウド依存はなく、任意のHTTP PUT先へ送出できます）。
+
+この package は network sink であり、`src/streaming` の jitter buffer / clock drift / PLC などのリアルタイム伝送安定化 node ではありません。
 
 ## 起動
 ```bash

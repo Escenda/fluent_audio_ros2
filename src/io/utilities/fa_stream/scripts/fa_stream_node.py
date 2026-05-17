@@ -6,15 +6,17 @@ This node subscribes to fa_interfaces/msg/AudioFrame and pipes the raw PCM sampl
 to an ffmpeg process that publishes to an Icecast/Shoutcast style URL.
 """
 
-import shutil
-import signal
-import subprocess
 import sys
 
 import rclpy
 from rclpy.node import Node
 
 from fa_interfaces.msg import AudioFrame
+from fa_stream_py.backends.network_streamer import (
+    AudioStreamFormat,
+    NetworkStreamerBackend,
+    NetworkStreamerConfig,
+)
 
 
 class FaStreamNode(Node):
@@ -39,18 +41,23 @@ class FaStreamNode(Node):
         self._content_type = self._required_string_parameter("content_type")
         self._loglevel = self._required_string_parameter("loglevel")
 
-        if shutil.which(self._ffmpeg_path) is None:
-            raise RuntimeError(f"ffmpeg_path is not executable: {self._ffmpeg_path}")
-
         self._subscription = self.create_subscription(
             AudioFrame,
             self._input_topic,
             self._audio_callback,
             10,
         )
-        self._ffmpeg_proc: subprocess.Popen[bytes] | None = None
-        self._expected_rate: int | None = None
-        self._expected_channels: int | None = None
+        self._streamer = NetworkStreamerBackend(
+            NetworkStreamerConfig(
+                ffmpeg_path=self._ffmpeg_path,
+                output_url=self._output_url,
+                audio_codec=self._audio_codec,
+                bitrate=self._bitrate,
+                container_format=self._container_format,
+                content_type=self._content_type,
+                loglevel=self._loglevel,
+            )
+        )
 
         self.get_logger().info(
             "Initialized FA Stream. Waiting for audio frames on %s",
@@ -64,7 +71,7 @@ class FaStreamNode(Node):
         return value
 
     def destroy_node(self) -> bool:
-        self._stop_ffmpeg()
+        self._streamer.close()
         return super().destroy_node()
 
     def _audio_callback(self, msg: AudioFrame) -> None:
@@ -91,88 +98,14 @@ class FaStreamNode(Node):
             )
             return
 
-        if not self._ffmpeg_proc:
-            self._start_ffmpeg(msg)
-
-        if not self._ffmpeg_proc or self._ffmpeg_proc.stdin is None:
-            raise RuntimeError("ffmpeg process is not available after start")
-
-        if self._expected_rate and msg.sample_rate != self._expected_rate:
-            raise RuntimeError(
-                "Sample rate changed during stream: "
-                f"{self._expected_rate} -> {msg.sample_rate}"
-            )
-
-        if self._expected_channels and msg.channels != self._expected_channels:
-            raise RuntimeError(
-                "Channel count changed during stream: "
-                f"{self._expected_channels} -> {msg.channels}"
-            )
-
-        try:
-            self._ffmpeg_proc.stdin.write(bytes(msg.data))
-        except BrokenPipeError as exc:
-            self._stop_ffmpeg()
-            raise RuntimeError("ffmpeg pipe closed unexpectedly") from exc
-
-    def _start_ffmpeg(self, msg: AudioFrame) -> None:
-        cmd = [
-            self._ffmpeg_path,
-            "-loglevel",
-            self._loglevel,
-            "-f",
-            "s16le",
-            "-ar",
-            str(msg.sample_rate),
-            "-ac",
-            str(msg.channels),
-            "-i",
-            "pipe:0",
-            "-c:a",
-            self._audio_codec,
-            "-b:a",
-            self._bitrate,
-            "-content_type",
-            self._content_type,
-            "-f",
-            self._container_format,
-            self._output_url,
-        ]
-
-        self.get_logger().info("Starting ffmpeg: %s", " ".join(cmd))
-        try:
-            self._ffmpeg_proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
-            self._expected_rate = msg.sample_rate
-            self._expected_channels = msg.channels
-        except OSError as exc:
-            self._ffmpeg_proc = None
-            raise RuntimeError(f"failed to start ffmpeg: {exc}") from exc
-
-    def _stop_ffmpeg(self) -> None:
-        if not self._ffmpeg_proc:
-            return
-
-        proc = self._ffmpeg_proc
-        self._ffmpeg_proc = None
-        self._expected_rate = None
-        self._expected_channels = None
-
-        if proc.stdin:
-            try:
-                proc.stdin.close()
-            except OSError:
-                pass
-
-        try:
-            proc.send_signal(signal.SIGINT)
-            proc.wait(timeout=2.0)
-        except (OSError, subprocess.TimeoutExpired):
-            proc.kill()
+        audio_format = AudioStreamFormat(
+            sample_rate=msg.sample_rate,
+            channels=msg.channels,
+            bit_depth=msg.bit_depth,
+            layout=msg.layout,
+        )
+        self._streamer.ensure_started(audio_format)
+        self._streamer.write(bytes(msg.data))
 
 
 def main(argv=None) -> None:

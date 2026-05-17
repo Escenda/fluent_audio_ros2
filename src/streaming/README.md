@@ -17,3 +17,7 @@ Examples:
 
 Streaming nodes handle timing and transport behavior. They do not decide model
 backend selection or device binding.
+
+Network endpoint sinks such as `fa_stream` live under `src/io/utilities`; they
+may publish audio to an external stream, but they are not transport-stability
+nodes.

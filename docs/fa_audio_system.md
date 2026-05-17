@@ -79,7 +79,9 @@
 2. `record`サービスで開始/停止し、WAVを保存
 
 ## 6. 配信 sink（Icecast向け）
-`fa_stream`には`audio/frame`をIcecast/Shoutcastへ配信するPython node（`fa_stream_node.py`）を同梱しています。内部で`ffmpeg`を起動し、受信したPCM16フレームをMP3等へ変換してHTTP PUTします。`output_url` は必須で、空のままでは起動失敗します。
+`fa_stream`には`audio/frame`をIcecast/Shoutcastへ配信するPython node（`fa_stream_node.py`）を同梱しています。ROS2 node は topic / parameter / `AudioFrame` validation を担当し、`ffmpeg` の起動と書き込みは ROS-free な network streamer backend が担当します。`output_url` は必須で、空のままでは起動失敗します。
+
+`fa_stream` は network sink utility であり、`src/streaming` の jitter buffer / clock drift / PLC などのリアルタイム伝送安定化 node ではありません。
 
 起動例:
 ```bash
