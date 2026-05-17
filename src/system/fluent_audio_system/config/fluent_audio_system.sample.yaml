@@ -62,6 +62,19 @@ groups:
         remappings: {}
         parameters: {}
 
+  - id: frequency
+    enable: true
+    nodes:
+      - id: fa_high_pass
+        enable: false
+        package: fa_high_pass
+        exec: fa_high_pass_node
+        node_name: fa_high_pass
+        namespace: ""
+        params_file: "${share:fa_high_pass}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
   - id: correction
     enable: true
     nodes:
