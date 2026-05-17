@@ -54,19 +54,19 @@ class FaAsrNode(Node):
         self.declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)
         self.declare_parameter("backend.output_text_path", "")
 
-        self.audio_topic = str(self.get_parameter("audio_topic").value)
-        self.vad_topic = str(self.get_parameter("vad_topic").value)
-        self.turn_context_topic = str(self.get_parameter("turn_context_topic").value)
-        self.asr_result_topic = str(self.get_parameter("asr_result_topic").value)
-        self.target_sample_rate = int(self.get_parameter("target_sample_rate").value)
-        self.min_audio_sec = float(self.get_parameter("min_audio_sec").value)
-        self.silence_timeout_sec = float(self.get_parameter("silence_timeout_sec").value)
-        self.finalize_on_vad_end = bool(self.get_parameter("finalize_on_vad_end").value)
-        self.finalize_on_context_inactive = bool(
-            self.get_parameter("finalize_on_context_inactive").value
+        self.audio_topic = self._string_parameter("audio_topic")
+        self.vad_topic = self._string_parameter("vad_topic")
+        self.turn_context_topic = self._string_parameter("turn_context_topic")
+        self.asr_result_topic = self._string_parameter("asr_result_topic")
+        self.target_sample_rate = self._integer_parameter("target_sample_rate")
+        self.min_audio_sec = self._double_parameter("min_audio_sec")
+        self.silence_timeout_sec = self._double_parameter("silence_timeout_sec")
+        self.finalize_on_vad_end = self._bool_parameter("finalize_on_vad_end")
+        self.finalize_on_context_inactive = self._bool_parameter(
+            "finalize_on_context_inactive"
         )
-        self.workspace_dir = Path(str(self.get_parameter("workspace_dir").value)).expanduser()
-        self.cleanup_audio_files = bool(self.get_parameter("cleanup_audio_files").value)
+        self.workspace_dir = Path(self._string_parameter("workspace_dir")).expanduser()
+        self.cleanup_audio_files = self._bool_parameter("cleanup_audio_files")
 
         self.backend = self._load_backend()
 
@@ -119,31 +119,58 @@ class FaAsrNode(Node):
     def _load_backend(self) -> AsrBackend:
         return build_asr_backend(
             AsrBackendSettings(
-                name=str(self.get_parameter("backend.name").value),
-                command=str(self.get_parameter("backend.command").value),
-                model=str(self.get_parameter("backend.model").value),
-                model_path=str(self.get_parameter("backend.model_path").value),
-                openai_realtime_api_key_env=str(
-                    self.get_parameter("backend.openai_realtime.api_key_env").value
+                name=self._string_parameter("backend.name"),
+                command=self._string_parameter("backend.command"),
+                model=self._string_parameter("backend.model"),
+                model_path=self._string_parameter("backend.model_path"),
+                openai_realtime_api_key_env=self._string_parameter(
+                    "backend.openai_realtime.api_key_env"
                 ),
-                openai_transcriptions_api_key_env=str(
-                    self.get_parameter("backend.openai_transcriptions.api_key_env").value
+                openai_transcriptions_api_key_env=self._string_parameter(
+                    "backend.openai_transcriptions.api_key_env"
                 ),
-                language=str(self.get_parameter("backend.language").value),
+                language=self._string_parameter("backend.language"),
                 args=self._backend_args(),
-                timeout_sec=float(self.get_parameter("backend.timeout_sec").value),
-                working_directory=str(self.get_parameter("backend.working_directory").value),
-                output_text_path=str(self.get_parameter("backend.output_text_path").value),
+                timeout_sec=self._double_parameter("backend.timeout_sec"),
+                working_directory=self._string_parameter("backend.working_directory"),
+                output_text_path=self._string_parameter("backend.output_text_path"),
                 workspace_dir=self.workspace_dir,
                 cleanup_audio_files=self.cleanup_audio_files,
             )
         )
 
     def _backend_args(self) -> tuple[str, ...]:
-        args_value = self.get_parameter(
-            "backend.args"
-        ).get_parameter_value().string_array_value
-        return tuple(str(part) for part in args_value)
+        return self._string_array_parameter("backend.args")
+
+    def _string_parameter(self, name: str) -> str:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.STRING:
+            raise RuntimeError(f"{name} must be a string")
+        return parameter.value
+
+    def _bool_parameter(self, name: str) -> bool:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.BOOL:
+            raise RuntimeError(f"{name} must be a bool")
+        return parameter.value
+
+    def _integer_parameter(self, name: str) -> int:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.INTEGER:
+            raise RuntimeError(f"{name} must be an integer")
+        return parameter.value
+
+    def _double_parameter(self, name: str) -> float:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.DOUBLE:
+            raise RuntimeError(f"{name} must be a double")
+        return parameter.value
+
+    def _string_array_parameter(self, name: str) -> tuple[str, ...]:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.STRING_ARRAY:
+            raise RuntimeError(f"{name} must be a string array")
+        return tuple(parameter.get_parameter_value().string_array_value)
 
     def on_turn_context(self, msg: TurnContext) -> None:
         if not msg.active or not msg.session_id:
