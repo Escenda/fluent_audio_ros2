@@ -1,6 +1,6 @@
 # FA Out
 
-`fa_out`は`fa_interfaces/msg/AudioFrame`をALSAデバイスに出力するROS2ノードです。`fa_tts`や通知ノードがPublishする`audio/output/frame`を購読し、スピーカーへPCM16LEのまま再生します。
+`fa_out`は`fa_interfaces/msg/AudioFrame`をALSA raw hardware device に出力するROS2ノードです。`audio/output/frame`を購読し、スピーカーへPCM16LEのまま再生します。
 
 ## 依存
 - ALSA (`libasound2-dev`)
@@ -12,7 +12,7 @@ ros2 run fa_out fa_out_node --ros-args --params-file install/fa_out/share/fa_out
 ```
 
 主なパラメータ:
-- `audio.device_id`: ALSAデバイス名（例: `default`, `hw:1,0`）
+- `audio.device_id`: ALSA raw hardware device id（例: `hw:1,0`）
 - `audio.sample_rate`, `audio.channels`, `audio.bit_depth`: フレームと一致している必要があります。
 - `queue.max_frames`: バッファに保持するフレーム数。溢れると古いフレームから破棄します。
 

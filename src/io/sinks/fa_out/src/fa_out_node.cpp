@@ -11,6 +11,11 @@ namespace fa_out
 namespace
 {
 constexpr const char * kEncodingPcm16 = "PCM16LE";
+
+bool isRawAlsaPlaybackDevice(const std::string & device_id)
+{
+  return device_id.rfind("hw:", 0) == 0;
+}
 }
 
 FaOutNode::FaOutNode()
@@ -100,6 +105,10 @@ void FaOutNode::loadParameters()
   }
   if (config_.device_id.empty()) {
     throw std::invalid_argument("audio.device_id is required for backend.name=alsa_playback");
+  }
+  if (!isRawAlsaPlaybackDevice(config_.device_id)) {
+    throw std::invalid_argument(
+      "audio.device_id must be an ALSA raw hardware id starting with hw: for backend.name=alsa_playback");
   }
   config_.sample_rate = this->get_parameter("audio.sample_rate").as_int();
   config_.channels = this->get_parameter("audio.channels").as_int();

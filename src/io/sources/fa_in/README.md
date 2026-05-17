@@ -1,6 +1,6 @@
 # FA In
 
-FluentAudioの音声入力ROS2ノードです。ALSAを利用して任意のマイク/ライン入力からPCMデータを取得し、ROSトピックやサービスを通じて配信します。
+FluentAudioの音声入力ROS2ノードです。ALSA の raw hardware capture source を明示的に開き、PCMデータをROSトピックやサービスを通じて配信します。
 
 ## 機能
 - PCMデータの低遅延Publish (`audio/frame`トピック)
@@ -20,4 +20,4 @@ source install/setup.bash
 ros2 launch fa_in fa_in.launch.py
 ```
 
-詳細な設計は `docs/fa_audio_design.md` を参照してください。
+詳細な設計は `docs/仕様書.md`、backend 契約は `docs/backends/alsa.md` を参照してください。

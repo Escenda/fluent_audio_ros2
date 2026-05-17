@@ -17,6 +17,11 @@ void silenceAlsaErrors(const char * /*file*/, int /*line*/, const char * /*funct
 {
   // prevent ALSA from printing to stderr when devices are unplugged
 }
+
+bool isRawAlsaHardwareSource(const std::string & source_id)
+{
+  return source_id.rfind("hw:", 0) == 0;
+}
 }  // namespace
 
 FaInNode::FaInNode()
@@ -327,7 +332,10 @@ std::vector<std::pair<std::string, std::string>> FaInNode::enumerateCaptureDevic
     char *io = snd_device_name_get_hint(*hint, "IOID");
     bool is_input = (io == nullptr) || (std::strcmp(io, "Input") == 0);
     if (name && is_input) {
-      devices.emplace_back(std::string(name), desc ? std::string(desc) : "");
+      const std::string source_id{name};
+      if (isRawAlsaHardwareSource(source_id)) {
+        devices.emplace_back(source_id, desc ? std::string(desc) : "");
+      }
     }
     if (name) {
       free(name);
