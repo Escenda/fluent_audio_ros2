@@ -12,6 +12,7 @@ namespace fa_out
 namespace
 {
 constexpr const char * kEncodingPcm16 = "PCM16LE";
+constexpr const char * kInterleavedLayout = "interleaved";
 
 bool isRawAlsaPlaybackDevice(const std::string & device_id)
 {
@@ -456,6 +457,18 @@ void FaOutNode::handleResume(const std_msgs::msg::Empty::SharedPtr /*msg*/)
 
 bool FaOutNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
 {
+  if (msg.source_id.empty() || msg.stream_id.empty()) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "AudioFrame source_id and stream_id are required");
+    return false;
+  }
+  if (msg.layout != kInterleavedLayout) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Unsupported audio layout %s, expected %s", msg.layout.c_str(), kInterleavedLayout);
+    return false;
+  }
   if (msg.encoding != config_.encoding) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,

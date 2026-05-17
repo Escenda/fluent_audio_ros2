@@ -66,6 +66,8 @@ def test_playback_contract_is_pcm16_only_at_startup() -> None:
     assert "SND_PCM_FORMAT_S16_LE" in source
     assert "SND_PCM_FORMAT_S32_LE" not in source
     assert "msg.encoding != config_.encoding" in source
+    assert "AudioFrame source_id and stream_id are required" in source
+    assert "Unsupported audio layout" in source
 
 
 def test_runtime_write_failure_fails_closed_without_reopen_retry() -> None:

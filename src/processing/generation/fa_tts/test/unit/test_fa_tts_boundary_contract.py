@@ -26,3 +26,16 @@ def test_tts_node_does_not_publish_to_playback_topic() -> None:
     assert "create_subscription(Empty" not in source
     assert "request.play is not supported by fa_tts" in source
     assert "request.volume_db is not supported by fa_tts" in source
+
+
+def test_tts_publishes_audio_frame_identity_without_analysis_fields() -> None:
+    source_path = Path(__file__).parents[2] / "fa_tts_py" / "tts_node.py"
+    source = source_path.read_text(encoding="utf-8")
+    build_frame = source.split("def build_frame")[1].split("def make_cache_key")[0]
+
+    assert 'frame.source_id = "fa_tts"' in build_frame
+    assert "frame.stream_id = self.output_topic" in build_frame
+    assert 'frame.layout = "interleaved"' in build_frame
+    assert ".rms" not in source
+    assert ".peak" not in source
+    assert ".vad" not in build_frame

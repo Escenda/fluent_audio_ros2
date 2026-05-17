@@ -68,6 +68,15 @@ class FaStreamNode(Node):
         return super().destroy_node()
 
     def _audio_callback(self, msg: AudioFrame) -> None:
+        if not msg.source_id or not msg.stream_id:
+            self.get_logger().error("AudioFrame source_id and stream_id are required")
+            return
+        if msg.layout != "interleaved":
+            self.get_logger().error(
+                "Only interleaved AudioFrame layout is supported. Received %s",
+                msg.layout,
+            )
+            return
         if msg.bit_depth != 16:
             self.get_logger().error(
                 "Only 16-bit PCM is supported. Received %d-bit frame", msg.bit_depth

@@ -17,6 +17,8 @@ namespace fa_record
 
 namespace
 {
+constexpr const char * kInterleavedLayout = "interleaved";
+
 struct AudioFormat
 {
   uint32_t sample_rate{48000};
@@ -52,6 +54,12 @@ bool isSupportedFrame(const fa_interfaces::msg::AudioFrame &msg)
     return false;
   }
   if (msg.encoding.empty() || msg.data.empty()) {
+    return false;
+  }
+  if (msg.source_id.empty() || msg.stream_id.empty()) {
+    return false;
+  }
+  if (msg.layout != kInterleavedLayout) {
     return false;
   }
   const size_t bytes_per_sample = static_cast<size_t>(msg.bit_depth / 8);

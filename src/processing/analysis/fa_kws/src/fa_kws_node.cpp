@@ -292,19 +292,15 @@ private:
 
     const float vad_prob = current_vad_prob_.load(std::memory_order_relaxed);
     const int32_t sr = last_sample_rate_.load(std::memory_order_relaxed);
-    const float rms = last_rms_.load(std::memory_order_relaxed);
-    const float peak = last_peak_.load(std::memory_order_relaxed);
 
     RCLCPP_INFO(
       this->get_logger(),
-      "fa_kws status: frames=%llu samples=%llu last_audio=%.2fs vad_prob=%.3f sr=%d rms=%.4f peak=%.4f",
+      "fa_kws status: frames=%llu samples=%llu last_audio=%.2fs vad_prob=%.3f sr=%d",
       static_cast<unsigned long long>(frames),
       static_cast<unsigned long long>(samples),
       since_audio_sec,
       static_cast<double>(vad_prob),
-      static_cast<int>(sr),
-      static_cast<double>(rms),
-      static_cast<double>(peak));
+      static_cast<int>(sr));
   }
 
   void onVad(const VadState::SharedPtr msg)
@@ -355,20 +351,19 @@ private:
     }
 
     tracef(
-      "fa_kws: onAudio stamp=%d.%09u sr=%u ch=%u bit=%u bytes=%zu rms=%.4f peak=%.4f\n",
+      "fa_kws: onAudio stamp=%d.%09u source=%s stream=%s sr=%u ch=%u bit=%u layout=%s bytes=%zu\n",
       static_cast<int>(msg->header.stamp.sec),
       static_cast<unsigned int>(msg->header.stamp.nanosec),
+      msg->source_id.c_str(),
+      msg->stream_id.c_str(),
       msg->sample_rate,
       msg->channels,
       msg->bit_depth,
-      msg->data.size(),
-      static_cast<double>(msg->rms),
-      static_cast<double>(msg->peak));
+      msg->layout.c_str(),
+      msg->data.size());
 
     audio_frames_received_.fetch_add(1, std::memory_order_relaxed);
     last_sample_rate_.store(static_cast<int32_t>(msg->sample_rate), std::memory_order_relaxed);
-    last_rms_.store(msg->rms, std::memory_order_relaxed);
-    last_peak_.store(msg->peak, std::memory_order_relaxed);
     const auto now = std::chrono::steady_clock::now();
     const auto now_rx_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                              now.time_since_epoch())
@@ -476,8 +471,6 @@ private:
   std::atomic<std::uint64_t> audio_samples_received_{0};
   std::atomic<std::int64_t> last_audio_rx_ns_{0};
   std::atomic<std::int32_t> last_sample_rate_{0};
-  std::atomic<float> last_rms_{0.0f};
-  std::atomic<float> last_peak_{0.0f};
 
   bool dump_audio_enable_{false};
   std::string dump_audio_path_;

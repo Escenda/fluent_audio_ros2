@@ -17,6 +17,8 @@ namespace fa_mix
 
 namespace
 {
+constexpr const char * kInterleavedLayout = "interleaved";
+
 double dbToLinear(double db)
 {
   return std::pow(10.0, db / 20.0);
@@ -160,6 +162,12 @@ bool FaMixNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
   if (msg.encoding != config_.expected_encoding) {
     return false;
   }
+  if (msg.source_id.empty() || msg.stream_id.empty()) {
+    return false;
+  }
+  if (msg.layout != kInterleavedLayout) {
+    return false;
+  }
   if (msg.data.empty()) {
     return false;
   }
@@ -208,24 +216,6 @@ void FaMixNode::encodeFloatToPcm16(const std::vector<float> & samples, std::vect
   }
   out_bytes.resize(pcm.size() * sizeof(int16_t));
   std::memcpy(out_bytes.data(), pcm.data(), out_bytes.size());
-}
-
-void FaMixNode::computeRmsPeak(const std::vector<float> & interleaved, float & out_rms, float & out_peak)
-{
-  out_rms = 0.0f;
-  out_peak = 0.0f;
-  if (interleaved.empty()) {
-    return;
-  }
-  double accum = 0.0;
-  double peak = 0.0;
-  for (float v : interleaved) {
-    const double dv = static_cast<double>(v);
-    accum += dv * dv;
-    peak = std::max(peak, std::abs(dv));
-  }
-  out_rms = static_cast<float>(std::sqrt(accum / static_cast<double>(interleaved.size())));
-  out_peak = static_cast<float>(peak);
 }
 
 void FaMixNode::onInputFrame(size_t index, const fa_interfaces::msg::AudioFrame::SharedPtr msg)
@@ -323,19 +313,15 @@ void FaMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & base)
     return;
   }
 
-  float out_rms = 0.0f;
-  float out_peak = 0.0f;
-  computeRmsPeak(mixed, out_rms, out_peak);
-
   fa_interfaces::msg::AudioFrame out;
   out.header = base.header;
+  out.source_id = base.source_id;
+  out.stream_id = config_.output_topic;
   out.encoding = config_.expected_encoding;
   out.sample_rate = static_cast<uint32_t>(config_.expected_sample_rate);
   out.channels = static_cast<uint32_t>(config_.expected_channels);
   out.bit_depth = static_cast<uint32_t>(config_.expected_bit_depth);
-  out.rms = out_rms;
-  out.peak = out_peak;
-  out.vad = base.vad;
+  out.layout = kInterleavedLayout;
   out.data = std::move(out_bytes);
   out.epoch = epoch;
 
@@ -392,4 +378,3 @@ int main(int argc, char ** argv)
   rclcpp::shutdown();
   return EXIT_SUCCESS;
 }
-

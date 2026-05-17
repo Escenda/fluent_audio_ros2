@@ -51,7 +51,6 @@ private:
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
   static bool decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out_samples);
   static void encodeFromFloat(const std::vector<float> & samples, uint32_t bit_depth, std::vector<uint8_t> & out_bytes);
-  static void computeRmsPeak(const std::vector<float> & interleaved, float & out_rms, float & out_peak);
 
   AecLinearConfig config_;
 

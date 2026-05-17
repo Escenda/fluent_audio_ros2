@@ -12,5 +12,7 @@ fa_in_node:
       bit_depth: 16           # PCM16LE=16, PCM32LE/FLOAT32LE=32
       chunk_ms: 20
       encoding: "PCM16LE"     # PCM16LE | PCM32LE | FLOAT32LE
+      stream_id: "audio/frame"
+      layout: "interleaved"
     diagnostics:
       publish_period_ms: 1000

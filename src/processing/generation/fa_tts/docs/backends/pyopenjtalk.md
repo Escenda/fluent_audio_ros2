@@ -14,7 +14,9 @@
 
 - sample rate
 - mono PCM16LE bytes
-- RMS / peak
+- `AudioFrame.source_id=fa_tts`
+- `AudioFrame.stream_id=output_topic`
+- `AudioFrame.layout=interleaved`
 
 ## runtime dependency
 

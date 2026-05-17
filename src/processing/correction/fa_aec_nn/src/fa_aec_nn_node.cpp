@@ -15,6 +15,7 @@ namespace fa_aec_nn
 namespace
 {
 constexpr int kRequiredSampleRate = 16000;
+constexpr const char * kInterleavedLayout = "interleaved";
 }
 
 FaAecNnNode::FaAecNnNode()
@@ -121,6 +122,12 @@ bool FaAecNnNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) cons
   if (msg.bit_depth != 16 && msg.bit_depth != 32) {
     return false;
   }
+  if (msg.source_id.empty() || msg.stream_id.empty()) {
+    return false;
+  }
+  if (msg.layout != kInterleavedLayout) {
+    return false;
+  }
   if (msg.data.empty()) {
     return false;
   }
@@ -158,7 +165,10 @@ void FaAecNnNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr m
     return;
   }
 
-  pub_->publish(*msg);
+  auto out_msg = *msg;
+  out_msg.stream_id = config_.output_topic;
+  out_msg.layout = kInterleavedLayout;
+  pub_->publish(out_msg);
   out_.fetch_add(1);
 }
 

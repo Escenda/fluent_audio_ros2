@@ -227,6 +227,10 @@ class FaVadNode(Node):
         if not msg.data:
             return np.zeros(0, dtype=np.float32)
 
+        if not msg.source_id or not msg.stream_id:
+            raise ValueError("AudioFrame source_id and stream_id are required")
+        if msg.layout != "interleaved":
+            raise ValueError(f"AudioFrame layout must be interleaved, got {msg.layout}")
         if int(msg.channels) != 1:
             raise ValueError(f"AudioFrame channels must be 1, got {msg.channels}")
         if int(msg.bit_depth) != 32:

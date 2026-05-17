@@ -24,6 +24,7 @@ namespace fa_denoise
 namespace
 {
 constexpr int kRequiredSampleRate = 16000;
+constexpr const char * kInterleavedLayout = "interleaved";
 
 std::string resolveModelPathOrThrow(const std::string & path_or_empty, const std::string & parameter_name)
 {
@@ -220,6 +221,12 @@ bool FaDenoiseNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) co
   if (msg.bit_depth != 16 && msg.bit_depth != 32) {
     return false;
   }
+  if (msg.source_id.empty() || msg.stream_id.empty()) {
+    return false;
+  }
+  if (msg.layout != kInterleavedLayout) {
+    return false;
+  }
   if (msg.data.empty()) {
     return false;
   }
@@ -292,24 +299,6 @@ void FaDenoiseNode::encodeFromFloat(
   }
 }
 
-void FaDenoiseNode::computeRmsPeak(const std::vector<float> & interleaved, float & out_rms, float & out_peak)
-{
-  out_rms = 0.0f;
-  out_peak = 0.0f;
-  if (interleaved.empty()) {
-    return;
-  }
-  double accum = 0.0;
-  double peak = 0.0;
-  for (float v : interleaved) {
-    const double dv = static_cast<double>(v);
-    accum += dv * dv;
-    peak = std::max(peak, std::abs(dv));
-  }
-  out_rms = static_cast<float>(std::sqrt(accum / static_cast<double>(interleaved.size())));
-  out_peak = static_cast<float>(peak);
-}
-
 void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   in_.fetch_add(1);
@@ -339,7 +328,10 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   }
 
   if (config_.backend == "passthrough") {
-    pub_->publish(*msg);
+    auto out_msg = *msg;
+    out_msg.stream_id = config_.output_topic;
+    out_msg.layout = kInterleavedLayout;
+    pub_->publish(out_msg);
     out_.fetch_add(1);
     const uint64_t elapsed_ns = nanosSince(start);
     process_ns_sum_.fetch_add(elapsed_ns);
@@ -395,19 +387,15 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     return;
   }
 
-  float out_rms = 0.0f;
-  float out_peak = 0.0f;
-  computeRmsPeak(out_f32, out_rms, out_peak);
-
   fa_interfaces::msg::AudioFrame out_msg;
   out_msg.header = msg->header;
+  out_msg.source_id = msg->source_id;
+  out_msg.stream_id = config_.output_topic;
   out_msg.encoding = config_.output_encoding;
   out_msg.sample_rate = msg->sample_rate;
   out_msg.channels = msg->channels;
   out_msg.bit_depth = static_cast<uint32_t>(config_.output_bit_depth);
-  out_msg.rms = out_rms;
-  out_msg.peak = out_peak;
-  out_msg.vad = msg->vad;
+  out_msg.layout = kInterleavedLayout;
   out_msg.data = std::move(out_bytes);
   out_msg.epoch = msg->epoch;
 

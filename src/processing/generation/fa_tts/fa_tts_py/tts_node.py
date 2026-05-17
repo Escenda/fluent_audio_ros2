@@ -23,16 +23,13 @@ os.environ["TQDM_DISABLE"] = "1"
 import pyopenjtalk  # noqa: E402
 
 class CachedAudio:
-    __slots__ = ("audio_bytes", "sample_rate", "channels", "bit_depth", "rms", "peak")
+    __slots__ = ("audio_bytes", "sample_rate", "channels", "bit_depth")
 
-    def __init__(self, audio_bytes: bytes, sample_rate: int, channels: int, bit_depth: int,
-                 rms: float, peak: float) -> None:
+    def __init__(self, audio_bytes: bytes, sample_rate: int, channels: int, bit_depth: int) -> None:
         self.audio_bytes = audio_bytes
         self.sample_rate = sample_rate
         self.channels = channels
         self.bit_depth = bit_depth
-        self.rms = rms
-        self.peak = peak
 
 
 class FaTtsNode(Node):
@@ -119,7 +116,7 @@ class FaTtsNode(Node):
         return response
 
     def synthesize(self, text: str, voice_id: str) -> CachedAudio:
-        options = {}
+        options: dict[str, str] = {}
         if voice_id:
             options["voice"] = voice_id
         wav, sample_rate = pyopenjtalk.tts(text, **options)
@@ -138,21 +135,18 @@ class FaTtsNode(Node):
         waveform = np.clip(waveform, -1.0, 1.0)
         pcm = (waveform * 32767.0).astype(np.int16)
         audio_bytes = pcm.tobytes()
-        float_samples = pcm.astype(np.float32) / 32768.0
-        rms = float(np.sqrt(np.mean(np.square(float_samples)))) if float_samples.size else 0.0
-        peak = float(np.max(np.abs(float_samples))) if float_samples.size else 0.0
-        return CachedAudio(audio_bytes, int(sample_rate), 1, 16, rms, peak)
+        return CachedAudio(audio_bytes, int(sample_rate), 1, 16)
 
     def build_frame(self, cached: CachedAudio, *, stamp=None, epoch: int | None = None) -> AudioFrame:
         frame = AudioFrame()
         frame.header.stamp = stamp if stamp is not None else self.get_clock().now().to_msg()
+        frame.source_id = "fa_tts"
+        frame.stream_id = self.output_topic
         frame.encoding = "PCM16LE"
         frame.sample_rate = cached.sample_rate
         frame.channels = cached.channels
         frame.bit_depth = cached.bit_depth
-        frame.rms = cached.rms
-        frame.peak = cached.peak
-        frame.vad = False
+        frame.layout = "interleaved"
         frame.data = array('B', cached.audio_bytes)
         frame.epoch = int(epoch) if epoch is not None else 0
         return frame
@@ -181,8 +175,6 @@ class FaTtsNode(Node):
         sample_rate = 48000
         channels = 1
         bit_depth = 16
-        rms = 0.0
-        peak = 0.0
         if meta_path.exists():
             try:
                 content = meta_path.read_text().strip().split("\n")
@@ -198,13 +190,9 @@ class FaTtsNode(Node):
                         channels = int(value)
                     elif key == "bit_depth":
                         bit_depth = int(value)
-                    elif key == "rms":
-                        rms = float(value)
-                    elif key == "peak":
-                        peak = float(value)
             except OSError as exc:
                 self.get_logger().warning("Failed to parse cache metadata %s: %s", meta_path, exc)
-        return CachedAudio(data, sample_rate, channels, bit_depth, rms, peak)
+        return CachedAudio(data, sample_rate, channels, bit_depth)
 
     def write_cache_to_disk(self, cache_key: str, cached: CachedAudio) -> None:
         path = self.cache_file_path(cache_key)
@@ -216,8 +204,6 @@ class FaTtsNode(Node):
                 f"sample_rate:{cached.sample_rate}",
                 f"channels:{cached.channels}",
                 f"bit_depth:{cached.bit_depth}",
-                f"rms:{cached.rms}",
-                f"peak:{cached.peak}",
             ])
             path.with_suffix(".meta").write_text(meta)
         except OSError as exc:

@@ -4,7 +4,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
-#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -20,6 +19,7 @@ namespace fa_resample
 namespace
 {
 constexpr int kRequiredTargetSampleRate = 16000;
+constexpr const char * kInterleavedLayout = "interleaved";
 
 bool isFiniteFloat(float v)
 {
@@ -156,7 +156,7 @@ void FaResampleNode::handleMicFrame(const fa_interfaces::msg::AudioFrame::Shared
     mic_drop_.fetch_add(1);
     return;
   }
-  processAndPublish(*msg, mic_pub_, "mic", mic_out_, mic_drop_);
+  processAndPublish(*msg, mic_pub_, config_.mic_output_topic, mic_out_, mic_drop_);
 }
 
 void FaResampleNode::handleRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
@@ -166,13 +166,13 @@ void FaResampleNode::handleRefFrame(const fa_interfaces::msg::AudioFrame::Shared
     ref_drop_.fetch_add(1);
     return;
   }
-  processAndPublish(*msg, ref_pub_, "ref", ref_out_, ref_drop_);
+  processAndPublish(*msg, ref_pub_, config_.ref_output_topic, ref_out_, ref_drop_);
 }
 
 bool FaResampleNode::processAndPublish(
   const fa_interfaces::msg::AudioFrame & in,
   const rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr & pub,
-  const std::string & stream_name,
+  const std::string & output_stream_id,
   std::atomic<uint64_t> & out_counter,
   std::atomic<uint64_t> & drop_counter)
 {
@@ -184,14 +184,21 @@ bool FaResampleNode::processAndPublish(
   if (in.sample_rate == 0 || in.channels == 0) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Invalid frame (%s): sample_rate=%u channels=%u", stream_name.c_str(), in.sample_rate, in.channels);
+      "Invalid frame (%s): sample_rate=%u channels=%u", output_stream_id.c_str(), in.sample_rate, in.channels);
+    drop_counter.fetch_add(1);
+    return false;
+  }
+  if (in.source_id.empty() || in.stream_id.empty()) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Invalid frame (%s): source_id and stream_id are required", output_stream_id.c_str());
     drop_counter.fetch_add(1);
     return false;
   }
   if (in.data.empty()) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Empty frame data (%s), dropping", stream_name.c_str());
+      "Empty frame data (%s), dropping", output_stream_id.c_str());
     drop_counter.fetch_add(1);
     return false;
   }
@@ -203,7 +210,7 @@ bool FaResampleNode::processAndPublish(
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "Failed to decode input frame (%s): bit_depth=%u data=%zu",
-      stream_name.c_str(), in.bit_depth, in.data.size());
+      output_stream_id.c_str(), in.bit_depth, in.data.size());
     drop_counter.fetch_add(1);
     return false;
   }
@@ -240,19 +247,15 @@ bool FaResampleNode::processAndPublish(
     return false;
   }
 
-  float out_rms = 0.0f;
-  float out_peak = 0.0f;
-  computeRmsPeak(out_f32, out_rms, out_peak);
-
   fa_interfaces::msg::AudioFrame out;
   out.header = in.header;
+  out.source_id = in.source_id;
+  out.stream_id = output_stream_id;
   out.encoding = config_.output_encoding;
   out.sample_rate = static_cast<uint32_t>(config_.target_sample_rate);
   out.channels = in.channels;
   out.bit_depth = static_cast<uint32_t>(config_.output_bit_depth);
-  out.rms = out_rms;
-  out.peak = out_peak;
-  out.vad = in.vad;
+  out.layout = kInterleavedLayout;
   out.data = out_bytes;
   out.epoch = in.epoch;
 
@@ -272,6 +275,9 @@ bool FaResampleNode::decodeToFloat(
   out_channels = 0;
 
   if (msg.channels == 0) {
+    return false;
+  }
+  if (msg.layout != kInterleavedLayout) {
     return false;
   }
   const uint32_t channels = msg.channels;
@@ -387,25 +393,6 @@ void FaResampleNode::encodeFromFloat(
   }
 }
 
-void FaResampleNode::computeRmsPeak(const std::vector<float> & interleaved, float & out_rms, float & out_peak)
-{
-  out_rms = 0.0f;
-  out_peak = 0.0f;
-  if (interleaved.empty()) {
-    return;
-  }
-
-  double accum = 0.0;
-  double peak = 0.0;
-  for (float v : interleaved) {
-    const double dv = static_cast<double>(v);
-    accum += dv * dv;
-    peak = std::max(peak, std::abs(dv));
-  }
-  out_rms = static_cast<float>(std::sqrt(accum / static_cast<double>(interleaved.size())));
-  out_peak = static_cast<float>(std::min<double>(peak, static_cast<double>(std::numeric_limits<float>::max())));
-}
-
 void FaResampleNode::publishDiagnostics()
 {
   diagnostic_msgs::msg::DiagnosticArray array_msg;
@@ -454,4 +441,3 @@ int main(int argc, char ** argv)
   rclcpp::shutdown();
   return EXIT_SUCCESS;
 }
-

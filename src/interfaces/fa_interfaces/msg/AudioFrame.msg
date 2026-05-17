@@ -1,10 +1,10 @@
 std_msgs/Header header
+string source_id
+string stream_id
 string encoding
 uint32 sample_rate
 uint32 channels
 uint32 bit_depth
-float32 rms
-float32 peak
-bool vad
+string layout
 uint8[] data
 uint32 epoch

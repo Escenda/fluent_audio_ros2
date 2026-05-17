@@ -8,6 +8,11 @@
 namespace fa_kws
 {
 
+namespace
+{
+constexpr const char * kInterleavedLayout = "interleaved";
+}
+
 std::vector<float> frameToCanonicalFloat(const fa_interfaces::msg::AudioFrame &msg)
 {
   if (msg.data.empty()) {
@@ -17,6 +22,12 @@ std::vector<float> frameToCanonicalFloat(const fa_interfaces::msg::AudioFrame &m
   if (msg.channels != 1u) {
     throw std::invalid_argument(
       "AudioFrame channels must be 1, got " + std::to_string(msg.channels));
+  }
+  if (msg.source_id.empty() || msg.stream_id.empty()) {
+    throw std::invalid_argument("AudioFrame source_id and stream_id are required");
+  }
+  if (msg.layout != kInterleavedLayout) {
+    throw std::invalid_argument("AudioFrame layout must be interleaved, got " + msg.layout);
   }
   if (msg.bit_depth != 32u) {
     throw std::invalid_argument(

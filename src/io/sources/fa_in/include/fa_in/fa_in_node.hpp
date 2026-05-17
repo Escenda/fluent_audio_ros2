@@ -34,6 +34,8 @@ struct AudioConfig
   uint32_t bit_depth{0};
   uint32_t chunk_ms{0};
   std::string encoding{};
+  std::string stream_id{};
+  std::string layout{};
   uint32_t diag_period_ms{0};
 };
 

@@ -85,6 +85,8 @@ def test_kws_node_rejects_non_canonical_audio_frames() -> None:
     assert "resampleLinear" not in header_text
     assert "reinterpret_cast<const std::int16_t *>" not in audio_utils_text
     assert "AudioFrame channels must be 1" in audio_utils_text
+    assert "AudioFrame source_id and stream_id are required" in audio_utils_text
+    assert "AudioFrame layout must be interleaved" in audio_utils_text
     assert "AudioFrame bit_depth must be 32" in audio_utils_text
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in audio_utils_text
     assert "sherpa-onnx will resample internally" not in node_text

@@ -16,6 +16,7 @@ namespace
 constexpr const char * kEncodingPcm16 = "PCM16LE";
 constexpr const char * kEncodingPcm32 = "PCM32LE";
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
+constexpr const char * kInterleavedLayout = "interleaved";
 
 void silenceAlsaErrors(const char * /*file*/, int /*line*/, const char * /*function*/,
                        int /*err*/, const char * /*fmt*/, ...)
@@ -93,6 +94,8 @@ void FaInNode::loadParameters()
   this->declare_parameter<int>("audio.bit_depth");
   this->declare_parameter<int>("audio.chunk_ms");
   this->declare_parameter<std::string>("audio.encoding");
+  this->declare_parameter<std::string>("audio.stream_id");
+  this->declare_parameter<std::string>("audio.layout");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
 
   config_.backend_name = this->get_parameter("backend.name").as_string();
@@ -104,6 +107,8 @@ void FaInNode::loadParameters()
   config_.bit_depth = this->get_parameter("audio.bit_depth").as_int();
   config_.chunk_ms = this->get_parameter("audio.chunk_ms").as_int();
   config_.encoding = this->get_parameter("audio.encoding").as_string();
+  config_.stream_id = this->get_parameter("audio.stream_id").as_string();
+  config_.layout = this->get_parameter("audio.layout").as_string();
   config_.diag_period_ms = this->get_parameter("diagnostics.publish_period_ms").as_int();
 
   if (config_.backend_name.empty()) {
@@ -120,6 +125,12 @@ void FaInNode::loadParameters()
   }
   if (config_.chunk_ms == 0) {
     throw std::runtime_error("audio.chunk_ms must be > 0");
+  }
+  if (config_.stream_id.empty()) {
+    throw std::runtime_error("audio.stream_id is required");
+  }
+  if (config_.layout != kInterleavedLayout) {
+    throw std::runtime_error("audio.layout must be interleaved for backend.name=alsa_capture");
   }
   if (config_.diag_period_ms == 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
@@ -343,10 +354,13 @@ void FaInNode::publishFrame(const uint8_t *data, size_t data_size)
 {
   fa_interfaces::msg::AudioFrame frame_msg;
   frame_msg.header.stamp = this->now();
+  frame_msg.source_id = active_device_id_;
+  frame_msg.stream_id = config_.stream_id;
   frame_msg.encoding = config_.encoding;
   frame_msg.sample_rate = config_.sample_rate;
   frame_msg.channels = config_.channels;
   frame_msg.bit_depth = config_.bit_depth;
+  frame_msg.layout = config_.layout;
   frame_msg.data.assign(data, data + data_size);
   audio_pub_->publish(frame_msg);
 }

@@ -14,6 +14,8 @@ def test_default_config_requires_explicit_source_identifier() -> None:
     assert params["backend"]["name"] == "alsa_capture"
     assert params["audio"]["encoding"] == "PCM16LE"
     assert params["audio"]["bit_depth"] == 16
+    assert params["audio"]["stream_id"] == "audio/frame"
+    assert params["audio"]["layout"] == "interleaved"
     assert selector["mode"] == "name"
     assert selector["identifier"] == ""
     assert '"default"' not in config_text
@@ -34,13 +36,32 @@ def test_source_backend_has_no_struct_default() -> None:
     assert "uint32_t bit_depth{0};" in header_text
     assert "uint32_t chunk_ms{0};" in header_text
     assert "std::string encoding{};" in header_text
+    assert "std::string stream_id{};" in header_text
+    assert "std::string layout{};" in header_text
     assert "uint32_t diag_period_ms{0};" in header_text
     assert 'declare_parameter<int>("audio.sample_rate")' in source_text
     assert 'declare_parameter<int>("audio.channels")' in source_text
     assert 'declare_parameter<int>("audio.bit_depth")' in source_text
     assert 'declare_parameter<int>("audio.chunk_ms")' in source_text
     assert 'declare_parameter<std::string>("audio.encoding")' in source_text
+    assert 'declare_parameter<std::string>("audio.stream_id")' in source_text
+    assert 'declare_parameter<std::string>("audio.layout")' in source_text
     assert 'declare_parameter<int>("diagnostics.publish_period_ms")' in source_text
+
+
+def test_publish_frame_sets_required_audio_frame_identity_without_analysis_fields() -> None:
+    source_path = Path(__file__).parents[2] / "src" / "fa_in_node.cpp"
+    source = source_path.read_text(encoding="utf-8")
+    publish_frame = source.split("void FaInNode::publishFrame")[1].split(
+        "void FaInNode::publishDiagnostics"
+    )[0]
+
+    assert "frame_msg.source_id = active_device_id_;" in publish_frame
+    assert "frame_msg.stream_id = config_.stream_id;" in publish_frame
+    assert "frame_msg.layout = config_.layout;" in publish_frame
+    assert ".rms" not in publish_frame
+    assert ".peak" not in publish_frame
+    assert ".vad" not in publish_frame
 
 
 def test_alsa_backend_filters_plugin_pcm_sources() -> None:

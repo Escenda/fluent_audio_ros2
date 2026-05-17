@@ -42,9 +42,17 @@ install(DIRECTORY include/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  # Keep package tests isolated from ambient pytest plugins in ROS images.
+  set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
+  ament_add_pytest_test(${PROJECT_NAME}_pytest test
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+    APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
+    TIMEOUT 30
+  )
   ament_lint_auto_find_test_dependencies()
 endif()
 
 ament_package()
-

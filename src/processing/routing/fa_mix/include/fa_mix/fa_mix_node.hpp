@@ -51,7 +51,6 @@ private:
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
   static bool decodePcm16ToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out_samples);
   static void encodeFloatToPcm16(const std::vector<float> & samples, std::vector<uint8_t> & out_bytes);
-  static void computeRmsPeak(const std::vector<float> & interleaved, float & out_rms, float & out_peak);
 
   MixConfig config_;
 
@@ -70,4 +69,3 @@ private:
 };
 
 }  // namespace fa_mix
-

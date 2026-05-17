@@ -24,6 +24,8 @@ def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
     assert "_to_mono" not in source
     assert "np.frombuffer(bytes(msg.data), dtype=np.int16)" not in source
     assert "AudioFrame channels must be 1" in source
+    assert "AudioFrame source_id and stream_id are required" in source
+    assert "AudioFrame layout must be interleaved" in source
     assert "AudioFrame bit_depth must be 32" in source
     assert "AudioFrame sample_rate must match backend sample_rate" in source
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source

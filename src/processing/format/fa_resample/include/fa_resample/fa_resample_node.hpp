@@ -50,7 +50,7 @@ private:
   bool processAndPublish(
     const fa_interfaces::msg::AudioFrame & in,
     const rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr & pub,
-    const std::string & stream_name,
+    const std::string & output_stream_id,
     std::atomic<uint64_t> & out_counter,
     std::atomic<uint64_t> & drop_counter);
 
@@ -73,8 +73,6 @@ private:
     int bit_depth,
     std::vector<uint8_t> & out_bytes);
 
-  static void computeRmsPeak(const std::vector<float> & interleaved, float & out_rms, float & out_peak);
-
   ResampleConfig config_;
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr mic_sub_;
@@ -93,4 +91,3 @@ private:
 };
 
 }  // namespace fa_resample
-
