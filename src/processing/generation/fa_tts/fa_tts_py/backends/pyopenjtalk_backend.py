@@ -11,8 +11,13 @@ from fa_tts_py.backends.base import SynthesizedAudio
 class PyOpenJTalkBackend:
     name = "pyopenjtalk"
 
-    def __init__(self) -> None:
-        os.environ.setdefault("OPEN_JTALK_DICT_DIR", str(Path.home() / ".pyopenjtalk"))
+    def __init__(self, *, openjtalk_dict_dir: str) -> None:
+        dictionary_dir = Path(openjtalk_dict_dir).expanduser()
+        if not openjtalk_dict_dir.strip():
+            raise RuntimeError("backend.openjtalk_dict_dir is required for pyopenjtalk")
+        if not dictionary_dir.is_dir():
+            raise RuntimeError(f"backend.openjtalk_dict_dir is not a directory: {dictionary_dir}")
+        os.environ["OPEN_JTALK_DICT_DIR"] = str(dictionary_dir)
         os.environ["TQDM_DISABLE"] = "1"
         # Backend runtime import is intentionally scoped to the selected backend.
         import pyopenjtalk
@@ -25,15 +30,16 @@ class PyOpenJTalkBackend:
             options["voice"] = voice_id
         wav, sample_rate = self._runtime.tts(text, **options)
         waveform = np.asarray(wav, dtype=np.float32)
-
-        if waveform.size:
-            abs_max = float(np.max(np.abs(waveform)))
-            if abs_max > 1.0:
-                waveform /= 32768.0
-        waveform = np.clip(waveform, -1.0, 1.0)
+        if waveform.ndim != 1:
+            raise RuntimeError("pyopenjtalk waveform must be mono")
+        if not np.all(np.isfinite(waveform)):
+            raise RuntimeError("pyopenjtalk waveform contains non-finite samples")
+        if np.any(waveform < -1.0) or np.any(waveform > 1.0):
+            raise RuntimeError("pyopenjtalk waveform must be normalized to [-1.0, 1.0]")
         pcm = (waveform * 32767.0).astype(np.int16)
         return SynthesizedAudio(
             audio_bytes=pcm.tobytes(),
+            encoding="PCM16LE",
             sample_rate=int(sample_rate),
             channels=1,
             bit_depth=16,

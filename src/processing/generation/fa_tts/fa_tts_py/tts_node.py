@@ -19,6 +19,7 @@ from fa_tts_py.backends.factory import build_tts_backend
 
 @dataclass(frozen=True)
 class CacheMetadata:
+    encoding: str
     sample_rate: int
     channels: int
     bit_depth: int
@@ -29,16 +30,23 @@ class FaTtsNode(Node):
         super().__init__("fa_tts")
 
         self.declare_parameter("backend.name", "")
+        self.declare_parameter("backend.openjtalk_dict_dir", "")
         self.declare_parameter("default_voice", "")
         self.declare_parameter("output_topic", "audio/tts/frame")
         self.declare_parameter("cache_dir", "")
 
         self.backend_name = self.get_parameter("backend.name").get_parameter_value().string_value
+        self.openjtalk_dict_dir = (
+            self.get_parameter("backend.openjtalk_dict_dir").get_parameter_value().string_value
+        )
         self.default_voice = self.get_parameter("default_voice").get_parameter_value().string_value
         self.output_topic = self.get_parameter("output_topic").get_parameter_value().string_value
         if not self.output_topic:
             raise RuntimeError("output_topic is required")
-        self.backend = build_tts_backend(self.backend_name)
+        self.backend = build_tts_backend(
+            self.backend_name,
+            openjtalk_dict_dir=self.openjtalk_dict_dir,
+        )
 
         cache_dir_param = self.get_parameter("cache_dir").get_parameter_value().string_value
         self.cache_dir = Path(cache_dir_param).expanduser() if cache_dir_param else None
@@ -123,7 +131,7 @@ class FaTtsNode(Node):
         frame.header.stamp = stamp if stamp is not None else self.get_clock().now().to_msg()
         frame.source_id = "fa_tts"
         frame.stream_id = self.output_topic
-        frame.encoding = "PCM16LE"
+        frame.encoding = cached.encoding
         frame.sample_rate = cached.sample_rate
         frame.channels = cached.channels
         frame.bit_depth = cached.bit_depth
@@ -163,6 +171,7 @@ class FaTtsNode(Node):
             return None
         return SynthesizedAudio(
             data,
+            metadata.encoding,
             metadata.sample_rate,
             metadata.channels,
             metadata.bit_depth,
@@ -170,7 +179,8 @@ class FaTtsNode(Node):
 
     @staticmethod
     def parse_cache_metadata(text: str) -> CacheMetadata:
-        values: dict[str, int] = {}
+        numeric_values: dict[str, int] = {}
+        encoding_value: str | None = None
         for line in text.strip().split("\n"):
             if not line:
                 continue
@@ -178,18 +188,32 @@ class FaTtsNode(Node):
             if not value:
                 raise ValueError("cache metadata line must be key:value")
             key = key.strip()
+            if key == "encoding":
+                encoding_value = value.strip()
+                continue
             if key not in ("sample_rate", "channels", "bit_depth"):
                 raise ValueError(f"unsupported cache metadata key: {key}")
-            values[key] = int(value.strip())
-        missing = {"sample_rate", "channels", "bit_depth"}.difference(values)
+            numeric_values[key] = int(value.strip())
+        missing = {"sample_rate", "channels", "bit_depth"}.difference(numeric_values)
         if missing:
             raise ValueError(f"cache metadata missing keys: {sorted(missing)}")
-        if values["sample_rate"] <= 0 or values["channels"] <= 0 or values["bit_depth"] <= 0:
+        if not encoding_value:
+            raise ValueError("cache metadata missing encoding")
+        if encoding_value != "PCM16LE":
+            raise ValueError(f"unsupported cache metadata encoding: {encoding_value}")
+        if (
+            numeric_values["sample_rate"] <= 0
+            or numeric_values["channels"] <= 0
+            or numeric_values["bit_depth"] <= 0
+        ):
             raise ValueError("cache metadata numeric values must be > 0")
+        if numeric_values["bit_depth"] != 16:
+            raise ValueError("cache metadata bit_depth must be 16 for PCM16LE")
         return CacheMetadata(
-            values["sample_rate"],
-            values["channels"],
-            values["bit_depth"],
+            encoding_value,
+            numeric_values["sample_rate"],
+            numeric_values["channels"],
+            numeric_values["bit_depth"],
         )
 
     def write_cache_to_disk(self, cache_key: str, cached: SynthesizedAudio) -> None:
@@ -199,6 +223,7 @@ class FaTtsNode(Node):
         try:
             path.write_bytes(cached.audio_bytes)
             meta = "\n".join([
+                f"encoding:{cached.encoding}",
                 f"sample_rate:{cached.sample_rate}",
                 f"channels:{cached.channels}",
                 f"bit_depth:{cached.bit_depth}",

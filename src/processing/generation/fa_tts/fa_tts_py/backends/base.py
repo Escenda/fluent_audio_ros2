@@ -7,6 +7,7 @@ from typing import Protocol
 @dataclass(frozen=True)
 class SynthesizedAudio:
     audio_bytes: bytes
+    encoding: str
     sample_rate: int
     channels: int
     bit_depth: int

@@ -13,6 +13,7 @@ def test_default_config_has_no_playback_or_gain_parameters() -> None:
     params = config["fa_tts"]["ros__parameters"]
 
     assert params["backend.name"] == "pyopenjtalk"
+    assert params["backend.openjtalk_dict_dir"] == ""
     assert params["output_topic"] == "audio/tts/frame"
     assert "playback_topic" not in params
     assert "use_playback_topic" not in params
@@ -57,7 +58,8 @@ def test_tts_backend_is_ros_free_and_selected_by_backend_name() -> None:
         package_root / "fa_tts_py" / "backends" / "factory.py"
     ).read_text(encoding="utf-8")
 
-    assert "build_tts_backend(self.backend_name)" in node_text
+    assert "build_tts_backend(" in node_text
+    assert "openjtalk_dict_dir=self.openjtalk_dict_dir" in node_text
     assert "backend.name" in node_text
     assert "import rclpy" not in backend_text
     assert "fa_interfaces" not in backend_text
@@ -68,14 +70,14 @@ def test_tts_backend_is_ros_free_and_selected_by_backend_name() -> None:
 
 def test_tts_backend_factory_rejects_missing_or_unknown_backend() -> None:
     try:
-        build_tts_backend("")
+        build_tts_backend("", openjtalk_dict_dir="")
     except RuntimeError as exc:
         assert str(exc) == "backend.name is required"
     else:
         raise AssertionError("missing backend.name was accepted")
 
     try:
-        build_tts_backend("cloud_fallback")
+        build_tts_backend("cloud_fallback", openjtalk_dict_dir="")
     except RuntimeError as exc:
         assert str(exc) == "unsupported fa_tts backend.name: cloud_fallback"
     else:
@@ -86,6 +88,47 @@ def test_pyopenjtalk_backend_does_not_import_runtime_until_selected() -> None:
     backend = PyOpenJTalkBackend.__new__(PyOpenJTalkBackend)
 
     assert backend.name == "pyopenjtalk"
+
+
+def test_pyopenjtalk_backend_requires_explicit_dictionary_without_home_fallback() -> None:
+    package_root = Path(__file__).parents[2]
+    backend_text = (
+        package_root / "fa_tts_py" / "backends" / "pyopenjtalk_backend.py"
+    ).read_text(encoding="utf-8")
+
+    assert "backend.openjtalk_dict_dir is required for pyopenjtalk" in backend_text
+    assert "os.environ[\"OPEN_JTALK_DICT_DIR\"]" in backend_text
+    assert "setdefault" not in backend_text
+    assert "Path.home" not in backend_text
+
+    try:
+        PyOpenJTalkBackend(openjtalk_dict_dir="")
+    except RuntimeError as exc:
+        assert str(exc) == "backend.openjtalk_dict_dir is required for pyopenjtalk"
+    else:
+        raise AssertionError("missing backend.openjtalk_dict_dir was accepted")
+
+
+def test_pyopenjtalk_backend_has_no_hidden_scale_guessing_or_clipping() -> None:
+    package_root = Path(__file__).parents[2]
+    backend_text = (
+        package_root / "fa_tts_py" / "backends" / "pyopenjtalk_backend.py"
+    ).read_text(encoding="utf-8")
+    base_text = (package_root / "fa_tts_py" / "backends" / "base.py").read_text(
+        encoding="utf-8"
+    )
+    node_text = (package_root / "fa_tts_py" / "tts_node.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "np.clip" not in backend_text
+    assert "32768.0" not in backend_text
+    assert "waveform /=" not in backend_text
+    assert "pyopenjtalk waveform must be normalized to [-1.0, 1.0]" in backend_text
+    assert "encoding: str" in base_text
+    assert "encoding_value" in node_text
+    assert "frame.encoding = cached.encoding" in node_text
+    assert "encoding:{cached.encoding}" in node_text
 
 
 def test_colcon_runs_pytest_contracts() -> None:
