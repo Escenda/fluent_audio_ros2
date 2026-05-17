@@ -1,0 +1,23 @@
+fa_clock_drift:
+  ros__parameters:
+    input_topic: "audio/sample_format/mic"
+    output_topic: "audio/clock_drift_corrected/mic"
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    drift:
+      ema_alpha: 0.1
+      max_correction_ms_per_frame: 2.0
+      reset_threshold_ms: 50.0
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

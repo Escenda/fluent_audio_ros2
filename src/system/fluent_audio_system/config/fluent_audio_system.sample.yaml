@@ -517,6 +517,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_clock_drift
+        enable: false
+        package: fa_clock_drift
+        exec: fa_clock_drift_node
+        node_name: fa_clock_drift
+        namespace: ""
+        params_file: "${share:fa_clock_drift}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_packet_loss_concealment
         enable: false
         package: fa_packet_loss_concealment
