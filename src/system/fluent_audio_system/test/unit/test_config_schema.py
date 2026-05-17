@@ -84,6 +84,59 @@ def test_disabled_nodes_are_not_expanded() -> None:
     assert spec.groups[0].nodes == []
 
 
+def test_analysis_group_rejects_ai_package_even_when_node_disabled() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="group analysis must not contain AI package fa_kws",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "analysis",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_kws",
+                                "enable": False,
+                                "package": "fa_kws",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_analysis_group_accepts_non_ai_feature_package(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_log_mel.yaml"
+    params_file.write_text("fa_log_mel:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "analysis",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_log_mel",
+                            "enable": True,
+                            "package": "fa_log_mel",
+                            "exec": "fa_log_mel_node",
+                            "params_file": str(params_file),
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert spec.groups[0].nodes[0].package == "fa_log_mel"
+
+
 def test_missing_params_file_fails(tmp_path: Path) -> None:
     missing = tmp_path / "missing.yaml"
     with pytest.raises(RuntimeError, match="params_file not found"):

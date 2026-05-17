@@ -17,6 +17,15 @@ ConfigMapping: TypeAlias = dict[str, "ConfigValue"]
 ConfigSequence: TypeAlias = list["ConfigValue"]
 ConfigValue: TypeAlias = ConfigScalar | ConfigMapping | ConfigSequence
 _INLINE_SHARE_RE = re.compile(r"\$\{share:([A-Za-z0-9_]+)\}")
+_AI_PACKAGE_NAMES = (
+    "fa_asr",
+    "fa_audio_embedding",
+    "fa_kws",
+    "fa_sed",
+    "fa_speaker",
+    "fa_turn_detector",
+    "fa_vad",
+)
 
 
 class _TimingConfig(BaseModel):
@@ -150,6 +159,7 @@ def parse_system_config(raw: ConfigValue) -> AudioSystemSpec:
     groups: list[AudioGroupSpec] = []
     for group in root.groups:
         group_id = _required_model_text(group.id, "group id")
+        _validate_group_taxonomy(group, group_id)
         if not group.enable:
             continue
         nodes: list[AudioNodeSpec] = []
@@ -202,6 +212,20 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
         parameters=parameters,
         remappings=remappings,
     )
+
+
+def _validate_group_taxonomy(group: _GroupConfig, group_id: str) -> None:
+    if "analysis" not in group_id:
+        return
+    for node in group.nodes or []:
+        if node.package is None:
+            continue
+        package = node.package.strip()
+        if package in _AI_PACKAGE_NAMES:
+            raise RuntimeError(
+                f"group {group_id} must not contain AI package {package}; "
+                "use an ai or voice_frontend group"
+            )
 
 
 def _required_model_text(value: str | None, label: str) -> str:
