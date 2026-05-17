@@ -1,5 +1,7 @@
 #include "fa_in/backends/alsa_capture_backend.hpp"
 
+#include "fa_in/audio_config_validation.hpp"
+
 #include <alsa/asoundlib.h>
 
 #include <cstdlib>
@@ -117,6 +119,8 @@ public:
 
   DeviceInfo selectDevice(const DeviceSelector& selector) const
   {
+    validation::requireDeviceSelector(selector.mode, selector.identifier, selector.index);
+
     const auto devices = listDevices();
     if (devices.empty()) {
       throw BackendError("No ALSA input source candidates were enumerated");
@@ -130,9 +134,6 @@ public:
     }
 
     if (selector.mode == "name") {
-      if (selector.identifier.empty()) {
-        throw BackendError("audio.device_selector.identifier is required when mode is name");
-      }
       for (const auto& device : devices) {
         const std::string label = displayName(device);
         if (device.id == selector.identifier || label == selector.identifier) {
@@ -142,7 +143,7 @@ public:
       throw BackendError("Configured ALSA input source name was not found: " + selector.identifier);
     }
 
-    throw BackendError("Unsupported audio.device_selector.mode: " + selector.mode);
+    throw BackendError("unsupported audio.device_selector.mode: " + selector.mode);
   }
 
   size_t open(const std::string& device_id, const AudioFormat& format, size_t requested_frames)

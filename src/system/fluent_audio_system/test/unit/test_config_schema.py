@@ -84,10 +84,24 @@ def test_disabled_nodes_are_not_expanded() -> None:
     assert spec.groups[0].nodes == []
 
 
-def test_analysis_group_rejects_ai_package_even_when_node_disabled() -> None:
+@pytest.mark.parametrize(
+    "package_name",
+    [
+        "fa_asr",
+        "fa_audio_embedding",
+        "fa_kws",
+        "fa_sed",
+        "fa_speaker",
+        "fa_turn_detector",
+        "fa_vad",
+    ],
+)
+def test_analysis_group_rejects_ai_package_even_when_node_disabled(
+    package_name: str,
+) -> None:
     with pytest.raises(
         RuntimeError,
-        match="group analysis must not contain AI package fa_kws",
+        match=f"group analysis must not contain AI package {package_name}",
     ):
         parse_system_config(
             {
@@ -98,15 +112,93 @@ def test_analysis_group_rejects_ai_package_even_when_node_disabled() -> None:
                         "enable": True,
                         "nodes": [
                             {
-                                "id": "fa_kws",
+                                "id": package_name,
                                 "enable": False,
-                                "package": "fa_kws",
+                                "package": package_name,
                             }
                         ],
                     }
                 ],
             }
         )
+
+
+def test_analysis_group_rejects_streaming_package_even_when_node_disabled() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="group analysis must not contain streaming package fa_frame_buffer",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "analysis",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_frame_buffer",
+                                "enable": False,
+                                "package": "fa_frame_buffer",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_non_streaming_group_rejects_streaming_package_even_when_node_disabled() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="group format must not contain streaming package fa_jitter_buffer",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "format",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_jitter_buffer",
+                                "enable": False,
+                                "package": "fa_jitter_buffer",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_streaming_group_accepts_streaming_package(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_frame_buffer.yaml"
+    params_file.write_text("fa_frame_buffer:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "streaming",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_frame_buffer",
+                            "enable": True,
+                            "package": "fa_frame_buffer",
+                            "exec": "fa_frame_buffer_node",
+                            "params_file": str(params_file),
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert spec.groups[0].nodes[0].package == "fa_frame_buffer"
 
 
 def test_analysis_group_accepts_non_ai_feature_package(tmp_path: Path) -> None:

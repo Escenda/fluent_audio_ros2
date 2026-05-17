@@ -20,6 +20,28 @@ inline uint32_t requirePositiveUint32(const char * parameter_name, const int64_t
   return static_cast<uint32_t>(value);
 }
 
+inline void requireDeviceSelector(
+  const std::string & mode, const std::string & identifier, const int64_t index)
+{
+  if (mode == "name") {
+    if (identifier.empty()) {
+      throw std::runtime_error(
+        "audio.device_selector.identifier is required when audio.device_selector.mode=name");
+    }
+    return;
+  }
+
+  if (mode == "index") {
+    if (index < 0) {
+      throw std::runtime_error(
+        "audio.device_selector.index must be >= 0 when audio.device_selector.mode=index");
+    }
+    return;
+  }
+
+  throw std::runtime_error("unsupported audio.device_selector.mode: " + mode);
+}
+
 inline size_t captureFramesPerBuffer(const uint32_t sample_rate, const uint32_t chunk_ms)
 {
   const uint64_t frame_product =

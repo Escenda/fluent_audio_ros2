@@ -127,6 +127,9 @@ void FaInNode::loadParameters()
     "diagnostics.publish_period_ms",
     this->get_parameter("diagnostics.publish_period_ms").as_int());
 
+  validation::requireDeviceSelector(
+    config_.device_mode, config_.device_identifier, config_.device_index);
+
   if (config_.backend_name.empty()) {
     throw std::runtime_error("backend.name is required");
   }

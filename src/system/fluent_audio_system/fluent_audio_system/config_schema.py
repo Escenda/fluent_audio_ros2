@@ -26,6 +26,16 @@ _AI_PACKAGE_NAMES = (
     "fa_turn_detector",
     "fa_vad",
 )
+_STREAMING_PACKAGE_NAMES = (
+    "fa_chunk_overlap",
+    "fa_clock_drift",
+    "fa_frame_buffer",
+    "fa_jitter_buffer",
+    "fa_latency_compensation",
+    "fa_overlap_add",
+    "fa_packet_loss_concealment",
+    "fa_time_alignment",
+)
 
 
 class _TimingConfig(BaseModel):
@@ -215,16 +225,20 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
 
 
 def _validate_group_taxonomy(group: _GroupConfig, group_id: str) -> None:
-    if "analysis" not in group_id:
-        return
+    group_id_normalized = group_id.strip().lower()
     for node in group.nodes or []:
         if node.package is None:
             continue
         package = node.package.strip()
-        if package in _AI_PACKAGE_NAMES:
+        if "analysis" in group_id_normalized and package in _AI_PACKAGE_NAMES:
             raise RuntimeError(
                 f"group {group_id} must not contain AI package {package}; "
                 "use an ai or voice_frontend group"
+            )
+        if "streaming" not in group_id_normalized and package in _STREAMING_PACKAGE_NAMES:
+            raise RuntimeError(
+                f"group {group_id} must not contain streaming package {package}; "
+                "use a streaming group"
             )
 
 
