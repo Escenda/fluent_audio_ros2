@@ -274,8 +274,18 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
     assert [node.id for node in enabled_nodes] == [
         "fa_in",
         "fa_out",
+        "fa_sample_format",
         "fa_resample",
     ]
+    assert enabled_nodes[2].parameters == {
+        "input_topic": "audio/frame",
+        "output_topic": "audio/sample_format/mic",
+        "expected.sample_rate": 48000,
+    }
+    assert enabled_nodes[3].parameters == {
+        "mic.input_topic": "audio/sample_format/mic",
+        "mic.output_topic": "audio/resample16k/mic",
+    }
 
     raw = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "fluent_audio_system.sample.yaml").read_text(

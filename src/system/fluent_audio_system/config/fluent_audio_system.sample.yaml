@@ -29,6 +29,19 @@ groups:
   - id: format
     enable: true
     nodes:
+      - id: fa_sample_format
+        enable: true
+        package: fa_sample_format
+        exec: fa_sample_format_node
+        node_name: fa_sample_format
+        namespace: ""
+        params_file: "${share:fa_sample_format}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/frame"
+          output_topic: "audio/sample_format/mic"
+          expected.sample_rate: 48000
+
       - id: fa_resample
         enable: true
         package: fa_resample
@@ -37,17 +50,9 @@ groups:
         namespace: ""
         params_file: "${share:fa_resample}/config/default.yaml"
         remappings: {}
-        parameters: {}
-
-      - id: fa_sample_format
-        enable: false
-        package: fa_sample_format
-        exec: fa_sample_format_node
-        node_name: fa_sample_format
-        namespace: ""
-        params_file: "${share:fa_sample_format}/config/default.yaml"
-        remappings: {}
-        parameters: {}
+        parameters:
+          mic.input_topic: "audio/sample_format/mic"
+          mic.output_topic: "audio/resample16k/mic"
 
       - id: fa_resample_tts
         enable: false
