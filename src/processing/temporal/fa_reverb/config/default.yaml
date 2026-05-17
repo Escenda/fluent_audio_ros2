@@ -1,0 +1,24 @@
+fa_reverb:
+  ros__parameters:
+    input_topic: "audio/echo/mic"
+    output_topic: "audio/reverb/mic"
+
+    reverb:
+      room_size: 0.72
+      damping: 0.35
+      wet_gain: 0.32
+      dry_gain: 0.68
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

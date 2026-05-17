@@ -1,0 +1,24 @@
+fa_beamforming:
+  ros__parameters:
+    input_topic: "audio/spatial/mic"
+    output_topic: "audio/beamformed/mic"
+
+    beamforming:
+      weights: [1.0, 0.0, 0.0, 0.0]
+
+    expected:
+      sample_rate: 16000
+      channels: 4
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    output:
+      channels: 1
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

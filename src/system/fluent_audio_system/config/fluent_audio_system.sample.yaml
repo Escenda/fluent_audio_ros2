@@ -238,6 +238,26 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_reverb
+        enable: false
+        package: fa_reverb
+        exec: fa_reverb_node
+        node_name: fa_reverb
+        namespace: ""
+        params_file: "${share:fa_reverb}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_trim
+        enable: false
+        package: fa_trim
+        exec: fa_trim_node
+        node_name: fa_trim
+        namespace: ""
+        params_file: "${share:fa_trim}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_fade
         enable: false
         package: fa_fade
@@ -371,6 +391,16 @@ groups:
         node_name: fa_upmix
         namespace: ""
         params_file: "${share:fa_upmix}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_beamforming
+        enable: false
+        package: fa_beamforming
+        exec: fa_beamforming_node
+        node_name: fa_beamforming
+        namespace: ""
+        params_file: "${share:fa_beamforming}/config/default.yaml"
         remappings: {}
         parameters: {}
 
