@@ -61,12 +61,14 @@ public:
   {
     loadParameters();
     validateBackendOrThrow();
+    validateVadInputOrThrow();
+    validateExecutionProviderOrThrow();
     validateModelFilesOrThrow();
 
     SherpaOnnxKwsBackendConfig cfg;
     cfg.target_sample_rate = target_sample_rate_;
     cfg.model_num_threads = model_num_threads_;
-    cfg.model_provider = model_provider_;
+    cfg.execution_provider = execution_provider_;
     cfg.encoder_path = encoder_path_;
     cfg.decoder_path = decoder_path_;
     cfg.joiner_path = joiner_path_;
@@ -90,7 +92,7 @@ public:
       vad_topic_.c_str(),
       output_topic_.c_str(),
       target_sample_rate_,
-      model_provider_.c_str());
+      execution_provider_.c_str());
   }
 
   ~FaKwsNode() override
@@ -153,6 +155,25 @@ private:
     }
   }
 
+  void validateExecutionProviderOrThrow() const
+  {
+    if (execution_provider_.empty()) {
+      throw std::runtime_error("backend.execution_provider is required");
+    }
+    if (!isSupportedSherpaOnnxExecutionProvider(execution_provider_)) {
+      throw std::runtime_error(
+        "unsupported fa_kws backend.execution_provider: " + execution_provider_ +
+        "; supported providers: " + supportedSherpaOnnxExecutionProvidersForMessage());
+    }
+  }
+
+  void validateVadInputOrThrow() const
+  {
+    if (vad_max_age_ms_ <= 0) {
+      throw std::runtime_error("vad.max_age_ms must be greater than zero");
+    }
+  }
+
   static void writeWav(const std::string &path,
                        const std::vector<float> &samples,
                        std::uint32_t sample_rate)
@@ -203,6 +224,7 @@ private:
 
     target_sample_rate_ = this->declare_parameter<int>("target_sample_rate", 16000);
     probability_gate_ = this->declare_parameter<double>("vad.probability_gate", 0.35);
+    vad_max_age_ms_ = this->declare_parameter<int>("vad.max_age_ms", 1000);
     cooldown_ms_ = this->declare_parameter<int>("cooldown_ms", 2000);
     dump_audio_enable_ = this->declare_parameter<bool>("dump_audio.enable", false);
     dump_audio_path_ = this->declare_parameter<std::string>("dump_audio.path", "/tmp/fa_kws_capture.wav");
@@ -215,7 +237,8 @@ private:
     keywords_path_ = this->declare_parameter<std::string>("kws.keywords_file", "");
 
     model_num_threads_ = this->declare_parameter<int>("model.num_threads", 4);
-    model_provider_ = this->declare_parameter<std::string>("model.provider", "cpu");
+    execution_provider_ = this->declare_parameter<std::string>(
+      "backend.execution_provider", "");
 
     kws_max_active_paths_ = this->declare_parameter<int>("kws.max_active_paths", 4);
     kws_num_trailing_blanks_ = this->declare_parameter<int>("kws.num_trailing_blanks", 1);
@@ -289,6 +312,39 @@ private:
       return;
     }
     current_vad_prob_.store(msg->probability, std::memory_order_relaxed);
+    const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                          std::chrono::steady_clock::now().time_since_epoch())
+                          .count();
+    last_vad_rx_ns_.store(now_ns, std::memory_order_relaxed);
+  }
+
+  bool readFreshVadProbability(std::int64_t now_ns, float &vad_prob)
+  {
+    const auto last_vad_ns = last_vad_rx_ns_.load(std::memory_order_relaxed);
+    if (last_vad_ns <= 0) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(),
+        *this->get_clock(),
+        2000,
+        "Dropping AudioFrame until first VadState is received on %s",
+        vad_topic_.c_str());
+      return false;
+    }
+
+    const auto vad_age_ms = (now_ns - last_vad_ns) / 1000000;
+    if (vad_age_ms > vad_max_age_ms_) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(),
+        *this->get_clock(),
+        2000,
+        "Dropping AudioFrame because latest VadState is stale: age_ms=%lld max_age_ms=%d",
+        static_cast<long long>(vad_age_ms),
+        vad_max_age_ms_);
+      return false;
+    }
+
+    vad_prob = current_vad_prob_.load(std::memory_order_relaxed);
+    return true;
   }
 
   void onAudio(const AudioFrame::SharedPtr msg)
@@ -312,8 +368,9 @@ private:
     last_sample_rate_.store(static_cast<int32_t>(msg->sample_rate), std::memory_order_relaxed);
     last_rms_.store(msg->rms, std::memory_order_relaxed);
     last_peak_.store(msg->peak, std::memory_order_relaxed);
+    const auto now = std::chrono::steady_clock::now();
     const auto now_rx_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                             std::chrono::steady_clock::now().time_since_epoch())
+                             now.time_since_epoch())
                              .count();
     last_audio_rx_ns_.store(now_rx_ns, std::memory_order_relaxed);
 
@@ -357,8 +414,10 @@ private:
 
     audio_samples_received_.fetch_add(samples.size(), std::memory_order_relaxed);
 
-    const float vad_prob = current_vad_prob_.load(std::memory_order_relaxed);
-    const auto now = std::chrono::steady_clock::now();
+    float vad_prob = 0.0f;
+    if (!readFreshVadProbability(now_rx_ns, vad_prob)) {
+      return;
+    }
 
     auto detection = kws_backend_->process(samples, src_rate, vad_prob, now);
     if (!detection) {
@@ -368,7 +427,7 @@ private:
     WakeWordResult out;
     out.header = msg->header;
     out.keyword = detection->keyword;
-    out.score = 1.0f;
+    out.score = detection->score;
     out.detected = true;
 
     wake_pub_->publish(out);
@@ -387,6 +446,7 @@ private:
 
   int target_sample_rate_{16000};
   double probability_gate_{0.35};
+  int vad_max_age_ms_{1000};
   int cooldown_ms_{2000};
 
   std::string encoder_path_;
@@ -396,7 +456,7 @@ private:
   std::string keywords_path_;
 
   int model_num_threads_{4};
-  std::string model_provider_{"cpu"};
+  std::string execution_provider_{};
 
   int kws_max_active_paths_{4};
   int kws_num_trailing_blanks_{1};
@@ -404,6 +464,7 @@ private:
   double kws_keywords_threshold_{0.25};
 
   std::atomic<float> current_vad_prob_;
+  std::atomic<std::int64_t> last_vad_rx_ns_{0};
 
   std::unique_ptr<SherpaOnnxKwsBackend> kws_backend_;
 

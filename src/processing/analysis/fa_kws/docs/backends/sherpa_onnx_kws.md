@@ -18,7 +18,7 @@ C++ / sherpa-onnx C API。
 
 - detected
 - keyword
-- score
+- score (`1.0` for binary sherpa-onnx keyword result)
 
 ## Required Files
 
@@ -29,3 +29,9 @@ C++ / sherpa-onnx C API。
 - keywords file
 
 Missing file は起動失敗です。
+
+## Required Runtime Parameters
+
+- `backend.execution_provider`: `cpu`, `cuda`, or `coreml`
+
+空値または未対応 provider は sherpa-onnx C API に渡す前に起動失敗です。

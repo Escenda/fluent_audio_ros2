@@ -7,6 +7,7 @@
 ## Runtime
 
 OpenAI Realtime ASR を外部 worker / process / container として呼び出す backend slot です。`fa_asr` は OpenAI SDK、WebSocket client、API key 読み取りを持ちません。
+`OpenAiRealtimeAsrBackend` は専用 class であり、`LocalCommandAsrBackend` の alias ではありません。subprocess 実行のみ内部 helper を共有します。
 
 ## Required Config
 

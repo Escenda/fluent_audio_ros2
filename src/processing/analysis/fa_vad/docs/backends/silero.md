@@ -22,11 +22,10 @@ Python / PyTorch Silero VAD。
 
 ## Failure Conditions
 
-- repo dir が存在しない
-- online download が disabled かつ local repo がない
+- `backend.model_path` が空
+- `backend.model_path` が存在しない local torch.hub repository directory を指す
+- `backend.execution_provider` が空
+- `backend.execution_provider` が未対応
 - model load failure
 
-`silero.repo_dir` は `silero.allow_online=false` のとき必須です。空の場合は
-`~/.cache/torch/hub` などを推測せず起動失敗します。online download は
-fallback ではありません。`silero.allow_online=true` かつ repo dir 未指定の
-場合だけ、明示された online source として使います。
+`backend.model_path` は必須です。空の場合は `~/.cache/torch/hub` などを推測せず起動失敗します。online download fallback はありません。`backend.execution_provider` は `cpu`, `cuda`, `cuda:<index>` のいずれかを明示します。

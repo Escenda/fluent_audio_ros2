@@ -13,9 +13,9 @@ fa_vad_node:
     hangover_ms: 300
 
     backend.name: "silero"
-    silero:
-      # Required when allow_online is false. Empty means startup fails closed.
-      repo_dir: ""
-      allow_online: false
+    # Required local torch.hub Silero repository path. Empty means startup fails closed.
+    backend.model_path: ""
+    # Required PyTorch device: cpu, cuda, or cuda:<index>. Empty means startup fails closed.
+    backend.execution_provider: ""
 
     log_speech_events: true

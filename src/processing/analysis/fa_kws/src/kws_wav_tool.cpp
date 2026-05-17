@@ -190,6 +190,7 @@ struct Args
   std::string joiner;
   std::string tokens;
   std::string keywords;
+  std::string provider;
   float keywords_threshold{0.25f};
   int target_sample_rate{16000};
   int chunk_ms{20};
@@ -199,13 +200,13 @@ struct Args
 
 Args parse_args(int argc, char **argv)
 {
-  if (argc < 13) {
+  if (argc < 15) {
     throw std::runtime_error(
       "Usage: kws_wav_tool --wav <path> --encoder <path> --decoder <path> "
-      "--joiner <path> --tokens <path> --keywords <path> [--threshold 0.25] "
+      "--joiner <path> --tokens <path> --keywords <path> --provider <provider> [--threshold 0.25] "
       "[--sample_rate 16000] [--chunk_ms 20]\n"
       "   or: kws_wav_tool --batch <dir> --encoder <path> --decoder <path> "
-      "--joiner <path> --tokens <path> --keywords <path> [--threshold 0.25]");
+      "--joiner <path> --tokens <path> --keywords <path> --provider <provider> [--threshold 0.25]");
   }
   Args args;
   for (int i = 1; i < argc; ++i) {
@@ -225,6 +226,8 @@ Args parse_args(int argc, char **argv)
       args.tokens = argv[++i];
     } else if (arg == "--keywords" && i + 1 < argc) {
       args.keywords = argv[++i];
+    } else if (arg == "--provider" && i + 1 < argc) {
+      args.provider = argv[++i];
     } else if (arg == "--threshold" && i + 1 < argc) {
       args.keywords_threshold = std::stof(argv[++i]);
     } else if (arg == "--sample_rate" && i + 1 < argc) {
@@ -237,14 +240,21 @@ Args parse_args(int argc, char **argv)
   }
   if (args.batch_mode) {
     if (args.wav_dir.empty() || args.encoder.empty() || args.decoder.empty() ||
-        args.joiner.empty() || args.tokens.empty() || args.keywords.empty()) {
+        args.joiner.empty() || args.tokens.empty() || args.keywords.empty() ||
+        args.provider.empty()) {
       throw std::runtime_error("Missing required arguments for batch mode");
     }
   } else {
     if (args.wav_path.empty() || args.encoder.empty() || args.decoder.empty() ||
-        args.joiner.empty() || args.tokens.empty() || args.keywords.empty()) {
+        args.joiner.empty() || args.tokens.empty() || args.keywords.empty() ||
+        args.provider.empty()) {
       throw std::runtime_error("Missing required arguments");
     }
+  }
+  if (!fa_kws::isSupportedSherpaOnnxExecutionProvider(args.provider)) {
+    throw std::runtime_error(
+      "unsupported backend.execution_provider: " + args.provider +
+      "; supported providers: " + fa_kws::supportedSherpaOnnxExecutionProvidersForMessage());
   }
   return args;
 }
@@ -307,6 +317,7 @@ int main(int argc, char **argv)
     cfg.joiner_path = args.joiner;
     cfg.tokens_path = args.tokens;
     cfg.keywords_path = args.keywords;
+    cfg.execution_provider = args.provider;
     cfg.keywords_threshold = args.keywords_threshold;
     cfg.max_active_paths = args.max_active_paths;
     cfg.vad_threshold = 0.0f;  // disable gating

@@ -7,6 +7,7 @@
 ## Runtime
 
 `whisper.cpp` の CLI を subprocess として実行します。`fa_asr` は whisper の Python package を import しません。
+`WhisperCppAsrBackend` は専用 class であり、`LocalCommandAsrBackend` の alias ではありません。subprocess 実行のみ内部 helper を共有します。
 
 ## Required Config
 

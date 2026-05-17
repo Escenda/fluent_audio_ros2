@@ -37,11 +37,31 @@ void tracef(const char *fmt, ...)
 namespace fa_kws
 {
 
+bool isSupportedSherpaOnnxExecutionProvider(const std::string &execution_provider)
+{
+  return execution_provider == "cpu" ||
+         execution_provider == "cuda" ||
+         execution_provider == "coreml";
+}
+
+std::string supportedSherpaOnnxExecutionProvidersForMessage()
+{
+  return "cpu, cuda, coreml";
+}
+
 SherpaOnnxKwsBackend::SherpaOnnxKwsBackend(const SherpaOnnxKwsBackendConfig &config)
 : config_(config),
   last_detect_time_(std::chrono::steady_clock::now()),
   has_detect_time_(false)
 {
+  if (!isSupportedSherpaOnnxExecutionProvider(config_.execution_provider)) {
+    throw std::invalid_argument(
+      "unsupported backend.execution_provider for sherpa_onnx_kws: " +
+      config_.execution_provider +
+      "; supported providers: " +
+      supportedSherpaOnnxExecutionProvidersForMessage());
+  }
+
   SherpaOnnxFeatureConfig feat_config;
   std::memset(&feat_config, 0, sizeof(feat_config));
   feat_config.sample_rate = config_.target_sample_rate;
@@ -58,7 +78,7 @@ SherpaOnnxKwsBackend::SherpaOnnxKwsBackend(const SherpaOnnxKwsBackendConfig &con
   model_config.transducer = transducer;
   model_config.tokens = config_.tokens_path.c_str();
   model_config.num_threads = config_.model_num_threads;
-  model_config.provider = config_.model_provider.c_str();
+  model_config.provider = config_.execution_provider.c_str();
   model_config.debug = 0;
   model_config.model_type = "";
   model_config.modeling_unit = "";
@@ -176,6 +196,7 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
 
   KwsDetection det;
   det.keyword = result->keyword ? result->keyword : "";
+  det.score = 1.0f;
   det.start_time_sec = result->start_time;
 
   tracef("fa_kws: detected keyword='%s' start_time=%.3f\n",

@@ -6,24 +6,35 @@ import yaml
 from fa_vad_py.backends.silero import SileroVAD
 
 
-def test_default_config_requires_explicit_silero_repo_dir() -> None:
+def test_default_config_requires_explicit_silero_model_path() -> None:
     config_path = Path(__file__).parents[2] / "config" / "default_vad.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     params = config["fa_vad_node"]["ros__parameters"]
 
     assert params["backend.name"] == "silero"
-    assert params["silero"]["allow_online"] is False
-    assert params["silero"]["repo_dir"] == ""
+    assert params["backend.model_path"] == ""
+    assert params["backend.execution_provider"] == ""
+    assert "silero" not in params
 
 
-def test_silero_backend_rejects_missing_repo_dir_when_offline() -> None:
-    with pytest.raises(RuntimeError, match="silero.repo_dir is required"):
-        SileroVAD(silero_repo_dir="", allow_online=False)
+def test_silero_backend_rejects_missing_model_path() -> None:
+    with pytest.raises(RuntimeError, match="backend.model_path is required"):
+        SileroVAD(model_path="", execution_provider="cpu")
 
 
-def test_silero_backend_rejects_missing_local_repo_even_when_online_allowed() -> None:
+def test_silero_backend_rejects_missing_model_path_directory() -> None:
     missing_repo = "/tmp/fluent_audio_missing_silero_repo"
 
-    with pytest.raises(RuntimeError, match="silero.repo_dir does not exist"):
-        SileroVAD(silero_repo_dir=missing_repo, allow_online=True)
+    with pytest.raises(RuntimeError, match="backend.model_path does not exist"):
+        SileroVAD(model_path=missing_repo, execution_provider="cpu")
+
+
+def test_silero_backend_rejects_missing_execution_provider(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.execution_provider is required"):
+        SileroVAD(model_path=str(tmp_path), execution_provider="")
+
+
+def test_silero_backend_rejects_unknown_execution_provider(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="unsupported backend.execution_provider"):
+        SileroVAD(model_path=str(tmp_path), execution_provider="tpu")

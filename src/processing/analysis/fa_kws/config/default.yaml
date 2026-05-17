@@ -7,6 +7,7 @@ fa_kws:
 
     target_sample_rate: 16000
     vad.probability_gate: 0.35
+    vad.max_age_ms: 1000
     cooldown_ms: 1500
 
     # Local sherpa-onnx KWS model files. These are required; fa_kws fails closed
@@ -18,7 +19,8 @@ fa_kws:
     kws.keywords_file: ""
 
     model.num_threads: 4
-    model.provider: "cpu"
+    # Required sherpa-onnx provider: cpu, cuda, or coreml. Empty means startup fails closed.
+    backend.execution_provider: ""
     kws.max_active_paths: 32
     kws.num_trailing_blanks: 1
     kws.keywords_score: 1.0

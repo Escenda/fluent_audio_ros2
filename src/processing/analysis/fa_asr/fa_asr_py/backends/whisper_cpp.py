@@ -12,21 +12,21 @@ from fa_asr_py.backends.base import AsrRequest
 
 
 @dataclass(frozen=True)
-class LocalCommandAsrConfig:
+class WhisperCppAsrConfig:
     process: CommandProcessConfig
 
 
-class LocalCommandAsrBackend:
-    name = "local_command"
+class WhisperCppAsrBackend:
+    name = "whisper_cpp"
 
-    def __init__(self, config: LocalCommandAsrConfig) -> None:
+    def __init__(self, config: WhisperCppAsrConfig) -> None:
         self._runner = _CommandProcessRunner(config.process)
 
     def transcribe(self, request: AsrRequest) -> str:
         return self._runner.transcribe(request)
 
 
-def load_local_command_config(
+def load_whisper_cpp_config(
     *,
     command: str,
     model_path_value: str,
@@ -37,8 +37,8 @@ def load_local_command_config(
     output_text_path: str,
     workspace_dir: Path,
     cleanup_audio_files: bool,
-) -> LocalCommandAsrConfig:
-    return LocalCommandAsrConfig(
+) -> WhisperCppAsrConfig:
+    return WhisperCppAsrConfig(
         process=_load_model_path_command_config(
             command=command,
             model_path_value=model_path_value,

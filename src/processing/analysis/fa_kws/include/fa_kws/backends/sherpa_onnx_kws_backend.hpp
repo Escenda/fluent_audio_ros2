@@ -15,7 +15,7 @@ struct SherpaOnnxKwsBackendConfig
 {
   std::int32_t target_sample_rate{16000};
   int model_num_threads{4};
-  std::string model_provider{"cpu"};
+  std::string execution_provider{};
 
   std::string encoder_path;
   std::string decoder_path;
@@ -32,9 +32,14 @@ struct SherpaOnnxKwsBackendConfig
   std::chrono::milliseconds cooldown{std::chrono::milliseconds{2000}};
 };
 
+bool isSupportedSherpaOnnxExecutionProvider(const std::string &execution_provider);
+
+std::string supportedSherpaOnnxExecutionProvidersForMessage();
+
 struct KwsDetection
 {
   std::string keyword;
+  float score{1.0f};
   double start_time_sec{0.0};
 };
 

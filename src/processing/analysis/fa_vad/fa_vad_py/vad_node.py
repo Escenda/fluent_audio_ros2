@@ -59,8 +59,8 @@ class FaVadNode(Node):
         self.declare_parameter("hangover_ms", 300)
 
         self.declare_parameter("backend.name", "")
-        self.declare_parameter("silero.repo_dir", "")
-        self.declare_parameter("silero.allow_online", False)
+        self.declare_parameter("backend.model_path", "")
+        self.declare_parameter("backend.execution_provider", "")
 
         self.declare_parameter("log_speech_events", True)
 
@@ -81,8 +81,10 @@ class FaVadNode(Node):
         threshold_end = float(self.get_parameter("threshold_end").value)
         hangover_ms = int(self.get_parameter("hangover_ms").value)
 
-        silero_repo_dir = str(self.get_parameter("silero.repo_dir").value).strip()
-        allow_online = bool(self.get_parameter("silero.allow_online").value)
+        model_path = str(self.get_parameter("backend.model_path").value).strip()
+        execution_provider = str(
+            self.get_parameter("backend.execution_provider").value
+        ).strip()
 
         depth = int(self.get_parameter("qos.depth").value)
         reliable = bool(self.get_parameter("qos.reliable").value)
@@ -110,15 +112,15 @@ class FaVadNode(Node):
             threshold_start=threshold_start,
             threshold_end=threshold_end,
             hangover_ms=hangover_ms,
-            silero_repo_dir=silero_repo_dir,
-            allow_online=allow_online,
+            model_path=model_path,
+            execution_provider=execution_provider,
         )
 
         self._last_is_speech: Optional[bool] = None
 
         self.get_logger().info(
             "FA VAD (Silero): input=%s output=%s vad_state=%s "
-            "target_sr=%d start=%.2f end=%.2f hangover=%dms online=%s repo_dir=%s",
+            "target_sr=%d start=%.2f end=%.2f hangover=%dms provider=%s model_path=%s",
             self._input_topic,
             self._output_topic,
             self._vad_state_topic if self._publish_vad_state else "(disabled)",
@@ -126,8 +128,8 @@ class FaVadNode(Node):
             threshold_start,
             threshold_end,
             hangover_ms,
-            str(allow_online).lower(),
-            silero_repo_dir if silero_repo_dir else "(default)",
+            execution_provider,
+            model_path,
         )
 
     def _load_backend(
@@ -136,8 +138,8 @@ class FaVadNode(Node):
         threshold_start: float,
         threshold_end: float,
         hangover_ms: int,
-        silero_repo_dir: str,
-        allow_online: bool,
+        model_path: str,
+        execution_provider: str,
     ) -> VADBackend:
         backend_name = str(self.get_parameter("backend.name").value).strip()
         if not backend_name:
@@ -150,8 +152,8 @@ class FaVadNode(Node):
             hangover_ms=hangover_ms,
             threshold_start=threshold_start,
             threshold_end=threshold_end,
-            silero_repo_dir=silero_repo_dir or None,
-            allow_online=allow_online,
+            model_path=model_path,
+            execution_provider=execution_provider,
         )
 
     def _on_audio_frame(self, msg: AudioFrame) -> None:

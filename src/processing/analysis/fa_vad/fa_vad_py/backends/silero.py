@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-import os
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -28,8 +28,8 @@ class SileroVAD:
         hangover_ms: int = 250,
         threshold_start: float | None = None,
         threshold_end: float | None = None,
-        silero_repo_dir: str | None = None,
-        allow_online: bool = False,
+        model_path: str,
+        execution_provider: str,
     ) -> None:
         self.sample_rate = int(sample_rate)
         self.frame_ms = int(frame_ms)
@@ -43,8 +43,8 @@ class SileroVAD:
         )
         self.hangover_frames = max(1, int(hangover_ms) // int(frame_ms))
 
-        self._silero_repo_dir = silero_repo_dir
-        self._allow_online = bool(allow_online)
+        self._model_path = self._validate_model_path(model_path)
+        self.device = self._validate_execution_provider(execution_provider)
 
         self._load_model()
 
@@ -118,36 +118,51 @@ class SileroVAD:
             probability = self.model(tensor, self.sample_rate).item()
         return float(probability)
 
+    @staticmethod
+    def _validate_model_path(model_path: str) -> Path:
+        path_value = model_path.strip()
+        if not path_value:
+            raise RuntimeError("backend.model_path is required")
+        path = Path(path_value).expanduser()
+        if not path.is_dir():
+            raise RuntimeError(f"backend.model_path does not exist: {path}")
+        return path
+
+    @staticmethod
+    def _validate_execution_provider(execution_provider: str) -> torch.device:
+        provider = execution_provider.strip()
+        if not provider:
+            raise RuntimeError("backend.execution_provider is required")
+        if provider == "cpu":
+            return torch.device("cpu")
+        if provider == "cuda" or (
+            provider.startswith("cuda:") and provider.removeprefix("cuda:").isdigit()
+        ):
+            if not torch.cuda.is_available():
+                raise RuntimeError(
+                    "backend.execution_provider requires CUDA but torch.cuda.is_available() is false"
+                )
+            if provider.startswith("cuda:"):
+                device_index = int(provider.removeprefix("cuda:"))
+                if device_index >= torch.cuda.device_count():
+                    raise RuntimeError(
+                        "backend.execution_provider CUDA device index is unavailable: "
+                        f"{provider}"
+                    )
+            return torch.device(provider)
+        raise RuntimeError(
+            "unsupported backend.execution_provider for silero: "
+            f"{provider}; supported providers: cpu, cuda, cuda:<index>"
+        )
+
     def _load_model(self) -> None:
-        logger.info("Loading Silero VAD model (offline-first)")
-
-        repo_dir = self._silero_repo_dir.strip() if self._silero_repo_dir else ""
-        repo_dir = os.path.expanduser(repo_dir)
-
-        if repo_dir:
-            if not os.path.isdir(repo_dir):
-                raise RuntimeError(f"silero.repo_dir does not exist: {repo_dir}")
-            self.model, _ = torch.hub.load(
-                repo_dir,
-                "silero_vad",
-                source="local",
-                trust_repo=True,
-            )
-            logger.info("Loaded Silero VAD from local repo: %s", repo_dir)
-        elif self._allow_online:
-            logger.warning("Loading Silero VAD from torch.hub online source")
-            self.model, _ = torch.hub.load(
-                "snakers4/silero-vad",
-                "silero_vad",
-                force_reload=False,
-                trust_repo=True,
-            )
-        else:
-            raise RuntimeError(
-                "silero.repo_dir is required when silero.allow_online is false"
-            )
-
+        logger.info("Loading Silero VAD model from local path: %s", self._model_path)
+        self.model, _ = torch.hub.load(
+            str(self._model_path),
+            "silero_vad",
+            source="local",
+            trust_repo=True,
+        )
         self.model.eval()
-        self.device = torch.device("cpu")
         self.model.to(self.device)
         logger.info("Silero VAD model loaded. device=%s", self.device)

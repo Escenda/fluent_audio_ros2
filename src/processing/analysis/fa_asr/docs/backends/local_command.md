@@ -7,6 +7,14 @@
 ## Runtime
 
 外部 command を subprocess として実行します。ROS2 node は engine の Python package を import しません。
+`LocalCommandAsrBackend` は `local_command` 専用 class であり、他 backend の alias には使いません。
+
+## Required Config
+
+- `backend.command`: 実行ファイル
+- `backend.model_path`: model file path
+- `backend.language`
+- `backend.args`: `{audio}` と `{model}` を含む
 
 ## Input
 

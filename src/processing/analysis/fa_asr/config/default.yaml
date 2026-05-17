@@ -22,12 +22,12 @@ fa_asr:
     # OpenAI SDK/API clients are not imported by fa_asr. The openai_realtime
     # backend is an external worker boundary and fails closed if command/model
     # are not explicitly configured.
-    backend.name: "local_command"
+    backend.name: ""
     backend.model: ""
     backend.command: ""
     backend.model_path: ""
     backend.language: "ja"
     backend.timeout_sec: 120.0
     backend.working_directory: ""
-    backend.args: ["-m", "{model}", "-l", "{language}", "-f", "{audio}", "-nt"]
+    backend.args: []
     backend.output_text_path: ""

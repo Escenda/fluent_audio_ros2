@@ -15,7 +15,7 @@ ros2 launch fa_vad fa_vad.launch.py
 
 ## Runtime
 
-PyTorch / Silero VAD は ROS package dependency ではなく、node 実行環境に明示的に provision します。`silero.repo_dir` が存在しない場合、`silero.allow_online: false` では起動失敗します。
+PyTorch / Silero VAD は ROS package dependency ではなく、node 実行環境に明示的に provision します。`backend.model_path` は local torch.hub repository directory を指し、空または存在しない場合は起動失敗します。online download fallback はありません。`backend.execution_provider` も必須です。
 
 ## パラメータ例
 ```yaml
@@ -25,9 +25,7 @@ fa_vad_node:
     threshold_start: 0.5
     threshold_end: 0.1
     hangover_ms: 300
-    silero:
-      # torch.hub のローカルキャッシュ（オフライン用）
-      repo_dir: "~/.cache/torch/hub/snakers4_silero-vad_master"
-      # オフライン前提のため既定はfalse（セットアップ時のみtrueにする運用）
-      allow_online: false
+    backend.name: "silero"
+    backend.model_path: "~/.cache/torch/hub/snakers4_silero-vad_master"
+    backend.execution_provider: "cpu"
 ```

@@ -7,6 +7,7 @@
 ## Runtime
 
 Parakeet 系 ASR を外部 worker / process / container として呼び出します。`fa_asr` は NeMo / PyTorch / Parakeet の Python package を import しません。
+`ParakeetWorkerAsrBackend` は専用 class であり、`LocalCommandAsrBackend` の alias ではありません。subprocess 実行のみ内部 helper を共有します。
 
 ## Required Config
 
