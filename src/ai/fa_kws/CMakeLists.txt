@@ -56,15 +56,26 @@ if(NOT FA_KWS_HAS_SHERPA_ONNX)
 endif()
 
 if(FA_KWS_HAS_SHERPA_ONNX)
+  add_library(fa_kws_backends STATIC
+    src/backends/sherpa_onnx_kws_backend.cpp
+  )
+
+  target_include_directories(fa_kws_backends PUBLIC
+    include
+    ${SHERPA_ONNX_INCLUDE_DIR}
+  )
+
+  target_link_libraries(fa_kws_backends PUBLIC
+    ${SHERPA_ONNX_C_API_LIBRARY}
+  )
+
   add_executable(fa_kws_node
     src/fa_kws_node.cpp
     src/audio_utils.cpp
-    src/backends/sherpa_onnx_kws_backend.cpp
   )
 
   add_executable(fa_kws_wav_tool
     src/kws_wav_tool.cpp
-    src/backends/sherpa_onnx_kws_backend.cpp
   )
 
   ament_target_dependencies(fa_kws_node
@@ -72,12 +83,8 @@ if(FA_KWS_HAS_SHERPA_ONNX)
     fa_interfaces
   )
 
-  target_include_directories(fa_kws_node PRIVATE
-    ${SHERPA_ONNX_INCLUDE_DIR}
-  )
-
   target_link_libraries(fa_kws_node
-    ${SHERPA_ONNX_C_API_LIBRARY}
+    fa_kws_backends
   )
 
   get_filename_component(SHERPA_ONNX_LIB_DIR "${SHERPA_ONNX_C_API_LIBRARY}" DIRECTORY)
@@ -86,12 +93,8 @@ if(FA_KWS_HAS_SHERPA_ONNX)
     INSTALL_RPATH "${SHERPA_ONNX_LIB_DIR}"
   )
 
-  target_include_directories(fa_kws_wav_tool PRIVATE
-    ${SHERPA_ONNX_INCLUDE_DIR}
-  )
-
   target_link_libraries(fa_kws_wav_tool
-    ${SHERPA_ONNX_C_API_LIBRARY}
+    fa_kws_backends
   )
 
   set_target_properties(fa_kws_wav_tool PROPERTIES

@@ -10,11 +10,11 @@ def generate_launch_description():
     default_config = os.path.join(
         get_package_share_directory("fa_kws"), "config", "default.yaml"
     )
-    config = LaunchConfiguration("config", default=default_config)
+    config_file = LaunchConfiguration("config_file", default=default_config)
     return LaunchDescription(
         [
             DeclareLaunchArgument(
-                "config",
+                "config_file",
                 default_value=default_config,
                 description="Path to fa_kws config file.",
             ),
@@ -23,7 +23,7 @@ def generate_launch_description():
                 executable="fa_kws_node",
                 name="fa_kws",
                 output="screen",
-                parameters=[config],
+                parameters=[config_file],
             ),
         ]
     )

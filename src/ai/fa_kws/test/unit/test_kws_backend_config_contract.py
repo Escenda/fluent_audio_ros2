@@ -60,6 +60,21 @@ def test_cmake_has_explicit_test_only_mode_without_sherpa() -> None:
     assert "add_executable(fa_kws_node" in cmake_text
 
 
+def test_backend_builds_as_shared_runtime_boundary() -> None:
+    cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert "add_library(fa_kws_backends STATIC" in cmake_text
+    assert "src/backends/sherpa_onnx_kws_backend.cpp" in cmake_text
+    assert "target_link_libraries(fa_kws_node\n    fa_kws_backends" in cmake_text
+    assert "target_link_libraries(fa_kws_wav_tool\n    fa_kws_backends" in cmake_text
+    assert "src/backends/sherpa_onnx_kws_backend.cpp" not in cmake_text.split(
+        "add_executable(fa_kws_node"
+    )[1].split(")")[0]
+    assert "src/backends/sherpa_onnx_kws_backend.cpp" not in cmake_text.split(
+        "add_executable(fa_kws_wav_tool"
+    )[1].split(")")[0]
+
+
 def test_node_uses_backend_execution_provider_parameter() -> None:
     node_path = PACKAGE_ROOT / "src" / "fa_kws_node.cpp"
     node_text = node_path.read_text(encoding="utf-8")
