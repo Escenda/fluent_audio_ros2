@@ -43,7 +43,7 @@ and must not be counted as implemented package coverage.
 | Category | Current ROS 2 packages | Status |
 | --- | --- | --- |
 | `format/` | `fa_resample` | implemented package |
-| `dynamics/` | `fa_gain` | implemented package |
+| `dynamics/` | `fa_gain`, `fa_limiter` | implemented packages |
 | `frequency/` | none | taxonomy placeholder only |
 | `temporal/` | none | taxonomy placeholder only |
 | `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise` | implemented packages |

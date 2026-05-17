@@ -52,6 +52,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_limiter
+        enable: false
+        package: fa_limiter
+        exec: fa_limiter_node
+        node_name: fa_limiter
+        namespace: ""
+        params_file: "${share:fa_limiter}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
   - id: correction
     enable: true
     nodes:
