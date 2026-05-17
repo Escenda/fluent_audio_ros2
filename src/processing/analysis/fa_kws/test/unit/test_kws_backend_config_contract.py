@@ -34,6 +34,13 @@ def test_backend_config_has_no_provider_default() -> None:
     assert '{"cpu"}' not in header_text
 
 
+def test_cmake_accepts_sherpa_prefix_from_environment() -> None:
+    cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert 'DEFINED ENV{SHERPA_ONNX_PREFIX}' in cmake_text
+    assert '$ENV{SHERPA_ONNX_PREFIX}' in cmake_text
+
+
 def test_node_uses_backend_execution_provider_parameter() -> None:
     node_path = PACKAGE_ROOT / "src" / "fa_kws_node.cpp"
     node_text = node_path.read_text(encoding="utf-8")

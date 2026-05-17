@@ -12,6 +12,9 @@ find_package(fa_interfaces REQUIRED)
 include_directories(include)
 
 set(SHERPA_ONNX_PREFIX "" CACHE PATH "sherpa-onnx install prefix")
+if(NOT SHERPA_ONNX_PREFIX AND DEFINED ENV{SHERPA_ONNX_PREFIX})
+  set(SHERPA_ONNX_PREFIX "$ENV{SHERPA_ONNX_PREFIX}" CACHE PATH "sherpa-onnx install prefix" FORCE)
+endif()
 
 find_path(SHERPA_ONNX_INCLUDE_DIR
   NAMES sherpa-onnx/c-api/c-api.h
