@@ -30,6 +30,10 @@ class _FakeNode:
 
 class _FakeParameter:
     class Type:
+        STRING = "string"
+        BOOL = "bool"
+        INTEGER = "integer"
+        DOUBLE = "double"
         STRING_ARRAY = "string_array"
 
 
@@ -63,6 +67,33 @@ class _FakeTurnEnd:
 
 class _FakeVadState:
     pass
+
+
+class _FakeParameterValue:
+    def __init__(self, string_array_value: tuple[str, ...]) -> None:
+        self.string_array_value = string_array_value
+
+
+class _TypedParameter:
+    def __init__(self, type_value: str, value: str | bool | float | int | tuple[str, ...]) -> None:
+        self.type_ = type_value
+        self.value = value
+
+    def get_parameter_value(self) -> _FakeParameterValue:
+        if self.type_ != _FakeParameter.Type.STRING_ARRAY:
+            raise RuntimeError("test parameter is not a string array")
+        if not isinstance(self.value, tuple):
+            raise RuntimeError("test string array parameter value must be tuple")
+        return _FakeParameterValue(self.value)
+
+
+class _TypedNode:
+    def __init__(self, parameter: _TypedParameter) -> None:
+        self._parameter = parameter
+
+    def get_parameter(self, name: str) -> _TypedParameter:
+        del name
+        return self._parameter
 
 
 class _FailingBackend:
@@ -230,6 +261,64 @@ def test_default_config_requires_explicit_model_and_provider() -> None:
     assert "tuple(str(item) for item in value)" not in source
 
 
+def test_turn_detector_node_parameter_helpers_reject_wrong_ros_parameter_types(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = Path(__file__).parents[2]
+    shutdown_calls: list[bool] = []
+    _install_turn_detector_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(package_root))
+    sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+    try:
+        module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
+
+        assert module.FaTurnDetectorNode._string_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "audio/frame")),
+            "audio_topic",
+        ) == "audio/frame"
+        assert module.FaTurnDetectorNode._bool_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.BOOL, False)),
+            "backend.cleanup_audio_files",
+        ) is False
+        assert module.FaTurnDetectorNode._double_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, 0.5)),
+            "backend.threshold",
+        ) == 0.5
+        assert module.FaTurnDetectorNode._string_tuple_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.STRING_ARRAY, ("--audio", "{audio}"))),
+            "backend.args",
+        ) == ("--audio", "{audio}")
+
+        with pytest.raises(RuntimeError, match="audio_topic must be a string"):
+            module.FaTurnDetectorNode._string_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, 1.0)),
+                "audio_topic",
+            )
+        with pytest.raises(RuntimeError, match="backend.cleanup_audio_files must be a bool"):
+            module.FaTurnDetectorNode._bool_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "false")),
+                "backend.cleanup_audio_files",
+            )
+        with pytest.raises(RuntimeError, match="backend.threshold must be a double"):
+            module.FaTurnDetectorNode._double_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "0.5")),
+                "backend.threshold",
+            )
+        with pytest.raises(RuntimeError, match="backend.timeout_sec must be a double"):
+            module.FaTurnDetectorNode._double_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.INTEGER, 5)),
+                "backend.timeout_sec",
+            )
+        with pytest.raises(RuntimeError, match="backend.args must be a string array"):
+            module.FaTurnDetectorNode._string_tuple_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "--audio")),
+                "backend.args",
+            )
+    finally:
+        sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+
 def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
     package_root = Path(__file__).parents[2]
     source = (
@@ -247,6 +336,18 @@ def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame data is required" in source
     assert "AudioFrame sample_rate must match backend sample_rate" in source
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
+
+
+def test_turn_detector_node_source_does_not_hide_parameter_type_conversion() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (
+        package_root / "fa_turn_detector_py" / "turn_detector_node.py"
+    ).read_text(encoding="utf-8")
+
+    assert "bool(self.get_parameter" not in source
+    assert "float(self.get_parameter" not in source
+    assert "str(self.get_parameter" not in source
+    assert "tuple(str(" not in source
 
 
 def test_frame_to_float_rejects_pcm32_payload_before_float_interpretation(
@@ -311,6 +412,19 @@ def test_smart_turn_backend_rejects_out_of_range_audio() -> None:
 
     assert "audio = audio / max_abs" not in source
     assert "turn detector audio samples must be normalized to [-1.0, 1.0]" in source
+
+
+def test_smart_turn_backend_config_validation_rejects_type_coercion() -> None:
+    with pytest.raises(RuntimeError, match="backend.threshold must be a double"):
+        SmartTurnOnnxBackend._validate_threshold("0.5")
+    with pytest.raises(RuntimeError, match="backend.threshold must be a double"):
+        SmartTurnOnnxBackend._validate_threshold(1)
+    with pytest.raises(RuntimeError, match="backend.timeout_sec must be a double"):
+        SmartTurnOnnxBackend._validate_timeout("5.0")
+    with pytest.raises(RuntimeError, match="backend.timeout_sec must be a double"):
+        SmartTurnOnnxBackend._validate_timeout(5)
+    with pytest.raises(RuntimeError, match="backend.cleanup_audio_files must be a bool"):
+        SmartTurnOnnxBackend._validate_cleanup_audio_files("false")
 
 
 def test_turn_detector_node_does_not_import_onnxruntime() -> None:

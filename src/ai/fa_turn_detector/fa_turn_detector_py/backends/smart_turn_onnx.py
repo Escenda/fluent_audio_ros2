@@ -63,7 +63,9 @@ class SmartTurnOnnxBackend:
         )
         self._timeout_sec = self._validate_timeout(timeout_sec)
         self._workspace_dir = self._validate_workspace_dir(workspace_dir)
-        self._cleanup_audio_files = bool(cleanup_audio_files)
+        self._cleanup_audio_files = self._validate_cleanup_audio_files(
+            cleanup_audio_files
+        )
         self._payload_encoding = _PAYLOAD_ENCODING
         self._run_health_check()
 
@@ -174,12 +176,13 @@ class SmartTurnOnnxBackend:
 
     @staticmethod
     def _validate_threshold(threshold: float) -> float:
-        threshold_value = float(threshold)
-        if not math.isfinite(threshold_value):
+        if not isinstance(threshold, float):
+            raise RuntimeError("backend.threshold must be a double")
+        if not math.isfinite(threshold):
             raise RuntimeError("backend.threshold must be finite")
-        if threshold_value < 0.0 or threshold_value > 1.0:
+        if threshold < 0.0 or threshold > 1.0:
             raise RuntimeError("backend.threshold must be between 0.0 and 1.0")
-        return threshold_value
+        return threshold
 
     @staticmethod
     def _validate_execution_provider(execution_provider: str) -> str:
@@ -246,10 +249,17 @@ class SmartTurnOnnxBackend:
 
     @staticmethod
     def _validate_timeout(timeout_sec: float) -> float:
-        timeout_value = float(timeout_sec)
-        if timeout_value <= 0.0:
+        if not isinstance(timeout_sec, float):
+            raise RuntimeError("backend.timeout_sec must be a double")
+        if timeout_sec <= 0.0:
             raise RuntimeError("backend.timeout_sec must be greater than zero")
-        return timeout_value
+        return timeout_sec
+
+    @staticmethod
+    def _validate_cleanup_audio_files(cleanup_audio_files: bool) -> bool:
+        if not isinstance(cleanup_audio_files, bool):
+            raise RuntimeError("backend.cleanup_audio_files must be a bool")
+        return cleanup_audio_files
 
     @staticmethod
     def _validate_workspace_dir(workspace_dir: str) -> Path:

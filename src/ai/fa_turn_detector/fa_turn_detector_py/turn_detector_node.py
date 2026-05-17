@@ -36,10 +36,10 @@ class FaTurnDetectorNode(Node):
         self.declare_parameter("backend.workspace_dir", "/tmp/fluent_audio_fa_turn_detector")
         self.declare_parameter("backend.cleanup_audio_files", True)
 
-        self.audio_topic = str(self.get_parameter("audio_topic").value)
-        self.vad_topic = str(self.get_parameter("vad_topic").value)
-        self.turn_context_topic = str(self.get_parameter("turn_context_topic").value)
-        self.output_topic = str(self.get_parameter("output_topic").value)
+        self.audio_topic = self._string_parameter("audio_topic")
+        self.vad_topic = self._string_parameter("vad_topic")
+        self.turn_context_topic = self._string_parameter("turn_context_topic")
+        self.output_topic = self._string_parameter("output_topic")
 
         self.backend = self._load_backend()
         self.audio_buffer: deque[float] = deque(maxlen=self.backend.sample_rate * 10)
@@ -87,27 +87,46 @@ class FaTurnDetectorNode(Node):
         )
 
     def _load_backend(self) -> TurnDetectorBackend:
-        backend_name = str(self.get_parameter("backend.name").value).strip()
+        backend_name = self._string_parameter("backend.name").strip()
         if not backend_name:
             raise RuntimeError("backend.name is required")
         if backend_name != SmartTurnOnnxBackend.name:
             raise RuntimeError(f"unsupported turn detector backend.name: {backend_name}")
         return SmartTurnOnnxBackend(
-            model_path=str(self.get_parameter("backend.model_path").value).strip(),
-            threshold=float(self.get_parameter("backend.threshold").value),
-            execution_provider=str(self.get_parameter("backend.execution_provider").value).strip(),
-            command=str(self.get_parameter("backend.command").value).strip(),
+            model_path=self._string_parameter("backend.model_path").strip(),
+            threshold=self._double_parameter("backend.threshold"),
+            execution_provider=self._string_parameter("backend.execution_provider").strip(),
+            command=self._string_parameter("backend.command").strip(),
             args=self._string_tuple_parameter("backend.args"),
             health_args=self._string_tuple_parameter("backend.health_args"),
-            timeout_sec=float(self.get_parameter("backend.timeout_sec").value),
-            workspace_dir=str(self.get_parameter("backend.workspace_dir").value).strip(),
-            cleanup_audio_files=bool(self.get_parameter("backend.cleanup_audio_files").value),
+            timeout_sec=self._double_parameter("backend.timeout_sec"),
+            workspace_dir=self._string_parameter("backend.workspace_dir").strip(),
+            cleanup_audio_files=self._bool_parameter("backend.cleanup_audio_files"),
         )
 
     def _string_tuple_parameter(self, name: str) -> tuple[str, ...]:
-        return tuple(
-            self.get_parameter(name).get_parameter_value().string_array_value
-        )
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.STRING_ARRAY:
+            raise RuntimeError(f"{name} must be a string array")
+        return tuple(parameter.get_parameter_value().string_array_value)
+
+    def _string_parameter(self, name: str) -> str:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.STRING:
+            raise RuntimeError(f"{name} must be a string")
+        return parameter.value
+
+    def _bool_parameter(self, name: str) -> bool:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.BOOL:
+            raise RuntimeError(f"{name} must be a bool")
+        return parameter.value
+
+    def _double_parameter(self, name: str) -> float:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.DOUBLE:
+            raise RuntimeError(f"{name} must be a double")
+        return parameter.value
 
     def on_turn_context(self, msg: TurnContext) -> None:
         self._active_session_id = str(msg.session_id)
