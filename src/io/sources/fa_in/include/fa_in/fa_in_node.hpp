@@ -86,6 +86,7 @@ private:
   std::string active_device_name_;
   size_t frames_per_buffer_{0};
   size_t bytes_per_frame_{0};
+  size_t bytes_per_buffer_{0};
 
   std::atomic<uint64_t> xruns_{0};
   std::atomic<uint64_t> frames_published_{0};

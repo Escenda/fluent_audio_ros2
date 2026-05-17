@@ -1,5 +1,6 @@
 #include "fa_out/fa_out_node.hpp"
 
+#include "fa_out/audio_config_validation.hpp"
 #include "fa_out/backends/alsa_playback_backend.hpp"
 
 #include <algorithm>
@@ -23,10 +24,12 @@ FaOutNode::FaOutNode()
   RCLCPP_INFO(this->get_logger(), "Starting FA Out node");
   loadParameters();
 
-  bytes_per_frame_ = config_.channels * (config_.bit_depth / 8);
+  bytes_per_frame_ = validation::bytesPerFrame(config_.channels, config_.bit_depth);
   if (bytes_per_frame_ == 0) {
     throw std::runtime_error("Invalid audio configuration: bytes_per_frame is zero");
   }
+  config_.playback_chunk_bytes = validation::bytesForFrames(
+    "audio.chunk_duration_ms", config_.playback_chunk_frames, bytes_per_frame_);
 
   openBackend();
 
@@ -91,6 +94,8 @@ void FaOutNode::loadParameters()
   this->declare_parameter<int>("audio.sample_rate");
   this->declare_parameter<int>("audio.channels");
   this->declare_parameter<int>("audio.bit_depth");
+  this->declare_parameter<int>("audio.alsa.buffer_frames");
+  this->declare_parameter<int>("audio.alsa.period_frames");
   this->declare_parameter<int>("queue.max_frames");
   this->declare_parameter<int>("audio.chunk_duration_ms");
   this->declare_parameter<int>("audio.qos.depth");
@@ -115,46 +120,46 @@ void FaOutNode::loadParameters()
     throw std::invalid_argument(
       "audio.device_id must be an ALSA raw hardware id starting with hw: for backend.name=alsa_playback");
   }
-  config_.sample_rate = this->get_parameter("audio.sample_rate").as_int();
-  config_.channels = this->get_parameter("audio.channels").as_int();
-  config_.bit_depth = this->get_parameter("audio.bit_depth").as_int();
-  if (config_.sample_rate == 0) {
-    throw std::invalid_argument("audio.sample_rate must be > 0");
-  }
-  if (config_.channels == 0) {
-    throw std::invalid_argument("audio.channels must be > 0");
-  }
+  config_.sample_rate = validation::requirePositiveUint32(
+    "audio.sample_rate", this->get_parameter("audio.sample_rate").as_int());
+  config_.channels = validation::requirePositiveUint32(
+    "audio.channels", this->get_parameter("audio.channels").as_int());
+  config_.bit_depth = validation::requirePositiveUint32(
+    "audio.bit_depth", this->get_parameter("audio.bit_depth").as_int());
   if (config_.bit_depth != 16) {
     throw std::invalid_argument("audio.bit_depth must be 16 for PCM16LE playback");
   }
-  const int64_t max_frames_param = this->get_parameter("queue.max_frames").as_int();
-  if (max_frames_param <= 0) {
-    throw std::invalid_argument("queue.max_frames must be > 0");
+  config_.alsa_buffer_frames = validation::requirePositiveSize(
+    "audio.alsa.buffer_frames", this->get_parameter("audio.alsa.buffer_frames").as_int());
+  config_.alsa_period_frames = validation::requirePositiveSize(
+    "audio.alsa.period_frames", this->get_parameter("audio.alsa.period_frames").as_int());
+  if (config_.alsa_period_frames > config_.alsa_buffer_frames) {
+    throw std::invalid_argument("audio.alsa.period_frames must be <= audio.alsa.buffer_frames");
   }
-  config_.max_queue_frames = static_cast<size_t>(max_frames_param);
+  config_.max_queue_frames = validation::requirePositiveSize(
+    "queue.max_frames", this->get_parameter("queue.max_frames").as_int());
 
-  const int64_t chunk_duration_ms_param = this->get_parameter("audio.chunk_duration_ms").as_int();
-  if (chunk_duration_ms_param <= 0) {
-    throw std::invalid_argument("audio.chunk_duration_ms must be > 0");
-  }
+  const int64_t chunk_duration_ms_param =
+    this->get_parameter("audio.chunk_duration_ms").as_int();
+  config_.chunk_duration_ms = validation::requirePositiveUint32(
+    "audio.chunk_duration_ms", chunk_duration_ms_param);
   if (chunk_duration_ms_param > 1000) {
     throw std::invalid_argument("audio.chunk_duration_ms must be <= 1000");
   }
-  config_.chunk_duration_ms = static_cast<uint32_t>(chunk_duration_ms_param);
+  config_.playback_chunk_frames = validation::playbackChunkFrames(
+    config_.sample_rate, config_.chunk_duration_ms);
 
-  const int64_t qos_depth_param = this->get_parameter("audio.qos.depth").as_int();
-  if (qos_depth_param <= 0) {
-    throw std::invalid_argument("audio.qos.depth must be > 0");
-  }
-  config_.qos_depth = static_cast<size_t>(qos_depth_param);
+  config_.qos_depth = validation::requirePositiveSize(
+    "audio.qos.depth", this->get_parameter("audio.qos.depth").as_int());
   config_.qos_reliable = this->get_parameter("audio.qos.reliable").as_bool();
 
   RCLCPP_INFO(this->get_logger(),
     "Output config: backend=%s device=%s encoding=%s rate=%uHz channels=%u bits=%u queue=%zu "
-    "chunk=%ums qos_depth=%zu reliable=%s",
+    "chunk=%ums chunk_frames=%zu alsa_buffer=%zu alsa_period=%zu qos_depth=%zu reliable=%s",
     config_.backend_name.c_str(), config_.device_id.c_str(), config_.encoding.c_str(),
     config_.sample_rate, config_.channels, config_.bit_depth, config_.max_queue_frames,
-    config_.chunk_duration_ms, config_.qos_depth, config_.qos_reliable ? "true" : "false");
+    config_.chunk_duration_ms, config_.playback_chunk_frames, config_.alsa_buffer_frames,
+    config_.alsa_period_frames, config_.qos_depth, config_.qos_reliable ? "true" : "false");
 }
 
 void FaOutNode::openBackend()
@@ -167,6 +172,8 @@ void FaOutNode::openBackend()
   backend_config.sample_rate = config_.sample_rate;
   backend_config.channels = config_.channels;
   backend_config.bit_depth = config_.bit_depth;
+  backend_config.buffer_frames = config_.alsa_buffer_frames;
+  backend_config.period_frames = config_.alsa_period_frames;
 
   auto backend = std::make_unique<backends::AlsaPlaybackBackend>(backend_config);
   try {
@@ -440,11 +447,8 @@ bool FaOutNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
 
 void FaOutNode::playbackThread()
 {
-  // チャンクのサンプル数を計算（停止/一時停止の応答性向上用）
-  const uint64_t chunk_samples_u64 =
-    (static_cast<uint64_t>(config_.sample_rate) * config_.chunk_duration_ms) / 1000;
-  const size_t chunk_samples = std::max<size_t>(1, static_cast<size_t>(chunk_samples_u64));
-  const size_t chunk_bytes = chunk_samples * bytes_per_frame_;
+  // チャンク単位で書くことで stop / pause の応答性を固定する。
+  const size_t chunk_bytes = config_.playback_chunk_bytes;
 
   rclcpp::Rate idle_rate(50);
   while (running_.load()) {

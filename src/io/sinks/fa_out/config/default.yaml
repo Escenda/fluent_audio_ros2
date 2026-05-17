@@ -7,6 +7,8 @@ fa_out:
     audio.channels: 1
     audio.bit_depth: 16  # PCM16LE-only playback sink
     audio.chunk_duration_ms: 30
+    audio.alsa.buffer_frames: 16384
+    audio.alsa.period_frames: 4096
     audio.qos.depth: 10
     audio.qos.reliable: true
     queue.max_frames: 32

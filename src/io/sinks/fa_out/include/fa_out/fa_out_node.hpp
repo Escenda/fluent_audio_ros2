@@ -31,6 +31,10 @@ struct OutputConfig
   uint32_t bit_depth{0};
   size_t max_queue_frames{0};
   uint32_t chunk_duration_ms{0};
+  size_t playback_chunk_frames{0};
+  size_t playback_chunk_bytes{0};
+  size_t alsa_buffer_frames{0};
+  size_t alsa_period_frames{0};
   size_t qos_depth{0};
   bool qos_reliable{false};
 };

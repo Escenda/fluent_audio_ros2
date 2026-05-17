@@ -3,6 +3,7 @@
 #include <alsa/asoundlib.h>
 
 #include <cerrno>
+#include <limits>
 #include <utility>
 
 namespace fa_out::backends
@@ -22,6 +23,14 @@ void closeHandle(snd_pcm_t * handle)
   if (handle != nullptr) {
     snd_pcm_close(handle);
   }
+}
+
+snd_pcm_uframes_t toAlsaFrames(const char * config_name, const size_t frames)
+{
+  if (frames > std::numeric_limits<snd_pcm_uframes_t>::max()) {
+    throw AlsaPlaybackError(std::string(config_name) + " exceeds ALSA frame count range");
+  }
+  return static_cast<snd_pcm_uframes_t>(frames);
 }
 }  // namespace
 
@@ -54,6 +63,11 @@ SinkOpenInfo AlsaPlaybackBackend::open()
 {
   validateConfig();
   close();
+
+  const snd_pcm_uframes_t requested_buffer_size =
+    toAlsaFrames("audio.alsa.buffer_frames", config_.buffer_frames);
+  const snd_pcm_uframes_t requested_period_size =
+    toAlsaFrames("audio.alsa.period_frames", config_.period_frames);
 
   snd_pcm_t * handle = nullptr;
   int err = snd_pcm_open(&handle, config_.device_id.c_str(), SND_PCM_STREAM_PLAYBACK, 0);
@@ -102,18 +116,32 @@ SinkOpenInfo AlsaPlaybackBackend::open()
     throw AlsaPlaybackError(alsaErrorMessage("snd_pcm_hw_params_set_rate", err));
   }
 
-  snd_pcm_uframes_t buffer_size = 16384;
+  snd_pcm_uframes_t buffer_size = requested_buffer_size;
   err = snd_pcm_hw_params_set_buffer_size_near(handle, hw_params, &buffer_size);
   if (err < 0) {
     closeHandle(handle);
     throw AlsaPlaybackError(alsaErrorMessage("snd_pcm_hw_params_set_buffer_size_near", err));
   }
+  if (buffer_size != requested_buffer_size) {
+    closeHandle(handle);
+    throw AlsaPlaybackError(
+      "ALSA buffer size negotiation changed requested playback buffer from " +
+      std::to_string(static_cast<unsigned long>(requested_buffer_size)) + " frames to " +
+      std::to_string(static_cast<unsigned long>(buffer_size)) + " frames");
+  }
 
-  snd_pcm_uframes_t period_size = buffer_size / 4;
+  snd_pcm_uframes_t period_size = requested_period_size;
   err = snd_pcm_hw_params_set_period_size_near(handle, hw_params, &period_size, 0);
   if (err < 0) {
     closeHandle(handle);
     throw AlsaPlaybackError(alsaErrorMessage("snd_pcm_hw_params_set_period_size_near", err));
+  }
+  if (period_size != requested_period_size) {
+    closeHandle(handle);
+    throw AlsaPlaybackError(
+      "ALSA period size negotiation changed requested playback period from " +
+      std::to_string(static_cast<unsigned long>(requested_period_size)) + " frames to " +
+      std::to_string(static_cast<unsigned long>(period_size)) + " frames");
   }
 
   err = snd_pcm_hw_params(handle, hw_params);
@@ -132,27 +160,31 @@ SinkOpenInfo AlsaPlaybackBackend::open()
 
   err = snd_pcm_sw_params_current(handle, sw_params);
   if (err < 0) {
-    open_info.warnings.emplace_back(alsaErrorMessage("snd_pcm_sw_params_current", err));
-  } else {
-    err = snd_pcm_sw_params_set_start_threshold(handle, sw_params, buffer_size / 2);
-    if (err < 0) {
-      open_info.warnings.emplace_back(alsaErrorMessage("snd_pcm_sw_params_set_start_threshold", err));
-    }
-
-    err = snd_pcm_sw_params_set_avail_min(handle, sw_params, period_size);
-    if (err < 0) {
-      open_info.warnings.emplace_back(alsaErrorMessage("snd_pcm_sw_params_set_avail_min", err));
-    }
-
-    err = snd_pcm_sw_params(handle, sw_params);
-    if (err < 0) {
-      open_info.warnings.emplace_back(alsaErrorMessage("snd_pcm_sw_params", err));
-    } else {
-      open_info.info_messages.push_back(
-        "ALSA software params: start_threshold=" +
-        std::to_string(static_cast<unsigned long>(buffer_size / 2)) + " frames");
-    }
+    closeHandle(handle);
+    throw AlsaPlaybackError(alsaErrorMessage("snd_pcm_sw_params_current", err));
   }
+
+  const snd_pcm_uframes_t start_threshold = (buffer_size / 2) + (buffer_size % 2);
+  err = snd_pcm_sw_params_set_start_threshold(handle, sw_params, start_threshold);
+  if (err < 0) {
+    closeHandle(handle);
+    throw AlsaPlaybackError(alsaErrorMessage("snd_pcm_sw_params_set_start_threshold", err));
+  }
+
+  err = snd_pcm_sw_params_set_avail_min(handle, sw_params, period_size);
+  if (err < 0) {
+    closeHandle(handle);
+    throw AlsaPlaybackError(alsaErrorMessage("snd_pcm_sw_params_set_avail_min", err));
+  }
+
+  err = snd_pcm_sw_params(handle, sw_params);
+  if (err < 0) {
+    closeHandle(handle);
+    throw AlsaPlaybackError(alsaErrorMessage("snd_pcm_sw_params", err));
+  }
+  open_info.info_messages.push_back(
+    "ALSA software params: start_threshold=" +
+    std::to_string(static_cast<unsigned long>(start_threshold)) + " frames");
 
   impl_->pcm_handle = handle;
   return open_info;
@@ -245,6 +277,15 @@ void AlsaPlaybackBackend::validateConfig() const
   }
   if (config_.bit_depth != 16) {
     throw AlsaPlaybackError("audio.bit_depth must be 16 for PCM16LE playback");
+  }
+  if (config_.buffer_frames == 0) {
+    throw AlsaPlaybackError("audio.alsa.buffer_frames must be > 0");
+  }
+  if (config_.period_frames == 0) {
+    throw AlsaPlaybackError("audio.alsa.period_frames must be > 0");
+  }
+  if (config_.period_frames > config_.buffer_frames) {
+    throw AlsaPlaybackError("audio.alsa.period_frames must be <= audio.alsa.buffer_frames");
   }
 }
 

@@ -16,6 +16,8 @@
 - expected sample rate
 - expected channels
 - expected bit depth。現行 backend は `PCM16LE/16` のみ対応
+- ALSA buffer frames
+- ALSA period frames
 - PCM frame bytes
 
 ## Output
@@ -31,6 +33,10 @@
 - bit depth が `16` ではない
 - unsupported sample rate
 - unsupported channel count
+- buffer / period frames が `0` または `period > buffer`
+- buffer / period frames が ALSA frame count 型の表現可能範囲を超える
+- ALSA buffer / period negotiation が要求値を変更した
+- ALSA software parameter 設定失敗
 - runtime `snd_pcm_writei` XRUN / EAGAIN / error / zero-frame write
 - runtime playback handle missing
 - invalid queue / QoS / chunk config

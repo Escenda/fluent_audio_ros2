@@ -4,6 +4,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -55,6 +56,14 @@ snd_pcm_format_t alsaFormatForConfig(const AudioFormat& format)
 std::string alsaError(const std::string& operation, int err)
 {
   return operation + ": " + snd_strerror(err);
+}
+
+snd_pcm_uframes_t toAlsaFrames(size_t frames)
+{
+  if (frames > std::numeric_limits<snd_pcm_uframes_t>::max()) {
+    throw BackendError("requested capture chunk exceeds ALSA frame count range");
+  }
+  return static_cast<snd_pcm_uframes_t>(frames);
 }
 }  // namespace
 
@@ -255,10 +264,15 @@ private:
       throw BackendError(alsaError("Failed to set rate", err));
     }
 
-    snd_pcm_uframes_t period_size = static_cast<snd_pcm_uframes_t>(requested_frames);
+    snd_pcm_uframes_t period_size = toAlsaFrames(requested_frames);
     err = snd_pcm_hw_params_set_period_size_near(pcm_handle_, params, &period_size, &dir);
     if (err < 0) {
       throw BackendError(alsaError("Failed to set period size", err));
+    }
+    if (static_cast<size_t>(period_size) != requested_frames) {
+      throw BackendError(
+        "ALSA period size negotiation changed requested capture chunk from " +
+        std::to_string(requested_frames) + " frames to " + std::to_string(period_size) + " frames");
     }
 
     err = snd_pcm_hw_params(pcm_handle_, params);

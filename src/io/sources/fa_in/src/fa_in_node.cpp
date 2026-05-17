@@ -1,6 +1,7 @@
 #include "fa_in/fa_in_node.hpp"
 
-#include <algorithm>
+#include "fa_in/audio_config_validation.hpp"
+
 #include <functional>
 #include <sstream>
 #include <stdexcept>
@@ -111,14 +112,20 @@ void FaInNode::loadParameters()
   config_.device_mode = this->get_parameter("audio.device_selector.mode").as_string();
   config_.device_identifier = this->get_parameter("audio.device_selector.identifier").as_string();
   config_.device_index = this->get_parameter("audio.device_selector.index").as_int();
-  config_.sample_rate = this->get_parameter("audio.sample_rate").as_int();
-  config_.channels = this->get_parameter("audio.channels").as_int();
-  config_.bit_depth = this->get_parameter("audio.bit_depth").as_int();
-  config_.chunk_ms = this->get_parameter("audio.chunk_ms").as_int();
+  config_.sample_rate = validation::requirePositiveUint32(
+    "audio.sample_rate", this->get_parameter("audio.sample_rate").as_int());
+  config_.channels = validation::requirePositiveUint32(
+    "audio.channels", this->get_parameter("audio.channels").as_int());
+  config_.bit_depth = validation::requirePositiveUint32(
+    "audio.bit_depth", this->get_parameter("audio.bit_depth").as_int());
+  config_.chunk_ms = validation::requirePositiveUint32(
+    "audio.chunk_ms", this->get_parameter("audio.chunk_ms").as_int());
   config_.encoding = this->get_parameter("audio.encoding").as_string();
   config_.stream_id = this->get_parameter("audio.stream_id").as_string();
   config_.layout = this->get_parameter("audio.layout").as_string();
-  config_.diag_period_ms = this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.diag_period_ms = validation::requirePositiveUint32(
+    "diagnostics.publish_period_ms",
+    this->get_parameter("diagnostics.publish_period_ms").as_int());
 
   if (config_.backend_name.empty()) {
     throw std::runtime_error("backend.name is required");
@@ -126,31 +133,21 @@ void FaInNode::loadParameters()
   if (config_.backend_name != "alsa_capture") {
     throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
   }
-  if (config_.sample_rate == 0) {
-    throw std::runtime_error("audio.sample_rate must be > 0");
-  }
-  if (config_.channels == 0) {
-    throw std::runtime_error("audio.channels must be > 0");
-  }
-  if (config_.chunk_ms == 0) {
-    throw std::runtime_error("audio.chunk_ms must be > 0");
-  }
   if (config_.stream_id.empty()) {
     throw std::runtime_error("audio.stream_id is required");
   }
   if (config_.layout != kInterleavedLayout) {
     throw std::runtime_error("audio.layout must be interleaved for backend.name=alsa_capture");
   }
-  if (config_.diag_period_ms == 0) {
-    throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
-  }
   if (!isSupportedEncodingPair(config_)) {
     throw std::runtime_error(
       "audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32");
   }
 
-  frames_per_buffer_ = std::max<uint32_t>(config_.sample_rate * config_.chunk_ms / 1000, 64u);
-  bytes_per_frame_ = config_.channels * (config_.bit_depth / 8);
+  frames_per_buffer_ = validation::captureFramesPerBuffer(config_.sample_rate, config_.chunk_ms);
+  bytes_per_frame_ = validation::bytesPerFrame(config_.channels, config_.bit_depth);
+  bytes_per_buffer_ = validation::bytesForFrames(
+    "audio.chunk_ms", frames_per_buffer_, bytes_per_frame_);
   last_frame_time_ = std::chrono::steady_clock::now();
 
   RCLCPP_INFO(this->get_logger(), "Audio configuration: backend=%s mode=%s rate=%uHz channels=%u bits=%u chunk=%ums",
@@ -265,7 +262,7 @@ void FaInNode::captureLoop()
     return;
   }
 
-  std::vector<uint8_t> buffer(frames_per_buffer_ * bytes_per_frame_);
+  std::vector<uint8_t> buffer(bytes_per_buffer_);
 
   while (rclcpp::ok() && capturing_.load()) {
     const auto read_result = source_backend_->read(buffer.data(), frames_per_buffer_);
@@ -282,7 +279,15 @@ void FaInNode::captureLoop()
       break;
     }
 
-    size_t byte_count = read_result.frames * bytes_per_frame_;
+    if (read_result.frames > frames_per_buffer_) {
+      failClosed(
+        "snd_pcm_readi returned more frames than requested on required input source " +
+        active_device_id_);
+      break;
+    }
+
+    size_t byte_count = validation::bytesForFrames(
+      "captured frame count", read_result.frames, bytes_per_frame_);
     publishFrame(buffer.data(), byte_count);
     frames_published_.fetch_add(1);
     last_frame_time_ = std::chrono::steady_clock::now();

@@ -15,14 +15,19 @@ def test_default_config_requires_explicit_sink_device() -> None:
     assert params["audio.encoding"] == "PCM16LE"
     assert params["audio.bit_depth"] == 16
     assert params["audio.chunk_duration_ms"] == 30
+    assert params["audio.alsa.buffer_frames"] == 16384
+    assert params["audio.alsa.period_frames"] == 4096
     assert params["audio.qos.depth"] == 10
     assert params["audio.qos.reliable"] is True
     assert '"default"' not in config_text
 
 
 def test_sink_backend_has_no_struct_default() -> None:
-    header_path = Path(__file__).parents[2] / "include" / "fa_out" / "fa_out_node.hpp"
+    package_root = Path(__file__).parents[2]
+    header_path = package_root / "include" / "fa_out" / "fa_out_node.hpp"
+    validation_header_path = package_root / "include" / "fa_out" / "audio_config_validation.hpp"
     header_text = header_path.read_text(encoding="utf-8")
+    validation_text = validation_header_path.read_text(encoding="utf-8")
 
     assert "std::string backend_name{};" in header_text
     assert "std::string encoding{};" in header_text
@@ -31,7 +36,25 @@ def test_sink_backend_has_no_struct_default() -> None:
     assert "uint32_t bit_depth{0};" in header_text
     assert "size_t max_queue_frames{0};" in header_text
     assert "uint32_t chunk_duration_ms{0};" in header_text
+    assert "size_t playback_chunk_frames{0};" in header_text
+    assert "size_t playback_chunk_bytes{0};" in header_text
+    assert "size_t alsa_buffer_frames{0};" in header_text
+    assert "size_t alsa_period_frames{0};" in header_text
     assert "size_t qos_depth{0};" in header_text
+
+    source_path = package_root / "src" / "fa_out_node.cpp"
+    source_text = source_path.read_text(encoding="utf-8")
+    assert "requirePositiveUint32" in source_text
+    assert "requirePositiveSize" in source_text
+    assert "std::max<size_t>(1" not in source_text
+    assert "validation::bytesPerFrame" in source_text
+    assert "validation::bytesForFrames" in source_text
+    assert (
+        "audio.sample_rate * audio.chunk_duration_ms must produce an integer playback chunk"
+        in validation_text
+    )
+    assert "audio.chunk_duration_ms produces zero playback frames" in validation_text
+    assert "audio.channels * audio.bit_depth exceeds size_t range" in validation_text
 
 
 def test_alsa_sink_rejects_plugin_pcm_devices() -> None:
@@ -53,6 +76,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     assert 'declare_parameter<int>("audio.sample_rate")' in source
     assert 'declare_parameter<int>("audio.channels")' in source
     assert 'declare_parameter<int>("audio.bit_depth")' in source
+    assert 'declare_parameter<int>("audio.alsa.buffer_frames")' in source
+    assert 'declare_parameter<int>("audio.alsa.period_frames")' in source
     assert 'declare_parameter<int>("queue.max_frames")' in source
     assert 'declare_parameter<int>("audio.chunk_duration_ms")' in source
     assert 'declare_parameter<int>("audio.qos.depth")' in source
@@ -75,6 +100,38 @@ def test_playback_contract_is_pcm16_only_at_startup() -> None:
     assert "msg.encoding != config_.encoding" in source
     assert "AudioFrame source_id and stream_id are required" in source
     assert "Unsupported audio layout" in source
+
+
+def test_alsa_playback_backend_rejects_negotiated_timing_changes() -> None:
+    backend_source_path = (
+        Path(__file__).parents[2] / "src" / "backends" / "alsa_playback_backend.cpp"
+    )
+    backend_source = backend_source_path.read_text(encoding="utf-8")
+    backend_header_path = (
+        Path(__file__).parents[2]
+        / "include"
+        / "fa_out"
+        / "backends"
+        / "alsa_playback_backend.hpp"
+    )
+    backend_header = backend_header_path.read_text(encoding="utf-8")
+
+    assert "size_t buffer_frames{0};" in backend_header
+    assert "size_t period_frames{0};" in backend_header
+    assert backend_source.index("const snd_pcm_uframes_t requested_buffer_size") < backend_source.index(
+        "snd_pcm_open"
+    )
+    assert backend_source.index("const snd_pcm_uframes_t requested_period_size") < backend_source.index(
+        "snd_pcm_open"
+    )
+    assert "ALSA buffer size negotiation changed requested playback buffer" in backend_source
+    assert "ALSA period size negotiation changed requested playback period" in backend_source
+    assert "audio.alsa.period_frames must be <= audio.alsa.buffer_frames" in backend_source
+    assert "open_info.warnings.emplace_back" not in backend_source
+    assert "snd_pcm_sw_params_current" in backend_source
+    assert "snd_pcm_sw_params_set_start_threshold" in backend_source
+    assert "snd_pcm_sw_params_set_avail_min" in backend_source
+    assert "throw AlsaPlaybackError(alsaErrorMessage(\"snd_pcm_sw_params\"" in backend_source
 
 
 def test_runtime_write_failure_fails_closed_without_reopen_retry() -> None:
@@ -189,8 +246,11 @@ def test_colcon_runs_pytest_contracts() -> None:
     package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_audio_config_validation_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

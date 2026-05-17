@@ -17,6 +17,8 @@ struct AlsaPlaybackConfig
   uint32_t sample_rate{0};
   uint32_t channels{0};
   uint32_t bit_depth{0};
+  size_t buffer_frames{0};
+  size_t period_frames{0};
 };
 
 class AlsaPlaybackError : public SinkBackendError

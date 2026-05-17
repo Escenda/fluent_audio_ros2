@@ -24,9 +24,11 @@ def test_default_config_requires_explicit_source_identifier() -> None:
 def test_source_backend_has_no_struct_default() -> None:
     package_root = Path(__file__).parents[2]
     header_path = package_root / "include" / "fa_in" / "fa_in_node.hpp"
+    validation_header_path = package_root / "include" / "fa_in" / "audio_config_validation.hpp"
     source_path = package_root / "src" / "fa_in_node.cpp"
 
     header_text = header_path.read_text(encoding="utf-8")
+    validation_text = validation_header_path.read_text(encoding="utf-8")
     source_text = source_path.read_text(encoding="utf-8")
 
     assert "std::string backend_name{};" in header_text
@@ -39,6 +41,7 @@ def test_source_backend_has_no_struct_default() -> None:
     assert "std::string stream_id{};" in header_text
     assert "std::string layout{};" in header_text
     assert "uint32_t diag_period_ms{0};" in header_text
+    assert "size_t bytes_per_buffer_{0};" in header_text
     assert 'declare_parameter<int>("audio.sample_rate")' in source_text
     assert 'declare_parameter<int>("audio.channels")' in source_text
     assert 'declare_parameter<int>("audio.bit_depth")' in source_text
@@ -47,6 +50,13 @@ def test_source_backend_has_no_struct_default() -> None:
     assert 'declare_parameter<std::string>("audio.stream_id")' in source_text
     assert 'declare_parameter<std::string>("audio.layout")' in source_text
     assert 'declare_parameter<int>("diagnostics.publish_period_ms")' in source_text
+    assert "requirePositiveUint32" in source_text
+    assert "std::max<uint32_t>" not in source_text
+    assert "validation::bytesPerFrame" in source_text
+    assert "validation::bytesForFrames" in source_text
+    assert "audio.sample_rate * audio.chunk_ms must produce an integer frame count" in validation_text
+    assert "audio.chunk_ms produces zero capture frames" in validation_text
+    assert "audio.channels * audio.bit_depth exceeds size_t range" in validation_text
 
 
 def test_publish_frame_sets_required_audio_frame_identity_without_analysis_fields() -> None:
@@ -80,6 +90,8 @@ def test_alsa_backend_validates_format_contract_and_disables_resampling() -> Non
     assert "alsaFormatForConfig" in source
     assert '"audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32"' in source
     assert "snd_pcm_hw_params_set_rate_resample(pcm_handle_, params, 0)" in source
+    assert "ALSA period size negotiation changed requested capture chunk" in source
+    assert "requested capture chunk exceeds ALSA frame count range" in source
 
 
 def test_runtime_read_failure_fails_closed_without_prepare_retry() -> None:
@@ -137,8 +149,11 @@ def test_colcon_runs_pytest_contracts() -> None:
     package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_audio_config_validation_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
