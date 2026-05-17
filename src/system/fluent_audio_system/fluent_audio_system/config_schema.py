@@ -163,6 +163,7 @@ _GROUP_CATEGORY_TOKENS = frozenset((
     "apps",
 ))
 _GROUP_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_BASE_REQUIRED_PACKAGES = ("fa_interfaces", "fluent_audio_system")
 
 
 class _TimingConfig(BaseModel):
@@ -286,6 +287,22 @@ def load_system_config(path: str) -> AudioSystemSpec:
     with open(path, "r", encoding="utf-8") as stream:
         raw = yaml.safe_load(stream)
     return parse_system_config(raw)
+
+
+def load_required_packages(path: str) -> list[str]:
+    return required_packages_for_system(load_system_config(path))
+
+
+def required_packages_for_system(spec: AudioSystemSpec) -> list[str]:
+    packages = list(_BASE_REQUIRED_PACKAGES)
+    seen = set(packages)
+    for group in spec.groups:
+        for node in group.nodes:
+            if node.package in seen:
+                continue
+            packages.append(node.package)
+            seen.add(node.package)
+    return packages
 
 
 def parse_system_config(raw: ConfigValue) -> AudioSystemSpec:

@@ -8,6 +8,12 @@ ros2 launch fluent_audio_system run.py config:=/path/to/fluent_audio_system.yaml
 
 Missing config や missing params file は起動失敗にします。暗黙の device 推測、model fallback、temporary YAML 書き換えは行いません。
 
+VLAbor / Docker 側で system config から build 対象 package を解決する場合は、次の CLI を使います。出力は `fa_interfaces`、`fluent_audio_system`、enabled node package の順で 1 行 1 package です。
+
+```bash
+ros2 run fluent_audio_system list_required_packages --config /path/to/fluent_audio_system.yaml
+```
+
 ## Profiles
 
 - `config/profiles/so101.yaml`: SO101 の site-bound I/O profile。format pipeline は定義済みだが default では無効。

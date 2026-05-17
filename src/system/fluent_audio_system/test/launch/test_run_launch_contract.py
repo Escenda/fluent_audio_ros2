@@ -73,3 +73,15 @@ def test_profile_configs_are_package_owned_and_installed() -> None:
     assert (PACKAGE_ROOT / "config" / "profiles" / "so101_tts_output.yaml").is_file()
     assert '"/config/profiles"' in setup_text
     assert 'files_in_tree("config/profiles")' in setup_text
+
+
+def test_required_package_cli_is_installed_for_vlabor_build_resolution() -> None:
+    setup_text = (PACKAGE_ROOT / "setup.py").read_text(encoding="utf-8")
+    setup_cfg_text = (PACKAGE_ROOT / "setup.cfg").read_text(encoding="utf-8")
+
+    assert (
+        "list_required_packages = fluent_audio_system.list_required_packages:main"
+        in setup_text
+    )
+    assert "script_dir=$base/lib/fluent_audio_system" in setup_cfg_text
+    assert "install_scripts=$base/lib/fluent_audio_system" in setup_cfg_text

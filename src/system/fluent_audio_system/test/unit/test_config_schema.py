@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 
 from fluent_audio_system import config_schema
-from fluent_audio_system.config_schema import load_system_config, parse_system_config
+from fluent_audio_system.config_schema import (
+    load_required_packages,
+    load_system_config,
+    parse_system_config,
+    required_packages_for_system,
+)
+from fluent_audio_system.list_required_packages import main as list_required_packages_main
 
 
 def _valid_system() -> dict[str, float]:
@@ -82,6 +88,155 @@ def test_disabled_nodes_are_not_expanded() -> None:
 
     assert len(spec.groups) == 1
     assert spec.groups[0].nodes == []
+
+
+def test_required_packages_include_base_and_enabled_nodes_in_launch_order(
+    tmp_path: Path,
+) -> None:
+    fa_in_params = tmp_path / "fa_in.yaml"
+    resample_params = tmp_path / "fa_resample.yaml"
+    gain_params = tmp_path / "fa_gain.yaml"
+    fa_in_params.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
+    resample_params.write_text("fa_resample:\n  ros__parameters: {}\n", encoding="utf-8")
+    gain_params.write_text("fa_gain:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "io_format",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_in",
+                            "enable": True,
+                            "package": "fa_in",
+                            "exec": "fa_in_node",
+                            "params_file": str(fa_in_params),
+                        },
+                        {
+                            "id": "fa_out",
+                            "enable": False,
+                            "package": "fa_out",
+                            "exec": "fa_out_node",
+                            "params_file": "/disabled/node/is/not/parsed.yaml",
+                        },
+                        {
+                            "id": "fa_resample",
+                            "enable": True,
+                            "package": "fa_resample",
+                            "exec": "fa_resample_node",
+                            "params_file": str(resample_params),
+                        },
+                        {
+                            "id": "fa_resample_duplicate",
+                            "enable": True,
+                            "package": "fa_resample",
+                            "exec": "fa_resample_node",
+                            "params_file": str(resample_params),
+                        },
+                    ],
+                },
+                {
+                    "id": "dynamics",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_gain",
+                            "enable": True,
+                            "package": "fa_gain",
+                            "exec": "fa_gain_node",
+                            "params_file": str(gain_params),
+                        }
+                    ],
+                },
+            ],
+        }
+    )
+
+    assert required_packages_for_system(spec) == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_in",
+        "fa_resample",
+        "fa_gain",
+    ]
+
+
+def test_load_required_packages_fails_closed_on_missing_params_file(
+    tmp_path: Path,
+) -> None:
+    system_file = tmp_path / "system.yaml"
+    system_file.write_text(
+        """
+system:
+  default_start_delay: 0.0
+  inter_group_delay: 0.0
+groups:
+  - id: io
+    enable: true
+    nodes:
+      - id: fa_in
+        enable: true
+        package: fa_in
+        exec: fa_in_node
+        params_file: /missing/fa_in.yaml
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="params_file not found"):
+        load_required_packages(str(system_file))
+
+
+def test_list_required_packages_cli_prints_one_package_per_line(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
+    system_file = tmp_path / "system.yaml"
+    system_file.write_text(
+        f"""
+system:
+  default_start_delay: 0.0
+  inter_group_delay: 0.0
+groups:
+  - id: io
+    enable: true
+    nodes:
+      - id: fa_in
+        enable: true
+        package: fa_in
+        exec: fa_in_node
+        params_file: {params_file}
+""",
+        encoding="utf-8",
+    )
+
+    result = list_required_packages_main(["--config", str(system_file)])
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert captured.out.splitlines() == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_in",
+    ]
+    assert captured.err == ""
+
+
+def test_list_required_packages_cli_returns_error_for_invalid_config(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = list_required_packages_main(["--config", str(tmp_path / "missing.yaml")])
+    captured = capsys.readouterr()
+
+    assert result == 2
+    assert captured.out == ""
+    assert "config not found" in captured.err
 
 
 @pytest.mark.parametrize(

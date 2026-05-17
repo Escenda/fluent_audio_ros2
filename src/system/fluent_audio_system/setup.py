@@ -37,5 +37,9 @@ setup(
     description="YAML-driven launch package for FluentAudio node groups.",
     license="Apache-2.0",
     tests_require=["pytest"],
-    entry_points={"console_scripts": []},
+    entry_points={
+        "console_scripts": [
+            "list_required_packages = fluent_audio_system.list_required_packages:main",
+        ]
+    },
 )

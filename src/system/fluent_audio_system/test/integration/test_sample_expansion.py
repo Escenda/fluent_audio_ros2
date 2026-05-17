@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 from fluent_audio_system import config_schema
-from fluent_audio_system.config_schema import load_system_config
+from fluent_audio_system.config_schema import load_required_packages, load_system_config
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
@@ -151,6 +151,25 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
         "mic.input_topic": "audio/sample_format/mic",
         "mic.output_topic": "audio/resample16k/mic",
     }
+
+
+def test_required_packages_for_so101_mic_frontend_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+
+    packages = load_required_packages(
+        "${share:fluent_audio_system}/config/profiles/so101_mic_frontend.yaml"
+    )
+
+    assert packages == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_in",
+        "fa_sample_format",
+        "fa_resample",
+    ]
 
 
 def test_so101_tts_output_profile_expands_explicit_playback_pipeline(
