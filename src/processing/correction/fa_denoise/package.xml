@@ -2,7 +2,7 @@
 <package format="3">
   <name>fa_denoise</name>
   <version>0.1.0</version>
-  <description>Noise suppression node for FluentAudio (C++), designed for offline ONNX inference (currently passthrough scaffold).</description>
+  <description>Noise suppression node for FluentAudio using a DTLN ONNX Runtime backend.</description>
   <maintainer email="maintainer@example.com">FluentAudio</maintainer>
   <license>MIT</license>
 

@@ -7,7 +7,7 @@ fa_denoise:
     output_topic: "audio/denoise/frame"
 
     expected_sample_rate: 16000
-    expected_channels: 1     # -1で無効
+    expected_channels: 1
 
     output:
       encoding: "PCM16LE"

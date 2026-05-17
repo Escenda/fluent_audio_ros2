@@ -436,7 +436,9 @@ int main(int argc, char **argv)
     rclcpp::spin(node);
   } catch (const std::exception &e) {
     RCLCPP_FATAL(rclcpp::get_logger("fa_kws"), "Exception in fa_kws: %s", e.what());
+    rclcpp::shutdown();
+    return EXIT_FAILURE;
   }
   rclcpp::shutdown();
-  return 0;
+  return EXIT_SUCCESS;
 }

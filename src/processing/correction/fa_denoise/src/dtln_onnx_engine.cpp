@@ -72,10 +72,13 @@ struct DtlnOnnxEngine::Impl
     if (config_.model_1_path.empty() || config_.model_2_path.empty()) {
       throw std::runtime_error("DTLN requires model_1_path and model_2_path");
     }
+    if (config_.intra_op_num_threads <= 0 || config_.inter_op_num_threads <= 0) {
+      throw std::runtime_error("DTLN config requires intra/inter op thread counts > 0");
+    }
 
     Ort::SessionOptions options;
-    options.SetIntraOpNumThreads(std::max<int>(1, config_.intra_op_num_threads));
-    options.SetInterOpNumThreads(std::max<int>(1, config_.inter_op_num_threads));
+    options.SetIntraOpNumThreads(config_.intra_op_num_threads);
+    options.SetInterOpNumThreads(config_.inter_op_num_threads);
     options.SetGraphOptimizationLevel(
       config_.enable_ort_optimizations ? GraphOptimizationLevel::ORT_ENABLE_ALL
                                       : GraphOptimizationLevel::ORT_DISABLE_ALL);

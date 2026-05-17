@@ -144,11 +144,17 @@ void FaDenoiseNode::loadParameters()
   }
 
   if (config_.backend == "dtln_onnx") {
+    if (config_.expected_channels != 1) {
+      throw std::runtime_error("fa_denoise dtln_onnx requires expected_channels=1");
+    }
     if (config_.dtln_block_len <= 0 || config_.dtln_block_shift <= 0) {
       throw std::runtime_error("dtln.block_len and dtln.block_shift must be > 0 (set via YAML)");
     }
     if (config_.dtln_block_shift > config_.dtln_block_len) {
       throw std::runtime_error("dtln.block_shift must be <= dtln.block_len");
+    }
+    if (config_.dtln_intra_op_num_threads <= 0 || config_.dtln_inter_op_num_threads <= 0) {
+      throw std::runtime_error("dtln intra/inter op thread counts must be > 0 (set via YAML)");
     }
 
 #ifdef FA_DENOISE_WITH_ONNXRUNTIME
@@ -157,8 +163,8 @@ void FaDenoiseNode::loadParameters()
     dtln_cfg.block_shift = config_.dtln_block_shift;
     dtln_cfg.model_1_path = resolveModelPathOrThrow(config_.dtln_model_1_path, "model_1.onnx");
     dtln_cfg.model_2_path = resolveModelPathOrThrow(config_.dtln_model_2_path, "model_2.onnx");
-    dtln_cfg.intra_op_num_threads = std::max<int>(1, config_.dtln_intra_op_num_threads);
-    dtln_cfg.inter_op_num_threads = std::max<int>(1, config_.dtln_inter_op_num_threads);
+    dtln_cfg.intra_op_num_threads = config_.dtln_intra_op_num_threads;
+    dtln_cfg.inter_op_num_threads = config_.dtln_inter_op_num_threads;
     dtln_cfg.enable_ort_optimizations = config_.dtln_enable_ort_optimizations;
     dtln_ = std::make_unique<DtlnOnnxEngine>(dtln_cfg);
 #else

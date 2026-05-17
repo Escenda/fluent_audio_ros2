@@ -51,6 +51,7 @@ def test_parse_valid_inline_config() -> None:
 def test_disabled_nodes_are_not_expanded() -> None:
     spec = parse_system_config(
         {
+            "system": {},
             "groups": [
                 {
                     "id": "io",
@@ -77,6 +78,7 @@ def test_missing_params_file_fails(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="params_file not found"):
         parse_system_config(
             {
+                "system": {},
                 "groups": [
                     {
                         "id": "io",
@@ -98,6 +100,7 @@ def test_node_requires_params_file_or_inline_parameters() -> None:
     with pytest.raises(RuntimeError, match="requires params_file or parameters"):
         parse_system_config(
             {
+                "system": {},
                 "groups": [
                     {
                         "id": "io",
@@ -112,6 +115,7 @@ def test_nested_inline_parameters_fail() -> None:
     with pytest.raises(RuntimeError, match="unsupported value type"):
         parse_system_config(
             {
+                "system": {},
                 "groups": [
                     {
                         "id": "io",
@@ -137,6 +141,7 @@ def test_load_missing_config_fails(tmp_path: Path) -> None:
 def test_sequence_remappings_are_supported() -> None:
     spec = parse_system_config(
         {
+            "system": {},
             "groups": [
                 {
                     "id": "io",
@@ -165,6 +170,7 @@ def test_invalid_remappings_fail() -> None:
     with pytest.raises(RuntimeError, match="remapping target"):
         parse_system_config(
             {
+                "system": {},
                 "groups": [
                     {
                         "id": "io",
@@ -189,6 +195,7 @@ def test_share_path_expansion(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     system_file = tmp_path / "system.yaml"
     system_file.write_text(
         """
+system: {}
 groups:
   - id: io
     nodes:
@@ -208,3 +215,25 @@ groups:
     spec = load_system_config("${share:demo_pkg}/system.yaml")
 
     assert spec.groups[0].nodes[0].params_file == str(params_file)
+
+
+def test_missing_system_fails() -> None:
+    with pytest.raises(RuntimeError, match="system is required"):
+        parse_system_config({"groups": []})
+
+
+def test_missing_groups_fails() -> None:
+    with pytest.raises(RuntimeError, match="groups is required"):
+        parse_system_config({"system": {}})
+
+
+def test_enabled_group_requires_nodes() -> None:
+    with pytest.raises(RuntimeError, match="group io.nodes is required"):
+        parse_system_config({"system": {}, "groups": [{"id": "io"}]})
+
+
+def test_negative_delays_fail() -> None:
+    with pytest.raises(RuntimeError, match="default_start_delay must be >= 0"):
+        parse_system_config({"system": {"default_start_delay": -0.1}, "groups": []})
+    with pytest.raises(RuntimeError, match="inter_group_delay must be >= 0"):
+        parse_system_config({"system": {"inter_group_delay": -0.1}, "groups": []})

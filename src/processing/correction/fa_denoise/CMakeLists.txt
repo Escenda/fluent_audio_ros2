@@ -65,6 +65,11 @@ target_include_directories(fa_denoise_node PRIVATE
   third_party/kissfft
 )
 target_link_libraries(fa_denoise_node ${ONNXRUNTIME_LIBRARY})
+get_filename_component(ONNXRUNTIME_LIB_DIR "${ONNXRUNTIME_LIBRARY}" DIRECTORY)
+set_target_properties(fa_denoise_node PROPERTIES
+  BUILD_RPATH "${ONNXRUNTIME_LIB_DIR}"
+  INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}"
+)
 target_sources(fa_denoise_node PRIVATE
   src/dtln_onnx_engine.cpp
   third_party/kissfft/kiss_fft.c
