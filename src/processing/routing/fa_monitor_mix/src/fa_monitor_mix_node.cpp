@@ -1,0 +1,465 @@
+#include "fa_monitor_mix/fa_monitor_mix_node.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
+
+#include "diagnostic_msgs/msg/diagnostic_status.hpp"
+#include "diagnostic_msgs/msg/key_value.hpp"
+
+namespace fa_monitor_mix
+{
+
+namespace
+{
+constexpr const char * kEncodingFloat32 = "FLOAT32LE";
+constexpr const char * kInterleavedLayout = "interleaved";
+constexpr float kMinNormalizedSample = -1.0F;
+constexpr float kMaxNormalizedSample = 1.0F;
+constexpr size_t kFloat32Bytes = sizeof(float);
+
+bool isFinite(double value)
+{
+  return std::isfinite(value);
+}
+
+double dbToLinear(double db)
+{
+  return std::pow(10.0, db / 20.0);
+}
+
+void pushKeyValue(
+  diagnostic_msgs::msg::DiagnosticStatus & status,
+  const std::string & key,
+  const std::string & value)
+{
+  diagnostic_msgs::msg::KeyValue kv;
+  kv.key = key;
+  kv.value = value;
+  status.values.push_back(kv);
+}
+}  // namespace
+
+FaMonitorMixNode::FaMonitorMixNode()
+: rclcpp::Node("fa_monitor_mix")
+{
+  RCLCPP_INFO(this->get_logger(), "Starting FA Monitor Mix node");
+  loadParameters();
+  setupInterfaces();
+}
+
+void FaMonitorMixNode::loadParameters()
+{
+  this->declare_parameter<std::vector<std::string>>("input_topics", config_.input_topics);
+  this->declare_parameter<std::vector<double>>("input_gains_db", config_.input_gains_db);
+  this->declare_parameter<int>("master_index", config_.master_index);
+  this->declare_parameter("output_topic", config_.output_topic);
+  this->declare_parameter("output.source_id", config_.output_source_id);
+  this->declare_parameter<int>("expected.sample_rate", config_.expected_sample_rate);
+  this->declare_parameter<int>("expected.channels", config_.expected_channels);
+  this->declare_parameter("expected.encoding", config_.expected_encoding);
+  this->declare_parameter<int>("expected.bit_depth", config_.expected_bit_depth);
+  this->declare_parameter("expected.layout", config_.expected_layout);
+  this->declare_parameter<int>("max_frame_age_ms", config_.max_frame_age_ms);
+  this->declare_parameter<int>("qos.depth", config_.qos_depth);
+  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
+  this->declare_parameter<int>(
+    "diagnostics.publish_period_ms",
+    config_.diagnostics_publish_period_ms);
+
+  config_.input_topics = this->get_parameter("input_topics").as_string_array();
+  config_.input_gains_db = this->get_parameter("input_gains_db").as_double_array();
+  config_.master_index = this->get_parameter("master_index").as_int();
+  config_.output_topic = this->get_parameter("output_topic").as_string();
+  config_.output_source_id = this->get_parameter("output.source_id").as_string();
+  config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
+  config_.expected_channels = this->get_parameter("expected.channels").as_int();
+  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
+  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
+  config_.expected_layout = this->get_parameter("expected.layout").as_string();
+  config_.max_frame_age_ms = this->get_parameter("max_frame_age_ms").as_int();
+  config_.qos_depth = this->get_parameter("qos.depth").as_int();
+  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
+  config_.diagnostics_publish_period_ms =
+    this->get_parameter("diagnostics.publish_period_ms").as_int();
+
+  if (config_.input_topics.empty()) {
+    throw std::runtime_error("input_topics must contain at least one topic");
+  }
+  for (const auto & topic : config_.input_topics) {
+    if (topic.empty()) {
+      throw std::runtime_error("input_topics must not contain an empty topic");
+    }
+  }
+  if (config_.input_gains_db.size() != 1 && config_.input_gains_db.size() != config_.input_topics.size()) {
+    throw std::runtime_error("input_gains_db must be size 1 or match input_topics length");
+  }
+  if (config_.master_index < 0 || config_.master_index >= static_cast<int>(config_.input_topics.size())) {
+    throw std::runtime_error("master_index out of range");
+  }
+  if (config_.output_topic.empty()) {
+    throw std::runtime_error("output_topic is required");
+  }
+  if (config_.output_source_id.empty()) {
+    throw std::runtime_error("output.source_id is required");
+  }
+  if (config_.expected_sample_rate <= 0) {
+    throw std::runtime_error("expected.sample_rate must be > 0");
+  }
+  if (config_.expected_channels <= 0) {
+    throw std::runtime_error("expected.channels must be > 0");
+  }
+  if (config_.expected_encoding != kEncodingFloat32) {
+    throw std::runtime_error("fa_monitor_mix requires expected.encoding=FLOAT32LE");
+  }
+  if (config_.expected_bit_depth != 32) {
+    throw std::runtime_error("fa_monitor_mix requires expected.bit_depth=32");
+  }
+  if (config_.expected_layout != kInterleavedLayout) {
+    throw std::runtime_error("fa_monitor_mix requires expected.layout=interleaved");
+  }
+  if (config_.max_frame_age_ms <= 0) {
+    throw std::runtime_error("max_frame_age_ms must be > 0");
+  }
+  if (config_.qos_depth <= 0) {
+    throw std::runtime_error("qos.depth must be > 0");
+  }
+  if (config_.diagnostics_publish_period_ms <= 0) {
+    throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
+  }
+
+  config_.input_gains_linear.clear();
+  config_.input_gains_linear.reserve(config_.input_topics.size());
+  for (size_t i = 0; i < config_.input_topics.size(); ++i) {
+    const double gain_db = gainDbForIndex(i);
+    const double gain_linear = dbToLinear(gain_db);
+    if (!isFinite(gain_db) || !isFinite(gain_linear)) {
+      throw std::runtime_error("input_gains_db must resolve to finite linear gains");
+    }
+    config_.input_gains_linear.push_back(gain_linear);
+  }
+
+  RCLCPP_INFO(
+    this->get_logger(),
+    "Monitor mix config: inputs=%zu master=%d output=%s source_id=%s expected=%dHz/%d/%s/%d/%s max_age=%dms qos_depth=%d reliable=%s diag=%dms",
+    config_.input_topics.size(),
+    config_.master_index,
+    config_.output_topic.c_str(),
+    config_.output_source_id.c_str(),
+    config_.expected_sample_rate,
+    config_.expected_channels,
+    config_.expected_encoding.c_str(),
+    config_.expected_bit_depth,
+    config_.expected_layout.c_str(),
+    config_.max_frame_age_ms,
+    config_.qos_depth,
+    config_.qos_reliable ? "true" : "false",
+    config_.diagnostics_publish_period_ms);
+}
+
+void FaMonitorMixNode::setupInterfaces()
+{
+  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  if (config_.qos_reliable) {
+    qos.reliable();
+  } else {
+    qos.best_effort();
+  }
+
+  audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(config_.output_topic, qos);
+  input_subs_.resize(config_.input_topics.size());
+  latest_frames_.resize(config_.input_topics.size());
+  latest_frame_received_at_.resize(config_.input_topics.size(), rclcpp::Time(0, 0, RCL_ROS_TIME));
+
+  for (size_t i = 0; i < config_.input_topics.size(); ++i) {
+    input_subs_[i] = this->create_subscription<fa_interfaces::msg::AudioFrame>(
+      config_.input_topics[i],
+      qos,
+      [this, i](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+        this->handleInputFrame(i, msg);
+      });
+  }
+
+  diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
+    "diagnostics",
+    rclcpp::SystemDefaultsQoS());
+  diag_timer_ = this->create_wall_timer(
+    std::chrono::milliseconds(config_.diagnostics_publish_period_ms),
+    std::bind(&FaMonitorMixNode::publishDiagnostics, this));
+}
+
+void FaMonitorMixNode::handleInputFrame(
+  size_t index,
+  const fa_interfaces::msg::AudioFrame::SharedPtr msg)
+{
+  frames_in_.fetch_add(1);
+
+  if (!msg) {
+    frames_dropped_.fetch_add(1);
+    return;
+  }
+
+  if (!validateFrame(*msg, config_.input_topics[index])) {
+    frames_dropped_.fetch_add(1);
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(frames_mutex_);
+    latest_frames_[index] = msg;
+    latest_frame_received_at_[index] = this->now();
+  }
+  frames_valid_.fetch_add(1);
+
+  if (static_cast<int>(index) != config_.master_index) {
+    return;
+  }
+
+  if (!mixAndPublish(*msg)) {
+    mix_frames_dropped_.fetch_add(1);
+  }
+}
+
+bool FaMonitorMixNode::validateFrame(
+  const fa_interfaces::msg::AudioFrame & msg,
+  const std::string & expected_stream_id)
+{
+  if (msg.source_id.empty()) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping monitor input frame because source_id is required");
+    return false;
+  }
+  if (msg.stream_id != expected_stream_id) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping monitor input frame because stream_id mismatch: %s != %s",
+      msg.stream_id.c_str(),
+      expected_stream_id.c_str());
+    return false;
+  }
+  if (msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate) ||
+      msg.channels != static_cast<uint32_t>(config_.expected_channels))
+  {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping monitor input frame because format mismatch: frame=%uHz/%u config=%dHz/%d",
+      msg.sample_rate,
+      msg.channels,
+      config_.expected_sample_rate,
+      config_.expected_channels);
+    return false;
+  }
+  if (msg.encoding != config_.expected_encoding ||
+      msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth) ||
+      msg.layout != config_.expected_layout)
+  {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping monitor input frame because encoding contract mismatch");
+    return false;
+  }
+
+  const size_t bytes_per_frame = static_cast<size_t>(msg.channels) * kFloat32Bytes;
+  if (msg.data.empty() || (msg.data.size() % bytes_per_frame) != 0) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping monitor input frame because data is empty or not aligned: bytes=%zu frame_bytes=%zu",
+      msg.data.size(),
+      bytes_per_frame);
+    return false;
+  }
+
+  std::vector<float> samples;
+  return readSamples(msg, samples);
+}
+
+bool FaMonitorMixNode::readSamples(
+  const fa_interfaces::msg::AudioFrame & msg,
+  std::vector<float> & samples)
+{
+  samples.clear();
+  if (msg.data.empty() || (msg.data.size() % kFloat32Bytes) != 0) {
+    return false;
+  }
+
+  samples.resize(msg.data.size() / kFloat32Bytes);
+  std::memcpy(samples.data(), msg.data.data(), msg.data.size());
+  for (float sample : samples) {
+    if (!std::isfinite(sample) || sample < kMinNormalizedSample || sample > kMaxNormalizedSample) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Dropping monitor input frame because sample is outside normalized FLOAT32LE range");
+      range_drops_.fetch_add(1);
+      return false;
+    }
+  }
+  return true;
+}
+
+bool FaMonitorMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & master_frame)
+{
+  if (!audio_pub_) {
+    return false;
+  }
+
+  const rclcpp::Time now = this->now();
+  const size_t expected_bytes = master_frame.data.size();
+
+  std::vector<fa_interfaces::msg::AudioFrame::SharedPtr> frames;
+  std::vector<rclcpp::Time> received_at;
+  {
+    std::lock_guard<std::mutex> lock(frames_mutex_);
+    frames = latest_frames_;
+    received_at = latest_frame_received_at_;
+  }
+
+  std::vector<float> mixed;
+  if (!readSamples(master_frame, mixed)) {
+    return false;
+  }
+  for (float & sample : mixed) {
+    sample *= static_cast<float>(config_.input_gains_linear[config_.master_index]);
+    if (!std::isfinite(sample) ||
+        sample < kMinNormalizedSample ||
+        sample > kMaxNormalizedSample)
+    {
+      range_drops_.fetch_add(1);
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Dropping monitor mix because master gain output is outside normalized FLOAT32LE range");
+      return false;
+    }
+  }
+
+  for (size_t i = 0; i < frames.size(); ++i) {
+    if (static_cast<int>(i) == config_.master_index) {
+      continue;
+    }
+    if (!frames[i]) {
+      missing_frame_drops_.fetch_add(1);
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Dropping monitor mix because input %zu has no valid frame", i);
+      return false;
+    }
+    const int64_t age_ms = (now - received_at[i]).nanoseconds() / 1000000;
+    if (age_ms < 0 || age_ms > config_.max_frame_age_ms) {
+      stale_frame_drops_.fetch_add(1);
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Dropping monitor mix because input %zu is stale: age_ms=%ld max_age_ms=%d",
+        i,
+        static_cast<long>(age_ms),
+        config_.max_frame_age_ms);
+      return false;
+    }
+    if (frames[i]->data.size() != expected_bytes) {
+      missing_frame_drops_.fetch_add(1);
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Dropping monitor mix because input %zu byte length differs from master", i);
+      return false;
+    }
+
+    std::vector<float> input_samples;
+    if (!readSamples(*frames[i], input_samples)) {
+      return false;
+    }
+    const float gain = static_cast<float>(config_.input_gains_linear[i]);
+    for (size_t sample_index = 0; sample_index < mixed.size(); ++sample_index) {
+      const float output = mixed[sample_index] + (input_samples[sample_index] * gain);
+      if (!std::isfinite(output) ||
+          output < kMinNormalizedSample ||
+          output > kMaxNormalizedSample)
+      {
+        range_drops_.fetch_add(1);
+        RCLCPP_WARN_THROTTLE(
+          this->get_logger(), *this->get_clock(), 3000,
+          "Dropping monitor mix because output sample is outside normalized FLOAT32LE range");
+        return false;
+      }
+      mixed[sample_index] = output;
+    }
+  }
+
+  fa_interfaces::msg::AudioFrame out;
+  out.header = master_frame.header;
+  out.source_id = config_.output_source_id;
+  out.stream_id = config_.output_topic;
+  out.encoding = config_.expected_encoding;
+  out.sample_rate = static_cast<uint32_t>(config_.expected_sample_rate);
+  out.channels = static_cast<uint32_t>(config_.expected_channels);
+  out.bit_depth = static_cast<uint32_t>(config_.expected_bit_depth);
+  out.layout = config_.expected_layout;
+  out.data.resize(mixed.size() * kFloat32Bytes);
+  std::memcpy(out.data.data(), mixed.data(), out.data.size());
+  out.epoch = master_frame.epoch;
+
+  audio_pub_->publish(std::move(out));
+  mix_frames_out_.fetch_add(1);
+  return true;
+}
+
+double FaMonitorMixNode::gainDbForIndex(size_t index) const
+{
+  return config_.input_gains_db.size() == 1 ? config_.input_gains_db[0] : config_.input_gains_db[index];
+}
+
+void FaMonitorMixNode::publishDiagnostics()
+{
+  diagnostic_msgs::msg::DiagnosticArray array_msg;
+  array_msg.header.stamp = this->now();
+
+  diagnostic_msgs::msg::DiagnosticStatus status;
+  status.name = "fa_monitor_mix";
+  status.hardware_id = "routing";
+  status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+  status.message = "running";
+
+  status.values.reserve(18);
+  pushKeyValue(status, "inputs", std::to_string(config_.input_topics.size()));
+  pushKeyValue(status, "master_index", std::to_string(config_.master_index));
+  pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "output.source_id", config_.output_source_id);
+  pushKeyValue(status, "expected.sample_rate", std::to_string(config_.expected_sample_rate));
+  pushKeyValue(status, "expected.channels", std::to_string(config_.expected_channels));
+  pushKeyValue(status, "expected.encoding", config_.expected_encoding);
+  pushKeyValue(status, "expected.bit_depth", std::to_string(config_.expected_bit_depth));
+  pushKeyValue(status, "expected.layout", config_.expected_layout);
+  pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
+  pushKeyValue(status, "frames_valid", std::to_string(frames_valid_.load()));
+  pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
+  pushKeyValue(status, "mix_frames_out", std::to_string(mix_frames_out_.load()));
+  pushKeyValue(status, "mix_frames_dropped", std::to_string(mix_frames_dropped_.load()));
+  pushKeyValue(status, "stale_frame_drops", std::to_string(stale_frame_drops_.load()));
+  pushKeyValue(status, "missing_frame_drops", std::to_string(missing_frame_drops_.load()));
+  pushKeyValue(status, "range_drops", std::to_string(range_drops_.load()));
+
+  array_msg.status.push_back(status);
+  diag_pub_->publish(array_msg);
+}
+
+}  // namespace fa_monitor_mix
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  try {
+    auto node = std::make_shared<fa_monitor_mix::FaMonitorMixNode>();
+    rclcpp::spin(node);
+  } catch (const std::exception & e) {
+    RCLCPP_FATAL(rclcpp::get_logger("fa_monitor_mix"), "Exception: %s", e.what());
+    rclcpp::shutdown();
+    return EXIT_FAILURE;
+  }
+  rclcpp::shutdown();
+  return EXIT_SUCCESS;
+}

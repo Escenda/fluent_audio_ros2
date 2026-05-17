@@ -504,6 +504,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_monitor_mix
+        enable: false
+        package: fa_monitor_mix
+        exec: fa_monitor_mix_node
+        node_name: fa_monitor_mix
+        namespace: ""
+        params_file: "${share:fa_monitor_mix}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_loopback
         enable: false
         package: fa_loopback
@@ -511,6 +521,16 @@ groups:
         node_name: fa_loopback
         namespace: ""
         params_file: "${share:fa_loopback}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_patchbay
+        enable: false
+        package: fa_patchbay
+        exec: fa_patchbay_node
+        node_name: fa_patchbay
+        namespace: ""
+        params_file: "${share:fa_patchbay}/config/default.yaml"
         remappings: {}
         parameters: {}
 

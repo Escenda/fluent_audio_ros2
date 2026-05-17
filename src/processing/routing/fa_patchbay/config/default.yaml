@@ -1,0 +1,20 @@
+fa_patchbay:
+  ros__parameters:
+    input_topics:
+      - "audio/input/frame"
+    output_topics:
+      - "audio/output/frame"
+
+    expected:
+      sample_rate: 48000
+      channels: 1
+      encoding: "PCM16LE"
+      bit_depth: 16
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: true
+
+    diagnostics:
+      publish_period_ms: 1000

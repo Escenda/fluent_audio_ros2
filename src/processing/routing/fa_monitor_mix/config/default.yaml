@@ -1,0 +1,28 @@
+fa_monitor_mix:
+  ros__parameters:
+    input_topics:
+      - "audio/program/frame"
+      - "audio/tts/frame"
+    input_gains_db:
+      - 0.0
+    master_index: 0
+    output_topic: "audio/monitor/frame"
+
+    output:
+      source_id: "monitor_mix"
+
+    expected:
+      sample_rate: 48000
+      channels: 2
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    max_frame_age_ms: 100
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000
