@@ -190,8 +190,6 @@ class FaAsrNode(Node):
         except ValueError as exc:
             self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
             return
-        if samples.size == 0:
-            return
         with self._samples_lock:
             self._samples.extend(samples.tolist())
 
@@ -287,7 +285,7 @@ class FaAsrNode(Node):
     @staticmethod
     def _frame_to_float(msg: AudioFrame) -> np.ndarray:
         if not msg.data:
-            return np.zeros(0, dtype=np.float32)
+            raise ValueError("AudioFrame data is required")
         if not msg.source_id or not msg.stream_id:
             raise ValueError("AudioFrame source_id and stream_id are required")
         if msg.layout != "interleaved":

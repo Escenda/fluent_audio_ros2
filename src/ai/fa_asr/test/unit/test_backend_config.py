@@ -1,4 +1,8 @@
+import threading
+import importlib
 from pathlib import Path
+import sys
+from types import ModuleType
 
 import pytest
 import yaml
@@ -21,6 +25,107 @@ from fa_asr_py.backends.whisper_cpp import WhisperCppAsrBackend, load_whisper_cp
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
+
+
+class _FakeNode:
+    def get_logger(self) -> "_FakeLogger":
+        return self._logger
+
+
+class _FakeLogger:
+    def __init__(self) -> None:
+        self.error_records: list[tuple[str, ValueError]] = []
+
+    def error(self, message: str, exc: ValueError) -> None:
+        self.error_records.append((message, exc))
+
+
+class _FakeParameter:
+    class Type:
+        STRING_ARRAY = "string_array"
+
+
+class _FakeQoSProfile:
+    def __init__(self, *, depth: int) -> None:
+        self.depth = depth
+        self.reliability: str | None = None
+        self.history: str | None = None
+
+
+class _FakeReliabilityPolicy:
+    BEST_EFFORT = "best_effort"
+    RELIABLE = "reliable"
+
+
+class _FakeHistoryPolicy:
+    KEEP_LAST = "keep_last"
+
+
+class _FakeAsrResult:
+    STATUS_FINAL = 1
+    STATUS_TIMEOUT = 2
+    STATUS_ERROR = 3
+
+
+class _FakeAudioFrame:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+        self.source_id = "mic0"
+        self.stream_id = "stream0"
+        self.layout = "interleaved"
+        self.channels = 1
+        self.bit_depth = 32
+        self.sample_rate = 16000
+
+
+class _FakeTurnContext:
+    pass
+
+
+class _FakeVadState:
+    pass
+
+
+def _install_asr_node_import_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
+    rclpy_module = ModuleType("rclpy")
+
+    def shutdown() -> None:
+        pass
+
+    def init(args: list[str] | None = None) -> None:
+        del args
+
+    def spin(node: _FakeNode) -> None:
+        del node
+
+    rclpy_module.shutdown = shutdown
+    rclpy_module.init = init
+    rclpy_module.spin = spin
+
+    node_module = ModuleType("rclpy.node")
+    node_module.Node = _FakeNode
+
+    parameter_module = ModuleType("rclpy.parameter")
+    parameter_module.Parameter = _FakeParameter
+
+    qos_module = ModuleType("rclpy.qos")
+    qos_module.HistoryPolicy = _FakeHistoryPolicy
+    qos_module.QoSProfile = _FakeQoSProfile
+    qos_module.ReliabilityPolicy = _FakeReliabilityPolicy
+
+    fa_interfaces_module = ModuleType("fa_interfaces")
+    fa_interfaces_msg_module = ModuleType("fa_interfaces.msg")
+    fa_interfaces_msg_module.AsrResult = _FakeAsrResult
+    fa_interfaces_msg_module.AudioFrame = _FakeAudioFrame
+    fa_interfaces_msg_module.TurnContext = _FakeTurnContext
+    fa_interfaces_msg_module.VadState = _FakeVadState
+
+    monkeypatch.setitem(sys.modules, "rclpy", rclpy_module)
+    monkeypatch.setitem(sys.modules, "rclpy.node", node_module)
+    monkeypatch.setitem(sys.modules, "rclpy.parameter", parameter_module)
+    monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
+    monkeypatch.setitem(sys.modules, "fa_interfaces", fa_interfaces_module)
+    monkeypatch.setitem(sys.modules, "fa_interfaces.msg", fa_interfaces_msg_module)
 
 
 def _settings(
@@ -82,15 +187,59 @@ def test_asr_node_rejects_non_canonical_audio_frames() -> None:
     source_path = PACKAGE_ROOT / "fa_asr_py" / "asr_node.py"
     source = source_path.read_text(encoding="utf-8")
 
+    assert "np.zeros(0" not in source
+    assert "if samples.size == 0:" not in source
     assert "_resample_linear" not in source
     assert "_to_mono" not in source
     assert "np.frombuffer(bytes(msg.data), dtype=np.int16)" not in source
+    assert "AudioFrame data is required" in source
     assert "AudioFrame channels must be 1" in source
     assert "AudioFrame source_id and stream_id are required" in source
     assert "AudioFrame layout must be interleaved" in source
     assert "AudioFrame bit_depth must be 32" in source
     assert "AudioFrame sample_rate must match target_sample_rate" in source
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
+
+
+def test_asr_node_rejects_empty_audio_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        with pytest.raises(ValueError, match="AudioFrame data is required"):
+            module.FaAsrNode._frame_to_float(_FakeAudioFrame(b""))
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
+def test_asr_node_rejects_empty_audio_data_from_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        node = module.FaAsrNode.__new__(module.FaAsrNode)
+        node._logger = _FakeLogger()
+        node._context_active = True
+        node._active_session_id = "session-1"
+        node.target_sample_rate = 16000
+        node._samples = []
+        node._samples_lock = threading.Lock()
+
+        node.on_audio(_FakeAudioFrame(b""))
+
+        assert node._samples == []
+        assert len(node._logger.error_records) == 1
+        error_message, error_exception = node._logger.error_records[0]
+        assert error_message == "Dropping invalid AudioFrame: %s"
+        assert str(error_exception) == "AudioFrame data is required"
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
 
 
 def test_command_backend_does_not_clip_audio() -> None:
