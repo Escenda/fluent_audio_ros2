@@ -10,7 +10,6 @@
 
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
-  <depend>diagnostic_msgs</depend>
   <depend>fa_interfaces</depend>
   <depend>pkg-config</depend>
   <depend>libasound2-dev</depend>

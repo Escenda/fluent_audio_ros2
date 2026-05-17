@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -20,6 +21,11 @@
 
 namespace fa_out
 {
+
+namespace backends
+{
+struct AlsaPlaybackConfig;
+}
 
 struct OutputConfig
 {
@@ -50,7 +56,11 @@ struct QueuedFrame
 class FaOutNode : public rclcpp::Node
 {
 public:
-  FaOutNode();
+  using BackendFactory = std::function<
+    std::unique_ptr<backends::SinkBackend>(const backends::AlsaPlaybackConfig &)>;
+
+  explicit FaOutNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  FaOutNode(const rclcpp::NodeOptions & options, BackendFactory backend_factory);
   ~FaOutNode() override;
   bool hasFatalError() const;
 
@@ -70,6 +80,7 @@ private:
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
 
   OutputConfig config_;
+  BackendFactory backend_factory_;
   std::unique_ptr<backends::SinkBackend> sink_backend_;
   std::mutex backend_mutex_;
   size_t bytes_per_frame_ = 0;

@@ -1,5 +1,7 @@
 #include "fa_out/backends/alsa_playback_backend.hpp"
 
+#include "fa_out/audio_config_validation.hpp"
+
 #include <alsa/asoundlib.h>
 
 #include <cerrno>
@@ -52,11 +54,6 @@ AlsaPlaybackBackend::AlsaPlaybackBackend(AlsaPlaybackConfig config)
 AlsaPlaybackBackend::~AlsaPlaybackBackend()
 {
   close();
-}
-
-bool AlsaPlaybackBackend::isRawHardwareDevice(const std::string & device_id)
-{
-  return device_id.rfind("hw:", 0) == 0;
 }
 
 SinkOpenInfo AlsaPlaybackBackend::open()
@@ -265,9 +262,10 @@ void AlsaPlaybackBackend::validateConfig() const
   if (config_.encoding != kEncodingPcm16) {
     throw AlsaPlaybackError("audio.encoding must be PCM16LE for backend.name=alsa_playback");
   }
-  if (!isRawHardwareDevice(config_.device_id)) {
-    throw AlsaPlaybackError(
-      "audio.device_id must be an ALSA raw hardware id starting with hw: for backend.name=alsa_playback");
+  try {
+    validation::requireRawAlsaHardwareSink(config_.device_id);
+  } catch (const std::invalid_argument & e) {
+    throw AlsaPlaybackError(e.what());
   }
   if (config_.sample_rate == 0) {
     throw AlsaPlaybackError("audio.sample_rate must be > 0");

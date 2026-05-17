@@ -44,4 +44,16 @@ TEST(FaOutAudioConfigValidation, RejectsByteCountOverflow)
     std::invalid_argument);
 }
 
+TEST(FaOutAudioConfigValidation, RejectsAlsaPluginPcmSinkIds)
+{
+  EXPECT_NO_THROW(fa_out::validation::requireRawAlsaHardwareSink("hw:1,0"));
+  EXPECT_NO_THROW(fa_out::validation::requireRawAlsaHardwareSink("hw:CARD=Device,DEV=0"));
+
+  EXPECT_THROW(fa_out::validation::requireRawAlsaHardwareSink(""), std::invalid_argument);
+  EXPECT_THROW(fa_out::validation::requireRawAlsaHardwareSink("default"), std::invalid_argument);
+  EXPECT_THROW(fa_out::validation::requireRawAlsaHardwareSink("plughw:1,0"), std::invalid_argument);
+  EXPECT_THROW(fa_out::validation::requireRawAlsaHardwareSink("pulse"), std::invalid_argument);
+  EXPECT_THROW(fa_out::validation::requireRawAlsaHardwareSink("pipewire"), std::invalid_argument);
+}
+
 }  // namespace

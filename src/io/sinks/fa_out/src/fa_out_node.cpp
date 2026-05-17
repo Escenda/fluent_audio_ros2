@@ -16,12 +16,27 @@ namespace
 {
 constexpr const char * kEncodingPcm16 = "PCM16LE";
 constexpr const char * kInterleavedLayout = "interleaved";
+
+FaOutNode::BackendFactory defaultBackendFactory()
+{
+  return [](const backends::AlsaPlaybackConfig & backend_config) {
+    return std::make_unique<backends::AlsaPlaybackBackend>(backend_config);
+  };
+}
 }
 
-FaOutNode::FaOutNode()
-: rclcpp::Node("fa_out")
+FaOutNode::FaOutNode(const rclcpp::NodeOptions & options)
+: FaOutNode(options, defaultBackendFactory())
+{
+}
+
+FaOutNode::FaOutNode(const rclcpp::NodeOptions & options, BackendFactory backend_factory)
+: rclcpp::Node("fa_out", options), backend_factory_(std::move(backend_factory))
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Out node");
+  if (!backend_factory_) {
+    throw std::invalid_argument("fa_out backend factory is required");
+  }
   loadParameters();
 
   bytes_per_frame_ = validation::bytesPerFrame(config_.channels, config_.bit_depth);
@@ -116,10 +131,7 @@ void FaOutNode::loadParameters()
   if (config_.encoding != kEncodingPcm16) {
     throw std::invalid_argument("audio.encoding must be PCM16LE for backend.name=alsa_playback");
   }
-  if (!backends::AlsaPlaybackBackend::isRawHardwareDevice(config_.device_id)) {
-    throw std::invalid_argument(
-      "audio.device_id must be an ALSA raw hardware id starting with hw: for backend.name=alsa_playback");
-  }
+  validation::requireRawAlsaHardwareSink(config_.device_id);
   config_.sample_rate = validation::requirePositiveUint32(
     "audio.sample_rate", this->get_parameter("audio.sample_rate").as_int());
   config_.channels = validation::requirePositiveUint32(
@@ -175,7 +187,10 @@ void FaOutNode::openBackend()
   backend_config.buffer_frames = config_.alsa_buffer_frames;
   backend_config.period_frames = config_.alsa_period_frames;
 
-  auto backend = std::make_unique<backends::AlsaPlaybackBackend>(backend_config);
+  auto backend = backend_factory_(backend_config);
+  if (!backend) {
+    throw std::runtime_error("fa_out backend factory returned null backend");
+  }
   try {
     const backends::SinkOpenInfo open_info = backend->open();
     for (const auto & info : open_info.info_messages) {
@@ -551,19 +566,3 @@ void FaOutNode::playbackThread()
 }
 
 }  // namespace fa_out
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_out::FaOutNode>();
-    rclcpp::spin(node);
-    const bool fatal_error = node->hasFatalError();
-    rclcpp::shutdown();
-    return fatal_error ? EXIT_FAILURE : EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_out"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

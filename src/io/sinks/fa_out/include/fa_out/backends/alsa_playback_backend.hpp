@@ -38,8 +38,6 @@ public:
   AlsaPlaybackBackend(AlsaPlaybackBackend &&) = delete;
   AlsaPlaybackBackend & operator=(AlsaPlaybackBackend &&) = delete;
 
-  static bool isRawHardwareDevice(const std::string & device_id);
-
   SinkOpenInfo open() override;
   void close() override;
   bool isOpen() const override;

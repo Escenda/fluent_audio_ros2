@@ -62,10 +62,14 @@ def test_alsa_sink_rejects_plugin_pcm_devices() -> None:
         Path(__file__).parents[2] / "src" / "backends" / "alsa_playback_backend.cpp"
     )
     backend_source = backend_source_path.read_text(encoding="utf-8")
+    validation_header = (
+        Path(__file__).parents[2] / "include" / "fa_out" / "audio_config_validation.hpp"
+    ).read_text(encoding="utf-8")
 
-    assert "isRawHardwareDevice" in backend_source
-    assert 'rfind("hw:", 0)' in backend_source
-    assert "audio.device_id must be an ALSA raw hardware id" in backend_source
+    assert "requireRawAlsaHardwareSink" in backend_source
+    assert "requireRawAlsaHardwareSink" in validation_header
+    assert 'rfind("hw:", 0)' in validation_header
+    assert "audio.device_id must be an ALSA raw hardware id" in validation_header
 
 
 def test_required_parameters_are_declared_without_runtime_defaults() -> None:
@@ -227,7 +231,11 @@ def test_backend_builds_as_separate_library() -> None:
     assert "add_library(fa_out_backends" in cmake_text
     assert "src/backends/sink_backend.cpp" in cmake_text
     assert "src/backends/alsa_playback_backend.cpp" in cmake_text
-    assert "target_link_libraries(fa_out_node fa_out_backends)" in cmake_text
+    assert "add_library(fa_out_node_core" in cmake_text
+    assert "src/fa_out_node.cpp" in cmake_text
+    assert "src/main.cpp" in cmake_text
+    assert "target_link_libraries(fa_out_node_core fa_out_backends)" in cmake_text
+    assert "target_link_libraries(fa_out_node fa_out_node_core)" in cmake_text
 
 
 def test_node_stores_abstract_sink_backend() -> None:
@@ -261,8 +269,36 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_audio_config_validation_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
+    assert "diagnostic_msgs" not in cmake_text
+    assert "diagnostic_msgs" not in package_xml
+
+
+def test_sink_adapter_exposes_no_file_or_dsp_surface() -> None:
+    package_root = Path(__file__).parents[2]
+    source_text = (package_root / "src" / "fa_out_node.cpp").read_text(encoding="utf-8")
+    header_text = (package_root / "include" / "fa_out" / "fa_out_node.hpp").read_text(
+        encoding="utf-8"
+    )
+    config_text = (package_root / "config" / "default.yaml").read_text(encoding="utf-8")
+    combined = "\n".join([source_text, header_text, config_text])
+
+    assert "create_service" not in source_text
+    forbidden_tokens = [
+        "file_path",
+        "audio.file",
+        "decode",
+        "encoder",
+        "gain",
+        "normalize",
+        "limiter",
+        "resample",
+        "volume",
+    ]
+    for token in forbidden_tokens:
+        assert token not in combined

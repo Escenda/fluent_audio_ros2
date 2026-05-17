@@ -11,7 +11,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
 find_package(PkgConfig REQUIRED)
@@ -30,21 +29,29 @@ target_include_directories(fa_out_backends
 )
 target_link_libraries(fa_out_backends PUBLIC ${ALSA_LIBRARIES})
 
-add_executable(fa_out_node
+add_library(fa_out_node_core
   src/fa_out_node.cpp
+)
+
+ament_target_dependencies(fa_out_node_core
+  rclcpp
+  std_msgs
+  fa_interfaces
+)
+
+target_include_directories(fa_out_node_core PUBLIC
+  include
+)
+target_link_libraries(fa_out_node_core fa_out_backends)
+
+add_executable(fa_out_node
+  src/main.cpp
 )
 
 ament_target_dependencies(fa_out_node
   rclcpp
-  std_msgs
-  diagnostic_msgs
-  fa_interfaces
 )
-
-target_include_directories(fa_out_node PRIVATE
-  include
-)
-target_link_libraries(fa_out_node fa_out_backends)
+target_link_libraries(fa_out_node fa_out_node_core)
 
 install(TARGETS fa_out_node
   DESTINATION lib/${PROJECT_NAME}
@@ -84,6 +91,21 @@ if(BUILD_TESTING)
   )
   target_include_directories(${PROJECT_NAME}_audio_config_validation_test PRIVATE
     include
+  )
+
+  ament_add_gtest(${PROJECT_NAME}_node_contract_test
+    test/cpp/test_fa_out_node_contract.cpp
+  )
+  target_include_directories(${PROJECT_NAME}_node_contract_test PRIVATE
+    include
+  )
+  ament_target_dependencies(${PROJECT_NAME}_node_contract_test
+    rclcpp
+    std_msgs
+    fa_interfaces
+  )
+  target_link_libraries(${PROJECT_NAME}_node_contract_test
+    fa_out_node_core
   )
 
   ament_lint_auto_find_test_dependencies()

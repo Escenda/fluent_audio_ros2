@@ -76,4 +76,20 @@ inline size_t bytesForFrames(const char * frame_count_name, const size_t frames,
   return frames * bytes_per_frame;
 }
 
+inline bool isRawAlsaHardwareSink(const std::string & sink_id)
+{
+  return sink_id.rfind("hw:", 0) == 0;
+}
+
+inline void requireRawAlsaHardwareSink(const std::string & sink_id)
+{
+  if (sink_id.empty()) {
+    throw std::invalid_argument("audio.device_id is required for backend.name=alsa_playback");
+  }
+  if (!isRawAlsaHardwareSink(sink_id)) {
+    throw std::invalid_argument(
+      "audio.device_id must be an ALSA raw hardware id starting with hw: for backend.name=alsa_playback");
+  }
+}
+
 }  // namespace fa_out::validation
