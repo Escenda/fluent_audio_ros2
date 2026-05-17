@@ -121,11 +121,13 @@ def test_backend_keeps_vad_gate_mandatory() -> None:
 
 def test_vad_gate_has_executable_contract_test() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    package_xml = (PACKAGE_ROOT / "package.xml").read_text(encoding="utf-8")
     test_text = (PACKAGE_ROOT / "test" / "unit" / "vad_gate_contract.cpp").read_text(
         encoding="utf-8"
     )
 
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "ament_add_gtest(${PROJECT_NAME}_vad_gate_test" in cmake_text
     assert "test/unit/vad_gate_contract.cpp" in cmake_text
     assert "ProbabilityMustBeFiniteAndNormalized" in test_text
