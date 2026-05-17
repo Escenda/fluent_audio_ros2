@@ -14,8 +14,8 @@
 ## 主要パッケージ（Audio）
 - `fa_in`（`src/io/sources/fa_in/`）: マイク入力（ALSA）→ `audio/frame` を Publish、デバイス列挙/切替、Diagnostics
 - `fa_out`（`src/io/sinks/fa_out/`）: `audio/output/frame` をスピーカーへ再生
-- `fa_record`（`src/io/sinks/fa_record/`）: `audio/frame` をWAVへ録音（`record` サービス）
-- `fa_stream`（`src/io/sinks/fa_stream/`）: `audio/frame` を外部へ配信する sink（Icecast向け `fa_stream_node.py`）
+- `fa_record`（`src/io/utilities/fa_record/`）: `audio/frame` をWAVへ録音（`record` サービス）
+- `fa_stream`（`src/io/utilities/fa_stream/`）: `audio/frame` を外部へ配信する utility（Icecast向け `fa_stream_node.py`）
 - `fa_vad`（`src/processing/analysis/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と`voice/vad_state`を提供
 - `fa_kws`（`src/processing/analysis/fa_kws/`）: sherpa-onnx によるローカルKWS、`voice/wake_word`を提供
 - `fa_asr`（`src/processing/analysis/fa_asr/`）: ローカルASRコマンド（whisper.cpp等）を呼び出し、`voice/asr/result`を提供
@@ -26,7 +26,7 @@
 - `fa_aec_nn`（`src/processing/correction/fa_aec_nn/`）: NN残差抑圧（骨組み、`audio/aec_linear/frame`→`audio/aec/frame`）
 - `fa_denoise`（`src/processing/correction/fa_denoise/`）: ノイズ抑制（DTLN/ONNX、`audio/resample16k/mic`→`audio/denoise/frame`）
 - `fa_mix`（`src/processing/routing/fa_mix/`）: ミキサ（MVP、`input_topics`→`audio/output/frame`）
-- `fa_voice_command_router`（`src/apps/fa_voice_command_router/`）: 音声コマンドの起動/停止/モード切替（MVP: 文字列コマンド入力）
+- `fa_voice_command_router`（`src/apps/voice_command/fa_voice_command_router/`）: 音声コマンドの起動/停止/モード切替（MVP: 文字列コマンド入力）
 - `fa_interfaces`（`src/interfaces/fa_interfaces/`）: `AudioFrame` 等の msg/srv を集約
 
 ## セットアップ

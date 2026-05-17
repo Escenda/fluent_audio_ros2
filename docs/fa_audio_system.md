@@ -26,8 +26,8 @@
 ## 3. 将来のノード（予定）
 - `src/processing/analysis/fa_sed`: 音イベント検出（オフライン）
 - `src/processing/analysis/fa_speaker`: 話者認識（オフライン）
-- `src/apps/fa_dialogue`: Wakeword/ASR/TD を合流する会話オーケストレーション
-- `src/apps/fa_safety_policy`: 危険操作の拒否/確認要求など
+- `src/apps/dialogue/fa_dialogue`: Wakeword/ASR/TD を合流する会話オーケストレーション
+- `src/apps/safety/fa_safety_policy`: 危険操作の拒否/確認要求など
 - `src/processing/<category>/*`: ノイズ抑制/AEC/特徴量など
 
 ## 4. インターフェース

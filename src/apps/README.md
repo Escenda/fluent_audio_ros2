@@ -1,4 +1,9 @@
 # src/apps
 
-音声コマンド実行（起動/停止/モード切替）や安全ポリシー等、アプリケーション層を配置します。
+Application-layer packages live under explicit responsibility directories:
 
+- `voice_command/`: command routing and mode control.
+- `dialogue/`: dialogue orchestration that joins wake word, ASR, turn detection, TTS, and external reasoning services.
+- `safety/`: safety policy for audio-driven commands.
+
+Device I/O and audio processing do not live here.
