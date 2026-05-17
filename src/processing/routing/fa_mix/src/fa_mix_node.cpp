@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -17,16 +18,21 @@ namespace fa_mix
 
 namespace
 {
+constexpr const char * kEncodingPcm16Le = "PCM16LE";
 constexpr const char * kInterleavedLayout = "interleaved";
 
 double dbToLinear(double db)
 {
   return std::pow(10.0, db / 20.0);
 }
+bool isFinite(double value)
+{
+  return std::isfinite(value);
+}
 }  // namespace
 
-FaMixNode::FaMixNode()
-: rclcpp::Node("fa_mix")
+FaMixNode::FaMixNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_mix", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Mix node");
   loadParameters();
@@ -75,14 +81,21 @@ void FaMixNode::loadParameters()
   if (config_.input_topics.empty()) {
     throw std::runtime_error("input_topics must have at least 1 topic (set via YAML)");
   }
+  for (const auto & topic : config_.input_topics) {
+    if (topic.empty()) {
+      throw std::runtime_error("input_topics must not contain an empty topic");
+    }
+  }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required (set via YAML)");
   }
   if (config_.master_index < 0 || config_.master_index >= static_cast<int>(config_.input_topics.size())) {
     throw std::runtime_error("master_index out of range");
   }
-  if (!config_.input_gains_db.empty() &&
-    config_.input_gains_db.size() != 1 &&
+  if (config_.input_gains_db.empty()) {
+    throw std::runtime_error("input_gains_db must be size 1 or match input_topics length");
+  }
+  if (config_.input_gains_db.size() != 1 &&
     config_.input_gains_db.size() != config_.input_topics.size()) {
     throw std::runtime_error("input_gains_db must be size 1 or match input_topics length");
   }
@@ -92,8 +105,8 @@ void FaMixNode::loadParameters()
   if (config_.expected_bit_depth != 16) {
     throw std::runtime_error("fa_mix currently supports expected.bit_depth=16 only");
   }
-  if (config_.expected_encoding.empty()) {
-    throw std::runtime_error("expected.encoding is required (set via YAML)");
+  if (config_.expected_encoding != kEncodingPcm16Le) {
+    throw std::runtime_error("fa_mix currently supports expected.encoding=PCM16LE only");
   }
   if (config_.max_frame_age_ms <= 0) {
     throw std::runtime_error("max_frame_age_ms must be > 0");
@@ -103,6 +116,19 @@ void FaMixNode::loadParameters()
   }
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
+  }
+
+  config_.input_gains_linear.clear();
+  config_.input_gains_linear.reserve(config_.input_topics.size());
+  for (size_t i = 0; i < config_.input_topics.size(); ++i) {
+    const double gain_db = config_.input_gains_db.size() == 1 ?
+      config_.input_gains_db[0] :
+      config_.input_gains_db[i];
+    const double gain_linear = dbToLinear(gain_db);
+    if (!isFinite(gain_db) || !isFinite(gain_linear)) {
+      throw std::runtime_error("input_gains_db must resolve to finite linear gains");
+    }
+    config_.input_gains_linear.push_back(gain_linear);
   }
 
   RCLCPP_INFO(this->get_logger(),
@@ -121,7 +147,7 @@ void FaMixNode::loadParameters()
 
 void FaMixNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -148,7 +174,9 @@ void FaMixNode::setupInterfaces()
     std::bind(&FaMixNode::publishDiagnostics, this));
 }
 
-bool FaMixNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
+bool FaMixNode::validateFrame(
+  const fa_interfaces::msg::AudioFrame & msg,
+  const std::string & expected_stream_id) const
 {
   if (msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)) {
     return false;
@@ -162,7 +190,10 @@ bool FaMixNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
   if (msg.encoding != config_.expected_encoding) {
     return false;
   }
-  if (msg.source_id.empty() || msg.stream_id.empty()) {
+  if (msg.source_id.empty()) {
+    return false;
+  }
+  if (msg.stream_id != expected_stream_id) {
     return false;
   }
   if (msg.layout != kInterleavedLayout) {
@@ -247,7 +278,7 @@ void FaMixNode::onInputFrame(size_t index, const fa_interfaces::msg::AudioFrame:
     drop_.fetch_add(1);
     return;
   }
-  if (!validateFrame(*msg)) {
+  if (!validateFrame(*msg, config_.input_topics[index])) {
     drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
@@ -285,12 +316,11 @@ void FaMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & base)
 
   const rclcpp::Time now = this->now();
   uint32_t epoch = base.epoch;
+  const size_t expected_sample_count = mixed.size();
 
   for (size_t i = 0; i < config_.input_topics.size(); ++i) {
     if (static_cast<int>(i) == config_.master_index) {
-      const double db = config_.input_gains_db.empty() ? 0.0
-                        : (config_.input_gains_db.size() == 1 ? config_.input_gains_db[0] : config_.input_gains_db[i]);
-      const float g = static_cast<float>(dbToLinear(db));
+      const float g = static_cast<float>(config_.input_gains_linear[i]);
       for (float & v : mixed) {
         v *= g;
       }
@@ -305,23 +335,42 @@ void FaMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & base)
       other_time = latest_frames_time_[i];
     }
     if (!other) {
-      continue;
+      drop_.fetch_add(1);
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Dropping mix because input %zu has no valid frame", i);
+      return;
     }
     const int64_t age_ms = (now - other_time).nanoseconds() / 1000000;
     if (age_ms < 0 || age_ms > config_.max_frame_age_ms) {
-      continue;
+      drop_.fetch_add(1);
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Dropping mix because input %zu is stale: age_ms=%ld max_age_ms=%d",
+        i,
+        static_cast<long>(age_ms),
+        config_.max_frame_age_ms);
+      return;
     }
 
     std::vector<float> other_f32;
     if (!decodePcm16ToFloat(*other, other_f32)) {
-      continue;
+      drop_.fetch_add(1);
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Dropping mix because input %zu could not be decoded", i);
+      return;
+    }
+    if (other_f32.size() != expected_sample_count) {
+      drop_.fetch_add(1);
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Dropping mix because input %zu sample count differs from master", i);
+      return;
     }
 
-    const double db = config_.input_gains_db.empty() ? 0.0
-                      : (config_.input_gains_db.size() == 1 ? config_.input_gains_db[0] : config_.input_gains_db[i]);
-    const float g = static_cast<float>(dbToLinear(db));
-    const size_t sample_count = std::min(mixed.size(), other_f32.size());
-    for (size_t s = 0; s < sample_count; ++s) {
+    const float g = static_cast<float>(config_.input_gains_linear[i]);
+    for (size_t s = 0; s < expected_sample_count; ++s) {
       mixed[s] += other_f32[s] * g;
     }
 
@@ -390,17 +439,3 @@ void FaMixNode::publishDiagnostics()
 }
 
 }  // namespace fa_mix
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_mix::FaMixNode>();
-    rclcpp::spin(node);
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_mix"), "Exception: %s", e.what());
-    return EXIT_FAILURE;
-  }
-  rclcpp::shutdown();
-  return EXIT_SUCCESS;
-}

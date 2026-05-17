@@ -18,6 +18,7 @@ struct MixConfig
 {
   std::vector<std::string> input_topics;
   std::vector<double> input_gains_db;
+  std::vector<double> input_gains_linear;
   int master_index = -1;
   std::string output_topic;
 
@@ -37,7 +38,7 @@ struct MixConfig
 class FaMixNode : public rclcpp::Node
 {
 public:
-  FaMixNode();
+  explicit FaMixNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaMixNode() override = default;
 
 private:
@@ -48,7 +49,9 @@ private:
   void onInputFrame(size_t index, const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void mixAndPublish(const fa_interfaces::msg::AudioFrame & base);
 
-  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
+  bool validateFrame(
+    const fa_interfaces::msg::AudioFrame & msg,
+    const std::string & expected_stream_id) const;
   static bool decodePcm16ToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out_samples);
   static bool encodeFloatToPcm16(
     const std::vector<float> & samples,
