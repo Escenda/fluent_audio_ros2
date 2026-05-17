@@ -1,9 +1,7 @@
 #include "fa_latency_compensation/fa_latency_compensation_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -42,8 +40,8 @@ builtin_interfaces::msg::Time nanosecondsToStamp(const int64_t nanoseconds)
 }
 }  // namespace
 
-FaLatencyCompensationNode::FaLatencyCompensationNode()
-: rclcpp::Node("fa_latency_compensation")
+FaLatencyCompensationNode::FaLatencyCompensationNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_latency_compensation", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Latency Compensation node");
   loadParameters();
@@ -136,7 +134,7 @@ void FaLatencyCompensationNode::loadParameters()
 
 void FaLatencyCompensationNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -319,18 +317,3 @@ void FaLatencyCompensationNode::publishDiagnostics()
 }
 
 }  // namespace fa_latency_compensation
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_latency_compensation::FaLatencyCompensationNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_latency_compensation"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

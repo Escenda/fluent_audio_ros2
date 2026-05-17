@@ -34,7 +34,8 @@ struct LatencyCompensationConfig
 class FaLatencyCompensationNode : public rclcpp::Node
 {
 public:
-  FaLatencyCompensationNode();
+  explicit FaLatencyCompensationNode(
+    const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaLatencyCompensationNode() override = default;
 
 private:

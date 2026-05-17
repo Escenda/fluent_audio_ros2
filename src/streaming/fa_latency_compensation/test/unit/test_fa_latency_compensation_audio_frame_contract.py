@@ -46,6 +46,31 @@ def test_latency_compensation_does_not_hide_io_or_audio_sample_editing() -> None
         assert token not in source
 
 
+def test_node_identity_matches_contract() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (package_root / "src" / "fa_latency_compensation_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    header = (
+        package_root
+        / "include"
+        / "fa_latency_compensation"
+        / "fa_latency_compensation_node.hpp"
+    ).read_text(encoding="utf-8")
+    main_source = (package_root / "src" / "main.cpp").read_text(encoding="utf-8")
+    launch = (package_root / "launch" / "fa_latency_compensation.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "namespace fa_latency_compensation" in header
+    assert "class FaLatencyCompensationNode : public rclcpp::Node" in header
+    assert 'rclcpp::Node("fa_latency_compensation", options)' in source
+    assert "explicit FaLatencyCompensationNode(" in header
+    assert "fa_latency_compensation::FaLatencyCompensationNode" in main_source
+    assert 'executable="fa_latency_compensation_node"' in launch
+    assert 'default_value="fa_latency_compensation"' in launch
+
+
 def test_startup_validation_fails_closed_for_invalid_config() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_latency_compensation_node.cpp").read_text(
@@ -161,7 +186,9 @@ def test_package_layout_matches_required_streaming_layout() -> None:
         "launch/fa_latency_compensation.launch.py",
         "include/fa_latency_compensation/fa_latency_compensation_node.hpp",
         "src/fa_latency_compensation_node.cpp",
+        "src/main.cpp",
         "test/unit/test_fa_latency_compensation_audio_frame_contract.py",
+        "test/cpp/test_fa_latency_compensation_node_contract.cpp",
         "test/integration/.gitkeep",
         "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
@@ -177,10 +204,14 @@ def test_colcon_runs_pytest_contracts_and_lint_dependencies() -> None:
     package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_lint_auto REQUIRED)" in cmake_text
+    assert "add_library(fa_latency_compensation_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "ament_lint_auto_find_test_dependencies()" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
