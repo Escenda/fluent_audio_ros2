@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <dirent.h>
 #include <fstream>
 #include <iostream>
@@ -12,32 +13,6 @@
 #include "fa_kws/backends/sherpa_onnx_kws_backend.hpp"
 
 namespace {
-
-std::vector<float> resample_linear(const std::vector<float> &samples,
-                                   std::int32_t src_rate,
-                                   std::int32_t dst_rate)
-{
-  if (samples.empty() || src_rate <= 0 || dst_rate <= 0 || src_rate == dst_rate) {
-    if (src_rate <= 0 || dst_rate <= 0) {
-      throw std::invalid_argument("sample rates must be positive");
-    }
-    return samples;
-  }
-  const double ratio = static_cast<double>(dst_rate) / static_cast<double>(src_rate);
-  const std::size_t dst_len =
-    std::max<std::size_t>(1, static_cast<std::size_t>(std::floor(samples.size() * ratio)));
-
-  std::vector<float> out(dst_len);
-  const double inv_ratio = 1.0 / ratio;
-  for (std::size_t i = 0; i < dst_len; ++i) {
-    const double pos = static_cast<double>(i) * inv_ratio;
-    const std::size_t idx0 = static_cast<std::size_t>(std::floor(pos));
-    const std::size_t idx1 = std::min(idx0 + 1, samples.size() - 1);
-    const double t = pos - static_cast<double>(idx0);
-    out[i] = static_cast<float>((1.0 - t) * samples[idx0] + t * samples[idx1]);
-  }
-  return out;
-}
 
 struct WavData
 {
@@ -83,6 +58,7 @@ WavData load_wav(const std::string &path)
   std::int32_t sample_rate = 0;
   std::int32_t channels = 0;
   std::int32_t bit_depth = 0;
+  std::int32_t audio_format = 0;
   std::vector<std::uint8_t> data_bytes;
 
   while (ifs && !ifs.eof()) {
@@ -95,7 +71,10 @@ WavData load_wav(const std::string &path)
     std::uint32_t chunk_size = read_u32(ifs);
 
     if (id == "fmt ") {
-      std::uint16_t audio_format = read_u16(ifs);
+      if (chunk_size < 16) {
+        throw std::runtime_error("WAV fmt chunk is too small: " + path);
+      }
+      audio_format = static_cast<std::int32_t>(read_u16(ifs));
       channels = static_cast<std::int32_t>(read_u16(ifs));
       sample_rate = static_cast<std::int32_t>(read_u32(ifs));
       read_u32(ifs);                 // byte_rate
@@ -104,12 +83,12 @@ WavData load_wav(const std::string &path)
       if (chunk_size > 16) {
         ifs.seekg(chunk_size - 16, std::ios::cur);  // skip extra fmt bytes
       }
-      if (audio_format != 1) {
-        throw std::runtime_error("Only PCM wav is supported");
-      }
     } else if (id == "data") {
       data_bytes.resize(chunk_size);
       ifs.read(reinterpret_cast<char *>(data_bytes.data()), chunk_size);
+      if (ifs.gcount() != static_cast<std::streamsize>(chunk_size)) {
+        throw std::runtime_error("Failed to read WAV data chunk: " + path);
+      }
     } else {
       // skip other chunks
       ifs.seekg(chunk_size, std::ios::cur);
@@ -119,43 +98,36 @@ WavData load_wav(const std::string &path)
   if (sample_rate <= 0 || channels <= 0 || bit_depth <= 0 || data_bytes.empty()) {
     throw std::runtime_error("Incomplete wav header: " + path);
   }
+  if (audio_format != 3) {
+    throw std::runtime_error("WAV must be IEEE float format");
+  }
+  if (channels != 1) {
+    throw std::runtime_error("WAV channels must be 1");
+  }
+  if (bit_depth != 32) {
+    throw std::runtime_error("WAV bit_depth must be 32");
+  }
+  if (data_bytes.size() % sizeof(float) != 0) {
+    throw std::runtime_error("WAV float32 data length is not byte-aligned");
+  }
 
   WavData out;
   out.sample_rate = sample_rate;
   out.channels = channels;
   out.bit_depth = bit_depth;
 
-  if (bit_depth == 16) {
-    const std::size_t count = data_bytes.size() / sizeof(std::int16_t);
-    out.samples.resize(count);
-    const auto *raw = reinterpret_cast<const std::int16_t *>(data_bytes.data());
-    constexpr float kScale = 1.0f / 32768.0f;
-    for (std::size_t i = 0; i < count; ++i) {
-      out.samples[i] = static_cast<float>(raw[i]) * kScale;
+  const std::size_t count = data_bytes.size() / sizeof(float);
+  out.samples.resize(count);
+  for (std::size_t i = 0; i < count; ++i) {
+    float sample = 0.0f;
+    std::memcpy(&sample, data_bytes.data() + (i * sizeof(float)), sizeof(float));
+    if (!std::isfinite(sample)) {
+      throw std::runtime_error("WAV contains non-finite samples");
     }
-  } else if (bit_depth == 32) {
-    const std::size_t count = data_bytes.size() / sizeof(float);
-    out.samples.resize(count);
-    const auto *raw = reinterpret_cast<const float *>(data_bytes.data());
-    for (std::size_t i = 0; i < count; ++i) {
-      out.samples[i] = raw[i];
+    if (sample < -1.0f || sample > 1.0f) {
+      throw std::runtime_error("WAV samples must be normalized to [-1.0, 1.0]");
     }
-  } else {
-    throw std::runtime_error("Unsupported bit depth in wav: " + std::to_string(bit_depth));
-  }
-
-  if (channels > 1) {
-    const std::size_t frames = out.samples.size() / static_cast<std::size_t>(channels);
-    std::vector<float> mono(frames, 0.0f);
-    for (std::size_t i = 0; i < frames; ++i) {
-      float sum = 0.0f;
-      for (std::size_t ch = 0; ch < static_cast<std::size_t>(channels); ++ch) {
-        sum += out.samples[i * static_cast<std::size_t>(channels) + ch];
-      }
-      mono[i] = sum / static_cast<float>(channels);
-    }
-    out.samples = std::move(mono);
-    out.channels = 1;
+    out.samples[i] = sample;
   }
 
   return out;
@@ -256,7 +228,31 @@ Args parse_args(int argc, char **argv)
       "unsupported backend.execution_provider: " + args.provider +
       "; supported providers: " + fa_kws::supportedSherpaOnnxExecutionProvidersForMessage());
   }
+  if (args.target_sample_rate <= 0) {
+    throw std::runtime_error("sample_rate must be positive");
+  }
+  if (args.chunk_ms <= 0) {
+    throw std::runtime_error("chunk_ms must be positive");
+  }
   return args;
+}
+
+void validate_wav_contract(const WavData &wav,
+                           const Args &args,
+                           const std::string &wav_path)
+{
+  if (wav.sample_rate != args.target_sample_rate) {
+    throw std::runtime_error(
+      "WAV sample_rate must match --sample_rate for " + wav_path +
+      ": got " + std::to_string(wav.sample_rate) +
+      " expected " + std::to_string(args.target_sample_rate));
+  }
+  if (wav.channels != 1) {
+    throw std::runtime_error("WAV channels must be 1 for " + wav_path);
+  }
+  if (wav.bit_depth != 32) {
+    throw std::runtime_error("WAV bit_depth must be 32 for " + wav_path);
+  }
 }
 
 }  // namespace
@@ -269,26 +265,27 @@ bool process_single_wav(fa_kws::SherpaOnnxKwsBackend &engine,
                         bool verbose)
 {
   const WavData wav = load_wav(wav_path);
-  const auto resampled =
-    resample_linear(wav.samples, wav.sample_rate, args.target_sample_rate);
+  validate_wav_contract(wav, args, wav_path);
   const std::size_t chunk =
     static_cast<std::size_t>(args.target_sample_rate * args.chunk_ms / 1000);
+  if (chunk == 0) {
+    throw std::runtime_error("chunk size must be at least one sample");
+  }
 
   if (verbose) {
     std::cout << "Loaded wav: " << wav_path
               << " sr=" << wav.sample_rate
               << " frames=" << wav.samples.size()
-              << " resampled=" << resampled.size()
               << " chunk=" << chunk
               << " threshold=" << args.keywords_threshold
               << std::endl;
   }
 
   std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
-  for (std::size_t offset = 0; offset < resampled.size(); offset += chunk) {
-    const std::size_t len = std::min(chunk, resampled.size() - offset);
-    std::vector<float> slice(resampled.begin() + static_cast<std::ptrdiff_t>(offset),
-                             resampled.begin() + static_cast<std::ptrdiff_t>(offset + len));
+  for (std::size_t offset = 0; offset < wav.samples.size(); offset += chunk) {
+    const std::size_t len = std::min(chunk, wav.samples.size() - offset);
+    std::vector<float> slice(wav.samples.begin() + static_cast<std::ptrdiff_t>(offset),
+                             wav.samples.begin() + static_cast<std::ptrdiff_t>(offset + len));
     now += std::chrono::milliseconds(args.chunk_ms);
     auto det = engine.process(slice,
                               static_cast<std::int32_t>(args.target_sample_rate),
@@ -330,6 +327,9 @@ int main(int argc, char **argv)
         std::cerr << "No WAV files found in: " << args.wav_dir << std::endl;
         return 1;
       }
+      for (const auto &wav_path : wav_files) {
+        validate_wav_contract(load_wav(wav_path), args, wav_path);
+      }
 
       std::cout << "Batch mode: " << wav_files.size() << " files, threshold="
                 << args.keywords_threshold << std::endl;
@@ -367,28 +367,29 @@ int main(int argc, char **argv)
       return (detected_count > 0) ? 0 : 1;
     } else {
       // Single file mode
-      fa_kws::SherpaOnnxKwsBackend engine(cfg);
-
       const WavData wav = load_wav(args.wav_path);
-      const auto resampled =
-        resample_linear(wav.samples, wav.sample_rate, args.target_sample_rate);
+      validate_wav_contract(wav, args, args.wav_path);
       const std::size_t chunk =
         static_cast<std::size_t>(args.target_sample_rate * args.chunk_ms / 1000);
+      if (chunk == 0) {
+        throw std::runtime_error("chunk size must be at least one sample");
+      }
+
+      fa_kws::SherpaOnnxKwsBackend engine(cfg);
 
       std::cout << "Loaded wav: " << args.wav_path
                 << " sr=" << wav.sample_rate
                 << " frames=" << wav.samples.size()
-                << " resampled=" << resampled.size()
                 << " chunk=" << chunk
                 << " threshold=" << args.keywords_threshold
                 << std::endl;
 
       std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
       bool detected = false;
-      for (std::size_t offset = 0; offset < resampled.size(); offset += chunk) {
-        const std::size_t len = std::min(chunk, resampled.size() - offset);
-        std::vector<float> slice(resampled.begin() + static_cast<std::ptrdiff_t>(offset),
-                                 resampled.begin() + static_cast<std::ptrdiff_t>(offset + len));
+      for (std::size_t offset = 0; offset < wav.samples.size(); offset += chunk) {
+        const std::size_t len = std::min(chunk, wav.samples.size() - offset);
+        std::vector<float> slice(wav.samples.begin() + static_cast<std::ptrdiff_t>(offset),
+                                 wav.samples.begin() + static_cast<std::ptrdiff_t>(offset + len));
         now += std::chrono::milliseconds(args.chunk_ms);
         auto det = engine.process(slice,
                                   static_cast<std::int32_t>(args.target_sample_rate),

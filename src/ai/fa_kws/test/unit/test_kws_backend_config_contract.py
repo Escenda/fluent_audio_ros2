@@ -115,3 +115,35 @@ def test_wav_tool_requires_explicit_provider() -> None:
     assert "--provider <provider>" in tool_text
     assert "args.provider.empty()" in tool_text
     assert "cfg.execution_provider = args.provider;" in tool_text
+
+
+def test_wav_tool_rejects_non_canonical_wav_without_hidden_conversion() -> None:
+    tool_path = PACKAGE_ROOT / "src" / "kws_wav_tool.cpp"
+    tool_text = tool_path.read_text(encoding="utf-8")
+
+    assert "resample_linear" not in tool_text
+    assert "resampled" not in tool_text
+    assert "WAV sample_rate must match --sample_rate" in tool_text
+    assert "WAV channels must be 1" in tool_text
+    assert "WAV bit_depth must be 32" in tool_text
+    assert "WAV must be IEEE float format" in tool_text
+    assert "WAV float32 data length is not byte-aligned" in tool_text
+    assert "WAV samples must be normalized to [-1.0, 1.0]" in tool_text
+    assert "Failed to read WAV data chunk" in tool_text
+    assert "std::memcpy(&sample" in tool_text
+    assert "sum / static_cast<float>(channels)" not in tool_text
+    assert "reinterpret_cast<const std::int16_t *>" not in tool_text
+    assert "reinterpret_cast<const float *>" not in tool_text
+
+
+def test_wav_tool_validates_wav_before_backend_initialization() -> None:
+    tool_path = PACKAGE_ROOT / "src" / "kws_wav_tool.cpp"
+    tool_text = tool_path.read_text(encoding="utf-8")
+
+    batch_validation = tool_text.index("for (const auto &wav_path : wav_files)")
+    batch_engine = tool_text.index("fa_kws::SherpaOnnxKwsBackend engine(cfg)", batch_validation)
+    single_validation = tool_text.index("validate_wav_contract(wav, args, args.wav_path)")
+    single_engine = tool_text.index("fa_kws::SherpaOnnxKwsBackend engine(cfg)", single_validation)
+
+    assert batch_validation < batch_engine
+    assert single_validation < single_engine
