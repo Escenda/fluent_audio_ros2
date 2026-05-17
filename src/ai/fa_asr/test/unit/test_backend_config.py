@@ -88,6 +88,7 @@ class _FakeAudioFrame:
         self.stream_id = "stream0"
         self.layout = "interleaved"
         self.channels = 1
+        self.encoding = "FLOAT32LE"
         self.bit_depth = 32
         self.sample_rate = 16000
 
@@ -258,6 +259,7 @@ def test_asr_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame channels must be 1" in source
     assert "AudioFrame source_id and stream_id are required" in source
     assert "AudioFrame layout must be interleaved" in source
+    assert "AudioFrame encoding must be FLOAT32LE" in source
     assert "AudioFrame bit_depth must be 32" in source
     assert "AudioFrame sample_rate must match target_sample_rate" in source
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
@@ -300,6 +302,24 @@ def test_asr_node_rejects_empty_audio_data_from_callback(
         error_message, error_exception = node._logger.error_records[0]
         assert error_message == "Dropping invalid AudioFrame: %s"
         assert str(error_exception) == "AudioFrame data is required"
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
+def test_asr_node_rejects_non_float32le_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        frame = _FakeAudioFrame(np.zeros(160, dtype=np.float32).tobytes())
+        frame.encoding = "PCM32LE"
+
+        with pytest.raises(ValueError, match="AudioFrame encoding must be FLOAT32LE"):
+            module.FaAsrNode._frame_to_float(frame)
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 

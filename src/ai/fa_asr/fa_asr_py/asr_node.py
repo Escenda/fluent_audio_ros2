@@ -300,6 +300,8 @@ class FaAsrNode(Node):
             raise ValueError(f"AudioFrame layout must be interleaved, got {msg.layout}")
         if int(msg.channels) != 1:
             raise ValueError(f"AudioFrame channels must be 1, got {msg.channels}")
+        if msg.encoding != "FLOAT32LE":
+            raise ValueError(f"AudioFrame encoding must be FLOAT32LE, got {msg.encoding}")
         if int(msg.bit_depth) != 32:
             raise ValueError(f"AudioFrame bit_depth must be 32, got {msg.bit_depth}")
         if int(msg.sample_rate) <= 0:
