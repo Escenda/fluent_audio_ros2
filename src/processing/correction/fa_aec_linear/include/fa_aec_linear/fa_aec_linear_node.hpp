@@ -26,6 +26,7 @@ struct AecLinearConfig
   int expected_channels = -1;
 
   int ref_timeout_ms = -1;
+  std::string reference_failure_policy = "drop";
   double cancel_gain = 0.0;
 
   int qos_depth = -1;
@@ -72,4 +73,3 @@ private:
 };
 
 }  // namespace fa_aec_linear
-

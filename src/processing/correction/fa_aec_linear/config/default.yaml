@@ -10,6 +10,7 @@ fa_aec_linear:
     expected_channels: 1     # -1で無効
 
     ref_timeout_ms: 200
+    reference_failure_policy: "drop"
     cancel_gain: 1.0
 
     qos:
@@ -18,4 +19,3 @@ fa_aec_linear:
 
     diagnostics:
       publish_period_ms: 1000
-

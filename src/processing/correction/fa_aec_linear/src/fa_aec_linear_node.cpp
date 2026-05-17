@@ -37,6 +37,7 @@ void FaAecLinearNode::loadParameters()
   this->declare_parameter<int>("expected_sample_rate", config_.expected_sample_rate);
   this->declare_parameter<int>("expected_channels", config_.expected_channels);
   this->declare_parameter<int>("ref_timeout_ms", config_.ref_timeout_ms);
+  this->declare_parameter("reference_failure_policy", config_.reference_failure_policy);
   this->declare_parameter<double>("cancel_gain", config_.cancel_gain);
   this->declare_parameter<int>("qos.depth", config_.qos_depth);
   this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
@@ -51,6 +52,7 @@ void FaAecLinearNode::loadParameters()
   config_.expected_sample_rate = this->get_parameter("expected_sample_rate").as_int();
   config_.expected_channels = this->get_parameter("expected_channels").as_int();
   config_.ref_timeout_ms = this->get_parameter("ref_timeout_ms").as_int();
+  config_.reference_failure_policy = this->get_parameter("reference_failure_policy").as_string();
   config_.cancel_gain = this->get_parameter("cancel_gain").as_double();
   config_.qos_depth = this->get_parameter("qos.depth").as_int();
   config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
@@ -80,10 +82,13 @@ void FaAecLinearNode::loadParameters()
   if (config_.ref_timeout_ms <= 0) {
     throw std::runtime_error("ref_timeout_ms must be > 0 (set via YAML)");
   }
+  if (config_.reference_failure_policy != "drop") {
+    throw std::runtime_error("reference_failure_policy must be drop");
+  }
 
   RCLCPP_INFO(this->get_logger(),
     "AEC Linear config: enabled=%s mic=%s ref=%s output=%s expected_sr=%d expected_ch=%d "
-    "ref_timeout=%dms cancel_gain=%.3f qos_depth=%d reliable=%s",
+    "ref_timeout=%dms reference_failure_policy=%s cancel_gain=%.3f qos_depth=%d reliable=%s",
     config_.enabled ? "true" : "false",
     config_.mic_topic.c_str(),
     config_.ref_topic.c_str(),
@@ -91,6 +96,7 @@ void FaAecLinearNode::loadParameters()
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.ref_timeout_ms,
+    config_.reference_failure_policy.c_str(),
     config_.cancel_gain,
     config_.qos_depth,
     config_.qos_reliable ? "true" : "false");
@@ -255,8 +261,10 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   }
 
   if (!config_.enabled) {
-    out_pub_->publish(*msg);
-    mic_out_.fetch_add(1);
+    mic_drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping mic frame because fa_aec_linear is disabled; disable the system node instead");
     return;
   }
 
@@ -273,29 +281,41 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   const bool has_ref = ref && (ref_age_ms >= 0) && (ref_age_ms <= config_.ref_timeout_ms);
 
   if (!has_ref) {
-    out_pub_->publish(*msg);
-    mic_out_.fetch_add(1);
+    mic_drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping mic frame because reference is missing or stale: ref_age_ms=%ld timeout_ms=%d",
+      static_cast<long>(ref_age_ms), config_.ref_timeout_ms);
     return;
   }
 
   if (ref->sample_rate != msg->sample_rate || ref->channels != msg->channels || ref->bit_depth != msg->bit_depth) {
-    out_pub_->publish(*msg);
-    mic_out_.fetch_add(1);
+    mic_drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping mic frame because reference format does not match: "
+      "mic=%uHz/%uch/%ubit ref=%uHz/%uch/%ubit",
+      msg->sample_rate, msg->channels, msg->bit_depth,
+      ref->sample_rate, ref->channels, ref->bit_depth);
     return;
   }
 
   std::vector<float> mic_f32;
   std::vector<float> ref_f32;
   if (!decodeToFloat(*msg, mic_f32) || !decodeToFloat(*ref, ref_f32)) {
-    out_pub_->publish(*msg);
-    mic_out_.fetch_add(1);
+    mic_drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping mic frame because mic/reference decode failed");
     return;
   }
 
   const size_t sample_count = std::min(mic_f32.size(), ref_f32.size());
   if (sample_count == 0) {
-    out_pub_->publish(*msg);
-    mic_out_.fetch_add(1);
+    mic_drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping mic frame because no aligned mic/reference samples are available");
     return;
   }
 
@@ -365,6 +385,7 @@ void FaAecLinearNode::publishDiagnostics()
   push_kv("expected_sample_rate", std::to_string(config_.expected_sample_rate));
   push_kv("expected_channels", std::to_string(config_.expected_channels));
   push_kv("ref_timeout_ms", std::to_string(config_.ref_timeout_ms));
+  push_kv("reference_failure_policy", config_.reference_failure_policy);
   push_kv("cancel_gain", std::to_string(config_.cancel_gain));
   push_kv("ref_age_ms", std::to_string(ref_age_ms));
   push_kv("mic.in", std::to_string(mic_in_.load()));
@@ -392,4 +413,3 @@ int main(int argc, char ** argv)
   rclcpp::shutdown();
   return EXIT_SUCCESS;
 }
-
