@@ -14,11 +14,11 @@ Parakeet 系 ASR を外部 worker / process / container として呼び出しま
 - `backend.command`: worker CLI
 - `backend.model`: worker に渡す model id
 - `backend.language`
-- `backend.args`: `{audio}` と `{model}` を含む
+- `backend.args`: `{audio}`、`{model}`、`{sample_rate}` を含む
 
 ## Boundary
 
-`fa_asr` は一時 WAV file を作り、worker command に path を渡します。worker は transcript を stdout または `backend.output_text_path` に出力します。
+`fa_asr` は一時 raw float32le `.f32` file を作り、worker command に path と sample rate を渡します。worker は transcript を stdout または `backend.output_text_path` に出力します。PCM16 / WAV 変換は worker 側または明示された前段 node 側の責務です。
 
 ## Failure Conditions
 

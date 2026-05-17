@@ -160,14 +160,18 @@ def _settings(
     command: Path,
     model: str,
     model_path: str,
+    openai_realtime_api_key_env: str = "FA_ASR_OPENAI_REALTIME_API_KEY",
+    openai_transcriptions_api_key_env: str = "FA_ASR_OPENAI_TRANSCRIPTIONS_API_KEY",
 ) -> AsrBackendSettings:
     return AsrBackendSettings(
         name=backend_name,
         command=str(command),
         model=model,
         model_path=model_path,
+        openai_realtime_api_key_env=openai_realtime_api_key_env,
+        openai_transcriptions_api_key_env=openai_transcriptions_api_key_env,
         language="ja",
-        args=("--model", "{model}", "--audio", "{audio}"),
+        args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
         timeout_sec=10.0,
         working_directory="",
         output_text_path="",
@@ -184,7 +188,7 @@ def test_local_command_requires_existing_model_path(tmp_path: Path) -> None:
             command=str(command),
             model_path_value=str(tmp_path / "missing.bin"),
             language="ja",
-            args=("-m", "{model}", "-f", "{audio}"),
+            args=("-m", "{model}", "-f", "{audio}", "--sample-rate", "{sample_rate}"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -202,6 +206,8 @@ def test_default_config_requires_explicit_backend_name() -> None:
     params = config["fa_asr"]["ros__parameters"]
 
     assert params["backend.name"] == ""
+    assert params["backend.openai_realtime.api_key_env"] == ""
+    assert params["backend.openai_transcriptions.api_key_env"] == ""
     assert params["backend.args"] == []
     assert "ParameterUninitializedException" not in source
     assert "return tuple()" not in source
@@ -347,19 +353,21 @@ def test_command_backend_does_not_clip_audio() -> None:
     source = source_path.read_text(encoding="utf-8")
 
     assert "np.clip" not in source
+    assert "_float_to_pcm16" not in source
+    assert "astype(np.int16)" not in source
     assert "ASR request samples must be normalized to [-1.0, 1.0]" in source
 
 
 def test_openai_realtime_requires_model_id(tmp_path: Path) -> None:
-    command = tmp_path / "worker"
-    command.write_text("#!/bin/sh\n", encoding="utf-8")
+    command = _write_executable(tmp_path / "worker")
 
     with pytest.raises(RuntimeError, match="backend.model is required"):
         load_openai_realtime_config(
             command=str(command),
             model="",
+            api_key_env="FA_ASR_OPENAI_REALTIME_API_KEY",
             language="ja",
-            args=("--model", "{model}", "--audio", "{audio}"),
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -369,15 +377,110 @@ def test_openai_realtime_requires_model_id(tmp_path: Path) -> None:
 
 
 def test_openai_transcriptions_requires_model_id(tmp_path: Path) -> None:
-    command = tmp_path / "worker"
-    command.write_text("#!/bin/sh\n", encoding="utf-8")
+    command = _write_executable(tmp_path / "worker")
 
     with pytest.raises(RuntimeError, match="backend.model is required"):
         load_openai_transcriptions_config(
             command=str(command),
             model="",
+            api_key_env="FA_ASR_OPENAI_TRANSCRIPTIONS_API_KEY",
             language="ja",
-            args=("--model", "{model}", "--audio", "{audio}"),
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_openai_realtime_requires_api_key_env_name(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+
+    with pytest.raises(RuntimeError, match="backend.openai_realtime.api_key_env is required"):
+        load_openai_realtime_config(
+            command=str(command),
+            model="gpt-4o-realtime-preview",
+            api_key_env="",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_openai_transcriptions_requires_api_key_env_name(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+
+    with pytest.raises(
+        RuntimeError,
+        match="backend.openai_transcriptions.api_key_env is required",
+    ):
+        load_openai_transcriptions_config(
+            command=str(command),
+            model="gpt-4o-transcribe",
+            api_key_env="",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_openai_realtime_requires_api_key_env_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = _write_executable(tmp_path / "worker")
+    monkeypatch.delenv("FA_ASR_OPENAI_REALTIME_API_KEY", raising=False)
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "environment variable FA_ASR_OPENAI_REALTIME_API_KEY referenced by "
+            "backend.openai_realtime.api_key_env is required"
+        ),
+    ):
+        load_openai_realtime_config(
+            command=str(command),
+            model="gpt-4o-realtime-preview",
+            api_key_env="FA_ASR_OPENAI_REALTIME_API_KEY",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_openai_transcriptions_requires_api_key_env_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = _write_executable(tmp_path / "worker")
+    monkeypatch.delenv("FA_ASR_OPENAI_TRANSCRIPTIONS_API_KEY", raising=False)
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "environment variable FA_ASR_OPENAI_TRANSCRIPTIONS_API_KEY referenced by "
+            "backend.openai_transcriptions.api_key_env is required"
+        ),
+    ):
+        load_openai_transcriptions_config(
+            command=str(command),
+            model="gpt-4o-transcribe",
+            api_key_env="FA_ASR_OPENAI_TRANSCRIPTIONS_API_KEY",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -395,7 +498,7 @@ def test_parakeet_worker_requires_model_id(tmp_path: Path) -> None:
             command=str(command),
             model="",
             language="ja",
-            args=("--model", "{model}", "--audio", "{audio}"),
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -436,10 +539,15 @@ def test_build_backend_rejects_unknown_backend(tmp_path: Path) -> None:
         )
 
 
-def test_backends_use_dedicated_classes(tmp_path: Path) -> None:
+def test_backends_use_dedicated_classes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     command = _write_executable(tmp_path / "worker")
     model_path = tmp_path / "model.bin"
     model_path.write_text("model", encoding="utf-8")
+    monkeypatch.setenv("FA_ASR_OPENAI_REALTIME_API_KEY", "key")
+    monkeypatch.setenv("FA_ASR_OPENAI_TRANSCRIPTIONS_API_KEY", "key")
 
     local_command = build_asr_backend(
         _settings(
@@ -502,7 +610,7 @@ def test_whisper_cpp_uses_model_path_contract(tmp_path: Path) -> None:
             command=str(command),
             model_path_value="",
             language="ja",
-            args=("--model", "{model}", "--audio", "{audio}"),
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -520,7 +628,7 @@ def test_command_and_model_paths_are_resolved_and_executable(tmp_path: Path) -> 
         command=str(command),
         model_path_value=str(model_path),
         language="ja",
-        args=("--model", "{model}", "--audio", "{audio}"),
+        args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
         timeout_sec=10.0,
         working_directory_value="",
         output_text_path="",
@@ -531,7 +639,7 @@ def test_command_and_model_paths_are_resolved_and_executable(tmp_path: Path) -> 
     assert config.process.executable == str(command.resolve(strict=True))
     assert os.access(config.process.executable, os.X_OK)
     assert config.process.model == str(model_path.resolve(strict=True))
-    assert config.process.payload_encoding == "pcm16_wav"
+    assert config.process.payload_encoding == "float32le_raw"
 
 
 def test_command_backend_rejects_non_executable_command(tmp_path: Path) -> None:
@@ -546,7 +654,7 @@ def test_command_backend_rejects_non_executable_command(tmp_path: Path) -> None:
             command=str(command),
             model_path_value=str(model_path),
             language="ja",
-            args=("--model", "{model}", "--audio", "{audio}"),
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -565,7 +673,16 @@ def test_backend_args_reject_unknown_or_malformed_placeholders(tmp_path: Path) -
             command=str(command),
             model_path_value=str(model_path),
             language="ja",
-            args=("--model", "{model}", "--audio", "{audio}", "--x", "{unknown}"),
+            args=(
+                "--model",
+                "{model}",
+                "--audio",
+                "{audio}",
+                "--sample-rate",
+                "{sample_rate}",
+                "--x",
+                "{unknown}",
+            ),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -578,7 +695,7 @@ def test_backend_args_reject_unknown_or_malformed_placeholders(tmp_path: Path) -
             command=str(command),
             model_path_value=str(model_path),
             language="ja",
-            args=("--model", "{model", "--audio", "{audio}"),
+            args=("--model", "{model", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -587,7 +704,7 @@ def test_backend_args_reject_unknown_or_malformed_placeholders(tmp_path: Path) -
         )
 
 
-def test_backend_args_require_audio_and_model_placeholders(tmp_path: Path) -> None:
+def test_backend_args_require_audio_placeholder(tmp_path: Path) -> None:
     command = _write_executable(tmp_path / "worker")
     model_path = tmp_path / "model.bin"
     model_path.write_text("model", encoding="utf-8")
@@ -597,7 +714,29 @@ def test_backend_args_require_audio_and_model_placeholders(tmp_path: Path) -> No
             command=str(command),
             model_path_value=str(model_path),
             language="ja",
-            args=("--model", "{model}"),
+            args=("--model", "{model}", "--sample-rate", "{sample_rate}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_backend_args_require_sample_rate_placeholder(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"backend.args must include placeholders: \{sample_rate\}",
+    ):
+        load_local_command_config(
+            command=str(command),
+            model_path_value=str(model_path),
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -616,7 +755,16 @@ def test_output_placeholder_requires_output_text_path(tmp_path: Path) -> None:
             command=str(command),
             model_path_value=str(model_path),
             language="ja",
-            args=("--model", "{model}", "--audio", "{audio}", "--output", "{output}"),
+            args=(
+                "--model",
+                "{model}",
+                "--audio",
+                "{audio}",
+                "--sample-rate",
+                "{sample_rate}",
+                "--output",
+                "{output}",
+            ),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -638,7 +786,16 @@ def test_output_text_path_rejects_unknown_placeholder(tmp_path: Path) -> None:
             command=str(command),
             model_path_value=str(model_path),
             language="ja",
-            args=("--model", "{model}", "--audio", "{audio}", "--output", "{output}"),
+            args=(
+                "--model",
+                "{model}",
+                "--audio",
+                "{audio}",
+                "--sample-rate",
+                "{sample_rate}",
+                "--output",
+                "{output}",
+            ),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="transcript_{unknown}.txt",

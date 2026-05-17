@@ -26,5 +26,7 @@ def test_default_config_does_not_select_backend_or_worker_implicitly() -> None:
     assert params["backend.command"] == ""
     assert params["backend.model"] == ""
     assert params["backend.model_path"] == ""
+    assert params["backend.openai_realtime.api_key_env"] == ""
+    assert params["backend.openai_transcriptions.api_key_env"] == ""
     assert params["backend.args"] == []
     assert params["backend.timeout_sec"] > 0

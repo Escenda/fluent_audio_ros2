@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import wave
 from pathlib import Path
 
 
@@ -11,6 +10,7 @@ def main() -> int:
     parser.add_argument("--audio", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--language", required=True)
+    parser.add_argument("--sample-rate", required=True, type=int)
     parser.add_argument("--output", default="")
     args = parser.parse_args()
 
@@ -22,16 +22,14 @@ def main() -> int:
         raise RuntimeError(f"missing model: {model_path}")
     if not args.language:
         raise RuntimeError("language is required")
+    if args.sample_rate <= 0:
+        raise RuntimeError("sample rate must be positive")
 
-    with wave.open(str(audio_path), "rb") as wav_file:
-        if wav_file.getnchannels() != 1:
-            raise RuntimeError("expected mono audio")
-        if wav_file.getsampwidth() != 2:
-            raise RuntimeError("expected PCM16 audio")
-        if wav_file.getframerate() <= 0:
-            raise RuntimeError("invalid sample rate")
-        if wav_file.getnframes() == 0:
-            raise RuntimeError("empty audio")
+    audio_bytes = audio_path.read_bytes()
+    if not audio_bytes:
+        raise RuntimeError("empty audio")
+    if len(audio_bytes) % 4 != 0:
+        raise RuntimeError("expected float32le audio")
 
     transcript = model_path.read_text(encoding="utf-8").strip()
     if args.output:

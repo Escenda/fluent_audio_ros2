@@ -6,21 +6,21 @@
 
 ## Runtime
 
-`whisper.cpp` の CLI を subprocess として実行します。`fa_asr` は whisper の Python package を import しません。
+`whisper.cpp` を呼び出す external worker / wrapper を subprocess として実行します。`fa_asr` は whisper の Python package を import せず、`whisper-cli` が期待する WAV/PCM16 への暗黙変換も行いません。
 `WhisperCppAsrBackend` は専用 class であり、`LocalCommandAsrBackend` の alias ではありません。subprocess 実行のみ内部 helper を共有します。
 
 ## Required Config
 
-- `backend.command`: `whisper-cli` などの実行ファイル
+- `backend.command`: raw float32le payload と sample rate を受け取れる `whisper.cpp` worker / wrapper
 - `backend.model_path`: ggml model file path
 - `backend.language`
-- `backend.args`: `{audio}` と `{model}` を含む
+- `backend.args`: `{audio}`、`{model}`、`{sample_rate}` を含む
 
 ## Failure Conditions
 
 - command path missing
 - model file missing
-- `{audio}` or `{model}` placeholder missing
+- `{audio}` / `{model}` / `{sample_rate}` placeholder missing
 - non-zero exit
 - timeout
 - empty transcript

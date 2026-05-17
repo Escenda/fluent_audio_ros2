@@ -5,7 +5,6 @@ import shutil
 import string
 import subprocess
 import time
-import wave
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,12 +13,12 @@ import numpy as np
 from fa_asr_py.backends.base import AsrRequest
 
 
-_PAYLOAD_ENCODING = "pcm16_wav"
-_ALLOWED_ARG_FIELDS = frozenset(("audio", "model", "language", "output"))
+_PAYLOAD_ENCODING = "float32le_raw"
+_ALLOWED_ARG_FIELDS = frozenset(("audio", "model", "language", "output", "sample_rate"))
 _ALLOWED_OUTPUT_PATH_FIELDS = frozenset(
-    ("audio", "model", "language", "session_id", "user_turn_id")
+    ("audio", "model", "language", "sample_rate", "session_id", "user_turn_id")
 )
-_REQUIRED_ARG_FIELDS = frozenset(("audio", "model"))
+_REQUIRED_ARG_FIELDS = frozenset(("audio", "model", "sample_rate"))
 
 
 @dataclass(frozen=True)
@@ -43,12 +42,12 @@ class _CommandProcessRunner:
 
     def transcribe(self, request: AsrRequest) -> str:
         self._validate_request(request)
-        wav_path = self._config.workspace_dir / f"{time.time_ns()}_{request.user_turn_id}.wav"
-        output_path = self._build_output_text_path(wav_path, request)
+        audio_path = self._config.workspace_dir / f"{time.time_ns()}_{request.user_turn_id}.f32"
+        output_path = self._build_output_text_path(audio_path, request)
         try:
-            self._write_audio_payload(wav_path, request)
+            self._write_audio_payload(audio_path, request)
             command = [self._config.executable]
-            command.extend(self._format_args(wav_path, output_path))
+            command.extend(self._format_args(audio_path, output_path, request))
             try:
                 completed = subprocess.run(
                     command,
@@ -73,16 +72,17 @@ class _CommandProcessRunner:
                 raise RuntimeError("ASR backend returned an empty transcript")
             return transcript
         finally:
-            if self._config.cleanup_audio_files and wav_path.exists():
-                wav_path.unlink()
+            if self._config.cleanup_audio_files and audio_path.exists():
+                audio_path.unlink()
 
-    def _build_output_text_path(self, wav_path: Path, request: AsrRequest) -> Path | None:
+    def _build_output_text_path(self, audio_path: Path, request: AsrRequest) -> Path | None:
         if not self._config.output_text_path:
             return None
         rendered = self._config.output_text_path.format(
-            audio=str(wav_path),
+            audio=str(audio_path),
             model=self._config.model,
             language=self._config.language,
+            sample_rate=request.sample_rate,
             session_id=request.session_id,
             user_turn_id=request.user_turn_id,
         )
@@ -91,13 +91,16 @@ class _CommandProcessRunner:
             path = self._config.workspace_dir / path
         return path
 
-    def _format_args(self, wav_path: Path, output_path: Path | None) -> list[str]:
+    def _format_args(
+        self, audio_path: Path, output_path: Path | None, request: AsrRequest
+    ) -> list[str]:
         output_value = "" if output_path is None else str(output_path)
         return [
             part.format(
-                audio=str(wav_path),
+                audio=str(audio_path),
                 model=self._config.model,
                 language=self._config.language,
+                sample_rate=request.sample_rate,
                 output=output_value,
             )
             for part in self._config.args
@@ -121,20 +124,19 @@ class _CommandProcessRunner:
             raise ValueError("ASR request samples must be one-dimensional")
         if request.samples.size == 0:
             raise ValueError("ASR request samples are required")
+        if not np.all(np.isfinite(request.samples)):
+            raise ValueError("ASR request contains non-finite samples")
+        if np.any(request.samples < -1.0) or np.any(request.samples > 1.0):
+            raise ValueError("ASR request samples must be normalized to [-1.0, 1.0]")
 
     def _write_audio_payload(self, path: Path, request: AsrRequest) -> None:
         if self._config.payload_encoding != _PAYLOAD_ENCODING:
             raise RuntimeError(f"unsupported ASR payload_encoding: {self._config.payload_encoding}")
-        self._write_pcm16_wav(path, request.samples, request.sample_rate)
+        self._write_float32le_raw(path, request.samples)
 
     @staticmethod
-    def _write_pcm16_wav(path: Path, samples: np.ndarray, sample_rate: int) -> None:
-        pcm = _float_to_pcm16(samples)
-        with wave.open(str(path), "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(sample_rate)
-            wav_file.writeframes(pcm)
+    def _write_float32le_raw(path: Path, samples: np.ndarray) -> None:
+        path.write_bytes(samples.astype("<f4", copy=False).tobytes())
 
 
 def _load_model_path_command_config(
@@ -325,11 +327,3 @@ def _parse_format_fields(
             raise RuntimeError(f"unsupported {field_label} placeholder: {field_name}")
         fields.add(field_name)
     return fields
-
-
-def _float_to_pcm16(samples: np.ndarray) -> bytes:
-    if not np.all(np.isfinite(samples)):
-        raise ValueError("ASR request contains non-finite samples")
-    if np.any(samples < -1.0) or np.any(samples > 1.0):
-        raise ValueError("ASR request samples must be normalized to [-1.0, 1.0]")
-    return (samples * 32767.0).astype(np.int16).tobytes()

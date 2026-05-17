@@ -23,6 +23,8 @@ def _settings(
         "{model}",
         "--language",
         "{language}",
+        "--sample-rate",
+        "{sample_rate}",
     ]
     if output_text_path:
         args.extend(["--output", "{output}"])
@@ -31,6 +33,8 @@ def _settings(
         command=sys.executable,
         model="",
         model_path=str(model_path),
+        openai_realtime_api_key_env="",
+        openai_transcriptions_api_key_env="",
         language="ja",
         args=tuple(args),
         timeout_sec=1.0,

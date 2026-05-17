@@ -46,6 +46,8 @@ class FaAsrNode(Node):
         self.declare_parameter("backend.model", "")
         self.declare_parameter("backend.command", "")
         self.declare_parameter("backend.model_path", "")
+        self.declare_parameter("backend.openai_realtime.api_key_env", "")
+        self.declare_parameter("backend.openai_transcriptions.api_key_env", "")
         self.declare_parameter("backend.language", "ja")
         self.declare_parameter("backend.timeout_sec", 120.0)
         self.declare_parameter("backend.working_directory", "")
@@ -121,6 +123,12 @@ class FaAsrNode(Node):
                 command=str(self.get_parameter("backend.command").value),
                 model=str(self.get_parameter("backend.model").value),
                 model_path=str(self.get_parameter("backend.model_path").value),
+                openai_realtime_api_key_env=str(
+                    self.get_parameter("backend.openai_realtime.api_key_env").value
+                ),
+                openai_transcriptions_api_key_env=str(
+                    self.get_parameter("backend.openai_transcriptions.api_key_env").value
+                ),
                 language=str(self.get_parameter("backend.language").value),
                 args=self._backend_args(),
                 timeout_sec=float(self.get_parameter("backend.timeout_sec").value),

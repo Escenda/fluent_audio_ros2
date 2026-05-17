@@ -29,6 +29,8 @@ class AsrBackendSettings:
     command: str
     model: str
     model_path: str
+    openai_realtime_api_key_env: str
+    openai_transcriptions_api_key_env: str
     language: str
     args: tuple[str, ...]
     timeout_sec: float
@@ -89,6 +91,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
             load_openai_realtime_config(
                 command=settings.command.strip(),
                 model=settings.model.strip(),
+                api_key_env=settings.openai_realtime_api_key_env.strip(),
                 language=settings.language,
                 args=settings.args,
                 timeout_sec=settings.timeout_sec,
@@ -103,6 +106,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
             load_openai_transcriptions_config(
                 command=settings.command.strip(),
                 model=settings.model.strip(),
+                api_key_env=settings.openai_transcriptions_api_key_env.strip(),
                 language=settings.language,
                 args=settings.args,
                 timeout_sec=settings.timeout_sec,

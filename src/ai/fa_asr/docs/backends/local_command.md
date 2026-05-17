@@ -14,7 +14,7 @@
 - `backend.command`: 実行ファイル
 - `backend.model_path`: model file path
 - `backend.language`
-- `backend.args`: `{audio}` と `{model}` を含む
+- `backend.args`: `{audio}`、`{model}`、`{sample_rate}` を含む
 
 ## Input
 
@@ -23,7 +23,7 @@
 
 ## Command Contract
 
-backend は一時 WAV file path を command に渡し、stdout または output file から transcript を読む構造です。
+backend は一時 raw float32le `.f32` file path と sample rate を command に渡し、stdout または output file から transcript を読む構造です。PCM16 / WAV 変換は行いません。
 
 ## Failure Conditions
 

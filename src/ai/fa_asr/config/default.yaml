@@ -18,7 +18,9 @@ fa_asr:
     # - whisper_cpp: whisper.cpp process, requires backend.model_path
     # - parakeet_worker: external worker/process/container, requires backend.model
     # - openai_realtime: external OpenAI Realtime worker/process, requires backend.model
-    # - openai_transcriptions: external OpenAI Transcriptions worker/process, requires backend.model
+    #   and backend.openai_realtime.api_key_env
+    # - openai_transcriptions: external OpenAI Transcriptions worker/process, requires
+    #   backend.model and backend.openai_transcriptions.api_key_env
     #
     # OpenAI SDK/API clients are not imported by fa_asr. OpenAI backends are
     # external worker boundaries and fail closed if command/model are not
@@ -27,6 +29,8 @@ fa_asr:
     backend.model: ""
     backend.command: ""
     backend.model_path: ""
+    backend.openai_realtime.api_key_env: ""
+    backend.openai_transcriptions.api_key_env: ""
     backend.language: "ja"
     backend.timeout_sec: 120.0
     backend.working_directory: ""

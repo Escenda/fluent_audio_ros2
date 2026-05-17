@@ -9,11 +9,16 @@ from fa_asr_py.backends._command_process import (
     _load_model_id_command_config,
 )
 from fa_asr_py.backends.base import AsrRequest
+from fa_asr_py.backends.openai_credentials import (
+    OpenAiCredentialConfig,
+    load_openai_credential_config,
+)
 
 
 @dataclass(frozen=True)
 class OpenAiRealtimeAsrConfig:
     process: CommandProcessConfig
+    credentials: OpenAiCredentialConfig
 
 
 class OpenAiRealtimeAsrBackend:
@@ -30,6 +35,7 @@ def load_openai_realtime_config(
     *,
     command: str,
     model: str,
+    api_key_env: str,
     language: str,
     args: tuple[str, ...],
     timeout_sec: float,
@@ -49,5 +55,9 @@ def load_openai_realtime_config(
             output_text_path=output_text_path,
             workspace_dir=workspace_dir,
             cleanup_audio_files=cleanup_audio_files,
-        )
+        ),
+        credentials=load_openai_credential_config(
+            parameter_name="backend.openai_realtime.api_key_env",
+            api_key_env=api_key_env,
+        ),
     )
