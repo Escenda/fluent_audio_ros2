@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias, TypeGuard
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 import yaml
 
 
@@ -16,6 +17,79 @@ ConfigMapping: TypeAlias = dict[str, "ConfigValue"]
 ConfigSequence: TypeAlias = list["ConfigValue"]
 ConfigValue: TypeAlias = ConfigScalar | ConfigMapping | ConfigSequence
 _INLINE_SHARE_RE = re.compile(r"\$\{share:([A-Za-z0-9_]+)\}")
+
+
+class _TimingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    default_start_delay: float | int
+    inter_group_delay: float | int
+
+    @model_validator(mode="after")
+    def _validate_delays(self) -> "_TimingConfig":
+        if isinstance(self.default_start_delay, bool) or self.default_start_delay < 0.0:
+            raise ValueError("system.default_start_delay must be >= 0")
+        if isinstance(self.inter_group_delay, bool) or self.inter_group_delay < 0.0:
+            raise ValueError("system.inter_group_delay must be >= 0")
+        return self
+
+
+class _RemappingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, strict=True)
+
+    source: str = Field(alias="from")
+    target: str = Field(alias="to")
+
+
+class _NodeConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, strict=True)
+
+    id: str | None = None
+    enable: bool | None = None
+    package: str | None = None
+    executable: str | None = Field(default=None, alias="exec")
+    node_name: str | None = None
+    namespace: str | None = None
+    output: str | None = None
+    params_file: str | None = None
+    parameters: dict[str, ParamValue] | None = None
+    remappings: dict[str, str] | list[_RemappingConfig] | None = None
+
+    @model_validator(mode="after")
+    def _validate_required_fields(self) -> "_NodeConfig":
+        node_id = _required_model_text(self.id, "node id")
+        if self.enable is None:
+            raise ValueError(f"node {node_id}.enable is required")
+        if not self.enable:
+            return self
+        _required_model_text(self.package, f"node {node_id}.package")
+        _required_model_text(self.executable, f"node {node_id}.exec")
+        _required_model_text(self.params_file, f"node {node_id}.params_file")
+        return self
+
+
+class _GroupConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    id: str | None = None
+    enable: bool | None = None
+    nodes: list[_NodeConfig] | None = None
+
+    @model_validator(mode="after")
+    def _validate_required_fields(self) -> "_GroupConfig":
+        group_id = _required_model_text(self.id, "group id")
+        if self.enable is None:
+            raise ValueError(f"group {group_id}.enable is required")
+        if self.enable and self.nodes is None:
+            raise ValueError(f"group {group_id}.nodes is required")
+        return self
+
+
+class _AudioSystemConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    system: _TimingConfig
+    groups: list[_GroupConfig]
 
 
 @dataclass(frozen=True)
@@ -36,7 +110,7 @@ class AudioNodeSpec:
     parameters: dict[str, ParamValue]
     remappings: list[RemappingSpec]
 
-    def launch_parameters(self):
+    def launch_parameters(self) -> list[str | dict[str, ParamValue]]:
         sources = []
         if self.params_file:
             sources.append(self.params_file)
@@ -44,7 +118,7 @@ class AudioNodeSpec:
             sources.append(self.parameters)
         return sources
 
-    def launch_remappings(self):
+    def launch_remappings(self) -> list[tuple[str, str]]:
         return [(item.source, item.target) for item in self.remappings]
 
 
@@ -73,39 +147,20 @@ def load_system_config(path: str) -> AudioSystemSpec:
 
 
 def parse_system_config(raw: ConfigValue) -> AudioSystemSpec:
-    root = _require_mapping(raw, "fluent_audio_system config root")
-    system = _require_mapping(
-        _required_key(root, "system", "fluent_audio_system config root"),
-        "system",
-    )
-    groups_raw = _require_sequence(
-        _required_key(root, "groups", "fluent_audio_system config root"),
-        "groups",
-    )
-    default_start_delay = _required_float(system, "default_start_delay", "system")
-    inter_group_delay = _required_float(system, "inter_group_delay", "system")
-    if default_start_delay < 0.0:
-        raise RuntimeError("system.default_start_delay must be >= 0")
-    if inter_group_delay < 0.0:
-        raise RuntimeError("system.inter_group_delay must be >= 0")
+    root = _validate_system_config(raw)
+    default_start_delay = float(root.system.default_start_delay)
+    inter_group_delay = float(root.system.inter_group_delay)
 
     groups: list[AudioGroupSpec] = []
-    for group_index, raw_group in enumerate(groups_raw):
-        group = _require_mapping(raw_group, f"groups[{group_index}]")
-        group_id = _required_text(group, "id", f"groups[{group_index}]")
-        if not _required_bool(group, "enable", f"group {group_id}"):
+    for group in root.groups:
+        group_id = _required_model_text(group.id, "group id")
+        if not group.enable:
             continue
-        nodes_raw = _require_sequence(
-            _required_key(group, "nodes", f"group {group_id}"),
-            f"group {group_id}.nodes",
-        )
         nodes: list[AudioNodeSpec] = []
-        for node_index, raw_node in enumerate(nodes_raw):
-            node = _require_mapping(raw_node, f"group {group_id}.nodes[{node_index}]")
-            node_id = _required_text(node, "id", f"group {group_id}.nodes[{node_index}]")
-            if not _required_bool(node, "enable", f"node {node_id}"):
+        for node in group.nodes or []:
+            if not node.enable:
                 continue
-            nodes.append(_parse_node(node, group_id, node_index))
+            nodes.append(_parse_node(node))
         groups.append(AudioGroupSpec(id=group_id, nodes=nodes))
 
     return AudioSystemSpec(
@@ -115,20 +170,31 @@ def parse_system_config(raw: ConfigValue) -> AudioSystemSpec:
     )
 
 
-def _parse_node(node: ConfigMapping, group_id: str, node_index: int) -> AudioNodeSpec:
-    node_id = _required_text(node, "id", f"group {group_id}.nodes[{node_index}]")
-    package = _required_text(node, "package", f"node {node_id}")
-    executable = _required_text(node, "exec", f"node {node_id}")
-    node_name = _optional_text(node, "node_name", node_id)
-    namespace = _optional_text(node, "namespace", "")
+def _validate_system_config(raw: ConfigValue) -> _AudioSystemConfig:
+    try:
+        return _AudioSystemConfig.model_validate(raw)
+    except ValidationError as exc:
+        raise RuntimeError(_format_validation_error(exc)) from exc
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
+    node_id = _required_model_text(node.id, "node id")
+    package = _required_model_text(node.package, f"node {node_id}.package")
+    executable = _required_model_text(node.executable, f"node {node_id}.exec")
+    node_name = _optional_model_text(node.node_name, node_id)
+    namespace = _optional_model_text(node.namespace, "")
     if namespace == "/":
         namespace = ""
-    output = _optional_text(node, "output", "screen")
-    params_file = _resolve_share_refs(_required_text(node, "params_file", f"node {node_id}"))
+    output = _optional_model_text(node.output, "screen")
+    params_file = _resolve_share_refs(
+        _required_model_text(node.params_file, f"node {node_id}.params_file")
+    )
     if not os.path.isfile(params_file):
         raise RuntimeError(f"params_file not found: {params_file}")
-    parameters = _optional_parameters(node.get("parameters", {}), node_id)
-    remappings = _optional_remappings(node.get("remappings", []), node_id)
+    parameters = _optional_parameters(node.parameters, node_id)
+    remappings = _optional_remappings(node.remappings, node_id)
     return AudioNodeSpec(
         id=node_id,
         package=package,
@@ -142,63 +208,41 @@ def _parse_node(node: ConfigMapping, group_id: str, node_index: int) -> AudioNod
     )
 
 
-def _require_mapping(value: ConfigValue, label: str) -> ConfigMapping:
-    if not isinstance(value, dict):
-        raise RuntimeError(f"{label} must be a mapping")
-    for key in value:
-        if not isinstance(key, str):
-            raise RuntimeError(f"{label} keys must be strings")
-    return value
-
-
-def _require_sequence(value: ConfigValue, label: str) -> ConfigSequence:
-    if not isinstance(value, list):
-        raise RuntimeError(f"{label} must be a sequence")
-    return value
-
-
-def _required_key(mapping: ConfigMapping, key: str, label: str) -> ConfigValue:
-    if key not in mapping:
-        raise RuntimeError(f"{label}.{key} is required")
-    return mapping[key]
-
-
-def _required_text(mapping: ConfigMapping, key: str, label: str) -> str:
-    value = mapping.get(key)
+def _required_model_text(value: str | None, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise RuntimeError(f"{label}.{key} is required")
+        raise ValueError(f"{label} is required")
     return value.strip()
 
 
-def _optional_text(mapping: ConfigMapping, key: str, default_value: str = "") -> str:
-    value = mapping.get(key, default_value)
+def _optional_model_text(value: str | None, default_value: str = "") -> str:
     if value is None:
         return default_value
     if not isinstance(value, str):
-        raise RuntimeError(f"{key} must be a string")
+        raise RuntimeError("optional text must be a string")
     return value.strip()
 
 
-def _required_bool(mapping: ConfigMapping, key: str, label: str) -> bool:
-    value = mapping.get(key)
-    if not isinstance(value, bool):
-        raise RuntimeError(f"{label}.{key} is required")
-    return value
+def _format_validation_error(exc: ValidationError) -> str:
+    first_error = exc.errors()[0]
+    location = ".".join(str(part) for part in first_error["loc"])
+    message = str(first_error["msg"])
+    if "parameters" in first_error["loc"]:
+        return "unsupported value type"
+    if first_error["type"] == "missing":
+        return f"{location} is required"
+    if message.startswith("Value error, "):
+        return message.removeprefix("Value error, ")
+    return f"{location}: {message}"
 
 
-def _required_float(mapping: ConfigMapping, key: str, label: str) -> float:
-    value = mapping.get(key)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise RuntimeError(f"{label}.{key} is required")
-    return float(value)
-
-
-def _optional_parameters(value: ConfigValue, node_id: str) -> dict[str, ParamValue]:
+def _optional_parameters(
+    value: dict[str, ParamValue] | None,
+    node_id: str,
+) -> dict[str, ParamValue]:
     if value is None:
         return {}
-    mapping = _require_mapping(value, f"node {node_id} parameters")
     params: dict[str, ParamValue] = {}
-    for key, param_value in mapping.items():
+    for key, param_value in value.items():
         if not isinstance(key, str) or not key.strip():
             raise RuntimeError(f"node {node_id} parameter keys must be non-empty strings")
         expanded_value = _expand_param_value(param_value)
@@ -208,7 +252,10 @@ def _optional_parameters(value: ConfigValue, node_id: str) -> dict[str, ParamVal
     return params
 
 
-def _optional_remappings(value: ConfigValue, node_id: str) -> list[RemappingSpec]:
+def _optional_remappings(
+    value: dict[str, str] | list[_RemappingConfig] | None,
+    node_id: str,
+) -> list[RemappingSpec]:
     if value is None:
         return []
     if isinstance(value, dict):
@@ -220,12 +267,14 @@ def _optional_remappings(value: ConfigValue, node_id: str) -> list[RemappingSpec
                 raise RuntimeError(f"node {node_id} remapping target must be a non-empty string")
             remappings.append(RemappingSpec(source=source.strip(), target=target.strip()))
         return remappings
-    sequence = _require_sequence(value, f"node {node_id} remappings")
     remappings: list[RemappingSpec] = []
-    for index, item in enumerate(sequence):
-        mapping = _require_mapping(item, f"node {node_id} remappings[{index}]")
-        source = _required_text(mapping, "from", f"node {node_id} remappings[{index}]")
-        target = _required_text(mapping, "to", f"node {node_id} remappings[{index}]")
+    for item in value:
+        source = item.source.strip()
+        target = item.target.strip()
+        if not source:
+            raise RuntimeError(f"node {node_id} remapping source must be a non-empty string")
+        if not target:
+            raise RuntimeError(f"node {node_id} remapping target must be a non-empty string")
         remappings.append(RemappingSpec(source=source, target=target))
     return remappings
 
@@ -237,11 +286,13 @@ def _resolve_share_refs(value: str) -> str:
     return _INLINE_SHARE_RE.sub(_replace, value)
 
 
-def _expand_param_value(value: ConfigValue) -> ConfigValue:
+def _expand_param_value(value: ParamValue) -> ParamValue:
     if isinstance(value, str):
         return _resolve_share_refs(value)
     if isinstance(value, list):
-        return [_expand_param_value(item) for item in value]
+        if all(isinstance(item, str) for item in value):
+            return [_resolve_share_refs(item) for item in value]
+        return value
     return value
 
 

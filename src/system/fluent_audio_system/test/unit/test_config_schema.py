@@ -426,6 +426,15 @@ def test_negative_delays_fail() -> None:
         )
 
 
+def test_config_schema_uses_pydantic_boundary() -> None:
+    source = Path(config_schema.__file__).read_text(encoding="utf-8")
+
+    assert "BaseModel" in source
+    assert "_AudioSystemConfig.model_validate(raw)" in source
+    assert "dict[str, Any]" not in source
+    assert ": object" not in source
+
+
 def test_system_delays_are_required() -> None:
     with pytest.raises(RuntimeError, match="system.default_start_delay is required"):
         parse_system_config(

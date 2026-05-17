@@ -21,7 +21,7 @@ setup(
         ("share/" + package_name + "/launch", files_in("launch")),
         ("share/" + package_name + "/config", files_in("config")),
     ],
-    install_requires=["setuptools"],
+    install_requires=["setuptools", "pydantic>=2"],
     zip_safe=True,
     maintainer="FluentAudio",
     maintainer_email="maintainer@example.com",
