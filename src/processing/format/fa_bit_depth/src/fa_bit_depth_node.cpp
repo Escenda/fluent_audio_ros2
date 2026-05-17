@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -85,7 +84,7 @@ void FaBitDepthNode::loadParameters()
       config_.output_bit_depth))
   {
     throw std::runtime_error(
-            "fa_bit_depth supports only PCM16LE/16 <-> PCM32LE/32 integer bit-depth conversion");
+            "fa_bit_depth supports only lossless PCM16LE/16 -> PCM32LE/32 integer bit-depth expansion");
   }
   if (config_.expected_sample_rate <= 0) {
     throw std::runtime_error("expected.sample_rate must be > 0");
@@ -239,11 +238,6 @@ bool FaBitDepthNode::convertFrame(
       config_.output_encoding == kEncodingPcm32 && config_.output_bit_depth == 32)
   {
     output_data = convertPcm16ToPcm32(in.data);
-  } else if (
-    config_.input_encoding == kEncodingPcm32 && config_.input_bit_depth == 32 &&
-    config_.output_encoding == kEncodingPcm16 && config_.output_bit_depth == 16)
-  {
-    output_data = convertPcm32ToPcm16(in.data);
   } else {
     RCLCPP_ERROR_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
@@ -276,9 +270,7 @@ bool FaBitDepthNode::isSupportedConversion(
   int output_bit_depth)
 {
   return (input_encoding == kEncodingPcm16 && input_bit_depth == 16 &&
-         output_encoding == kEncodingPcm32 && output_bit_depth == 32) ||
-         (input_encoding == kEncodingPcm32 && input_bit_depth == 32 &&
-         output_encoding == kEncodingPcm16 && output_bit_depth == 16);
+         output_encoding == kEncodingPcm32 && output_bit_depth == 32);
 }
 
 size_t FaBitDepthNode::bytesPerSample(int bit_depth)
@@ -300,26 +292,6 @@ std::vector<uint8_t> FaBitDepthNode::convertPcm16ToPcm32(const std::vector<uint8
       (static_cast<uint16_t>(input_bytes.at(i + 1)) << 8U);
     const uint32_t aligned_sample = static_cast<uint32_t>(raw) << 16U;
     appendPcm32Le(aligned_sample, out_bytes);
-  }
-  return out_bytes;
-}
-
-std::vector<uint8_t> FaBitDepthNode::convertPcm32ToPcm16(const std::vector<uint8_t> & input_bytes)
-{
-  if (input_bytes.empty() || (input_bytes.size() % sizeof(uint32_t)) != 0) {
-    return {};
-  }
-
-  std::vector<uint8_t> out_bytes;
-  out_bytes.reserve((input_bytes.size() / sizeof(uint32_t)) * sizeof(uint16_t));
-  for (size_t i = 0; i < input_bytes.size(); i += sizeof(uint32_t)) {
-    const uint32_t raw =
-      static_cast<uint32_t>(input_bytes.at(i)) |
-      (static_cast<uint32_t>(input_bytes.at(i + 1)) << 8U) |
-      (static_cast<uint32_t>(input_bytes.at(i + 2)) << 16U) |
-      (static_cast<uint32_t>(input_bytes.at(i + 3)) << 24U);
-    const uint16_t high_word = static_cast<uint16_t>((raw >> 16U) & 0xFFFFU);
-    appendPcm16Le(high_word, out_bytes);
   }
   return out_bytes;
 }

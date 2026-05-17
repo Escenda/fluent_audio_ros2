@@ -54,10 +54,11 @@ def test_startup_rejects_unknown_or_implicit_conversion_config() -> None:
 
     assert "input_encoding == kEncodingPcm16 && input_bit_depth == 16" in is_supported
     assert "output_encoding == kEncodingPcm32 && output_bit_depth == 32" in is_supported
-    assert "input_encoding == kEncodingPcm32 && input_bit_depth == 32" in is_supported
-    assert "output_encoding == kEncodingPcm16 && output_bit_depth == 16" in is_supported
+    assert "input_encoding == kEncodingPcm32 && input_bit_depth == 32" not in is_supported
+    assert "output_encoding == kEncodingPcm16 && output_bit_depth == 16" not in is_supported
     assert "isSupportedConversion(" in source
     assert "throw std::runtime_error(" in source
+    assert "lossless PCM16LE/16 -> PCM32LE/32" in source
     assert "metadata" not in is_supported
 
 
@@ -100,13 +101,10 @@ def test_bit_depth_preserves_identity_and_updates_format_metadata() -> None:
     assert ".vad" not in convert_frame
 
 
-def test_pcm_integer_bit_depth_conversion_uses_high_order_bit_alignment() -> None:
+def test_pcm_integer_bit_depth_conversion_uses_lossless_high_order_expansion_only() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_bit_depth_node.cpp").read_text(encoding="utf-8")
     pcm16 = source.split("std::vector<uint8_t> FaBitDepthNode::convertPcm16ToPcm32")[1].split(
-        "std::vector<uint8_t> FaBitDepthNode::convertPcm32ToPcm16"
-    )[0]
-    pcm32 = source.split("std::vector<uint8_t> FaBitDepthNode::convertPcm32ToPcm16")[1].split(
         "void FaBitDepthNode::appendPcm16Le"
     )[0]
     append16 = source.split("void FaBitDepthNode::appendPcm16Le")[1].split(
@@ -120,12 +118,34 @@ def test_pcm_integer_bit_depth_conversion_uses_high_order_bit_alignment() -> Non
     assert "static_cast<uint16_t>(input_bytes.at(i))" in pcm16
     assert "const uint32_t aligned_sample = static_cast<uint32_t>(raw) << 16U;" in pcm16
     assert "appendPcm32Le(aligned_sample, out_bytes);" in pcm16
-    assert "input_bytes.size() % sizeof(uint32_t)" in pcm32
-    assert "static_cast<uint32_t>(input_bytes.at(i + 3)) << 24U" in pcm32
-    assert "const uint16_t high_word = static_cast<uint16_t>((raw >> 16U) & 0xFFFFU);" in pcm32
-    assert "appendPcm16Le(high_word, out_bytes);" in pcm32
+    assert "convertPcm32ToPcm16" not in source
+    assert "raw >> 16U" not in source
+    assert "high_word" not in source
     assert "out_bytes.push_back(static_cast<uint8_t>((sample >> 8U) & 0xFFU));" in append16
     assert "out_bytes.push_back(static_cast<uint8_t>((sample >> 24U) & 0xFFU));" in append32
+
+
+def test_docs_reject_lossy_pcm32_to_pcm16_truncation() -> None:
+    package_root = Path(__file__).parents[2]
+    readme = (package_root / "README.md").read_text(encoding="utf-8")
+    spec = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
+    algorithm = (package_root / "docs" / "アルゴリズム詳細説明書.md").read_text(
+        encoding="utf-8"
+    )
+    test_plan = (package_root / "docs" / "テスト設計.md").read_text(
+        encoding="utf-8"
+    )
+    backend_doc = (
+        package_root / "docs" / "backends" / "internal_integer_bit_depth.md"
+    ).read_text(encoding="utf-8")
+
+    assert "PCM32LE` / 32 bit / `interleaved` -> `PCM16LE" not in readme
+    assert "`PCM32LE` / 32 / `interleaved` | `PCM16LE`" not in spec
+    assert "PCM32LE から PCM16LE" not in algorithm
+    assert "下位 16 bit は破棄する" not in algorithm
+    assert "lossy PCM32LE/32 -> PCM16LE/16" in algorithm
+    assert "lossy PCM32LE/32 -> PCM16LE/16 は fail closed" in test_plan
+    assert "`PCM32LE` / 32 | `PCM16LE` / 16" not in backend_doc
 
 
 def test_package_layout_matches_standard_processing_layout() -> None:

@@ -58,7 +58,6 @@ private:
     int output_bit_depth);
   static size_t bytesPerSample(int bit_depth);
   static std::vector<uint8_t> convertPcm16ToPcm32(const std::vector<uint8_t> & input_bytes);
-  static std::vector<uint8_t> convertPcm32ToPcm16(const std::vector<uint8_t> & input_bytes);
   static void appendPcm16Le(uint16_t sample, std::vector<uint8_t> & out_bytes);
   static void appendPcm32Le(uint32_t sample, std::vector<uint8_t> & out_bytes);
 

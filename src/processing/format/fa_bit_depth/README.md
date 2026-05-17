@@ -7,9 +7,8 @@
 ## 初期対応変換
 
 - `PCM16LE` / 16 bit / `interleaved` -> `PCM32LE` / 32 bit / `interleaved`
-- `PCM32LE` / 32 bit / `interleaved` -> `PCM16LE` / 16 bit / `interleaved`
 
-変換は config で明示された組み合わせだけを受け付けます。frame metadata から自動判定しません。
+変換は config で明示された組み合わせだけを受け付けます。frame metadata から自動判定しません。下位 bit を破棄する `PCM32LE/32 -> PCM16LE/16` は fail closed します。
 
 ## 入出力契約
 
