@@ -4,6 +4,8 @@
 
 `passthrough` は `fa_aec_nn` の wiring 検証用 backend である。実際の echo suppression は行わない。
 
+default config では選択しない。利用する場合は、debug / wiring validation 用 config で `backend: "passthrough"` を明示する。
+
 ## 入力
 
 - validated `AudioFrame`
