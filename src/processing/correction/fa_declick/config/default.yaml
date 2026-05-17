@@ -1,0 +1,24 @@
+fa_declick:
+  ros__parameters:
+    input_topic: "audio/noise_gated/mic"
+    output_topic: "audio/declicked/mic"
+
+    threshold:
+      delta: 0.25
+
+    window:
+      max_samples: 1
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

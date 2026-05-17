@@ -46,9 +46,9 @@ and must not be counted as implemented package coverage.
 | `dynamics/` | `fa_gain`, `fa_normalize`, `fa_compressor`, `fa_limiter`, `fa_expander`, `fa_noise_gate`, `fa_agc` | implemented packages |
 | `frequency/` | `fa_eq`, `fa_high_pass`, `fa_low_pass`, `fa_band_pass`, `fa_notch` | implemented packages |
 | `temporal/` | `fa_delay`, `fa_silence_removal`, `fa_fade`, `fa_window` | implemented packages |
-| `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise`, `fa_dc_offset_removal` | implemented packages |
+| `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise`, `fa_declick`, `fa_hum`, `fa_dc_offset_removal` | implemented packages |
 | `spatial/` | `fa_pan`, `fa_stereo_widening`, `fa_downmix` | implemented packages |
 | `analysis/` | `fa_vad`, `fa_kws`, `fa_asr`, `fa_turn_detector` | implemented packages plus roadmap placeholders |
 | `generation/` | `fa_tts` | implemented package |
-| `routing/` | `fa_mix` | implemented package |
+| `routing/` | `fa_mix`, `fa_bus_router`, `fa_ducking` | implemented packages |
 | `streaming/` | `fa_frame_buffer` | implemented package |

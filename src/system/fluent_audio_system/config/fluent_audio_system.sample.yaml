@@ -281,6 +281,26 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_declick
+        enable: false
+        package: fa_declick
+        exec: fa_declick_node
+        node_name: fa_declick
+        namespace: ""
+        params_file: "${share:fa_declick}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_hum
+        enable: false
+        package: fa_hum
+        exec: fa_hum_node
+        node_name: fa_hum
+        namespace: ""
+        params_file: "${share:fa_hum}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_dc_offset_removal
         enable: false
         package: fa_dc_offset_removal
@@ -391,6 +411,26 @@ groups:
         node_name: fa_mix
         namespace: ""
         params_file: "${share:fa_mix}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_bus_router
+        enable: false
+        package: fa_bus_router
+        exec: fa_bus_router_node
+        node_name: fa_bus_router
+        namespace: ""
+        params_file: "${share:fa_bus_router}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_ducking
+        enable: false
+        package: fa_ducking
+        exec: fa_ducking_node
+        node_name: fa_ducking
+        namespace: ""
+        params_file: "${share:fa_ducking}/config/default.yaml"
         remappings: {}
         parameters: {}
 
