@@ -49,6 +49,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_bit_depth
+        enable: false
+        package: fa_bit_depth
+        exec: fa_bit_depth_node
+        node_name: fa_bit_depth
+        namespace: ""
+        params_file: "${share:fa_bit_depth}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_channel_convert
         enable: false
         package: fa_channel_convert
@@ -56,6 +66,16 @@ groups:
         node_name: fa_channel_convert
         namespace: ""
         params_file: "${share:fa_channel_convert}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_interleave
+        enable: false
+        package: fa_interleave
+        exec: fa_interleave_node
+        node_name: fa_interleave
+        namespace: ""
+        params_file: "${share:fa_interleave}/config/default.yaml"
         remappings: {}
         parameters: {}
 
@@ -168,6 +188,16 @@ groups:
   - id: temporal
     enable: true
     nodes:
+      - id: fa_delay
+        enable: false
+        package: fa_delay
+        exec: fa_delay_node
+        node_name: fa_delay
+        namespace: ""
+        params_file: "${share:fa_delay}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_fade
         enable: false
         package: fa_fade
@@ -241,6 +271,16 @@ groups:
         node_name: fa_pan
         namespace: ""
         params_file: "${share:fa_pan}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_downmix
+        enable: false
+        package: fa_downmix
+        exec: fa_downmix_node
+        node_name: fa_downmix
+        namespace: ""
+        params_file: "${share:fa_downmix}/config/default.yaml"
         remappings: {}
         parameters: {}
 

@@ -1,0 +1,23 @@
+fa_downmix:
+  ros__parameters:
+    input_topic: "audio/spatial/mic"
+    output_topic: "audio/downmixed/mic"
+
+    expected:
+      sample_rate: 16000
+      input_channels: 4
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    output:
+      channels: 2
+
+    mode: "pair_average_to_stereo"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

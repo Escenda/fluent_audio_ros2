@@ -1,0 +1,23 @@
+fa_interleave:
+  ros__parameters:
+    input_topic: "audio/frame"
+    output_topic: "audio/layout/mic"
+
+    input:
+      layout: "interleaved"
+
+    output:
+      layout: "planar"
+
+    expected:
+      sample_rate: 16000
+      channels: 2
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000
