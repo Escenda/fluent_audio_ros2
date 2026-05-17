@@ -52,19 +52,19 @@ class FaVadNode(Node):
         self.declare_parameter("qos.depth", 10)
         self.declare_parameter("qos.reliable", False)
 
-        self._input_topic = str(self.get_parameter("input_topic").value)
-        self._output_topic = str(self.get_parameter("output_topic").value)
-        self._vad_state_topic = str(self.get_parameter("vad_state_topic").value)
-        self._probability_topic = str(self.get_parameter("probability_topic").value)
+        self._input_topic = self._string_parameter("input_topic")
+        self._output_topic = self._string_parameter("output_topic")
+        self._vad_state_topic = self._string_parameter("vad_state_topic")
+        self._probability_topic = self._string_parameter("probability_topic")
 
-        self._publish_vad_state = bool(self.get_parameter("publish_vad_state").value)
-        self._publish_probability = bool(self.get_parameter("publish_probability").value)
-        self._log_events = bool(self.get_parameter("log_speech_events").value)
+        self._publish_vad_state = self._bool_parameter("publish_vad_state")
+        self._publish_probability = self._bool_parameter("publish_probability")
+        self._log_events = self._bool_parameter("log_speech_events")
 
-        self._target_sample_rate = int(self.get_parameter("target_sample_rate").value)
-        threshold_start = float(self.get_parameter("threshold_start").value)
-        threshold_end = float(self.get_parameter("threshold_end").value)
-        hangover_ms = int(self.get_parameter("hangover_ms").value)
+        self._target_sample_rate = self._integer_parameter("target_sample_rate")
+        threshold_start = self._double_parameter("threshold_start")
+        threshold_end = self._double_parameter("threshold_end")
+        hangover_ms = self._integer_parameter("hangover_ms")
         validate_node_config(
             target_sample_rate=self._target_sample_rate,
             threshold_start=threshold_start,
@@ -72,22 +72,16 @@ class FaVadNode(Node):
             hangover_ms=hangover_ms,
         )
 
-        model_path = str(self.get_parameter("backend.model_path").value).strip()
-        execution_provider = str(
-            self.get_parameter("backend.execution_provider").value
-        ).strip()
-        command = str(self.get_parameter("backend.command").value).strip()
-        backend_args = tuple(
-            self.get_parameter("backend.args").get_parameter_value().string_array_value
-        )
-        timeout_sec = float(self.get_parameter("backend.timeout_sec").value)
-        workspace_dir = str(self.get_parameter("backend.workspace_dir").value).strip()
-        cleanup_audio_files = bool(
-            self.get_parameter("backend.cleanup_audio_files").value
-        )
+        model_path = self._string_parameter("backend.model_path").strip()
+        execution_provider = self._string_parameter("backend.execution_provider").strip()
+        command = self._string_parameter("backend.command").strip()
+        backend_args = self._string_array_parameter("backend.args")
+        timeout_sec = self._double_parameter("backend.timeout_sec")
+        workspace_dir = self._string_parameter("backend.workspace_dir").strip()
+        cleanup_audio_files = self._bool_parameter("backend.cleanup_audio_files")
 
-        depth = validate_qos_depth(int(self.get_parameter("qos.depth").value))
-        reliable = bool(self.get_parameter("qos.reliable").value)
+        depth = validate_qos_depth(self._integer_parameter("qos.depth"))
+        reliable = self._bool_parameter("qos.reliable")
 
         qos = QoSProfile(depth=depth)
         qos.history = HistoryPolicy.KEEP_LAST
@@ -152,7 +146,7 @@ class FaVadNode(Node):
         workspace_dir: str,
         cleanup_audio_files: bool,
     ) -> VADBackend:
-        backend_name = str(self.get_parameter("backend.name").value).strip()
+        backend_name = self._string_parameter("backend.name").strip()
         if not backend_name:
             raise RuntimeError("backend.name is required")
         if backend_name != SileroVAD.name:
@@ -171,6 +165,36 @@ class FaVadNode(Node):
             workspace_dir=workspace_dir,
             cleanup_audio_files=cleanup_audio_files,
         )
+
+    def _string_parameter(self, name: str) -> str:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.STRING:
+            raise RuntimeError(f"{name} must be a string")
+        return parameter.value
+
+    def _bool_parameter(self, name: str) -> bool:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.BOOL:
+            raise RuntimeError(f"{name} must be a bool")
+        return parameter.value
+
+    def _integer_parameter(self, name: str) -> int:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.INTEGER:
+            raise RuntimeError(f"{name} must be an integer")
+        return parameter.value
+
+    def _double_parameter(self, name: str) -> float:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.DOUBLE:
+            raise RuntimeError(f"{name} must be a double")
+        return parameter.value
+
+    def _string_array_parameter(self, name: str) -> tuple[str, ...]:
+        parameter = self.get_parameter(name)
+        if parameter.type_ != Parameter.Type.STRING_ARRAY:
+            raise RuntimeError(f"{name} must be a string array")
+        return tuple(parameter.get_parameter_value().string_array_value)
 
     def _on_audio_frame(self, msg: AudioFrame) -> None:
         try:

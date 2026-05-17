@@ -51,6 +51,10 @@ class _FakeNode:
 
 class _FakeParameter:
     class Type:
+        STRING = "string"
+        BOOL = "bool"
+        INTEGER = "integer"
+        DOUBLE = "double"
         STRING_ARRAY = "string_array"
 
 
@@ -95,6 +99,33 @@ class _FakeAudioFrame:
 
 class _FakeVadState:
     pass
+
+
+class _FakeParameterValue:
+    def __init__(self, string_array_value: tuple[str, ...]) -> None:
+        self.string_array_value = string_array_value
+
+
+class _TypedParameter:
+    def __init__(self, type_value: str, value: str | bool | int | float | tuple[str, ...]) -> None:
+        self.type_ = type_value
+        self.value = value
+
+    def get_parameter_value(self) -> _FakeParameterValue:
+        if self.type_ != _FakeParameter.Type.STRING_ARRAY:
+            raise RuntimeError("test parameter is not a string array")
+        if not isinstance(self.value, tuple):
+            raise RuntimeError("test string array parameter value must be tuple")
+        return _FakeParameterValue(self.value)
+
+
+class _TypedNode:
+    def __init__(self, parameter: _TypedParameter) -> None:
+        self._parameter = parameter
+
+    def get_parameter(self, name: str) -> _TypedParameter:
+        del name
+        return self._parameter
 
 
 class _FailingVadBackend:
@@ -226,6 +257,58 @@ def test_default_config_requires_explicit_silero_model_path() -> None:
     assert "tuple(str(item) for item in self.get_parameter" not in source
 
 
+def test_vad_node_parameter_helpers_reject_wrong_ros_parameter_types(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = Path(__file__).parents[2]
+    shutdown_calls: list[bool] = []
+    _install_vad_node_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(package_root))
+    sys.modules.pop("fa_vad_py.vad_node", None)
+
+    try:
+        module = importlib.import_module("fa_vad_py.vad_node")
+
+        assert module.FaVadNode._string_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "audio/frame")),
+            "input_topic",
+        ) == "audio/frame"
+        assert module.FaVadNode._bool_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.BOOL, False)),
+            "publish_probability",
+        ) is False
+        assert module.FaVadNode._integer_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.INTEGER, 16000)),
+            "target_sample_rate",
+        ) == 16000
+        assert module.FaVadNode._double_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, 0.5)),
+            "threshold_start",
+        ) == 0.5
+        assert module.FaVadNode._string_array_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.STRING_ARRAY, ("--audio", "{audio}"))),
+            "backend.args",
+        ) == ("--audio", "{audio}")
+
+        with pytest.raises(RuntimeError, match="publish_probability must be a bool"):
+            module.FaVadNode._bool_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "false")),
+                "publish_probability",
+            )
+        with pytest.raises(RuntimeError, match="target_sample_rate must be an integer"):
+            module.FaVadNode._integer_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "16000")),
+                "target_sample_rate",
+            )
+        with pytest.raises(RuntimeError, match="threshold_start must be a double"):
+            module.FaVadNode._double_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.INTEGER, 1)),
+                "threshold_start",
+            )
+    finally:
+        sys.modules.pop("fa_vad_py.vad_node", None)
+
+
 def test_vad_frame_contract_accepts_canonical_float32_mono() -> None:
     expected = np.array([-1.0, -0.25, 0.0, 0.5, 1.0], dtype=np.float32)
 
@@ -286,6 +369,10 @@ def test_vad_node_source_does_not_hide_format_conversion() -> None:
     source_path = Path(__file__).parents[2] / "fa_vad_py" / "vad_node.py"
     source = source_path.read_text(encoding="utf-8")
 
+    assert "bool(self.get_parameter" not in source
+    assert "int(self.get_parameter" not in source
+    assert "float(self.get_parameter" not in source
+    assert "str(self.get_parameter" not in source
     assert "_resample_linear" not in source
     assert "_convert_to_mono" not in source
     assert "np.clip" not in source
