@@ -17,6 +17,8 @@ ros2 launch fa_vad fa_vad.launch.py
 
 PyTorch / Silero VAD は ROS package dependency ではなく、`backend.command` で指定する外部 process 側に明示的に provision します。`backend.model_path` は local torch.hub repository directory を指し、空または存在しない場合は起動失敗します。online download fallback はありません。`backend.execution_provider` と `backend.command` も必須です。
 
+`scripts/silero_vad_worker` は reference worker です。別 venv や別 container に同じ CLI contract の worker を置く場合は、その executable path を `backend.command` に指定します。
+
 ## パラメータ例
 ```yaml
 fa_vad_node:
@@ -28,7 +30,7 @@ fa_vad_node:
     backend.name: "silero"
     backend.model_path: "~/.cache/torch/hub/snakers4_silero-vad_master"
     backend.execution_provider: "cpu"
-    backend.command: "/opt/fa-vad/bin/silero_vad_worker"
+    backend.command: "/ros2_ws/install/fa_vad/lib/fa_vad/silero_vad_worker"
     backend.args:
       - "--audio"
       - "{audio}"

@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 import pytest
 import yaml
@@ -111,3 +112,42 @@ def test_silero_backend_is_external_process_boundary() -> None:
     assert "subprocess.run" in backend_source
     assert 'declare_parameter("backend.command", "")' in node_source
     assert "VAD backend failed" in node_source
+
+
+def test_silero_backend_runs_external_worker_contract(tmp_path: Path) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    workspace_dir = tmp_path / "workspace"
+    worker = Path(__file__).parents[1] / "fixtures" / "fake_vad_worker.py"
+    backend = _silero_backend(
+        model_path=str(model_dir),
+        command=sys.executable,
+        args=(
+            str(worker),
+            "--audio",
+            "{audio}",
+            "--model",
+            "{model}",
+            "--provider",
+            "{provider}",
+            "--sample-rate",
+            "{sample_rate}",
+        ),
+        workspace_dir=str(workspace_dir),
+    )
+
+    result = backend.update(bytes(512 * 2))
+
+    assert result.probability == 0.75
+    assert result.is_speech is True
+    assert result.start is True
+    assert result.end is False
+    assert list(workspace_dir.iterdir()) == []
+
+
+def test_silero_worker_is_installed_by_cmake() -> None:
+    cmake_path = Path(__file__).parents[2] / "CMakeLists.txt"
+    worker_path = Path(__file__).parents[2] / "scripts" / "silero_vad_worker"
+
+    assert worker_path.is_file()
+    assert "scripts/silero_vad_worker" in cmake_path.read_text(encoding="utf-8")
