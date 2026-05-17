@@ -5,6 +5,7 @@ from typing import Iterable, Optional
 
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import Bool, Float32
 
@@ -40,16 +41,7 @@ class FaVadNode(Node):
         self.declare_parameter("backend.command", "")
         self.declare_parameter(
             "backend.args",
-            [
-                "--audio",
-                "{audio}",
-                "--model",
-                "{model}",
-                "--provider",
-                "{provider}",
-                "--sample-rate",
-                "{sample_rate}",
-            ],
+            Parameter.Type.STRING_ARRAY,
         )
         self.declare_parameter("backend.timeout_sec", 1.0)
         self.declare_parameter("backend.workspace_dir", "/tmp/fluent_audio/fa_vad")
@@ -86,7 +78,7 @@ class FaVadNode(Node):
         ).strip()
         command = str(self.get_parameter("backend.command").value).strip()
         backend_args = tuple(
-            str(item) for item in self.get_parameter("backend.args").value
+            self.get_parameter("backend.args").get_parameter_value().string_array_value
         )
         timeout_sec = float(self.get_parameter("backend.timeout_sec").value)
         workspace_dir = str(self.get_parameter("backend.workspace_dir").value).strip()

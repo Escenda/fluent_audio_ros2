@@ -49,6 +49,11 @@ class _FakeNode:
         return self._logger
 
 
+class _FakeParameter:
+    class Type:
+        STRING_ARRAY = "string_array"
+
+
 class _FakeQoSProfile:
     def __init__(self, *, depth: int) -> None:
         self.depth = depth
@@ -120,6 +125,9 @@ def _install_vad_node_import_fakes(
     node_module = ModuleType("rclpy.node")
     node_module.Node = _FakeNode
 
+    parameter_module = ModuleType("rclpy.parameter")
+    parameter_module.Parameter = _FakeParameter
+
     qos_module = ModuleType("rclpy.qos")
     qos_module.QoSProfile = _FakeQoSProfile
     qos_module.ReliabilityPolicy = _FakeReliabilityPolicy
@@ -137,6 +145,7 @@ def _install_vad_node_import_fakes(
 
     monkeypatch.setitem(sys.modules, "rclpy", rclpy_module)
     monkeypatch.setitem(sys.modules, "rclpy.node", node_module)
+    monkeypatch.setitem(sys.modules, "rclpy.parameter", parameter_module)
     monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
     monkeypatch.setitem(sys.modules, "std_msgs", std_msgs_module)
     monkeypatch.setitem(sys.modules, "std_msgs.msg", std_msgs_msg_module)
@@ -195,6 +204,9 @@ def _write_executable(path: Path) -> None:
 def test_default_config_requires_explicit_silero_model_path() -> None:
     config_path = Path(__file__).parents[2] / "config" / "default.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    source = (Path(__file__).parents[2] / "fa_vad_py" / "vad_node.py").read_text(
+        encoding="utf-8"
+    )
 
     params = config["fa_vad_node"]["ros__parameters"]
 
@@ -209,13 +221,16 @@ def test_default_config_requires_explicit_silero_model_path() -> None:
     assert "{provider}" in params["backend.args"]
     assert "{sample_rate}" in params["backend.args"]
     assert "silero" not in params
+    assert '"backend.args",' in source
+    assert "Parameter.Type.STRING_ARRAY" in source
+    assert "tuple(str(item) for item in self.get_parameter" not in source
 
 
 def test_vad_frame_contract_accepts_canonical_float32_mono() -> None:
     expected = np.array([-1.0, -0.25, 0.0, 0.5, 1.0], dtype=np.float32)
 
     samples = audio_frame_to_float_samples(
-        data=expected.tobytes(),
+        data=expected.astype("<f4").tobytes(),
         source_id="mic0",
         stream_id="stream0",
         encoding="FLOAT32LE",
@@ -391,6 +406,11 @@ def test_silero_backend_rejects_malformed_arg_placeholder(tmp_path: Path) -> Non
             model_path=str(tmp_path),
             args=DEFAULT_ARGS + ("{audio",),
         )
+
+
+def test_silero_backend_rejects_non_finite_probability() -> None:
+    with pytest.raises(RuntimeError, match="probability must be finite"):
+        SileroVAD._parse_probability("nan")
 
 
 def test_silero_backend_rejects_arg_format_spec(tmp_path: Path) -> None:

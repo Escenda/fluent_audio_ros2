@@ -51,10 +51,10 @@ def audio_frame_to_float_samples(
         raise ValueError(f"AudioFrame encoding must be FLOAT32LE, got {encoding}")
     if int(bit_depth) != 32:
         raise ValueError(f"AudioFrame bit_depth must be 32, got {bit_depth}")
-    if len(data) % np.dtype(np.float32).itemsize != 0:
+    if len(data) % np.dtype("<f4").itemsize != 0:
         raise ValueError("AudioFrame float32 data length is not byte-aligned")
 
-    samples = np.frombuffer(data, dtype=np.float32)
+    samples = np.frombuffer(data, dtype="<f4")
     if not np.all(np.isfinite(samples)):
         raise ValueError("AudioFrame contains non-finite samples")
     if np.any(samples < -1.0) or np.any(samples > 1.0):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import string
@@ -302,6 +303,8 @@ class SileroVAD:
             raise RuntimeError(
                 "Silero VAD backend command must print probability as a float"
             ) from exc
+        if not math.isfinite(probability):
+            raise RuntimeError("Silero VAD backend probability must be finite")
         if probability < 0.0 or probability > 1.0:
             raise RuntimeError("Silero VAD backend probability must be in [0.0, 1.0]")
         return probability
