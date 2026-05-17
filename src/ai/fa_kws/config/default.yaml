@@ -26,6 +26,4 @@ fa_kws:
     kws.keywords_score: 1.0
     kws.keywords_threshold: 0.25
 
-    dump_audio.enable: false
-    dump_audio.path: "/tmp/fa_kws_capture.wav"
     debug.status_period_sec: 0.0

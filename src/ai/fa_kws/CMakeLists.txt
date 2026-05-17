@@ -135,6 +135,19 @@ if(BUILD_TESTING)
     )
   endif()
 
+  ament_add_gtest(${PROJECT_NAME}_audio_utils_test
+    test/unit/audio_utils_contract.cpp
+    src/audio_utils.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_audio_utils_test)
+    target_include_directories(${PROJECT_NAME}_audio_utils_test PRIVATE
+      include
+    )
+    ament_target_dependencies(${PROJECT_NAME}_audio_utils_test
+      fa_interfaces
+    )
+  endif()
+
   # Keep package tests isolated from ambient pytest plugins in ROS images.
   set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
   ament_add_pytest_test(${PROJECT_NAME}_pytest test

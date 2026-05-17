@@ -107,23 +107,7 @@ public:
   }
 
   ~FaKwsNode() override
-  {
-    if (dump_audio_enable_ && !capture_buffer_.empty()) {
-      try {
-        const std::uint32_t sr =
-          capture_sample_rate_ > 0 ? static_cast<std::uint32_t>(capture_sample_rate_)
-                                   : static_cast<std::uint32_t>(target_sample_rate_);
-        writeWav(dump_audio_path_, capture_buffer_, sr);
-        RCLCPP_INFO(
-          this->get_logger(),
-          "Dumped %zu samples to %s",
-          capture_buffer_.size(),
-          dump_audio_path_.c_str());
-      } catch (const std::exception &e) {
-        RCLCPP_ERROR(this->get_logger(), "Failed to dump wav: %s", e.what());
-      }
-    }
-  }
+  = default;
 
 private:
   void validateBackendOrThrow() const
@@ -200,47 +184,6 @@ private:
   }
 #endif
 
-  static void writeWav(const std::string &path,
-                       const std::vector<float> &samples,
-                       std::uint32_t sample_rate)
-  {
-    std::vector<std::int16_t> pcm(samples.size());
-    for (std::size_t i = 0; i < samples.size(); ++i) {
-      float v = samples[i];
-      if (v > 1.0f) v = 1.0f;
-      if (v < -1.0f) v = -1.0f;
-      pcm[i] = static_cast<std::int16_t>(v * 32767.0f);
-    }
-    const std::uint16_t channels = 1;
-    const std::uint32_t byte_rate = sample_rate * channels * 2;
-    const std::uint16_t block_align = channels * 2;
-    const std::uint32_t data_size = static_cast<std::uint32_t>(pcm.size() * 2);
-    const std::uint32_t riff_size = 36 + data_size;
-
-    std::ofstream ofs(path, std::ios::binary);
-    if (!ofs) {
-      throw std::runtime_error("failed to open wav for writing");
-    }
-    ofs.write("RIFF", 4);
-    ofs.write(reinterpret_cast<const char *>(&riff_size), 4);
-    ofs.write("WAVE", 4);
-    ofs.write("fmt ", 4);
-    std::uint32_t fmt_chunk_size = 16;
-    std::uint16_t audio_format = 1;
-    std::uint16_t bits_per_sample = 16;
-    ofs.write(reinterpret_cast<const char *>(&fmt_chunk_size), 4);
-    ofs.write(reinterpret_cast<const char *>(&audio_format), 2);
-    ofs.write(reinterpret_cast<const char *>(&channels), 2);
-    ofs.write(reinterpret_cast<const char *>(&sample_rate), 4);
-    ofs.write(reinterpret_cast<const char *>(&byte_rate), 4);
-    ofs.write(reinterpret_cast<const char *>(&block_align), 2);
-    ofs.write(reinterpret_cast<const char *>(&bits_per_sample), 2);
-    ofs.write("data", 4);
-    ofs.write(reinterpret_cast<const char *>(&data_size), 4);
-    ofs.write(reinterpret_cast<const char *>(pcm.data()),
-              static_cast<std::streamsize>(pcm.size() * sizeof(std::int16_t)));
-  }
-
   void loadParameters()
   {
     audio_topic_ = this->declare_parameter<std::string>("audio_topic", "audio/frame");
@@ -252,8 +195,6 @@ private:
     probability_gate_ = this->declare_parameter<double>("vad.probability_gate", 0.35);
     vad_max_age_ms_ = this->declare_parameter<int>("vad.max_age_ms", 1000);
     cooldown_ms_ = this->declare_parameter<int>("cooldown_ms", 2000);
-    dump_audio_enable_ = this->declare_parameter<bool>("dump_audio.enable", false);
-    dump_audio_path_ = this->declare_parameter<std::string>("dump_audio.path", "/tmp/fa_kws_capture.wav");
     debug_status_period_sec_ = this->declare_parameter<double>("debug.status_period_sec", 0.0);
 
     encoder_path_ = this->declare_parameter<std::string>("model.encoder", "");
@@ -432,19 +373,6 @@ private:
       return;
     }
 
-    if (dump_audio_enable_) {
-      if (capture_sample_rate_ != 0 && capture_sample_rate_ != src_rate) {
-        RCLCPP_WARN(
-          this->get_logger(),
-          "Audio sample rate changed from %d to %d; resetting capture buffer.",
-          static_cast<int>(capture_sample_rate_),
-          static_cast<int>(src_rate));
-        capture_buffer_.clear();
-      }
-      capture_sample_rate_ = src_rate;
-      capture_buffer_.insert(capture_buffer_.end(), samples.begin(), samples.end());
-    }
-
     audio_samples_received_.fetch_add(samples.size(), std::memory_order_relaxed);
 
     float vad_prob = 0.0f;
@@ -515,11 +443,6 @@ private:
   std::atomic<std::uint64_t> audio_samples_received_{0};
   std::atomic<std::int64_t> last_audio_rx_ns_{0};
   std::atomic<std::int32_t> last_sample_rate_{0};
-
-  bool dump_audio_enable_{false};
-  std::string dump_audio_path_;
-  std::int32_t capture_sample_rate_{0};
-  std::vector<float> capture_buffer_;
 
   rclcpp::Subscription<AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Subscription<VadState>::SharedPtr vad_sub_;

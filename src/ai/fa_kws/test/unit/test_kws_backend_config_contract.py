@@ -167,6 +167,19 @@ def test_vad_gate_has_executable_contract_test() -> None:
     assert "GateIsInclusiveAndFailClosed" in test_text
 
 
+def test_audio_utils_has_executable_contract_test() -> None:
+    cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    test_text = (
+        PACKAGE_ROOT / "test" / "unit" / "audio_utils_contract.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "ament_add_gtest(${PROJECT_NAME}_audio_utils_test" in cmake_text
+    assert "test/unit/audio_utils_contract.cpp" in cmake_text
+    assert "src/audio_utils.cpp" in cmake_text
+    assert "RejectsPcm32PayloadBeforeFloatInterpretation" in test_text
+    assert 'msg.encoding = "PCM32LE"' in test_text
+
+
 def test_kws_node_rejects_non_canonical_audio_frames() -> None:
     header_text = (PACKAGE_ROOT / "include" / "fa_kws" / "audio_utils.hpp").read_text(
         encoding="utf-8"
@@ -182,10 +195,16 @@ def test_kws_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame channels must be 1" in audio_utils_text
     assert "AudioFrame source_id and stream_id are required" in audio_utils_text
     assert "AudioFrame layout must be interleaved" in audio_utils_text
+    assert "AudioFrame encoding must be FLOAT32LE" in audio_utils_text
     assert "AudioFrame bit_depth must be 32" in audio_utils_text
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in audio_utils_text
     assert "sherpa-onnx will resample internally" not in node_text
     assert "Dropping AudioFrame with sample_rate" in node_text
+    assert "dump_audio" not in node_text
+    assert "writeWav" not in node_text
+    assert "capture_buffer_" not in node_text
+    assert "std::int16_t" not in node_text
+    assert "WAVE" not in node_text
 
 
 def test_detection_score_is_owned_by_backend() -> None:

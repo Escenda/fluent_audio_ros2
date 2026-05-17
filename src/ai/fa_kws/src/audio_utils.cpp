@@ -10,6 +10,7 @@ namespace fa_kws
 
 namespace
 {
+constexpr const char * kFloat32Encoding = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
 }
 
@@ -28,6 +29,9 @@ std::vector<float> frameToCanonicalFloat(const fa_interfaces::msg::AudioFrame &m
   }
   if (msg.layout != kInterleavedLayout) {
     throw std::invalid_argument("AudioFrame layout must be interleaved, got " + msg.layout);
+  }
+  if (msg.encoding != kFloat32Encoding) {
+    throw std::invalid_argument("AudioFrame encoding must be FLOAT32LE, got " + msg.encoding);
   }
   if (msg.bit_depth != 32u) {
     throw std::invalid_argument(
