@@ -11,11 +11,11 @@
 
 ## バックエンド契約
 
-`backend.name` は必須です。対応する backend は `local_command`, `whisper_cpp`, `parakeet_worker`, `openai_realtime` です。
+`backend.name` は必須です。対応する backend は `local_command`, `whisper_cpp`, `parakeet_worker`, `openai_realtime`, `openai_transcriptions` です。
 default config は backend を暗黙選択しません。利用環境ごとの launch/config で `backend.name` と必須パラメータを明示してください。
 
 - `local_command` / `whisper_cpp`: `backend.command` と `backend.model_path` が必須です。
-- `parakeet_worker` / `openai_realtime`: `backend.command` と `backend.model` が必須です。Python version / venv / SDK が異なる処理は外部 worker / process / container 側へ置きます。
+- `parakeet_worker` / `openai_realtime` / `openai_transcriptions`: `backend.command` と `backend.model` が必須です。Python version / venv / SDK が異なる処理は外部 worker / process / container 側へ置きます。
 - `backend.args` は default config では空です。backend ごとの worker/CLI contract として `{audio}` と `{model}` を含む配列を明示してください。
 
 例: whisper.cpp の `whisper-cli` を使う場合
@@ -27,4 +27,4 @@ backend.language: "ja"
 backend.args: ["-m", "{model}", "-l", "{language}", "-f", "{audio}", "-nt"]
 ```
 
-`openai_realtime` は OpenAI 直結実装ではなく、外部 worker command を呼ぶ backend slot です。API key、network、SDK は worker 側の責務で、`fa_asr` は未設定なら起動失敗します。
+OpenAI 系 backend は OpenAI 直結実装ではなく、外部 worker command を呼ぶ backend slot です。API key、network、SDK は worker 側の責務で、`fa_asr` は未設定なら起動失敗します。

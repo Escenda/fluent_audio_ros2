@@ -5,6 +5,10 @@ from fa_asr_py.backends.openai_realtime import (
     OpenAiRealtimeAsrBackend,
     OpenAiRealtimeAsrConfig,
 )
+from fa_asr_py.backends.openai_transcriptions import (
+    OpenAiTranscriptionsAsrBackend,
+    OpenAiTranscriptionsAsrConfig,
+)
 from fa_asr_py.backends.parakeet_worker import (
     ParakeetWorkerAsrBackend,
     ParakeetWorkerAsrConfig,
@@ -17,6 +21,8 @@ __all__ = [
     "AsrRequest",
     "OpenAiRealtimeAsrBackend",
     "OpenAiRealtimeAsrConfig",
+    "OpenAiTranscriptionsAsrBackend",
+    "OpenAiTranscriptionsAsrConfig",
     "ParakeetWorkerAsrBackend",
     "ParakeetWorkerAsrConfig",
     "LocalCommandAsrBackend",

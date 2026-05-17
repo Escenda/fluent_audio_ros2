@@ -12,6 +12,10 @@ from fa_asr_py.backends.openai_realtime import (
     OpenAiRealtimeAsrBackend,
     load_openai_realtime_config,
 )
+from fa_asr_py.backends.openai_transcriptions import (
+    OpenAiTranscriptionsAsrBackend,
+    load_openai_transcriptions_config,
+)
 from fa_asr_py.backends.parakeet_worker import (
     ParakeetWorkerAsrBackend,
     load_parakeet_worker_config,
@@ -83,6 +87,20 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
     if backend_name == OpenAiRealtimeAsrBackend.name:
         return OpenAiRealtimeAsrBackend(
             load_openai_realtime_config(
+                command=settings.command.strip(),
+                model=settings.model.strip(),
+                language=settings.language,
+                args=settings.args,
+                timeout_sec=settings.timeout_sec,
+                working_directory_value=settings.working_directory.strip(),
+                output_text_path=settings.output_text_path.strip(),
+                workspace_dir=settings.workspace_dir,
+                cleanup_audio_files=settings.cleanup_audio_files,
+            )
+        )
+    if backend_name == OpenAiTranscriptionsAsrBackend.name:
+        return OpenAiTranscriptionsAsrBackend(
+            load_openai_transcriptions_config(
                 command=settings.command.strip(),
                 model=settings.model.strip(),
                 language=settings.language,

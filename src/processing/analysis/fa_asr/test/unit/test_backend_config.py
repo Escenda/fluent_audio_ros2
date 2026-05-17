@@ -9,6 +9,10 @@ from fa_asr_py.backends.openai_realtime import (
     OpenAiRealtimeAsrBackend,
     load_openai_realtime_config,
 )
+from fa_asr_py.backends.openai_transcriptions import (
+    OpenAiTranscriptionsAsrBackend,
+    load_openai_transcriptions_config,
+)
 from fa_asr_py.backends.parakeet_worker import (
     ParakeetWorkerAsrBackend,
     load_parakeet_worker_config,
@@ -113,6 +117,24 @@ def test_openai_realtime_requires_model_id(tmp_path: Path) -> None:
         )
 
 
+def test_openai_transcriptions_requires_model_id(tmp_path: Path) -> None:
+    command = tmp_path / "worker"
+    command.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="backend.model is required"):
+        load_openai_transcriptions_config(
+            command=str(command),
+            model="",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
 def test_parakeet_worker_requires_model_id(tmp_path: Path) -> None:
     command = tmp_path / "worker"
     command.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -205,11 +227,21 @@ def test_backends_use_dedicated_classes(tmp_path: Path) -> None:
             model_path="",
         )
     )
+    openai_transcriptions = build_asr_backend(
+        _settings(
+            tmp_path,
+            backend_name="openai_transcriptions",
+            command=command,
+            model="gpt-4o-transcribe",
+            model_path="",
+        )
+    )
 
     assert isinstance(local_command, LocalCommandAsrBackend)
     assert isinstance(whisper_cpp, WhisperCppAsrBackend)
     assert isinstance(parakeet_worker, ParakeetWorkerAsrBackend)
     assert isinstance(openai_realtime, OpenAiRealtimeAsrBackend)
+    assert isinstance(openai_transcriptions, OpenAiTranscriptionsAsrBackend)
 
 
 def test_whisper_cpp_uses_model_path_contract(tmp_path: Path) -> None:
