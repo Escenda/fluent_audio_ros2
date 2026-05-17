@@ -240,6 +240,22 @@ def test_so101_tts_output_profile_expands_explicit_playback_pipeline(
     }
 
 
+def test_so101_tts_output_profile_requires_openjtalk_dictionary_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+    monkeypatch.delenv("FLUENT_AUDIO_OPENJTALK_DICT_DIR", raising=False)
+
+    with pytest.raises(
+        RuntimeError,
+        match="environment variable FLUENT_AUDIO_OPENJTALK_DICT_DIR is required",
+    ):
+        load_system_config(
+            "${share:fluent_audio_system}/config/profiles/so101_tts_output.yaml"
+        )
+
+
 def test_missing_fixture_params_file_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
