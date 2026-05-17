@@ -50,7 +50,10 @@ private:
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
   static bool decodePcm16ToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out_samples);
-  static void encodeFloatToPcm16(const std::vector<float> & samples, std::vector<uint8_t> & out_bytes);
+  static bool encodeFloatToPcm16(
+    const std::vector<float> & samples,
+    std::vector<uint8_t> & out_bytes,
+    std::string & error_message);
 
   MixConfig config_;
 

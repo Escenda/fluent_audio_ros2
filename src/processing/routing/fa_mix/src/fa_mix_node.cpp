@@ -202,20 +202,42 @@ bool FaMixNode::decodePcm16ToFloat(const fa_interfaces::msg::AudioFrame & msg, s
   return true;
 }
 
-void FaMixNode::encodeFloatToPcm16(const std::vector<float> & samples, std::vector<uint8_t> & out_bytes)
+bool FaMixNode::encodeFloatToPcm16(
+  const std::vector<float> & samples,
+  std::vector<uint8_t> & out_bytes,
+  std::string & error_message)
 {
   out_bytes.clear();
+  error_message.clear();
   if (samples.empty()) {
-    return;
+    error_message = "mixed sample buffer is empty";
+    return false;
   }
   std::vector<int16_t> pcm(samples.size());
   for (size_t i = 0; i < samples.size(); ++i) {
-    float s = std::clamp(samples[i], -1.0f, 1.0f);
-    const int32_t scaled = static_cast<int32_t>(std::lround(static_cast<double>(s) * 32767.0));
-    pcm[i] = static_cast<int16_t>(std::clamp<int32_t>(scaled, -32768, 32767));
+    const float sample = samples[i];
+    if (!std::isfinite(sample)) {
+      error_message = "mixed sample is not finite";
+      return false;
+    }
+    if (sample < -1.0f || sample > 1.0f) {
+      error_message = "mixed sample out of normalized PCM16 range";
+      return false;
+    }
+
+    const double scaled = sample < 0.0f ?
+      static_cast<double>(sample) * 32768.0 :
+      static_cast<double>(sample) * 32767.0;
+    const int32_t rounded = static_cast<int32_t>(std::lround(scaled));
+    if (rounded < -32768 || rounded > 32767) {
+      error_message = "mixed sample does not fit PCM16 after scaling";
+      return false;
+    }
+    pcm[i] = static_cast<int16_t>(rounded);
   }
   out_bytes.resize(pcm.size() * sizeof(int16_t));
   std::memcpy(out_bytes.data(), pcm.data(), out_bytes.size());
+  return true;
 }
 
 void FaMixNode::onInputFrame(size_t index, const fa_interfaces::msg::AudioFrame::SharedPtr msg)
@@ -307,9 +329,13 @@ void FaMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & base)
   }
 
   std::vector<uint8_t> out_bytes;
-  encodeFloatToPcm16(mixed, out_bytes);
-  if (out_bytes.empty()) {
+  std::string encode_error;
+  if (!encodeFloatToPcm16(mixed, out_bytes, encode_error)) {
     drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping mixed frame: %s. Insert an explicit dynamics/limiter node before fa_mix or lower input_gains_db.",
+      encode_error.c_str());
     return;
   }
 
