@@ -201,6 +201,120 @@ def test_streaming_group_accepts_streaming_package(tmp_path: Path) -> None:
     assert spec.groups[0].nodes[0].package == "fa_frame_buffer"
 
 
+def test_format_group_rejects_ai_package_even_when_node_disabled() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="group format must not contain fa_vad; package category is ai",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "format",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_vad",
+                                "enable": False,
+                                "package": "fa_vad",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_ai_group_rejects_format_package_even_when_node_disabled() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="group ai must not contain fa_resample; package category is format",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "ai",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_resample",
+                                "enable": False,
+                                "package": "fa_resample",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_audio_correction_group_rejects_dynamics_package_even_when_node_disabled() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="group audio_correction must not contain fa_gain; package category is dynamics",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "audio_correction",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_gain",
+                                "enable": False,
+                                "package": "fa_gain",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_generation_routing_group_accepts_generation_and_routing_packages(
+    tmp_path: Path,
+) -> None:
+    tts_params = tmp_path / "fa_tts.yaml"
+    mix_params = tmp_path / "fa_mix.yaml"
+    tts_params.write_text("fa_tts:\n  ros__parameters: {}\n", encoding="utf-8")
+    mix_params.write_text("fa_mix:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "generation_routing",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_tts",
+                            "enable": True,
+                            "package": "fa_tts",
+                            "exec": "fa_tts_node",
+                            "params_file": str(tts_params),
+                        },
+                        {
+                            "id": "fa_mix",
+                            "enable": True,
+                            "package": "fa_mix",
+                            "exec": "fa_mix_node",
+                            "params_file": str(mix_params),
+                        },
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert [node.package for node in spec.groups[0].nodes] == ["fa_tts", "fa_mix"]
+
+
 def test_analysis_group_accepts_non_ai_feature_package(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_log_mel.yaml"
     params_file.write_text("fa_log_mel:\n  ros__parameters: {}\n", encoding="utf-8")

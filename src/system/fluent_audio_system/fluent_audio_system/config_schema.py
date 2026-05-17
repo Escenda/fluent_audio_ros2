@@ -36,6 +36,132 @@ _STREAMING_PACKAGE_NAMES = (
     "fa_packet_loss_concealment",
     "fa_time_alignment",
 )
+_PACKAGE_CATEGORIES = {
+    "fa_in": frozenset(("io",)),
+    "fa_out": frozenset(("io",)),
+    "fa_record": frozenset(("io",)),
+    "fa_stream": frozenset(("io",)),
+    "fa_resample": frozenset(("format",)),
+    "fa_bit_depth": frozenset(("format",)),
+    "fa_channel_convert": frozenset(("format",)),
+    "fa_interleave": frozenset(("format",)),
+    "fa_sample_format": frozenset(("format",)),
+    "fa_encode": frozenset(("format",)),
+    "fa_decode": frozenset(("format",)),
+    "fa_format": frozenset(("format",)),
+    "fa_gain": frozenset(("dynamics",)),
+    "fa_normalize": frozenset(("dynamics",)),
+    "fa_compressor": frozenset(("dynamics",)),
+    "fa_limiter": frozenset(("dynamics",)),
+    "fa_expander": frozenset(("dynamics",)),
+    "fa_noise_gate": frozenset(("dynamics",)),
+    "fa_agc": frozenset(("dynamics",)),
+    "fa_eq": frozenset(("frequency",)),
+    "fa_low_pass": frozenset(("frequency",)),
+    "fa_high_pass": frozenset(("frequency",)),
+    "fa_band_pass": frozenset(("frequency",)),
+    "fa_notch": frozenset(("frequency",)),
+    "fa_deesser": frozenset(("frequency",)),
+    "fa_spectral_subtraction": frozenset(("frequency",)),
+    "fa_wiener": frozenset(("frequency",)),
+    "fa_filter": frozenset(("frequency",)),
+    "fa_trim": frozenset(("temporal",)),
+    "fa_silence_removal": frozenset(("temporal",)),
+    "fa_time_stretch": frozenset(("temporal",)),
+    "fa_pitch_shift": frozenset(("temporal",)),
+    "fa_delay": frozenset(("temporal",)),
+    "fa_echo": frozenset(("temporal",)),
+    "fa_reverb": frozenset(("temporal",)),
+    "fa_crossfade": frozenset(("temporal",)),
+    "fa_fade": frozenset(("temporal",)),
+    "fa_window": frozenset(("temporal",)),
+    "fa_denoise": frozenset(("correction",)),
+    "fa_aec_linear": frozenset(("correction",)),
+    "fa_aec_nn": frozenset(("correction",)),
+    "fa_dereverb": frozenset(("correction",)),
+    "fa_declip": frozenset(("correction",)),
+    "fa_debreath": frozenset(("correction",)),
+    "fa_declick": frozenset(("correction",)),
+    "fa_wind": frozenset(("correction",)),
+    "fa_hum": frozenset(("correction",)),
+    "fa_dc_offset_removal": frozenset(("correction",)),
+    "fa_pan": frozenset(("spatial",)),
+    "fa_stereo_widening": frozenset(("spatial",)),
+    "fa_downmix": frozenset(("spatial",)),
+    "fa_upmix": frozenset(("spatial",)),
+    "fa_beamforming": frozenset(("spatial",)),
+    "fa_source_separation": frozenset(("spatial", "generation")),
+    "fa_binaural": frozenset(("spatial",)),
+    "fa_ambisonics": frozenset(("spatial",)),
+    "fa_onset": frozenset(("analysis",)),
+    "fa_pitch": frozenset(("analysis",)),
+    "fa_tempo": frozenset(("analysis",)),
+    "fa_stft": frozenset(("analysis",)),
+    "fa_log_mel": frozenset(("analysis",)),
+    "fa_mfcc": frozenset(("analysis",)),
+    "fa_cqt": frozenset(("analysis",)),
+    "fa_loudness": frozenset(("analysis",)),
+    "fa_tts": frozenset(("generation",)),
+    "fa_voice_conversion": frozenset(("generation",)),
+    "fa_speech_enhancement": frozenset(("generation",)),
+    "fa_speech_separation": frozenset(("generation",)),
+    "fa_speech_translation": frozenset(("generation",)),
+    "fa_music_source_separation": frozenset(("generation",)),
+    "fa_neural_codec": frozenset(("generation",)),
+    "fa_neural_vocoder": frozenset(("generation",)),
+    "fa_super_resolution": frozenset(("generation",)),
+    "fa_mix": frozenset(("routing",)),
+    "fa_bus_router": frozenset(("routing",)),
+    "fa_sidechain": frozenset(("routing",)),
+    "fa_ducking": frozenset(("routing",)),
+    "fa_monitor_mix": frozenset(("routing",)),
+    "fa_loopback": frozenset(("routing",)),
+    "fa_patchbay": frozenset(("routing",)),
+    "fa_vad": frozenset(("ai",)),
+    "fa_kws": frozenset(("ai",)),
+    "fa_asr": frozenset(("ai",)),
+    "fa_turn_detector": frozenset(("ai",)),
+    "fa_audio_embedding": frozenset(("ai",)),
+    "fa_sed": frozenset(("ai",)),
+    "fa_speaker": frozenset(("ai",)),
+    "fa_frame_buffer": frozenset(("streaming",)),
+    "fa_jitter_buffer": frozenset(("streaming",)),
+    "fa_clock_drift": frozenset(("streaming",)),
+    "fa_packet_loss_concealment": frozenset(("streaming",)),
+    "fa_latency_compensation": frozenset(("streaming",)),
+    "fa_time_alignment": frozenset(("streaming",)),
+    "fa_chunk_overlap": frozenset(("streaming",)),
+    "fa_overlap_add": frozenset(("streaming",)),
+    "fa_dialogue": frozenset(("apps",)),
+    "fa_voice_command_router": frozenset(("apps",)),
+    "fa_safety_policy": frozenset(("apps",)),
+}
+_GROUP_CATEGORY_ALIASES = {
+    "app": "apps",
+    "apps": "apps",
+    "application": "apps",
+    "applications": "apps",
+    "source": "io",
+    "sources": "io",
+    "sink": "io",
+    "sinks": "io",
+}
+_GROUP_CATEGORY_TOKENS = frozenset((
+    "io",
+    "format",
+    "dynamics",
+    "frequency",
+    "temporal",
+    "correction",
+    "spatial",
+    "analysis",
+    "generation",
+    "routing",
+    "ai",
+    "streaming",
+    "apps",
+))
+_GROUP_TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
 class _TimingConfig(BaseModel):
@@ -225,21 +351,46 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
 
 
 def _validate_group_taxonomy(group: _GroupConfig, group_id: str) -> None:
-    group_id_normalized = group_id.strip().lower()
+    group_categories = _group_categories(group_id)
     for node in group.nodes or []:
         if node.package is None:
             continue
         package = node.package.strip()
-        if "analysis" in group_id_normalized and package in _AI_PACKAGE_NAMES:
+        package_categories = _PACKAGE_CATEGORIES.get(package)
+        if "analysis" in group_categories and package in _AI_PACKAGE_NAMES:
             raise RuntimeError(
                 f"group {group_id} must not contain AI package {package}; "
                 "use an ai or voice_frontend group"
             )
-        if "streaming" not in group_id_normalized and package in _STREAMING_PACKAGE_NAMES:
+        if "streaming" not in group_categories and package in _STREAMING_PACKAGE_NAMES:
             raise RuntimeError(
                 f"group {group_id} must not contain streaming package {package}; "
                 "use a streaming group"
             )
+        if group_categories and package_categories is not None and not (
+            group_categories & package_categories
+        ):
+            raise RuntimeError(
+                f"group {group_id} must not contain {package}; "
+                f"package category is {_format_categories(package_categories)}"
+            )
+
+
+def _group_categories(group_id: str) -> frozenset[str]:
+    group_id_normalized = group_id.strip().lower()
+    if group_id_normalized == "voice_frontend":
+        return frozenset(("ai",))
+
+    categories = set()
+    for token in _GROUP_TOKEN_RE.findall(group_id_normalized):
+        category = _GROUP_CATEGORY_ALIASES.get(token, token)
+        if category in _GROUP_CATEGORY_TOKENS:
+            categories.add(category)
+    return frozenset(categories)
+
+
+def _format_categories(categories: frozenset[str]) -> str:
+    return "/".join(sorted(categories))
 
 
 def _required_model_text(value: str | None, label: str) -> str:
