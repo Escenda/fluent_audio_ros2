@@ -42,7 +42,7 @@ and must not be counted as implemented package coverage.
 
 | Category | Current ROS 2 packages | Status |
 | --- | --- | --- |
-| `format/` | `fa_resample` | implemented package |
+| `format/` | `fa_resample`, `fa_sample_format` | implemented packages |
 | `dynamics/` | `fa_gain`, `fa_limiter` | implemented packages |
 | `frequency/` | `fa_high_pass`, `fa_notch` | implemented packages |
 | `temporal/` | none | taxonomy placeholder only |

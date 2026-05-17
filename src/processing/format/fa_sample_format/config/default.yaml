@@ -1,0 +1,24 @@
+fa_sample_format:
+  ros__parameters:
+    input_topic: "audio/frame"
+    output_topic: "audio/sample_format/mic"
+
+    input:
+      encoding: "PCM16LE"
+      bit_depth: 16
+
+    output:
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

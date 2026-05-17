@@ -39,6 +39,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_sample_format
+        enable: false
+        package: fa_sample_format
+        exec: fa_sample_format_node
+        node_name: fa_sample_format
+        namespace: ""
+        params_file: "${share:fa_sample_format}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
   - id: dynamics
     enable: true
     nodes:
