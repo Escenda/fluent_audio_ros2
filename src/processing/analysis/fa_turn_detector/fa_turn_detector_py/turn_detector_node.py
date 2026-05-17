@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import math
 from collections import deque
 from pathlib import Path
 from typing import Iterable
@@ -14,27 +13,6 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from fa_interfaces.msg import AudioFrame, TurnContext, TurnEnd, VadState
 from fa_turn_detector_py.backends.base import TurnDetectorBackend
 from fa_turn_detector_py.backends.smart_turn_onnx import SmartTurnOnnxBackend
-
-
-def _to_mono(samples: np.ndarray, channels: int) -> np.ndarray:
-    if channels <= 1 or samples.ndim == 1:
-        return samples.astype(np.float32)
-    if samples.size % channels != 0:
-        raise ValueError(
-            f"sample count {samples.size} is not divisible by channels={channels}"
-        )
-    return samples.reshape(-1, channels).mean(axis=1).astype(np.float32)
-
-
-def _resample_linear(samples: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
-    if src_rate <= 0 or dst_rate <= 0:
-        raise ValueError("sample rates must be positive")
-    if src_rate == dst_rate or samples.size == 0:
-        return samples.astype(np.float32)
-    ratio = dst_rate / float(src_rate)
-    dst_len = max(1, int(math.floor(samples.size * ratio)))
-    positions = np.linspace(0, samples.size, dst_len, endpoint=False)
-    return np.interp(positions, np.arange(samples.size), samples).astype(np.float32)
 
 
 class FaTurnDetectorNode(Node):
@@ -131,13 +109,12 @@ class FaTurnDetectorNode(Node):
         if not self._context_active:
             return
         try:
-            audio_data = self._frame_to_float(msg)
             if int(msg.sample_rate) != self.backend.sample_rate:
-                audio_data = _resample_linear(
-                    audio_data,
-                    int(msg.sample_rate),
-                    self.backend.sample_rate,
+                raise ValueError(
+                    "AudioFrame sample_rate must match backend sample_rate "
+                    f"{self.backend.sample_rate}, got {msg.sample_rate}"
                 )
+            audio_data = self._frame_to_float(msg)
         except ValueError as exc:
             self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
             return
@@ -188,15 +165,18 @@ class FaTurnDetectorNode(Node):
     def _frame_to_float(msg: AudioFrame) -> np.ndarray:
         if not msg.data:
             return np.zeros(0, dtype=np.float32)
-        if msg.bit_depth == 16:
-            samples = np.frombuffer(bytes(msg.data), dtype=np.int16).astype(np.float32) / 32768.0
-        elif msg.bit_depth == 32:
-            samples = np.frombuffer(bytes(msg.data), dtype=np.float32)
-        else:
-            raise ValueError(f"unsupported bit_depth={msg.bit_depth}")
-        if msg.channels and msg.channels > 1:
-            samples = _to_mono(samples, int(msg.channels))
-        return samples.astype(np.float32)
+        if int(msg.channels) != 1:
+            raise ValueError(f"AudioFrame channels must be 1, got {msg.channels}")
+        if int(msg.bit_depth) != 32:
+            raise ValueError(f"AudioFrame bit_depth must be 32, got {msg.bit_depth}")
+        if len(msg.data) % np.dtype(np.float32).itemsize != 0:
+            raise ValueError("AudioFrame float32 data length is not byte-aligned")
+        samples = np.frombuffer(bytes(msg.data), dtype=np.float32)
+        if not np.all(np.isfinite(samples)):
+            raise ValueError("AudioFrame contains non-finite samples")
+        if np.any(samples < -1.0) or np.any(samples > 1.0):
+            raise ValueError("AudioFrame samples must be normalized to [-1.0, 1.0]")
+        return samples
 
 
 def main(args: Iterable[str] | None = None) -> None:

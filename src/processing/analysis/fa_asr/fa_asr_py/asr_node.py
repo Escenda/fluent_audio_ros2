@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import math
 import queue
 import threading
 from dataclasses import dataclass
@@ -17,28 +16,6 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from fa_interfaces.msg import AsrResult, AudioFrame, TurnContext, VadState
 from fa_asr_py.backends.base import AsrBackend, AsrRequest
 from fa_asr_py.backends.factory import AsrBackendSettings, build_asr_backend
-
-
-def _to_mono(samples: np.ndarray, channels: int) -> np.ndarray:
-    if channels <= 1 or samples.ndim == 1:
-        return samples.astype(np.float32)
-    if samples.size % channels != 0:
-        raise ValueError(
-            f"sample count {samples.size} is not divisible by channels={channels}"
-        )
-    reshaped = samples.reshape(-1, channels)
-    return reshaped.mean(axis=1).astype(np.float32)
-
-
-def _resample_linear(samples: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
-    if src_rate <= 0 or dst_rate <= 0:
-        raise ValueError("sample rates must be positive")
-    if src_rate == dst_rate or samples.size == 0:
-        return samples.astype(np.float32)
-    ratio = dst_rate / float(src_rate)
-    dst_len = max(1, int(math.floor(samples.size * ratio)))
-    positions = np.linspace(0, samples.size, dst_len, endpoint=False)
-    return np.interp(positions, np.arange(samples.size), samples).astype(np.float32)
 
 
 @dataclass(frozen=True)
@@ -204,17 +181,19 @@ class FaAsrNode(Node):
         if not self._context_active or not self._active_session_id:
             return
         try:
+            if int(msg.sample_rate) != self.target_sample_rate:
+                raise ValueError(
+                    "AudioFrame sample_rate must match target_sample_rate "
+                    f"{self.target_sample_rate}, got {msg.sample_rate}"
+                )
             samples = self._frame_to_float(msg)
-            resampled = _resample_linear(samples, int(msg.sample_rate), self.target_sample_rate)
         except ValueError as exc:
             self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
             return
         if samples.size == 0:
             return
-        if resampled.size == 0:
-            return
         with self._samples_lock:
-            self._samples.extend(resampled.tolist())
+            self._samples.extend(samples.tolist())
 
     def _check_timeout(self) -> None:
         if not self._context_active or self.silence_timeout_sec <= 0.0:
@@ -309,15 +288,20 @@ class FaAsrNode(Node):
     def _frame_to_float(msg: AudioFrame) -> np.ndarray:
         if not msg.data:
             return np.zeros(0, dtype=np.float32)
-        if msg.bit_depth == 16:
-            samples = np.frombuffer(bytes(msg.data), dtype=np.int16).astype(np.float32) / 32768.0
-        elif msg.bit_depth == 32:
-            samples = np.frombuffer(bytes(msg.data), dtype=np.float32)
-        else:
-            raise ValueError(f"unsupported bit_depth={msg.bit_depth}")
-        if msg.channels and msg.channels > 1:
-            samples = _to_mono(samples, int(msg.channels))
-        return samples.astype(np.float32)
+        if int(msg.channels) != 1:
+            raise ValueError(f"AudioFrame channels must be 1, got {msg.channels}")
+        if int(msg.bit_depth) != 32:
+            raise ValueError(f"AudioFrame bit_depth must be 32, got {msg.bit_depth}")
+        if int(msg.sample_rate) <= 0:
+            raise ValueError(f"AudioFrame sample_rate must be positive, got {msg.sample_rate}")
+        if len(msg.data) % np.dtype(np.float32).itemsize != 0:
+            raise ValueError("AudioFrame float32 data length is not byte-aligned")
+        samples = np.frombuffer(bytes(msg.data), dtype=np.float32)
+        if not np.all(np.isfinite(samples)):
+            raise ValueError("AudioFrame contains non-finite samples")
+        if np.any(samples < -1.0) or np.any(samples > 1.0):
+            raise ValueError("AudioFrame samples must be normalized to [-1.0, 1.0]")
+        return samples
 
     def _publish_result(
         self,

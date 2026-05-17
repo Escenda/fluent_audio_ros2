@@ -376,7 +376,7 @@ private:
 
     std::vector<float> samples;
     try {
-      samples = frameToMonoFloat(*msg);
+      samples = frameToCanonicalFloat(*msg);
     } catch (const std::invalid_argument &e) {
       RCLCPP_ERROR(this->get_logger(), "Dropping invalid AudioFrame: %s", e.what());
       return;
@@ -392,11 +392,12 @@ private:
     }
 
     if (src_rate != target_sample_rate_) {
-      RCLCPP_WARN_ONCE(
+      RCLCPP_ERROR(
         this->get_logger(),
-        "Input sample_rate (%d Hz) != feature sample_rate (%d Hz); sherpa-onnx will resample internally.",
+        "Dropping AudioFrame with sample_rate=%d; expected target_sample_rate=%d",
         static_cast<int>(src_rate),
         target_sample_rate_);
+      return;
     }
 
     if (dump_audio_enable_) {
@@ -419,7 +420,7 @@ private:
       return;
     }
 
-    auto detection = kws_backend_->process(samples, src_rate, vad_prob, now);
+    auto detection = kws_backend_->process(samples, target_sample_rate_, vad_prob, now);
     if (!detection) {
       return;
     }

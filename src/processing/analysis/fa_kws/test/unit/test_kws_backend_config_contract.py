@@ -46,6 +46,25 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     assert "model.provider" not in node_text
 
 
+def test_kws_node_rejects_non_canonical_audio_frames() -> None:
+    header_text = (PACKAGE_ROOT / "include" / "fa_kws" / "audio_utils.hpp").read_text(
+        encoding="utf-8"
+    )
+    audio_utils_text = (PACKAGE_ROOT / "src" / "audio_utils.cpp").read_text(
+        encoding="utf-8"
+    )
+    node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
+
+    assert "frameToCanonicalFloat" in header_text
+    assert "resampleLinear" not in header_text
+    assert "reinterpret_cast<const std::int16_t *>" not in audio_utils_text
+    assert "AudioFrame channels must be 1" in audio_utils_text
+    assert "AudioFrame bit_depth must be 32" in audio_utils_text
+    assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in audio_utils_text
+    assert "sherpa-onnx will resample internally" not in node_text
+    assert "Dropping AudioFrame with sample_rate" in node_text
+
+
 def test_detection_score_is_owned_by_backend() -> None:
     header_path = (
         PACKAGE_ROOT

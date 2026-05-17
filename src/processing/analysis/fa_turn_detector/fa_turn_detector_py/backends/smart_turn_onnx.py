@@ -79,9 +79,11 @@ class SmartTurnOnnxBackend:
             raise RuntimeError(f"Smart Turn model file is too small: {model_path}")
 
     def _compute_mel_spectrogram(self, audio: np.ndarray) -> np.ndarray:
+        if not np.all(np.isfinite(audio)):
+            raise ValueError("audio contains non-finite samples")
         max_abs = float(np.max(np.abs(audio)))
         if max_abs > 1.0:
-            audio = audio / max_abs
+            raise ValueError("audio samples must be normalized to [-1.0, 1.0]")
 
         padded = np.pad(audio, (self.n_fft // 2, self.n_fft // 2), mode="reflect")
         window = np.hanning(self.n_fft + 1)[:-1].astype(np.float32)

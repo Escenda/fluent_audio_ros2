@@ -74,6 +74,27 @@ def test_default_config_requires_explicit_backend_name() -> None:
     assert "return tuple()" not in source
 
 
+def test_asr_node_rejects_non_canonical_audio_frames() -> None:
+    source_path = PACKAGE_ROOT / "fa_asr_py" / "asr_node.py"
+    source = source_path.read_text(encoding="utf-8")
+
+    assert "_resample_linear" not in source
+    assert "_to_mono" not in source
+    assert "np.frombuffer(bytes(msg.data), dtype=np.int16)" not in source
+    assert "AudioFrame channels must be 1" in source
+    assert "AudioFrame bit_depth must be 32" in source
+    assert "AudioFrame sample_rate must match target_sample_rate" in source
+    assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
+
+
+def test_command_backend_does_not_clip_audio() -> None:
+    source_path = PACKAGE_ROOT / "fa_asr_py" / "backends" / "_command_process.py"
+    source = source_path.read_text(encoding="utf-8")
+
+    assert "np.clip" not in source
+    assert "ASR request samples must be normalized to [-1.0, 1.0]" in source
+
+
 def test_openai_realtime_requires_model_id(tmp_path: Path) -> None:
     command = tmp_path / "worker"
     command.write_text("#!/bin/sh\n", encoding="utf-8")

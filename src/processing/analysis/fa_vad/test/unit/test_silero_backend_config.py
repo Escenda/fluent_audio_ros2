@@ -18,6 +18,19 @@ def test_default_config_requires_explicit_silero_model_path() -> None:
     assert "silero" not in params
 
 
+def test_vad_node_rejects_non_canonical_audio_frames() -> None:
+    source_path = Path(__file__).parents[2] / "fa_vad_py" / "vad_node.py"
+    source = source_path.read_text(encoding="utf-8")
+
+    assert "_resample_linear" not in source
+    assert "_convert_to_mono" not in source
+    assert "np.clip" not in source
+    assert "AudioFrame channels must be 1" in source
+    assert "AudioFrame bit_depth must be 32" in source
+    assert "AudioFrame sample_rate must match target_sample_rate" in source
+    assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
+
+
 def test_silero_backend_rejects_missing_model_path() -> None:
     with pytest.raises(RuntimeError, match="backend.model_path is required"):
         SileroVAD(model_path="", execution_provider="cpu")

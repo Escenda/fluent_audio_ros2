@@ -226,5 +226,8 @@ def _resolve_executable(command: str) -> str:
 
 
 def _float_to_pcm16(samples: np.ndarray) -> bytes:
-    clipped = np.clip(samples, -1.0, 1.0)
-    return (clipped * 32767.0).astype(np.int16).tobytes()
+    if not np.all(np.isfinite(samples)):
+        raise ValueError("ASR request contains non-finite samples")
+    if np.any(samples < -1.0) or np.any(samples > 1.0):
+        raise ValueError("ASR request samples must be normalized to [-1.0, 1.0]")
+    return (samples * 32767.0).astype(np.int16).tobytes()
