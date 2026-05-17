@@ -26,13 +26,13 @@ struct OutputConfig
 {
   std::string backend_name{};
   std::string device_id{};
-  uint32_t sample_rate = 48000;
-  uint32_t channels = 1;
-  uint32_t bit_depth = 16;
-  size_t max_queue_frames = 8;
-  uint32_t chunk_duration_ms = 30;  // 内部チャンク分割サイズ（停止応答性向上用）
-  size_t qos_depth = 10;
-  bool qos_reliable = true;
+  uint32_t sample_rate{0};
+  uint32_t channels{0};
+  uint32_t bit_depth{0};
+  size_t max_queue_frames{0};
+  uint32_t chunk_duration_ms{0};
+  size_t qos_depth{0};
+  bool qos_reliable{false};
 };
 
 // 再生キュー用の構造体（フレームデータとヘッダーをペアで保持）

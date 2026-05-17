@@ -83,17 +83,15 @@ FaOutNode::~FaOutNode()
 
 void FaOutNode::loadParameters()
 {
-  const bool default_qos_reliable = config_.qos_reliable;
-
-  this->declare_parameter("backend.name", config_.backend_name);
-  this->declare_parameter("audio.device_id", config_.device_id);
-  this->declare_parameter<int>("audio.sample_rate", static_cast<int>(config_.sample_rate));
-  this->declare_parameter<int>("audio.channels", static_cast<int>(config_.channels));
-  this->declare_parameter<int>("audio.bit_depth", static_cast<int>(config_.bit_depth));
-  this->declare_parameter<int>("queue.max_frames", static_cast<int>(config_.max_queue_frames));
-  this->declare_parameter<int>("audio.chunk_duration_ms", static_cast<int>(config_.chunk_duration_ms));
-  this->declare_parameter<int>("audio.qos.depth", static_cast<int>(config_.qos_depth));
-  this->declare_parameter<bool>("audio.qos.reliable", default_qos_reliable);
+  this->declare_parameter<std::string>("backend.name");
+  this->declare_parameter<std::string>("audio.device_id");
+  this->declare_parameter<int>("audio.sample_rate");
+  this->declare_parameter<int>("audio.channels");
+  this->declare_parameter<int>("audio.bit_depth");
+  this->declare_parameter<int>("queue.max_frames");
+  this->declare_parameter<int>("audio.chunk_duration_ms");
+  this->declare_parameter<int>("audio.qos.depth");
+  this->declare_parameter<bool>("audio.qos.reliable");
 
   config_.backend_name = this->get_parameter("backend.name").as_string();
   config_.device_id = this->get_parameter("audio.device_id").as_string();

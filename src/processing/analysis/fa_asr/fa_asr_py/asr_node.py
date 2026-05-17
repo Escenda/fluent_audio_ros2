@@ -10,7 +10,6 @@ from typing import Iterable
 
 import numpy as np
 import rclpy
-from rclpy.exceptions import ParameterUninitializedException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -156,12 +155,9 @@ class FaAsrNode(Node):
         )
 
     def _backend_args(self) -> tuple[str, ...]:
-        try:
-            args_value = self.get_parameter(
-                "backend.args"
-            ).get_parameter_value().string_array_value
-        except ParameterUninitializedException:
-            return tuple()
+        args_value = self.get_parameter(
+            "backend.args"
+        ).get_parameter_value().string_array_value
         return tuple(str(part) for part in args_value)
 
     def on_turn_context(self, msg: TurnContext) -> None:

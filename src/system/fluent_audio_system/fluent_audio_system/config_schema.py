@@ -82,8 +82,8 @@ def parse_system_config(raw: ConfigValue) -> AudioSystemSpec:
         _required_key(root, "groups", "fluent_audio_system config root"),
         "groups",
     )
-    default_start_delay = _optional_float(system, "default_start_delay", 0.0)
-    inter_group_delay = _optional_float(system, "inter_group_delay", 0.0)
+    default_start_delay = _required_float(system, "default_start_delay", "system")
+    inter_group_delay = _required_float(system, "inter_group_delay", "system")
     if default_start_delay < 0.0:
         raise RuntimeError("system.default_start_delay must be >= 0")
     if inter_group_delay < 0.0:
@@ -186,10 +186,10 @@ def _required_bool(mapping: ConfigMapping, key: str, label: str) -> bool:
     return value
 
 
-def _optional_float(mapping: ConfigMapping, key: str, default_value: float) -> float:
-    value = mapping.get(key, default_value)
+def _required_float(mapping: ConfigMapping, key: str, label: str) -> float:
+    value = mapping.get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise RuntimeError(f"{key} must be a number")
+        raise RuntimeError(f"{label}.{key} is required")
     return float(value)
 
 

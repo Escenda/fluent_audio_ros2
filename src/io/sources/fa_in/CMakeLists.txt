@@ -34,16 +34,7 @@ target_include_directories(fa_in_node PRIVATE
 )
 target_link_libraries(fa_in_node ${ALSA_LIBRARIES})
 
-add_executable(fa_sine_wave_generator
-  src/sine_wave_generator.cpp
-)
-
-ament_target_dependencies(fa_sine_wave_generator
-  rclcpp
-  fa_interfaces
-)
-
-install(TARGETS fa_in_node fa_sine_wave_generator
+install(TARGETS fa_in_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

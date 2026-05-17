@@ -6,6 +6,10 @@ from fluent_audio_system import config_schema
 from fluent_audio_system.config_schema import load_system_config, parse_system_config
 
 
+def _valid_system() -> dict[str, float]:
+    return {"default_start_delay": 0.0, "inter_group_delay": 0.0}
+
+
 def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
     params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
@@ -57,7 +61,7 @@ def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
 def test_disabled_nodes_are_not_expanded() -> None:
     spec = parse_system_config(
         {
-            "system": {},
+            "system": _valid_system(),
             "groups": [
                 {
                     "id": "io",
@@ -85,7 +89,7 @@ def test_missing_params_file_fails(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="params_file not found"):
         parse_system_config(
             {
-                "system": {},
+                "system": _valid_system(),
                 "groups": [
                     {
                         "id": "io",
@@ -109,7 +113,7 @@ def test_node_requires_params_file() -> None:
     with pytest.raises(RuntimeError, match="node fa_in.params_file is required"):
         parse_system_config(
             {
-                "system": {},
+                "system": _valid_system(),
                 "groups": [
                     {
                         "id": "io",
@@ -132,7 +136,7 @@ def test_inline_parameters_without_params_file_fail() -> None:
     with pytest.raises(RuntimeError, match="node fa_in.params_file is required"):
         parse_system_config(
             {
-                "system": {},
+                "system": _valid_system(),
                 "groups": [
                     {
                         "id": "io",
@@ -156,7 +160,7 @@ def test_empty_params_file_fails() -> None:
     with pytest.raises(RuntimeError, match="node fa_in.params_file is required"):
         parse_system_config(
             {
-                "system": {},
+                "system": _valid_system(),
                 "groups": [
                     {
                         "id": "io",
@@ -183,7 +187,7 @@ def test_nested_inline_parameters_fail(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="unsupported value type"):
         parse_system_config(
             {
-                "system": {},
+                "system": _valid_system(),
                 "groups": [
                     {
                         "id": "io",
@@ -215,7 +219,7 @@ def test_sequence_remappings_are_supported(tmp_path: Path) -> None:
 
     spec = parse_system_config(
         {
-            "system": {},
+            "system": _valid_system(),
             "groups": [
                 {
                     "id": "io",
@@ -249,7 +253,7 @@ def test_invalid_remappings_fail(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="remapping target"):
         parse_system_config(
             {
-                "system": {},
+                "system": _valid_system(),
                 "groups": [
                     {
                         "id": "io",
@@ -276,7 +280,9 @@ def test_share_path_expansion(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     system_file = tmp_path / "system.yaml"
     system_file.write_text(
         """
-system: {}
+system:
+  default_start_delay: 0.0
+  inter_group_delay: 0.0
 groups:
   - id: io
     enable: true
@@ -316,7 +322,7 @@ def test_inline_parameter_share_path_expansion(
 
     spec = parse_system_config(
         {
-            "system": {},
+            "system": _valid_system(),
             "groups": [
                 {
                     "id": "correction",
@@ -358,23 +364,23 @@ def test_missing_system_fails() -> None:
 
 def test_missing_groups_fails() -> None:
     with pytest.raises(RuntimeError, match="groups is required"):
-        parse_system_config({"system": {}})
+        parse_system_config({"system": _valid_system()})
 
 
 def test_enabled_group_requires_nodes() -> None:
     with pytest.raises(RuntimeError, match="group io.nodes is required"):
-        parse_system_config({"system": {}, "groups": [{"id": "io", "enable": True}]})
+        parse_system_config({"system": _valid_system(), "groups": [{"id": "io", "enable": True}]})
 
 
 def test_disabled_group_does_not_require_nodes() -> None:
-    spec = parse_system_config({"system": {}, "groups": [{"id": "io", "enable": False}]})
+    spec = parse_system_config({"system": _valid_system(), "groups": [{"id": "io", "enable": False}]})
 
     assert spec.groups == []
 
 
 def test_group_enable_is_required() -> None:
     with pytest.raises(RuntimeError, match="group io.enable is required"):
-        parse_system_config({"system": {}, "groups": [{"id": "io", "nodes": []}]})
+        parse_system_config({"system": _valid_system(), "groups": [{"id": "io", "nodes": []}]})
 
 
 def test_node_enable_is_required(tmp_path: Path) -> None:
@@ -384,7 +390,7 @@ def test_node_enable_is_required(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="node fa_in.enable is required"):
         parse_system_config(
             {
-                "system": {},
+                "system": _valid_system(),
                 "groups": [
                     {
                         "id": "io",
@@ -405,6 +411,33 @@ def test_node_enable_is_required(tmp_path: Path) -> None:
 
 def test_negative_delays_fail() -> None:
     with pytest.raises(RuntimeError, match="default_start_delay must be >= 0"):
-        parse_system_config({"system": {"default_start_delay": -0.1}, "groups": []})
+        parse_system_config(
+            {
+                "system": {"default_start_delay": -0.1, "inter_group_delay": 0.0},
+                "groups": [],
+            }
+        )
     with pytest.raises(RuntimeError, match="inter_group_delay must be >= 0"):
-        parse_system_config({"system": {"inter_group_delay": -0.1}, "groups": []})
+        parse_system_config(
+            {
+                "system": {"default_start_delay": 0.0, "inter_group_delay": -0.1},
+                "groups": [],
+            }
+        )
+
+
+def test_system_delays_are_required() -> None:
+    with pytest.raises(RuntimeError, match="system.default_start_delay is required"):
+        parse_system_config(
+            {
+                "system": {"inter_group_delay": 0.0},
+                "groups": [],
+            }
+        )
+    with pytest.raises(RuntimeError, match="system.inter_group_delay is required"):
+        parse_system_config(
+            {
+                "system": {"default_start_delay": 0.0},
+                "groups": [],
+            }
+        )

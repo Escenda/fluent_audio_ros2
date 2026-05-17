@@ -63,11 +63,15 @@ def test_local_command_requires_existing_model_path(tmp_path: Path) -> None:
 def test_default_config_requires_explicit_backend_name() -> None:
     config_path = PACKAGE_ROOT / "config" / "default.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    source_path = PACKAGE_ROOT / "fa_asr_py" / "asr_node.py"
+    source = source_path.read_text(encoding="utf-8")
 
     params = config["fa_asr"]["ros__parameters"]
 
     assert params["backend.name"] == ""
     assert params["backend.args"] == []
+    assert "ParameterUninitializedException" not in source
+    assert "return tuple()" not in source
 
 
 def test_openai_realtime_requires_model_id(tmp_path: Path) -> None:
