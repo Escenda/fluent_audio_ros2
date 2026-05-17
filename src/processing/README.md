@@ -51,4 +51,4 @@ and must not be counted as implemented package coverage.
 | `analysis/` | `fa_vad`, `fa_kws`, `fa_asr`, `fa_turn_detector` | implemented packages plus roadmap placeholders |
 | `generation/` | `fa_tts` | implemented package |
 | `routing/` | `fa_mix`, `fa_bus_router`, `fa_ducking` | implemented packages |
-| `streaming/` | `fa_frame_buffer` | implemented package |
+| `streaming/` | `fa_frame_buffer`, `fa_latency_compensation`, `fa_time_alignment`, `fa_chunk_overlap` | implemented packages |

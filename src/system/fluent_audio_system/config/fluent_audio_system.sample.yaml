@@ -476,3 +476,33 @@ groups:
         params_file: "${share:fa_frame_buffer}/config/default.yaml"
         remappings: {}
         parameters: {}
+
+      - id: fa_latency_compensation
+        enable: false
+        package: fa_latency_compensation
+        exec: fa_latency_compensation_node
+        node_name: fa_latency_compensation
+        namespace: ""
+        params_file: "${share:fa_latency_compensation}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_time_alignment
+        enable: false
+        package: fa_time_alignment
+        exec: fa_time_alignment_node
+        node_name: fa_time_alignment
+        namespace: ""
+        params_file: "${share:fa_time_alignment}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_chunk_overlap
+        enable: false
+        package: fa_chunk_overlap
+        exec: fa_chunk_overlap_node
+        node_name: fa_chunk_overlap
+        namespace: ""
+        params_file: "${share:fa_chunk_overlap}/config/default.yaml"
+        remappings: {}
+        parameters: {}
