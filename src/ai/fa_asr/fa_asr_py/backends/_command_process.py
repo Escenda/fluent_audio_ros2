@@ -22,6 +22,12 @@ _REQUIRED_ARG_FIELDS = frozenset(("audio", "model", "sample_rate"))
 
 
 @dataclass(frozen=True)
+class CommandProcessEnvironmentVariable:
+    name: str
+    value: str
+
+
+@dataclass(frozen=True)
 class CommandProcessConfig:
     executable: str
     model: str
@@ -33,6 +39,7 @@ class CommandProcessConfig:
     workspace_dir: Path
     cleanup_audio_files: bool
     payload_encoding: str
+    environment: tuple[CommandProcessEnvironmentVariable, ...] = ()
 
 
 class _CommandProcessRunner:
@@ -54,6 +61,7 @@ class _CommandProcessRunner:
                     cwd=str(self._config.working_directory)
                     if self._config.working_directory is not None
                     else None,
+                    env=self._build_subprocess_environment(),
                     capture_output=True,
                     text=True,
                     timeout=self._config.timeout_sec,
@@ -137,6 +145,14 @@ class _CommandProcessRunner:
     @staticmethod
     def _write_float32le_raw(path: Path, samples: np.ndarray) -> None:
         path.write_bytes(samples.astype("<f4", copy=False).tobytes())
+
+    def _build_subprocess_environment(self) -> dict[str, str] | None:
+        if not self._config.environment:
+            return None
+        subprocess_environment = os.environ.copy()
+        for variable in self._config.environment:
+            subprocess_environment[variable.name] = variable.value
+        return subprocess_environment
 
 
 def _load_model_path_command_config(

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from fa_asr_py.backends._command_process import (
     CommandProcessConfig,
+    CommandProcessEnvironmentVariable,
     _CommandProcessRunner,
     _load_model_id_command_config,
 )
@@ -44,20 +45,30 @@ def load_openai_realtime_config(
     workspace_dir: Path,
     cleanup_audio_files: bool,
 ) -> OpenAiRealtimeAsrConfig:
+    process = _load_model_id_command_config(
+        command=command,
+        model=model,
+        language=language,
+        args=args,
+        timeout_sec=timeout_sec,
+        working_directory_value=working_directory_value,
+        output_text_path=output_text_path,
+        workspace_dir=workspace_dir,
+        cleanup_audio_files=cleanup_audio_files,
+    )
+    credentials = load_openai_credential_config(
+        parameter_name="backend.openai_realtime.api_key_env",
+        api_key_env=api_key_env,
+    )
     return OpenAiRealtimeAsrConfig(
-        process=_load_model_id_command_config(
-            command=command,
-            model=model,
-            language=language,
-            args=args,
-            timeout_sec=timeout_sec,
-            working_directory_value=working_directory_value,
-            output_text_path=output_text_path,
-            workspace_dir=workspace_dir,
-            cleanup_audio_files=cleanup_audio_files,
+        process=replace(
+            process,
+            environment=(
+                CommandProcessEnvironmentVariable(
+                    name="OPENAI_API_KEY",
+                    value=credentials.api_key_value,
+                ),
+            ),
         ),
-        credentials=load_openai_credential_config(
-            parameter_name="backend.openai_realtime.api_key_env",
-            api_key_env=api_key_env,
-        ),
+        credentials=credentials,
     )

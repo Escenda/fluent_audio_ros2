@@ -41,6 +41,43 @@ def _write_executable(path: Path) -> Path:
     return path
 
 
+def _write_openai_env_probe_worker(path: Path) -> Path:
+    path.write_text(
+        """#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+
+def _flag_value(flag: str) -> str:
+    for index, value in enumerate(sys.argv):
+        if value == flag and index + 1 < len(sys.argv):
+            return sys.argv[index + 1]
+    raise RuntimeError(f"missing argv flag: {flag}")
+
+
+expected_key = os.environ.get("EXPECTED_OPENAI_API_KEY_FOR_TEST", "")
+if not expected_key:
+    raise RuntimeError("EXPECTED_OPENAI_API_KEY_FOR_TEST is required")
+if os.environ.get("OPENAI_API_KEY", "") != expected_key:
+    raise RuntimeError("OPENAI_API_KEY was not forwarded to worker")
+if any(expected_key in value for value in sys.argv):
+    raise RuntimeError("OPENAI_API_KEY value leaked into argv")
+audio_path = Path(_flag_value("--audio"))
+if not audio_path.is_file() or not audio_path.read_bytes():
+    raise RuntimeError("audio payload is required")
+if not _flag_value("--model"):
+    raise RuntimeError("model is required")
+if int(_flag_value("--sample-rate")) <= 0:
+    raise RuntimeError("sample rate must be positive")
+print("openai-env-ok")
+""",
+        encoding="utf-8",
+    )
+    path.chmod(path.stat().st_mode | 0o111)
+    return path
+
+
 class _FakeNode:
     def get_logger(self) -> "_FakeLogger":
         return self._logger
@@ -605,6 +642,76 @@ def test_openai_transcriptions_requires_api_key_env_value(
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
         )
+
+
+def test_openai_realtime_maps_configured_api_key_env_to_worker_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = _write_openai_env_probe_worker(tmp_path / "openai_worker")
+    monkeypatch.setenv("CUSTOM_OPENAI_REALTIME_KEY", "expected-openai-secret")
+    monkeypatch.setenv("EXPECTED_OPENAI_API_KEY_FOR_TEST", "expected-openai-secret")
+    backend = OpenAiRealtimeAsrBackend(
+        load_openai_realtime_config(
+            command=str(command),
+            model="gpt-4o-realtime-preview",
+            api_key_env="CUSTOM_OPENAI_REALTIME_KEY",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+    )
+
+    assert (
+        backend.transcribe(
+            AsrRequest(
+                session_id="session",
+                user_turn_id=1,
+                samples=np.zeros(160, dtype=np.float32),
+                sample_rate=16000,
+            )
+        )
+        == "openai-env-ok"
+    )
+
+
+def test_openai_transcriptions_maps_configured_api_key_env_to_worker_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = _write_openai_env_probe_worker(tmp_path / "openai_worker")
+    monkeypatch.setenv("CUSTOM_OPENAI_TRANSCRIPTIONS_KEY", "expected-openai-secret")
+    monkeypatch.setenv("EXPECTED_OPENAI_API_KEY_FOR_TEST", "expected-openai-secret")
+    backend = OpenAiTranscriptionsAsrBackend(
+        load_openai_transcriptions_config(
+            command=str(command),
+            model="gpt-4o-transcribe",
+            api_key_env="CUSTOM_OPENAI_TRANSCRIPTIONS_KEY",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+    )
+
+    assert (
+        backend.transcribe(
+            AsrRequest(
+                session_id="session",
+                user_turn_id=1,
+                samples=np.zeros(160, dtype=np.float32),
+                sample_rate=16000,
+            )
+        )
+        == "openai-env-ok"
+    )
 
 
 def test_parakeet_worker_requires_model_id(tmp_path: Path) -> None:
