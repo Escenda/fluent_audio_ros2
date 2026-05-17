@@ -2,9 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstdlib>
 #include <functional>
-#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -31,8 +29,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaFrameBufferNode::FaFrameBufferNode()
-: rclcpp::Node("fa_frame_buffer")
+FaFrameBufferNode::FaFrameBufferNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_frame_buffer", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Frame Buffer node");
   loadParameters();
@@ -370,18 +368,3 @@ void FaFrameBufferNode::publishDiagnostics()
 }
 
 }  // namespace fa_frame_buffer
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_frame_buffer::FaFrameBufferNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_frame_buffer"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

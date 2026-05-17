@@ -56,7 +56,7 @@ struct BufferedSegment
 class FaFrameBufferNode : public rclcpp::Node
 {
 public:
-  FaFrameBufferNode();
+  explicit FaFrameBufferNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaFrameBufferNode() override = default;
 
 private:

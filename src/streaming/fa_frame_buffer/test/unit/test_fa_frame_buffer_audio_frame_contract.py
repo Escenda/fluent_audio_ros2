@@ -168,6 +168,8 @@ def test_package_layout_matches_required_streaming_layout() -> None:
         "launch/fa_frame_buffer.launch.py",
         "include/fa_frame_buffer/fa_frame_buffer_node.hpp",
         "src/fa_frame_buffer_node.cpp",
+        "src/main.cpp",
+        "test/cpp/test_fa_frame_buffer_node_contract.cpp",
         "test/unit/test_fa_frame_buffer_audio_frame_contract.py",
         "test/integration/.gitkeep",
         "test/launch/.gitkeep",
@@ -183,9 +185,14 @@ def test_colcon_runs_pytest_contracts() -> None:
     cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
     package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
 
+    assert "add_library(fa_frame_buffer_node_core" in cmake_text
+    assert "target_link_libraries(fa_frame_buffer_node fa_frame_buffer_node_core)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
