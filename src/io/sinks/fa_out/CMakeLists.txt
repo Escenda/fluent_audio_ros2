@@ -19,6 +19,7 @@ pkg_check_modules(ALSA REQUIRED alsa)
 
 add_library(fa_out_backends
   src/backends/alsa_playback_backend.cpp
+  src/backends/sink_backend.cpp
 )
 
 target_include_directories(fa_out_backends

@@ -170,16 +170,12 @@ void FaOutNode::openBackend()
 
   auto backend = std::make_unique<backends::AlsaPlaybackBackend>(backend_config);
   try {
-    const backends::AlsaPlaybackOpenInfo open_info = backend->open();
-    RCLCPP_INFO(this->get_logger(), "ALSA buffer: %lu frames, period: %lu frames",
-      open_info.buffer_size_frames, open_info.period_size_frames);
+    const backends::SinkOpenInfo open_info = backend->open();
+    for (const auto & info : open_info.info_messages) {
+      RCLCPP_INFO(this->get_logger(), "%s", info.c_str());
+    }
     for (const auto & warning : open_info.warnings) {
       RCLCPP_WARN(this->get_logger(), "%s", warning.c_str());
-    }
-    if (open_info.software_params_applied) {
-      RCLCPP_INFO(
-        this->get_logger(), "ALSA software params: start_threshold=%lu frames",
-        open_info.start_threshold_frames);
     }
   } catch (const std::exception & e) {
     RCLCPP_ERROR(this->get_logger(), "Failed to open ALSA playback device: %s", e.what());

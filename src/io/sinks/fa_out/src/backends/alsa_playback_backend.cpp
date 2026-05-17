@@ -31,7 +31,7 @@ struct AlsaPlaybackBackend::Impl
 };
 
 AlsaPlaybackError::AlsaPlaybackError(const std::string & message)
-: std::runtime_error(message)
+: SinkBackendError(message)
 {
 }
 
@@ -50,7 +50,7 @@ bool AlsaPlaybackBackend::isRawHardwareDevice(const std::string & device_id)
   return device_id.rfind("hw:", 0) == 0;
 }
 
-AlsaPlaybackOpenInfo AlsaPlaybackBackend::open()
+SinkOpenInfo AlsaPlaybackBackend::open()
 {
   validateConfig();
   close();
@@ -122,10 +122,10 @@ AlsaPlaybackOpenInfo AlsaPlaybackBackend::open()
     throw AlsaPlaybackError(alsaErrorMessage("snd_pcm_hw_params", err));
   }
 
-  AlsaPlaybackOpenInfo open_info;
-  open_info.buffer_size_frames = static_cast<unsigned long>(buffer_size);
-  open_info.period_size_frames = static_cast<unsigned long>(period_size);
-  open_info.start_threshold_frames = static_cast<unsigned long>(buffer_size / 2);
+  SinkOpenInfo open_info;
+  open_info.info_messages.push_back(
+    "ALSA buffer: " + std::to_string(static_cast<unsigned long>(buffer_size)) +
+    " frames, period: " + std::to_string(static_cast<unsigned long>(period_size)) + " frames");
 
   snd_pcm_sw_params_t * sw_params;
   snd_pcm_sw_params_alloca(&sw_params);
@@ -148,7 +148,9 @@ AlsaPlaybackOpenInfo AlsaPlaybackBackend::open()
     if (err < 0) {
       open_info.warnings.emplace_back(alsaErrorMessage("snd_pcm_sw_params", err));
     } else {
-      open_info.software_params_applied = true;
+      open_info.info_messages.push_back(
+        "ALSA software params: start_threshold=" +
+        std::to_string(static_cast<unsigned long>(buffer_size / 2)) + " frames");
     }
   }
 

@@ -3,9 +3,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <stdexcept>
 #include <string>
-#include <vector>
+
+#include "fa_out/backends/sink_backend.hpp"
 
 namespace fa_out::backends
 {
@@ -19,22 +19,13 @@ struct AlsaPlaybackConfig
   uint32_t bit_depth{0};
 };
 
-struct AlsaPlaybackOpenInfo
-{
-  unsigned long buffer_size_frames{0};
-  unsigned long period_size_frames{0};
-  unsigned long start_threshold_frames{0};
-  bool software_params_applied{false};
-  std::vector<std::string> warnings;
-};
-
-class AlsaPlaybackError : public std::runtime_error
+class AlsaPlaybackError : public SinkBackendError
 {
 public:
   explicit AlsaPlaybackError(const std::string & message);
 };
 
-class AlsaPlaybackBackend
+class AlsaPlaybackBackend final : public SinkBackend
 {
 public:
   explicit AlsaPlaybackBackend(AlsaPlaybackConfig config);
@@ -47,12 +38,12 @@ public:
 
   static bool isRawHardwareDevice(const std::string & device_id);
 
-  AlsaPlaybackOpenInfo open();
-  void close();
-  bool isOpen() const;
-  bool isRunning() const;
-  void discardBuffer(const std::string & operation);
-  size_t writeFrames(const uint8_t * data, size_t frame_count);
+  SinkOpenInfo open() override;
+  void close() override;
+  bool isOpen() const override;
+  bool isRunning() const override;
+  void discardBuffer(const std::string & operation) override;
+  size_t writeFrames(const uint8_t * data, size_t frame_count) override;
 
 private:
   struct Impl;

@@ -14,16 +14,12 @@
 
 #include "fa_interfaces/msg/audio_frame.hpp"
 #include "fa_interfaces/msg/playback_done.hpp"
+#include "fa_out/backends/sink_backend.hpp"
 #include "std_msgs/msg/empty.hpp"
 #include "std_msgs/msg/header.hpp"
 
 namespace fa_out
 {
-
-namespace backends
-{
-class AlsaPlaybackBackend;
-}  // namespace backends
 
 struct OutputConfig
 {
@@ -68,7 +64,7 @@ private:
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
 
   OutputConfig config_;
-  std::unique_ptr<backends::AlsaPlaybackBackend> sink_backend_;
+  std::unique_ptr<backends::SinkBackend> sink_backend_;
   size_t bytes_per_frame_ = 0;
 
   std::mutex queue_mutex_;

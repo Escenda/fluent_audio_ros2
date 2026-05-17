@@ -95,7 +95,9 @@ def test_runtime_write_failure_fails_closed_without_reopen_retry() -> None:
 def test_alsa_backend_files_are_ros_free() -> None:
     package_root = Path(__file__).parents[2]
     backend_paths = [
+        package_root / "include" / "fa_out" / "backends" / "sink_backend.hpp",
         package_root / "include" / "fa_out" / "backends" / "alsa_playback_backend.hpp",
+        package_root / "src" / "backends" / "sink_backend.cpp",
         package_root / "src" / "backends" / "alsa_playback_backend.cpp",
     ]
     forbidden_tokens = [
@@ -117,8 +119,22 @@ def test_backend_builds_as_separate_library() -> None:
     cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
 
     assert "add_library(fa_out_backends" in cmake_text
+    assert "src/backends/sink_backend.cpp" in cmake_text
     assert "src/backends/alsa_playback_backend.cpp" in cmake_text
     assert "target_link_libraries(fa_out_node fa_out_backends)" in cmake_text
+
+
+def test_node_stores_abstract_sink_backend() -> None:
+    package_root = Path(__file__).parents[2]
+    header_text = (
+        package_root / "include" / "fa_out" / "fa_out_node.hpp"
+    ).read_text(encoding="utf-8")
+    source_text = (package_root / "src" / "fa_out_node.cpp").read_text(encoding="utf-8")
+
+    assert "#include \"fa_out/backends/sink_backend.hpp\"" in header_text
+    assert "std::unique_ptr<backends::SinkBackend> sink_backend_;" in header_text
+    assert "std::unique_ptr<backends::AlsaPlaybackBackend>" not in header_text
+    assert "std::make_unique<backends::AlsaPlaybackBackend>" in source_text
 
 
 def test_fa_out_node_header_does_not_store_alsa_handle() -> None:
@@ -127,7 +143,7 @@ def test_fa_out_node_header_does_not_store_alsa_handle() -> None:
 
     assert "snd_pcm_t" not in header_text
     assert "#include <alsa/asoundlib.h>" not in header_text
-    assert "std::unique_ptr<backends::AlsaPlaybackBackend> sink_backend_;" in header_text
+    assert "std::unique_ptr<backends::SinkBackend> sink_backend_;" in header_text
 
 
 def test_colcon_runs_pytest_contracts() -> None:
