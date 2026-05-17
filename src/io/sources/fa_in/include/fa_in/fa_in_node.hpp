@@ -42,11 +42,13 @@ class FaInNode : public rclcpp::Node
 public:
   FaInNode();
   ~FaInNode() override;
+  bool hasFatalError() const;
 
 private:
   void loadParameters();
   void initializeAlsa();
   void shutdownAlsa();
+  void failClosed(const std::string &reason);
   bool configureDevice();
   bool reopenStream(const std::string &device_id);
   void startCaptureThread();
@@ -76,6 +78,7 @@ private:
   rclcpp::TimerBase::SharedPtr diag_timer_;
 
   std::atomic<bool> capturing_{false};
+  std::atomic<bool> fatal_error_{false};
   std::thread capture_thread_;
   snd_pcm_t *pcm_handle_{nullptr};
   std::string active_device_id_;

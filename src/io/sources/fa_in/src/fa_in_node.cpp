@@ -1,6 +1,7 @@
 #include "fa_in/fa_in_node.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <sstream>
@@ -58,6 +59,11 @@ FaInNode::~FaInNode()
   shutdownAlsa();
 }
 
+bool FaInNode::hasFatalError() const
+{
+  return fatal_error_.load();
+}
+
 void FaInNode::loadParameters()
 {
   this->declare_parameter("backend.name", config_.backend_name);
@@ -110,6 +116,21 @@ void FaInNode::shutdownAlsa()
     snd_pcm_close(pcm_handle_);
     pcm_handle_ = nullptr;
   }
+}
+
+void FaInNode::failClosed(const std::string &reason)
+{
+  if (fatal_error_.exchange(true)) {
+    return;
+  }
+
+  RCLCPP_FATAL(this->get_logger(), "Failing closed: %s", reason.c_str());
+  capturing_.store(false);
+  if (pcm_handle_) {
+    snd_pcm_close(pcm_handle_);
+    pcm_handle_ = nullptr;
+  }
+  rclcpp::shutdown();
 }
 
 bool FaInNode::configureDevice()
@@ -255,14 +276,17 @@ void FaInNode::captureLoop()
   while (rclcpp::ok() && capturing_.load()) {
     snd_pcm_sframes_t frames = snd_pcm_readi(pcm_handle_, buffer.data(), frames_per_buffer_);
     if (frames == -EPIPE) {
-      snd_pcm_prepare(pcm_handle_);
       xruns_.fetch_add(1);
-      continue;
+      failClosed("ALSA capture XRUN on required input source " + active_device_id_);
+      break;
     } else if (frames < 0) {
-      RCLCPP_ERROR(this->get_logger(), "snd_pcm_readi failed: %s", snd_strerror(static_cast<int>(frames)));
-      snd_pcm_prepare(pcm_handle_);
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
-      continue;
+      failClosed(
+        "snd_pcm_readi failed on required input source " + active_device_id_ + ": " +
+        snd_strerror(static_cast<int>(frames)));
+      break;
+    } else if (frames == 0) {
+      failClosed("snd_pcm_readi returned zero frames on required input source " + active_device_id_);
+      break;
     }
 
     size_t byte_count = static_cast<size_t>(frames) * bytes_per_frame_;
@@ -475,7 +499,8 @@ void FaInNode::handleSwitchDevice(
 
   if (!reopenStream(device_id)) {
     response->success = false;
-    response->message = "failed to open device";
+    response->message = "failed to open device; fa_in shutting down";
+    failClosed("failed to reopen required audio input source " + device_id);
     return;
   }
 
@@ -494,10 +519,12 @@ int main(int argc, char **argv)
   try {
     auto node = std::make_shared<fa_in::FaInNode>();
     rclcpp::spin(node);
+    const bool fatal_error = node->hasFatalError();
+    rclcpp::shutdown();
+    return fatal_error ? EXIT_FAILURE : EXIT_SUCCESS;
   } catch (const std::exception &e) {
     RCLCPP_FATAL(rclcpp::get_logger("fa_in_node"), "Exception: %s", e.what());
+    rclcpp::shutdown();
     return EXIT_FAILURE;
   }
-  rclcpp::shutdown();
-  return EXIT_SUCCESS;
 }

@@ -48,11 +48,14 @@ class FaOutNode : public rclcpp::Node
 public:
   FaOutNode();
   ~FaOutNode() override;
+  bool hasFatalError() const;
 
 private:
   void loadParameters();
   bool openDevice();
   void closeDevice();
+  bool discardDeviceBuffer(const char *operation);
+  void failClosed(const std::string &reason);
   void playbackThread();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void handleStop(const std_msgs::msg::Empty::SharedPtr msg);
@@ -69,6 +72,7 @@ private:
   std::deque<QueuedFrame> frame_queue_;
   std::thread playback_thread_;
   std::atomic<bool> running_{false};
+  std::atomic<bool> fatal_error_{false};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr stop_sub_;

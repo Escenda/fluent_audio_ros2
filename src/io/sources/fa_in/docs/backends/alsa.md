@@ -30,5 +30,8 @@
 - unsupported format
 - unsupported sample rate
 - unsupported channel count
+- runtime `snd_pcm_readi` XRUN / error / zero-frame read
 
 失敗時に `default` device へ暗黙 fallback しません。`default` や `plug*` は ALSA plugin 経由の暗黙変換を隠すため、この backend の候補一覧にも出しません。
+
+runtime read failure は source path の破断として扱います。`snd_pcm_prepare` で継続したり、別 source を reopen したりせず、node を fail closed します。

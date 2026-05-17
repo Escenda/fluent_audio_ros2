@@ -28,6 +28,10 @@
 - unsupported format
 - unsupported sample rate
 - unsupported channel count
+- runtime `snd_pcm_writei` XRUN / EAGAIN / error / zero-frame write
+- runtime playback handle missing
 - invalid queue / QoS / chunk config
 
 失敗時に別 device へ暗黙 fallback しません。`default` や `plug*` は ALSA plugin 経由の暗黙変換を隠すため、この backend では指定できません。
+
+runtime write failure は sink path の破断として扱います。device reopen や `snd_pcm_prepare` retry で継続せず、node を fail closed します。

@@ -51,3 +51,17 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     assert 'declare_parameter<int>("audio.chunk_duration_ms")' in source
     assert 'declare_parameter<int>("audio.qos.depth")' in source
     assert 'declare_parameter<bool>("audio.qos.reliable")' in source
+
+
+def test_runtime_write_failure_fails_closed_without_reopen_retry() -> None:
+    source_path = Path(__file__).parents[2] / "src" / "fa_out_node.cpp"
+    source = source_path.read_text(encoding="utf-8")
+    playback_thread = source.split("void FaOutNode::playbackThread()")[1].split(
+        "}  // namespace fa_out"
+    )[0]
+
+    assert "failClosed(" in playback_thread
+    assert "openDevice()" not in playback_thread
+    assert "ALSA device unavailable, dropping frame" not in playback_thread
+    assert "snd_pcm_prepare(pcm_handle_);" not in playback_thread
+    assert "rclcpp::shutdown()" in source

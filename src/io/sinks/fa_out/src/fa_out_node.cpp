@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <stdexcept>
 #include <utility>
 
@@ -79,6 +80,11 @@ FaOutNode::~FaOutNode()
     playback_thread_.join();
   }
   closeDevice();
+}
+
+bool FaOutNode::hasFatalError() const
+{
+  return fatal_error_.load();
 }
 
 void FaOutNode::loadParameters()
@@ -275,14 +281,58 @@ bool FaOutNode::openDevice()
 void FaOutNode::closeDevice()
 {
   if (pcm_handle_) {
-    snd_pcm_drop(pcm_handle_);
     snd_pcm_close(pcm_handle_);
     pcm_handle_ = nullptr;
   }
 }
 
+bool FaOutNode::discardDeviceBuffer(const char *operation)
+{
+  if (!pcm_handle_) {
+    failClosed(std::string(operation) + " requested without an open ALSA playback device");
+    return false;
+  }
+
+  int err = snd_pcm_drop(pcm_handle_);
+  if (err < 0) {
+    failClosed(std::string("snd_pcm_drop failed during ") + operation + ": " + snd_strerror(err));
+    return false;
+  }
+
+  err = snd_pcm_prepare(pcm_handle_);
+  if (err < 0) {
+    failClosed(std::string("snd_pcm_prepare failed during ") + operation + ": " + snd_strerror(err));
+    return false;
+  }
+  return true;
+}
+
+void FaOutNode::failClosed(const std::string &reason)
+{
+  if (fatal_error_.exchange(true)) {
+    return;
+  }
+
+  RCLCPP_FATAL(this->get_logger(), "Failing closed: %s", reason.c_str());
+  running_.store(false);
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    frame_queue_.clear();
+  }
+  closeDevice();
+  queue_cv_.notify_all();
+  rclcpp::shutdown();
+}
+
 void FaOutNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
+  if (fatal_error_.load()) {
+    RCLCPP_ERROR_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Rejecting playback frame because fa_out is failing closed");
+    return;
+  }
+
   RCLCPP_DEBUG_THROTTLE(
     this->get_logger(), *this->get_clock(), 2000,
     "Frame received: %zu bytes, %uHz, %u ch, encoding=%s",
@@ -362,8 +412,9 @@ void FaOutNode::handleStop(const std_msgs::msg::Empty::SharedPtr /*msg*/)
 
   // ALSA バッファをドロップ（即座に停止）
   if (pcm_handle_) {
-    snd_pcm_drop(pcm_handle_);
-    snd_pcm_prepare(pcm_handle_);
+    if (!discardDeviceBuffer("stop")) {
+      return;
+    }
   }
 
   // 停止フラグをリセット
@@ -456,8 +507,9 @@ void FaOutNode::playbackThread()
     if (pause_requested_.load()) {
       // ALSAバッファをドロップして即座に停止
       if (pcm_handle_) {
-        snd_pcm_drop(pcm_handle_);
-        snd_pcm_prepare(pcm_handle_);
+        if (!discardDeviceBuffer("pause")) {
+          continue;
+        }
       }
       is_paused_.store(true);
       pause_requested_.store(false);
@@ -482,13 +534,8 @@ void FaOutNode::playbackThread()
 
     if (has_frame && !queued_frame.data.empty()) {
       if (!pcm_handle_) {
-        if (!openDevice()) {
-          auto & clk = *this->get_clock();
-          RCLCPP_ERROR_THROTTLE(
-            this->get_logger(), clk, 2000,
-            "ALSA device unavailable, dropping frame");
-          continue;
-        }
+        failClosed("ALSA playback handle closed while the configured sink is required");
+        continue;
       }
 
       size_t total_bytes = queued_frame.data.size();
@@ -514,27 +561,34 @@ void FaOutNode::playbackThread()
           write_frames);
 
         if (result == -EPIPE) {
-          RCLCPP_WARN(this->get_logger(), "XRUN detected, preparing device");
-          snd_pcm_prepare(pcm_handle_);
-          continue;
+          failClosed("ALSA playback XRUN on required sink " + config_.device_id);
+          break;
         } else if (result == -EAGAIN) {
-          // バッファがいっぱい、少し待つ
-          std::this_thread::sleep_for(std::chrono::microseconds(500));
-          continue;
+          failClosed("snd_pcm_writei returned EAGAIN on required sink " + config_.device_id);
+          break;
         } else if (result < 0) {
-          RCLCPP_ERROR(this->get_logger(), "snd_pcm_writei failed: %s", snd_strerror(result));
-          snd_pcm_prepare(pcm_handle_);
+          failClosed(
+            "snd_pcm_writei failed on required sink " + config_.device_id + ": " +
+            snd_strerror(static_cast<int>(result)));
+          break;
+        } else if (result == 0) {
+          failClosed("snd_pcm_writei wrote zero frames on required sink " + config_.device_id);
           break;
         }
 
         bytes_written += static_cast<size_t>(result) * bytes_per_frame_;
       }
 
+      if (fatal_error_.load()) {
+        continue;
+      }
+
       if (interrupted) {
         // 中断時: ALSAバッファをドロップして即停止
         if (pcm_handle_) {
-          snd_pcm_drop(pcm_handle_);
-          snd_pcm_prepare(pcm_handle_);
+          if (!discardDeviceBuffer("interruption")) {
+            continue;
+          }
         }
         RCLCPP_INFO(this->get_logger(), "Playback interrupted, dropped remaining audio");
       } else if (bytes_written > 0) {
@@ -567,8 +621,15 @@ void FaOutNode::playbackThread()
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<fa_out::FaOutNode>();
-  rclcpp::spin(node);
-  rclcpp::shutdown();
-  return 0;
+  try {
+    auto node = std::make_shared<fa_out::FaOutNode>();
+    rclcpp::spin(node);
+    const bool fatal_error = node->hasFatalError();
+    rclcpp::shutdown();
+    return fatal_error ? EXIT_FAILURE : EXIT_SUCCESS;
+  } catch (const std::exception & e) {
+    RCLCPP_FATAL(rclcpp::get_logger("fa_out"), "Exception: %s", e.what());
+    rclcpp::shutdown();
+    return EXIT_FAILURE;
+  }
 }
