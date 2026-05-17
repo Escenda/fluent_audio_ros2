@@ -1,9 +1,7 @@
 #include "fa_packet_loss_concealment/fa_packet_loss_concealment_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <limits>
@@ -54,8 +52,9 @@ builtin_interfaces::msg::Time nanosecondsToStamp(const int64_t nanoseconds)
 }
 }  // namespace
 
-FaPacketLossConcealmentNode::FaPacketLossConcealmentNode()
-: rclcpp::Node("fa_packet_loss_concealment_node")
+FaPacketLossConcealmentNode::FaPacketLossConcealmentNode(
+  const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_packet_loss_concealment_node", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Packet Loss Concealment node");
   loadParameters();
@@ -151,7 +150,7 @@ void FaPacketLossConcealmentNode::loadParameters()
 
 void FaPacketLossConcealmentNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -481,21 +480,3 @@ void FaPacketLossConcealmentNode::publishDiagnostics()
 }
 
 }  // namespace fa_packet_loss_concealment
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_packet_loss_concealment::FaPacketLossConcealmentNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(
-      rclcpp::get_logger("fa_packet_loss_concealment_node"),
-      "Exception: %s",
-      e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

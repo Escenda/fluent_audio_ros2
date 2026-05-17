@@ -49,7 +49,11 @@ def test_node_identity_and_package_names_are_explicit() -> None:
 
     assert "namespace fa_packet_loss_concealment" in header
     assert "class FaPacketLossConcealmentNode : public rclcpp::Node" in header
-    assert ': rclcpp::Node("fa_packet_loss_concealment_node")' in source
+    assert 'rclcpp::Node("fa_packet_loss_concealment_node", options)' in source
+    assert "explicit FaPacketLossConcealmentNode(" in header
+    assert "fa_packet_loss_concealment::FaPacketLossConcealmentNode" in (
+        package_root() / "src" / "main.cpp"
+    ).read_text(encoding="utf-8")
     assert 'executable="fa_packet_loss_concealment_node"' in launch
     assert 'default_value="fa_packet_loss_concealment_node"' in launch
 
@@ -241,11 +245,13 @@ def test_package_layout_matches_required_streaming_layout() -> None:
         "launch/fa_packet_loss_concealment.launch.py",
         "include/fa_packet_loss_concealment/fa_packet_loss_concealment_node.hpp",
         "src/fa_packet_loss_concealment_node.cpp",
+        "src/main.cpp",
         "docs/仕様書.md",
         "docs/アルゴリズム詳細説明書.md",
         "docs/テスト設計.md",
         "docs/backends/repeat_attenuation_plc.md",
         "test/unit/test_fa_packet_loss_concealment_audio_frame_contract.py",
+        "test/cpp/test_fa_packet_loss_concealment_node_contract.cpp",
         "test/integration/.gitkeep",
         "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
@@ -260,10 +266,14 @@ def test_colcon_runs_pytest_contracts_and_lint_auto() -> None:
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_lint_auto REQUIRED)" in cmake_text
+    assert "add_library(fa_packet_loss_concealment_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "ament_lint_auto_find_test_dependencies()" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml

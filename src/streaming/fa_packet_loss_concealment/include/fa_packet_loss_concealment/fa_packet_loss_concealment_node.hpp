@@ -47,7 +47,8 @@ struct PreviousValidFrame
 class FaPacketLossConcealmentNode : public rclcpp::Node
 {
 public:
-  FaPacketLossConcealmentNode();
+  explicit FaPacketLossConcealmentNode(
+    const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaPacketLossConcealmentNode() override = default;
 
 private:
