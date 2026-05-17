@@ -42,10 +42,15 @@ def test_default_config_declares_required_overlap_add_contract() -> None:
 
 def test_ros2_node_name_and_executable_match_required_contract() -> None:
     source = source_text()
+    header = header_text()
+    main_source = (package_root() / "src" / "main.cpp").read_text(encoding="utf-8")
     launch = (package_root() / "launch" / "fa_overlap_add.launch.py").read_text(encoding="utf-8")
     cmake = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
 
-    assert ': rclcpp::Node("fa_overlap_add_node")' in source
+    assert "class FaOverlapAddNode : public rclcpp::Node" in header
+    assert 'rclcpp::Node("fa_overlap_add_node", options)' in source
+    assert "explicit FaOverlapAddNode(const rclcpp::NodeOptions & options" in header
+    assert "fa_overlap_add::FaOverlapAddNode" in main_source
     assert 'default_value="fa_overlap_add_node"' in launch
     assert 'executable="fa_overlap_add_node"' in launch
     assert "add_executable(fa_overlap_add_node" in cmake
@@ -310,11 +315,13 @@ def test_package_layout_matches_required_streaming_layout() -> None:
         "launch/fa_overlap_add.launch.py",
         "include/fa_overlap_add/fa_overlap_add_node.hpp",
         "src/fa_overlap_add_node.cpp",
+        "src/main.cpp",
         "docs/仕様書.md",
         "docs/アルゴリズム詳細説明書.md",
         "docs/テスト設計.md",
         "docs/backends/internal_overlap_add.md",
         "test/unit/test_fa_overlap_add_audio_frame_contract.py",
+        "test/cpp/test_fa_overlap_add_node_contract.cpp",
         "test/integration/.gitkeep",
         "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
@@ -329,10 +336,14 @@ def test_colcon_runs_pytest_contracts_and_lint_auto() -> None:
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_lint_auto REQUIRED)" in cmake_text
+    assert "add_library(fa_overlap_add_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "ament_lint_auto_find_test_dependencies()" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml

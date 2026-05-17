@@ -51,7 +51,7 @@ struct ActiveStreamIdentity
 class FaOverlapAddNode : public rclcpp::Node
 {
 public:
-  FaOverlapAddNode();
+  explicit FaOverlapAddNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaOverlapAddNode() override = default;
 
 private:

@@ -1,9 +1,7 @@
 #include "fa_overlap_add/fa_overlap_add_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <limits>
@@ -57,8 +55,8 @@ builtin_interfaces::msg::Time nanosecondsToStamp(const int64_t nanoseconds)
 }
 }  // namespace
 
-FaOverlapAddNode::FaOverlapAddNode()
-: rclcpp::Node("fa_overlap_add_node")
+FaOverlapAddNode::FaOverlapAddNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_overlap_add_node", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Overlap Add node");
   loadParameters();
@@ -191,7 +189,7 @@ void FaOverlapAddNode::buildSynthesisWindow()
 
 void FaOverlapAddNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -625,18 +623,3 @@ void FaOverlapAddNode::publishDiagnostics()
 }
 
 }  // namespace fa_overlap_add
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_overlap_add::FaOverlapAddNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_overlap_add"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}
