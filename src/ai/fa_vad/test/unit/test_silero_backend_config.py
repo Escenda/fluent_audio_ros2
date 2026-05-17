@@ -1,5 +1,7 @@
+import importlib
 from pathlib import Path
 import sys
+from types import ModuleType
 
 import numpy as np
 import pytest
@@ -23,6 +25,119 @@ DEFAULT_ARGS = (
     "--sample-rate",
     "{sample_rate}",
 )
+
+
+class _BackendCrash(Exception):
+    pass
+
+
+class _FakeLogger:
+    def __init__(self) -> None:
+        self.fatal_records: list[tuple[str, Exception]] = []
+
+    def fatal(self, message: str, exc: Exception) -> None:
+        self.fatal_records.append((message, exc))
+
+    def error(self, message: str, exc: Exception) -> None:
+        del message, exc
+
+
+class _FakeNode:
+    def get_logger(self) -> _FakeLogger:
+        return self._logger
+
+
+class _FakeQoSProfile:
+    def __init__(self, *, depth: int) -> None:
+        self.depth = depth
+        self.reliability: str | None = None
+        self.history: str | None = None
+
+
+class _FakeReliabilityPolicy:
+    BEST_EFFORT = "best_effort"
+    RELIABLE = "reliable"
+
+
+class _FakeHistoryPolicy:
+    KEEP_LAST = "keep_last"
+
+
+class _FakeBool:
+    def __init__(self) -> None:
+        self.data = False
+
+
+class _FakeFloat32:
+    def __init__(self) -> None:
+        self.data = 0.0
+
+
+class _FakeAudioFrame:
+    def __init__(self, data: bytes) -> None:
+        self.header = None
+        self.data = data
+        self.sample_rate = 16000
+        self.source_id = "mic0"
+        self.stream_id = "stream0"
+        self.layout = "interleaved"
+        self.channels = 1
+        self.bit_depth = 32
+
+
+class _FakeVadState:
+    pass
+
+
+class _FailingVadBackend:
+    def update(self, pcm16_bytes: bytes) -> tuple[float, bool, bool, bool]:
+        raise _BackendCrash("vad backend down")
+
+
+def _install_vad_node_import_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    shutdown_calls: list[bool],
+) -> None:
+    rclpy_module = ModuleType("rclpy")
+
+    def shutdown() -> None:
+        shutdown_calls.append(True)
+
+    def init(args: list[str] | None = None) -> None:
+        del args
+
+    def spin(node: _FakeNode) -> None:
+        del node
+
+    rclpy_module.shutdown = shutdown
+    rclpy_module.init = init
+    rclpy_module.spin = spin
+
+    node_module = ModuleType("rclpy.node")
+    node_module.Node = _FakeNode
+
+    qos_module = ModuleType("rclpy.qos")
+    qos_module.QoSProfile = _FakeQoSProfile
+    qos_module.ReliabilityPolicy = _FakeReliabilityPolicy
+    qos_module.HistoryPolicy = _FakeHistoryPolicy
+
+    std_msgs_module = ModuleType("std_msgs")
+    std_msgs_msg_module = ModuleType("std_msgs.msg")
+    std_msgs_msg_module.Bool = _FakeBool
+    std_msgs_msg_module.Float32 = _FakeFloat32
+
+    fa_interfaces_module = ModuleType("fa_interfaces")
+    fa_interfaces_msg_module = ModuleType("fa_interfaces.msg")
+    fa_interfaces_msg_module.AudioFrame = _FakeAudioFrame
+    fa_interfaces_msg_module.VadState = _FakeVadState
+
+    monkeypatch.setitem(sys.modules, "rclpy", rclpy_module)
+    monkeypatch.setitem(sys.modules, "rclpy.node", node_module)
+    monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
+    monkeypatch.setitem(sys.modules, "std_msgs", std_msgs_module)
+    monkeypatch.setitem(sys.modules, "std_msgs.msg", std_msgs_msg_module)
+    monkeypatch.setitem(sys.modules, "fa_interfaces", fa_interfaces_module)
+    monkeypatch.setitem(sys.modules, "fa_interfaces.msg", fa_interfaces_msg_module)
 
 
 def _silero_backend(
@@ -135,6 +250,36 @@ def test_vad_node_source_does_not_hide_format_conversion() -> None:
     assert "_convert_to_mono" not in source
     assert "np.clip" not in source
     assert "AudioFrame sample_rate must match target_sample_rate" in source
+
+
+def test_vad_node_backend_runtime_failure_is_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = Path(__file__).parents[2]
+    shutdown_calls: list[bool] = []
+    _install_vad_node_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(package_root))
+    sys.modules.pop("fa_vad_py.vad_node", None)
+
+    try:
+        module = importlib.import_module("fa_vad_py.vad_node")
+        node = module.FaVadNode.__new__(module.FaVadNode)
+        node._logger = _FakeLogger()
+        node._target_sample_rate = 16000
+        node._vad = _FailingVadBackend()
+
+        frame = _FakeAudioFrame(np.array([0.1], dtype=np.float32).tobytes())
+        with pytest.raises(_BackendCrash):
+            node._on_audio_frame(frame)
+
+        assert shutdown_calls == [True]
+        assert len(node._logger.fatal_records) == 1
+        fatal_message, fatal_exception = node._logger.fatal_records[0]
+        assert fatal_message == "VAD backend failed: %s"
+        assert isinstance(fatal_exception, _BackendCrash)
+        assert str(fatal_exception) == "vad backend down"
+    finally:
+        sys.modules.pop("fa_vad_py.vad_node", None)
 
 
 @pytest.mark.parametrize(

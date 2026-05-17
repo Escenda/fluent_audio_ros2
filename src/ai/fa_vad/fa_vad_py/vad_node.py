@@ -202,7 +202,7 @@ class FaVadNode(Node):
         pcm_bytes = _float_to_pcm16(samples)
         try:
             probability, is_speech, start, end = self._vad.update(pcm_bytes)
-        except (RuntimeError, TimeoutError) as exc:
+        except Exception as exc:
             self.get_logger().fatal("VAD backend failed: %s", exc)
             rclpy.shutdown()
             raise
