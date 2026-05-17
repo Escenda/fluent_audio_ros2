@@ -32,17 +32,30 @@ class FaVoiceCommandRouterNode(Node):
         self.declare_parameter("output_stop_topic", "audio/output/stop")
 
         self._active = bool(self.get_parameter("active").value)
-        self._mode = str(self.get_parameter("mode").value)
+        self._mode = self._normalize_mode(str(self.get_parameter("mode").value))
         self._allowed_modes = self._load_allowed_modes()
 
         command_topic = str(self.get_parameter("command_topic").value)
         state_topic = str(self.get_parameter("state_topic").value)
+        if not command_topic:
+            raise RuntimeError("command_topic is required")
+        if not state_topic:
+            raise RuntimeError("state_topic is required")
+        if not self._allowed_modes:
+            raise RuntimeError("allowed_modes must not be empty")
+        if self._mode not in self._allowed_modes:
+            raise RuntimeError(
+                f"mode '{self._mode}' is not in allowed_modes={self._allowed_modes}"
+            )
 
         self._state_pub = self.create_publisher(String, state_topic, 10)
         self._stop_pub: Optional[rclpy.publisher.Publisher] = None
         if bool(self.get_parameter("stop_output_on_stop").value):
+            output_stop_topic = str(self.get_parameter("output_stop_topic").value)
+            if not output_stop_topic:
+                raise RuntimeError("output_stop_topic is required when stop_output_on_stop=true")
             self._stop_pub = self.create_publisher(
-                Empty, str(self.get_parameter("output_stop_topic").value), 10
+                Empty, output_stop_topic, 10
             )
 
         self._command_sub = self.create_subscription(
@@ -53,9 +66,10 @@ class FaVoiceCommandRouterNode(Node):
         self._stop_srv = self.create_service(Trigger, "stop", self._handle_stop)
         self._status_srv = self.create_service(Trigger, "status", self._handle_status)
 
-        self._tts_client = self.create_client(
-            Speak, str(self.get_parameter("tts_service").value)
-        )
+        tts_service = str(self.get_parameter("tts_service").value)
+        if bool(self.get_parameter("announce_tts").value) and not tts_service:
+            raise RuntimeError("tts_service is required when announce_tts=true")
+        self._tts_client = self.create_client(Speak, tts_service)
 
         self.add_on_set_parameters_callback(self._on_set_parameters)
 
@@ -71,8 +85,8 @@ class FaVoiceCommandRouterNode(Node):
     def _load_allowed_modes(self) -> List[str]:
         value = self.get_parameter("allowed_modes").value
         if isinstance(value, list) and all(isinstance(item, str) for item in value):
-            return value
-        return ["standby", "command", "dictation", "mute"]
+            return [self._normalize_mode(item) for item in value if item.strip()]
+        raise RuntimeError("allowed_modes must be a string array")
 
     def _normalize_mode(self, mode: str) -> str:
         return mode.strip().lower().replace("-", "_")
@@ -89,6 +103,10 @@ class FaVoiceCommandRouterNode(Node):
             return
 
         if not self._tts_client.service_is_ready():
+            self.get_logger().error(
+                "announce_tts is enabled but TTS service is not ready: %s",
+                self.get_parameter("tts_service").value,
+            )
             return
 
         request = Speak.Request()
@@ -198,7 +216,12 @@ class FaVoiceCommandRouterNode(Node):
                     isinstance(item, str) for item in param.value
                 ):
                     return SetParametersResult(successful=False)
-                self._allowed_modes = list(param.value)
+                next_allowed_modes = [
+                    self._normalize_mode(item) for item in param.value if item.strip()
+                ]
+                if not next_allowed_modes or self._mode not in next_allowed_modes:
+                    return SetParametersResult(successful=False)
+                self._allowed_modes = next_allowed_modes
         return SetParametersResult(successful=True)
 
 
@@ -216,4 +239,3 @@ def main(argv=None) -> None:
 
 if __name__ == "__main__":
     main()
-

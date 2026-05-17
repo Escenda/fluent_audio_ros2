@@ -4,8 +4,12 @@
 
 ## Messages
 - `fa_interfaces/msg/AudioFrame`
+- `fa_interfaces/msg/AsrResult`
 - `fa_interfaces/msg/PlaybackDone`
+- `fa_interfaces/msg/TurnContext`
+- `fa_interfaces/msg/TurnEnd`
 - `fa_interfaces/msg/VadState`
+- `fa_interfaces/msg/WakeWordResult`
 
 ## Services
 - `fa_interfaces/srv/ListDevices`

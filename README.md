@@ -15,7 +15,7 @@
 - `fa_in`（`src/io/sources/fa_in/`）: マイク入力（ALSA）→ `audio/frame` を Publish、デバイス列挙/切替、Diagnostics
 - `fa_out`（`src/io/sinks/fa_out/`）: `audio/output/frame` をスピーカーへ再生
 - `fa_record`（`src/io/sinks/fa_record/`）: `audio/frame` をWAVへ録音（`record` サービス）
-- `fa_stream`（`src/io/sinks/fa_stream/`）: `audio/frame` を外部へ配信するサンプル（Icecast向け `radio_streamer.py`）
+- `fa_stream`（`src/io/sinks/fa_stream/`）: `audio/frame` を外部へ配信する sink（Icecast向け `fa_stream_node.py`）
 - `fa_vad`（`src/processing/analysis/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と`voice/vad_state`を提供
 - `fa_kws`（`src/processing/analysis/fa_kws/`）: sherpa-onnx によるローカルKWS、`voice/wake_word`を提供
 - `fa_asr`（`src/processing/analysis/fa_asr/`）: ローカルASRコマンド（whisper.cpp等）を呼び出し、`voice/asr/result`を提供
@@ -37,7 +37,7 @@
 - TTS: `pyopenjtalk`, `python3-numpy`
 - VAD/ASR/TD: `python3-numpy`, `torch`（VAD）, `onnxruntime`（TD）, ローカルASR実行ファイル（例: whisper.cpp）
 - KWS: sherpa-onnx C API
-- （任意）`ffmpeg`: `fa_stream` の `radio_streamer.py` サンプルで使用
+- （任意）`ffmpeg`: `fa_stream` の `fa_stream_node.py` で使用
 
 ### ビルド
 ```bash

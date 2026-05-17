@@ -5,7 +5,7 @@ import os
 import sys
 from array import array
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 import rclpy
@@ -23,20 +23,7 @@ os.environ.setdefault("OPEN_JTALK_DICT_DIR", str(Path.home() / ".pyopenjtalk"))
 # Disable tqdm progress bar for pyopenjtalk downloads
 os.environ["TQDM_DISABLE"] = "1"
 
-try:
-    # Suppress download progress output during pyopenjtalk import
-    _original_stderr = sys.stderr
-    sys.stderr = open(os.devnull, 'w')
-    import pyopenjtalk
-    sys.stderr.close()
-    sys.stderr = _original_stderr
-except ImportError as exc:  # pragma: no cover - import guard
-    sys.stderr = _original_stderr
-    pyopenjtalk = None
-    _IMPORT_ERROR = exc
-else:
-    _IMPORT_ERROR = None
-
+import pyopenjtalk  # noqa: E402
 
 class CachedAudio:
     __slots__ = ("audio_bytes", "sample_rate", "channels", "bit_depth", "rms", "peak")
@@ -55,8 +42,6 @@ class FaTtsNode(Node):
     def __init__(self) -> None:
         super().__init__("fa_tts")
         self.get_logger().info("Starting FA TTS node (pyopenjtalk backend)")
-        if pyopenjtalk is None:
-            raise RuntimeError(f"pyopenjtalk is not available: {_IMPORT_ERROR}") from _IMPORT_ERROR
 
         self.declare_parameter("default_voice", "")
         self.declare_parameter("output_topic", "audio/tts/frame")
@@ -93,7 +78,7 @@ class FaTtsNode(Node):
         self.playback_epoch = 1
         self.stop_sub = self.create_subscription(Empty, self.stop_topic, self.on_stop, qos)
 
-        self.cache: Dict[str, CachedAudio] = {}
+        self.cache: dict[str, CachedAudio] = {}
 
     def on_stop(self, _msg: Empty) -> None:
         """音声停止を受けたら再生世代を進める。"""

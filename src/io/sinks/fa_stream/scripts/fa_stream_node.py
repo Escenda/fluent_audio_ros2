@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """
-fa_stream radio streamer example.
+fa_stream network streaming sink.
 
 This node subscribes to fa_interfaces/msg/AudioFrame and pipes the raw PCM samples
 to an ffmpeg process that publishes to an Icecast/Shoutcast style URL.
 """
 
-import os
+import shutil
 import signal
 import subprocess
 import sys
-from typing import Optional
 
 import rclpy
 from rclpy.node import Node
@@ -18,33 +17,51 @@ from rclpy.node import Node
 from fa_interfaces.msg import AudioFrame
 
 
-class RadioStreamer(Node):
+class FaStreamNode(Node):
     def __init__(self) -> None:
-        super().__init__("fa_radio_streamer")
+        super().__init__("fa_stream")
 
         self.declare_parameter("input_topic", "audio/frame")
         self.declare_parameter("ffmpeg_path", "ffmpeg")
-        self.declare_parameter("output_url", "http://source:hackme@localhost:8000/live")
+        self.declare_parameter("output_url", "")
         self.declare_parameter("audio_codec", "libmp3lame")
         self.declare_parameter("bitrate", "128k")
         self.declare_parameter("container_format", "mp3")
         self.declare_parameter("content_type", "audio/mpeg")
         self.declare_parameter("loglevel", "warning")
 
+        self._input_topic = self._required_string_parameter("input_topic")
+        self._ffmpeg_path = self._required_string_parameter("ffmpeg_path")
+        self._output_url = self._required_string_parameter("output_url")
+        self._audio_codec = self._required_string_parameter("audio_codec")
+        self._bitrate = self._required_string_parameter("bitrate")
+        self._container_format = self._required_string_parameter("container_format")
+        self._content_type = self._required_string_parameter("content_type")
+        self._loglevel = self._required_string_parameter("loglevel")
+
+        if shutil.which(self._ffmpeg_path) is None:
+            raise RuntimeError(f"ffmpeg_path is not executable: {self._ffmpeg_path}")
+
         self._subscription = self.create_subscription(
             AudioFrame,
-            self.get_parameter("input_topic").get_parameter_value().string_value,
+            self._input_topic,
             self._audio_callback,
             10,
         )
-        self._ffmpeg_proc: Optional[subprocess.Popen[bytes]] = None
-        self._expected_rate: Optional[int] = None
-        self._expected_channels: Optional[int] = None
+        self._ffmpeg_proc: subprocess.Popen[bytes] | None = None
+        self._expected_rate: int | None = None
+        self._expected_channels: int | None = None
 
         self.get_logger().info(
-            "Initialized radio streamer. Waiting for audio frames on %s",
+            "Initialized FA Stream. Waiting for audio frames on %s",
             self._subscription.topic_name,
         )
+
+    def _required_string_parameter(self, name: str) -> str:
+        value = self.get_parameter(name).get_parameter_value().string_value.strip()
+        if not value:
+            raise RuntimeError(f"{name} is required")
+        return value
 
     def destroy_node(self) -> bool:
         self._stop_ffmpeg()
@@ -56,55 +73,44 @@ class RadioStreamer(Node):
                 "Only 16-bit PCM is supported. Received %d-bit frame", msg.bit_depth
             )
             return
+        if msg.sample_rate == 0 or msg.channels == 0 or not msg.data:
+            self.get_logger().error(
+                "Invalid audio frame: sample_rate=%d channels=%d bytes=%d",
+                msg.sample_rate,
+                msg.channels,
+                len(msg.data),
+            )
+            return
 
         if not self._ffmpeg_proc:
             self._start_ffmpeg(msg)
 
         if not self._ffmpeg_proc or self._ffmpeg_proc.stdin is None:
-            return
+            raise RuntimeError("ffmpeg process is not available after start")
 
         if self._expected_rate and msg.sample_rate != self._expected_rate:
-            self.get_logger().warn(
-                "Sample rate changed from %d to %d. Restarting ffmpeg.",
-                self._expected_rate,
-                msg.sample_rate,
+            raise RuntimeError(
+                "Sample rate changed during stream: "
+                f"{self._expected_rate} -> {msg.sample_rate}"
             )
-            self._stop_ffmpeg()
-            self._start_ffmpeg(msg)
 
         if self._expected_channels and msg.channels != self._expected_channels:
-            self.get_logger().warn(
-                "Channel count changed from %d to %d. Restarting ffmpeg.",
-                self._expected_channels,
-                msg.channels,
+            raise RuntimeError(
+                "Channel count changed during stream: "
+                f"{self._expected_channels} -> {msg.channels}"
             )
-            self._stop_ffmpeg()
-            self._start_ffmpeg(msg)
-
-        if not self._ffmpeg_proc or self._ffmpeg_proc.stdin is None:
-            return
 
         try:
             self._ffmpeg_proc.stdin.write(bytes(msg.data))
-        except BrokenPipeError:
-            self.get_logger().error("ffmpeg pipe closed unexpectedly. Restarting.")
+        except BrokenPipeError as exc:
             self._stop_ffmpeg()
+            raise RuntimeError("ffmpeg pipe closed unexpectedly") from exc
 
     def _start_ffmpeg(self, msg: AudioFrame) -> None:
-        ffmpeg_path = self.get_parameter("ffmpeg_path").get_parameter_value().string_value
-        audio_codec = self.get_parameter("audio_codec").get_parameter_value().string_value
-        bitrate = self.get_parameter("bitrate").get_parameter_value().string_value
-        container_format = (
-            self.get_parameter("container_format").get_parameter_value().string_value
-        )
-        content_type = self.get_parameter("content_type").get_parameter_value().string_value
-        output_url = self.get_parameter("output_url").get_parameter_value().string_value
-        loglevel = self.get_parameter("loglevel").get_parameter_value().string_value
-
         cmd = [
-            ffmpeg_path,
+            self._ffmpeg_path,
             "-loglevel",
-            loglevel,
+            self._loglevel,
             "-f",
             "s16le",
             "-ar",
@@ -114,14 +120,14 @@ class RadioStreamer(Node):
             "-i",
             "pipe:0",
             "-c:a",
-            audio_codec,
+            self._audio_codec,
             "-b:a",
-            bitrate,
+            self._bitrate,
             "-content_type",
-            content_type,
+            self._content_type,
             "-f",
-            container_format,
-            output_url,
+            self._container_format,
+            self._output_url,
         ]
 
         self.get_logger().info("Starting ffmpeg: %s", " ".join(cmd))
@@ -134,9 +140,9 @@ class RadioStreamer(Node):
             )
             self._expected_rate = msg.sample_rate
             self._expected_channels = msg.channels
-        except FileNotFoundError:
-            self.get_logger().error("ffmpeg binary '%s' not found.", ffmpeg_path)
+        except OSError as exc:
             self._ffmpeg_proc = None
+            raise RuntimeError(f"failed to start ffmpeg: {exc}") from exc
 
     def _stop_ffmpeg(self) -> None:
         if not self._ffmpeg_proc:
@@ -156,13 +162,13 @@ class RadioStreamer(Node):
         try:
             proc.send_signal(signal.SIGINT)
             proc.wait(timeout=2.0)
-        except Exception:
+        except (OSError, subprocess.TimeoutExpired):
             proc.kill()
 
 
 def main(argv=None) -> None:
     rclpy.init(args=argv)
-    node = RadioStreamer()
+    node = FaStreamNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

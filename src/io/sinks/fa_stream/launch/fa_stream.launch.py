@@ -12,7 +12,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "node_name",
-            default_value="fa_radio_streamer",
+            default_value="fa_stream",
             description="ノード名",
         ),
         DeclareLaunchArgument(
@@ -24,7 +24,7 @@ def generate_launch_description():
         ),
         Node(
             package="fa_stream",
-            executable="radio_streamer.py",
+            executable="fa_stream_node.py",
             name=node_name,
             output="screen",
             parameters=[config_file],

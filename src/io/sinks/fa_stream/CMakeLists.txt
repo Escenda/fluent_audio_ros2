@@ -4,7 +4,7 @@ project(fa_stream)
 find_package(ament_cmake REQUIRED)
 
 install(PROGRAMS
-  scripts/radio_streamer.py
+  scripts/fa_stream_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -15,4 +15,3 @@ install(DIRECTORY
 )
 
 ament_package()
-

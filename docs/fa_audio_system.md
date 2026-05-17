@@ -20,7 +20,7 @@
 | `fa_record` | `audio/frame` をWAVへ録音 | Sub: `audio/frame` / Srv: `record` |
 | `fa_tts` | テキスト→音声合成 | Srv: `speak` →（任意）Pub: `audio/tts/frame` /（既定）Pub: `audio/output/frame` |
 | `fa_out` | スピーカーを開いてPCMを再生 | Sub: `audio/output/frame` |
-| `fa_radio_streamer` | 配信サンプル（Icecast等） | Sub: `audio/frame` → 外部へ送出（`ffmpeg`） |
+| `fa_stream` | 配信 sink（Icecast等） | Sub: `audio/frame` → 外部へ送出（`ffmpeg`） |
 | `fa_voice_command_router` | 起動/停止/モード切替の状態管理 | Sub: `voice/command` → Pub: `voice/router/state` / Srv: `start`, `stop`, `status` |
 
 ## 3. 将来のノード（予定）
@@ -75,8 +75,8 @@
 1. `fa_in_node`と`fa_record`を起動
 2. `record`サービスで開始/停止し、WAVを保存
 
-## 6. 配信サンプル（Icecast向け）
-`fa_stream`には`audio/frame`をIcecast/Shoutcastへ配信するPythonサンプル（`radio_streamer.py`）を同梱しています。内部で`ffmpeg`を起動し、受信したPCM16フレームをMP3等へ変換してHTTP PUTします。
+## 6. 配信 sink（Icecast向け）
+`fa_stream`には`audio/frame`をIcecast/Shoutcastへ配信するPython node（`fa_stream_node.py`）を同梱しています。内部で`ffmpeg`を起動し、受信したPCM16フレームをMP3等へ変換してHTTP PUTします。`output_url` は必須で、空のままでは起動失敗します。
 
 起動例:
 ```bash

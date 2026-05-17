@@ -23,4 +23,4 @@ ros2 service call /speak fa_interfaces/srv/Speak "{text: 'こんにちは', voic
 レスポンスの`frame`をそのまま録音・出力ノードに渡せます。`play: true`の場合は`audio/output/frame`へPublishするため、別途`fa_out`が購読していればスピーカー再生されます。
 
 ## キャッシュ
-`cache_dir`（デフォルト: `~/.fluent_voice_cache`）にPCMとメタ情報を保存します。`cache_key`を指定すると同じキーでキャッシュを共有できます。
+`cache_dir`（デフォルト: `~/.cache/fluent_audio/tts`）にPCMとメタ情報を保存します。`cache_key`を指定すると同じキーでキャッシュを共有できます。

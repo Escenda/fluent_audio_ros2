@@ -4,6 +4,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -21,12 +22,15 @@ struct AudioFormat
   uint32_t sample_rate{48000};
   uint32_t channels{1};
   uint32_t bit_depth{16};
-  std::string encoding{"pcm16"};
+  std::string encoding{"PCM16LE"};
 };
 
 bool formatMatches(const AudioFormat &a, const AudioFormat &b)
 {
-  return a.sample_rate == b.sample_rate && a.channels == b.channels && a.bit_depth == b.bit_depth;
+  return a.sample_rate == b.sample_rate &&
+         a.channels == b.channels &&
+         a.bit_depth == b.bit_depth &&
+         a.encoding == b.encoding;
 }
 
 AudioFormat formatFromFrame(const fa_interfaces::msg::AudioFrame &msg)
@@ -37,6 +41,22 @@ AudioFormat formatFromFrame(const fa_interfaces::msg::AudioFrame &msg)
   fmt.bit_depth = msg.bit_depth;
   fmt.encoding = msg.encoding;
   return fmt;
+}
+
+bool isSupportedFrame(const fa_interfaces::msg::AudioFrame &msg)
+{
+  if (msg.sample_rate == 0 || msg.channels == 0) {
+    return false;
+  }
+  if (msg.bit_depth != 16 && msg.bit_depth != 32) {
+    return false;
+  }
+  if (msg.encoding.empty() || msg.data.empty()) {
+    return false;
+  }
+  const size_t bytes_per_sample = static_cast<size_t>(msg.bit_depth / 8);
+  const size_t bytes_per_frame = static_cast<size_t>(msg.channels) * bytes_per_sample;
+  return bytes_per_frame > 0 && (msg.data.size() % bytes_per_frame) == 0;
 }
 
 void writeWavHeader(std::fstream &stream, const AudioFormat &format, uint32_t data_length)
@@ -96,6 +116,9 @@ public:
   : rclcpp::Node("fa_record")
   {
     input_topic_ = this->declare_parameter<std::string>("input_topic", input_topic_);
+    if (input_topic_.empty()) {
+      throw std::runtime_error("input_topic is required");
+    }
 
     audio_sub_ = this->create_subscription<fa_interfaces::msg::AudioFrame>(
       input_topic_, rclcpp::SensorDataQoS(),
@@ -120,6 +143,13 @@ private:
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
   {
     if (!msg) {
+      return;
+    }
+    if (!isSupportedFrame(*msg)) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 3000,
+        "Dropping invalid frame: sr=%u ch=%u bits=%u enc=%s bytes=%zu",
+        msg->sample_rate, msg->channels, msg->bit_depth, msg->encoding.c_str(), msg->data.size());
       return;
     }
 
@@ -149,6 +179,11 @@ private:
 
     stream_.write(reinterpret_cast<const char *>(msg->data.data()),
       static_cast<std::streamsize>(msg->data.size()));
+    if (!stream_) {
+      RCLCPP_ERROR(this->get_logger(), "write failed while recording: %s", record_path_.c_str());
+      finalizeAndCloseLocked();
+      return;
+    }
     recorded_bytes_ += static_cast<uint32_t>(msg->data.size());
   }
 
@@ -272,4 +307,3 @@ int main(int argc, char **argv)
   rclcpp::shutdown();
   return 0;
 }
-
