@@ -1,0 +1,12 @@
+fa_out:
+  ros__parameters:
+    backend.name: "alsa_playback"
+    audio.device_id: "hw:CARD=Loopback,DEV=0"
+    audio.encoding: "PCM16LE"
+    audio.sample_rate: 48000
+    audio.channels: 1
+    audio.bit_depth: 16
+    audio.chunk_duration_ms: 30
+    audio.qos.depth: 10
+    audio.qos.reliable: true
+    queue.max_frames: 32

@@ -1,0 +1,18 @@
+system:
+  default_start_delay: 0.0
+  inter_group_delay: 0.0
+groups:
+  - id: analysis
+    enable: true
+    nodes:
+      - id: fa_vad
+        enable: true
+        package: fa_vad
+        exec: fa_vad_node
+        node_name: fa_vad
+        params_file: "${share:fluent_audio_system}/test/fixtures/fa_in.params.yaml"
+        remappings:
+          - from: audio/frame
+            to: robot/audio/input
+          - from: vad/state
+            to: robot/audio/vad/state

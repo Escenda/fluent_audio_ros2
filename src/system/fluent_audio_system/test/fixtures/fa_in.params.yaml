@@ -1,0 +1,11 @@
+fa_in_node:
+  ros__parameters:
+    backend.name: "alsa_capture"
+    audio.device_selector.mode: "name"
+    audio.device_selector.identifier: "hw:CARD=Loopback,DEV=0"
+    audio.sample_rate: 48000
+    audio.channels: 1
+    audio.bit_depth: 16
+    audio.chunk_ms: 20
+    audio.encoding: "PCM16LE"
+    diagnostics.publish_period_ms: 1000

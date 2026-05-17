@@ -1,0 +1,21 @@
+system:
+  default_start_delay: 0.0
+  inter_group_delay: 0.0
+groups:
+  - id: io
+    enable: true
+    nodes:
+      - id: fa_in
+        enable: true
+        package: fa_in
+        exec: fa_in_node
+        node_name: fa_in_node
+        params_file: "${share:fluent_audio_system}/test/fixtures/fa_in.params.yaml"
+        remappings:
+          audio/frame: robot/audio/input
+      - id: fa_out
+        enable: false
+        package: fa_out
+        exec: fa_out_node
+        node_name: fa_out
+        params_file: "${share:fluent_audio_system}/test/fixtures/fa_out.params.yaml"

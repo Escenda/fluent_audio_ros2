@@ -1,0 +1,6 @@
+system:
+  default_start_delay: 0.0
+groups:
+  - id: io
+    enable: true
+    nodes: []
