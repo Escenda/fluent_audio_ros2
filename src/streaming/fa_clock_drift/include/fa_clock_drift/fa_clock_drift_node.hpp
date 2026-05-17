@@ -50,7 +50,7 @@ struct ActiveStreamIdentity
 class FaClockDriftNode : public rclcpp::Node
 {
 public:
-  FaClockDriftNode();
+  explicit FaClockDriftNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaClockDriftNode() override = default;
 
 private:

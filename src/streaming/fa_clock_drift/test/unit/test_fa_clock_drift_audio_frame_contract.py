@@ -45,11 +45,13 @@ def test_package_layout_matches_required_streaming_layout() -> None:
         "launch/fa_clock_drift.launch.py",
         "include/fa_clock_drift/fa_clock_drift_node.hpp",
         "src/fa_clock_drift_node.cpp",
+        "src/main.cpp",
         "docs/仕様書.md",
         "docs/アルゴリズム詳細説明書.md",
         "docs/テスト設計.md",
         "docs/backends/sample_clock_timeline.md",
         "test/unit/test_fa_clock_drift_audio_frame_contract.py",
+        "test/cpp/test_fa_clock_drift_node_contract.cpp",
         "test/integration/.gitkeep",
         "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
@@ -66,8 +68,11 @@ def test_node_identity_matches_contract() -> None:
 
     assert "namespace fa_clock_drift" in header
     assert "class FaClockDriftNode : public rclcpp::Node" in header
-    assert ': rclcpp::Node("fa_clock_drift")' in source
-    assert "fa_clock_drift::FaClockDriftNode" in source
+    assert 'rclcpp::Node("fa_clock_drift", options)' in source
+    assert "explicit FaClockDriftNode(const rclcpp::NodeOptions & options" in header
+    assert "fa_clock_drift::FaClockDriftNode" in (
+        package_root() / "src" / "main.cpp"
+    ).read_text(encoding="utf-8")
     assert 'executable="fa_clock_drift_node"' in launch
     assert 'default_value="fa_clock_drift"' in launch
 
@@ -329,12 +334,16 @@ def test_colcon_runs_pytest_contracts_and_lint_dependencies() -> None:
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_lint_auto REQUIRED)" in cmake_text
     assert "find_package(builtin_interfaces REQUIRED)" in cmake_text
+    assert "add_library(fa_clock_drift_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "ament_lint_auto_find_test_dependencies()" in cmake_text
     assert "<depend>builtin_interfaces</depend>" in package_xml
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
