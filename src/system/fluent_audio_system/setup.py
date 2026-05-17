@@ -11,6 +11,14 @@ def files_in(dirpath):
     return [path for path in glob(os.path.join(dirpath, "*")) if os.path.isfile(path)]
 
 
+def files_in_tree(dirpath):
+    return [
+        path
+        for path in glob(os.path.join(dirpath, "**", "*"), recursive=True)
+        if os.path.isfile(path)
+    ]
+
+
 setup(
     name=package_name,
     version="0.1.0",
@@ -20,6 +28,7 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch", files_in("launch")),
         ("share/" + package_name + "/config", files_in("config")),
+        ("share/" + package_name + "/config/profiles", files_in_tree("config/profiles")),
     ],
     install_requires=["setuptools", "pydantic>=2"],
     zip_safe=True,

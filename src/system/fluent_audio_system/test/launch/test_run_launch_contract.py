@@ -63,3 +63,11 @@ def test_fixture_files_document_launch_contract() -> None:
         "fa_out.params.yaml",
     ):
         assert (fixture_dir / fixture_name).is_file()
+
+
+def test_profile_configs_are_package_owned_and_installed() -> None:
+    setup_text = (PACKAGE_ROOT / "setup.py").read_text(encoding="utf-8")
+
+    assert (PACKAGE_ROOT / "config" / "profiles" / "so101.yaml").is_file()
+    assert '"/config/profiles"' in setup_text
+    assert 'files_in_tree("config/profiles")' in setup_text

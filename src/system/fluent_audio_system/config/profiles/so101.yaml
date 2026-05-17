@@ -1,0 +1,138 @@
+system:
+  default_start_delay: 0.2
+  inter_group_delay: 0.5
+
+groups:
+  - id: audio_io
+    enable: true
+    nodes:
+      - id: fa_in
+        enable: true
+        package: fa_in
+        exec: fa_in_node
+        node_name: fa_in_node
+        namespace: ""
+        params_file: "${share:fa_in}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_out
+        enable: true
+        package: fa_out
+        exec: fa_out_node
+        node_name: fa_out
+        namespace: ""
+        params_file: "${share:fa_out}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+  - id: audio_format
+    enable: false
+    nodes:
+      - id: fa_resample
+        enable: true
+        package: fa_resample
+        exec: fa_resample_node
+        node_name: fa_resample
+        namespace: ""
+        params_file: "${share:fa_resample}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+  - id: audio_correction
+    enable: true
+    nodes:
+      - id: fa_aec_linear
+        enable: false
+        package: fa_aec_linear
+        exec: fa_aec_linear_node
+        node_name: fa_aec_linear
+        namespace: ""
+        params_file: "${share:fa_aec_linear}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_aec_nn
+        enable: false
+        package: fa_aec_nn
+        exec: fa_aec_nn_node
+        node_name: fa_aec_nn
+        namespace: ""
+        params_file: "${share:fa_aec_nn}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_denoise
+        enable: false
+        package: fa_denoise
+        exec: fa_denoise_node
+        node_name: fa_denoise
+        namespace: ""
+        params_file: "${share:fa_denoise}/config/default.yaml"
+        remappings: {}
+        parameters:
+          dtln.model_1_path: "${share:fa_denoise}/models/model_1.onnx"
+          dtln.model_2_path: "${share:fa_denoise}/models/model_2.onnx"
+
+  - id: ai
+    enable: true
+    nodes:
+      - id: fa_vad
+        enable: false
+        package: fa_vad
+        exec: fa_vad_node
+        node_name: fa_vad_node
+        namespace: ""
+        params_file: "${share:fa_vad}/config/default_vad.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/resample16k/mic"
+
+      - id: fa_kws
+        enable: false
+        package: fa_kws
+        exec: fa_kws_node
+        node_name: fa_kws
+        namespace: ""
+        params_file: "${share:fa_kws}/config/default.yaml"
+        remappings: {}
+        parameters:
+          audio_topic: "audio/resample16k/mic"
+
+      - id: fa_asr
+        enable: false
+        package: fa_asr
+        exec: fa_asr_node
+        node_name: fa_asr
+        namespace: ""
+        params_file: "${share:fa_asr}/config/default.yaml"
+        remappings: {}
+        parameters:
+          audio_topic: "audio/resample16k/mic"
+
+      - id: fa_turn_detector
+        enable: false
+        package: fa_turn_detector
+        exec: fa_turn_detector_node
+        node_name: fa_turn_detector
+        namespace: ""
+        params_file: "${share:fa_turn_detector}/config/default.yaml"
+        remappings: {}
+        parameters:
+          audio_topic: "audio/resample16k/mic"
+          backend.model_path: "${share:fa_turn_detector}/models/smart-turn-v3/smart-turn-v3.0.onnx"
+          backend.execution_provider: "CPUExecutionProvider"
+          backend.command: "smart_turn_onnx_worker"
+          backend.args:
+            - "--audio"
+            - "{audio}"
+            - "--model"
+            - "{model}"
+            - "--provider"
+            - "{provider}"
+          backend.health_args:
+            - "--model"
+            - "{model}"
+            - "--provider"
+            - "{provider}"
+            - "--health-check"
