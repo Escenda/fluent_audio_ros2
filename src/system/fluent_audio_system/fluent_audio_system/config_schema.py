@@ -93,7 +93,7 @@ def parse_system_config(raw: ConfigValue) -> AudioSystemSpec:
     for group_index, raw_group in enumerate(groups_raw):
         group = _require_mapping(raw_group, f"groups[{group_index}]")
         group_id = _required_text(group, "id", f"groups[{group_index}]")
-        if not _optional_bool(group, "enable", True):
+        if not _required_bool(group, "enable", f"group {group_id}"):
             continue
         nodes_raw = _require_sequence(
             _required_key(group, "nodes", f"group {group_id}"),
@@ -102,7 +102,8 @@ def parse_system_config(raw: ConfigValue) -> AudioSystemSpec:
         nodes: list[AudioNodeSpec] = []
         for node_index, raw_node in enumerate(nodes_raw):
             node = _require_mapping(raw_node, f"group {group_id}.nodes[{node_index}]")
-            if not _optional_bool(node, "enable", True):
+            node_id = _required_text(node, "id", f"group {group_id}.nodes[{node_index}]")
+            if not _required_bool(node, "enable", f"node {node_id}"):
                 continue
             nodes.append(_parse_node(node, group_id, node_index))
         groups.append(AudioGroupSpec(id=group_id, nodes=nodes))
@@ -178,10 +179,10 @@ def _optional_text(mapping: ConfigMapping, key: str, default_value: str = "") ->
     return value.strip()
 
 
-def _optional_bool(mapping: ConfigMapping, key: str, default_value: bool = True) -> bool:
-    value = mapping.get(key, default_value)
+def _required_bool(mapping: ConfigMapping, key: str, label: str) -> bool:
+    value = mapping.get(key)
     if not isinstance(value, bool):
-        raise RuntimeError(f"{key} must be a bool")
+        raise RuntimeError(f"{label}.{key} is required")
     return value
 
 

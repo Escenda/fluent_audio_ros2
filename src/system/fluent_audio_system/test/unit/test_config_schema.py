@@ -20,6 +20,7 @@ def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
                     "nodes": [
                         {
                             "id": "fa_in",
+                            "enable": True,
                             "package": "fa_in",
                             "exec": "fa_in_node",
                             "params_file": str(params_file),
@@ -60,6 +61,7 @@ def test_disabled_nodes_are_not_expanded() -> None:
             "groups": [
                 {
                     "id": "io",
+                    "enable": True,
                     "nodes": [
                         {
                             "id": "fa_out",
@@ -87,9 +89,11 @@ def test_missing_params_file_fails(tmp_path: Path) -> None:
                 "groups": [
                     {
                         "id": "io",
+                        "enable": True,
                         "nodes": [
                             {
                                 "id": "fa_in",
+                                "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
                                 "params_file": str(missing),
@@ -109,7 +113,15 @@ def test_node_requires_params_file() -> None:
                 "groups": [
                     {
                         "id": "io",
-                        "nodes": [{"id": "fa_in", "package": "fa_in", "exec": "fa_in_node"}],
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "enable": True,
+                                "package": "fa_in",
+                                "exec": "fa_in_node",
+                            }
+                        ],
                     }
                 ]
             }
@@ -124,9 +136,11 @@ def test_inline_parameters_without_params_file_fail() -> None:
                 "groups": [
                     {
                         "id": "io",
+                        "enable": True,
                         "nodes": [
                             {
                                 "id": "fa_in",
+                                "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
                                 "parameters": {"audio.sample_rate": 48000},
@@ -146,9 +160,11 @@ def test_empty_params_file_fails() -> None:
                 "groups": [
                     {
                         "id": "io",
+                        "enable": True,
                         "nodes": [
                             {
                                 "id": "fa_in",
+                                "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
                                 "params_file": "",
@@ -171,9 +187,11 @@ def test_nested_inline_parameters_fail(tmp_path: Path) -> None:
                 "groups": [
                     {
                         "id": "io",
+                        "enable": True,
                         "nodes": [
                             {
                                 "id": "fa_in",
+                                "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
                                 "params_file": str(params_file),
@@ -201,9 +219,11 @@ def test_sequence_remappings_are_supported(tmp_path: Path) -> None:
             "groups": [
                 {
                     "id": "io",
+                    "enable": True,
                     "nodes": [
                         {
                             "id": "fa_in",
+                            "enable": True,
                             "package": "fa_in",
                             "exec": "fa_in_node",
                             "params_file": str(params_file),
@@ -233,9 +253,11 @@ def test_invalid_remappings_fail(tmp_path: Path) -> None:
                 "groups": [
                     {
                         "id": "io",
+                        "enable": True,
                         "nodes": [
                             {
                                 "id": "fa_in",
+                                "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
                                 "params_file": str(params_file),
@@ -257,8 +279,10 @@ def test_share_path_expansion(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
 system: {}
 groups:
   - id: io
+    enable: true
     nodes:
       - id: fa_in
+        enable: true
         package: fa_in
         exec: fa_in_node
         params_file: "${share:demo_pkg}/fa_in.yaml"
@@ -296,9 +320,11 @@ def test_inline_parameter_share_path_expansion(
             "groups": [
                 {
                     "id": "correction",
+                    "enable": True,
                     "nodes": [
                         {
                             "id": "fa_denoise",
+                            "enable": True,
                             "package": "fa_denoise",
                             "exec": "fa_denoise_node",
                             "params_file": "${share:params_pkg}/fa_denoise.yaml",
@@ -337,7 +363,44 @@ def test_missing_groups_fails() -> None:
 
 def test_enabled_group_requires_nodes() -> None:
     with pytest.raises(RuntimeError, match="group io.nodes is required"):
-        parse_system_config({"system": {}, "groups": [{"id": "io"}]})
+        parse_system_config({"system": {}, "groups": [{"id": "io", "enable": True}]})
+
+
+def test_disabled_group_does_not_require_nodes() -> None:
+    spec = parse_system_config({"system": {}, "groups": [{"id": "io", "enable": False}]})
+
+    assert spec.groups == []
+
+
+def test_group_enable_is_required() -> None:
+    with pytest.raises(RuntimeError, match="group io.enable is required"):
+        parse_system_config({"system": {}, "groups": [{"id": "io", "nodes": []}]})
+
+
+def test_node_enable_is_required(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="node fa_in.enable is required"):
+        parse_system_config(
+            {
+                "system": {},
+                "groups": [
+                    {
+                        "id": "io",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "package": "fa_in",
+                                "exec": "fa_in_node",
+                                "params_file": str(params_file),
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
 
 
 def test_negative_delays_fail() -> None:

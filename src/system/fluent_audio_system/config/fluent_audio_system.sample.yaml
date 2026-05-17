@@ -4,10 +4,10 @@ system:
 
 groups:
   - id: io
-    enable: true
+    enable: false
     nodes:
       - id: fa_in
-        enable: true
+        enable: false
         package: fa_in
         exec: fa_in_node
         node_name: fa_in_node
@@ -16,7 +16,7 @@ groups:
         remappings: {}
         parameters:
           audio.device_selector.mode: name
-          audio.device_selector.identifier: default
+          audio.device_selector.identifier: ""
 
       - id: fa_out
         enable: false
@@ -27,7 +27,7 @@ groups:
         params_file: "${share:fa_out}/config/default.yaml"
         remappings: {}
         parameters:
-          audio.device_id: default
+          audio.device_id: ""
 
   - id: format
     enable: true
