@@ -28,6 +28,8 @@ struct AecNnConfig
 
   int expected_sample_rate = -1;
   int expected_channels = -1;
+  std::string expected_encoding;
+  int expected_bit_depth = -1;
 
   int qos_depth = -1;
   bool qos_reliable = false;
@@ -38,8 +40,8 @@ struct AecNnConfig
 class FaAecNnNode : public rclcpp::Node
 {
 public:
-  FaAecNnNode();
-  ~FaAecNnNode() override = default;
+  explicit FaAecNnNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~FaAecNnNode() override;
 
 private:
   void loadParameters();

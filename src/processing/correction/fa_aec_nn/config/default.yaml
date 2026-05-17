@@ -8,7 +8,10 @@ fa_aec_nn:
     output_topic: "audio/aec/frame"
 
     expected_sample_rate: 16000
-    expected_channels: 1     # -1で無効
+    expected_channels: 1
+    expected:
+      encoding: "PCM16LE"
+      bit_depth: 16
 
     qos:
       depth: 10

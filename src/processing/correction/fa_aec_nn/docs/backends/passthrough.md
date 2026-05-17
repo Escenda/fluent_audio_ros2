@@ -10,6 +10,9 @@ default config では選択しない。利用する場合は、debug / wiring va
 ## 入力
 
 - validated `AudioFrame`
+- `stream_id == input_topic`
+- `expected_channels > 0`
+- `PCM16LE/16` or `FLOAT32LE/32` explicit format pair
 
 ## 出力
 
@@ -18,6 +21,8 @@ default config では選択しない。利用する場合は、debug / wiring va
 ## 失敗条件
 
 - node 側の format validation に失敗した frame
+- node 側の stream-id validation に失敗した frame
+- disabled channel validation や unsupported format pair を指定した config
 
 ## 注意
 

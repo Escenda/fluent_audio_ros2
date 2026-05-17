@@ -1,7 +1,7 @@
 #include "fa_aec_nn/fa_aec_nn_node.hpp"
 
-#include <algorithm>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -19,17 +19,27 @@ namespace fa_aec_nn
 namespace
 {
 constexpr int kRequiredSampleRate = 16000;
+constexpr const char * kEncodingPcm16 = "PCM16LE";
+constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-}
 
-FaAecNnNode::FaAecNnNode()
-: rclcpp::Node("fa_aec_nn")
+bool isSupportedAudioFormatPair(const std::string & encoding, int bit_depth)
+{
+  return (encoding == kEncodingPcm16 && bit_depth == 16) ||
+         (encoding == kEncodingFloat32 && bit_depth == 32);
+}
+}  // namespace
+
+FaAecNnNode::FaAecNnNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_aec_nn", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA AEC NN node");
   loadParameters();
   initializeBackend();
   setupInterfaces();
 }
+
+FaAecNnNode::~FaAecNnNode() = default;
 
 void FaAecNnNode::loadParameters()
 {
@@ -39,6 +49,8 @@ void FaAecNnNode::loadParameters()
   this->declare_parameter("output_topic", config_.output_topic);
   this->declare_parameter<int>("expected_sample_rate", config_.expected_sample_rate);
   this->declare_parameter<int>("expected_channels", config_.expected_channels);
+  this->declare_parameter("expected.encoding", config_.expected_encoding);
+  this->declare_parameter<int>("expected.bit_depth", config_.expected_bit_depth);
   this->declare_parameter<int>("qos.depth", config_.qos_depth);
   this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
   this->declare_parameter<int>(
@@ -51,6 +63,8 @@ void FaAecNnNode::loadParameters()
   config_.output_topic = this->get_parameter("output_topic").as_string();
   config_.expected_sample_rate = this->get_parameter("expected_sample_rate").as_int();
   config_.expected_channels = this->get_parameter("expected_channels").as_int();
+  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
+  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
   config_.qos_depth = this->get_parameter("qos.depth").as_int();
   config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
   config_.diagnostics_publish_period_ms =
@@ -67,6 +81,12 @@ void FaAecNnNode::loadParameters()
             "fa_aec_nn requires expected_sample_rate=16000 by design (got " +
             std::to_string(config_.expected_sample_rate) + ")");
   }
+  if (config_.expected_channels <= 0) {
+    throw std::runtime_error("expected_channels must be > 0");
+  }
+  if (!isSupportedAudioFormatPair(config_.expected_encoding, config_.expected_bit_depth)) {
+    throw std::runtime_error("expected encoding/bit_depth must be PCM16LE/16 or FLOAT32LE/32");
+  }
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0 (set via YAML)");
   }
@@ -81,13 +101,15 @@ void FaAecNnNode::loadParameters()
   }
 
   RCLCPP_INFO(this->get_logger(),
-    "AEC NN config: enabled=%s backend.name=%s input=%s output=%s expected_sr=%d expected_ch=%d qos_depth=%d reliable=%s",
+    "AEC NN config: enabled=%s backend.name=%s input=%s output=%s expected_sr=%d expected_ch=%d expected=%s/%d qos_depth=%d reliable=%s",
     config_.enabled ? "true" : "false",
     config_.backend_name.c_str(),
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
+    config_.expected_encoding.c_str(),
+    config_.expected_bit_depth,
     config_.qos_depth,
     config_.qos_reliable ? "true" : "false");
 }
@@ -103,7 +125,7 @@ void FaAecNnNode::initializeBackend()
 
 void FaAecNnNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -127,16 +149,21 @@ bool FaAecNnNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) cons
   if (msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)) {
     return false;
   }
-  if (config_.expected_channels > 0 && msg.channels != static_cast<uint32_t>(config_.expected_channels)) {
+  if (msg.channels != static_cast<uint32_t>(config_.expected_channels)) {
     return false;
   }
   if (msg.channels == 0 || msg.sample_rate == 0) {
     return false;
   }
-  if (msg.bit_depth != 16 && msg.bit_depth != 32) {
+  if (msg.encoding != config_.expected_encoding ||
+      msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth))
+  {
     return false;
   }
-  if (msg.source_id.empty() || msg.stream_id.empty()) {
+  if (msg.source_id.empty()) {
+    return false;
+  }
+  if (msg.stream_id != config_.input_topic) {
     return false;
   }
   if (msg.layout != kInterleavedLayout) {
@@ -256,17 +283,3 @@ void FaAecNnNode::publishDiagnostics()
 }
 
 }  // namespace fa_aec_nn
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_aec_nn::FaAecNnNode>();
-    rclcpp::spin(node);
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_aec_nn"), "Exception: %s", e.what());
-    return EXIT_FAILURE;
-  }
-  rclcpp::shutdown();
-  return EXIT_SUCCESS;
-}
