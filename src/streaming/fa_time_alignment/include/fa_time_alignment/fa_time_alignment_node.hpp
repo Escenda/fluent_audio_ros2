@@ -32,7 +32,7 @@ struct TimeAlignmentConfig
 class FaTimeAlignmentNode : public rclcpp::Node
 {
 public:
-  FaTimeAlignmentNode();
+  explicit FaTimeAlignmentNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaTimeAlignmentNode() override = default;
 
 private:

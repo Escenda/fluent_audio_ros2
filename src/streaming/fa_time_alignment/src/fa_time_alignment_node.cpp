@@ -1,9 +1,7 @@
 #include "fa_time_alignment/fa_time_alignment_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -48,8 +46,8 @@ builtin_interfaces::msg::Time nanosecondsToStamp(const int64_t nanoseconds)
 }
 }  // namespace
 
-FaTimeAlignmentNode::FaTimeAlignmentNode()
-: rclcpp::Node("fa_time_alignment")
+FaTimeAlignmentNode::FaTimeAlignmentNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_time_alignment", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Time Alignment node");
   loadParameters();
@@ -150,7 +148,7 @@ void FaTimeAlignmentNode::loadParameters()
 
 void FaTimeAlignmentNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -335,18 +333,3 @@ void FaTimeAlignmentNode::publishDiagnostics()
 }
 
 }  // namespace fa_time_alignment
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_time_alignment::FaTimeAlignmentNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_time_alignment"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

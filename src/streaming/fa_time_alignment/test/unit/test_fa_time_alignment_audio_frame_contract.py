@@ -11,6 +11,12 @@ def _source() -> str:
     return (_package_root() / "src" / "fa_time_alignment_node.cpp").read_text(encoding="utf-8")
 
 
+def _header() -> str:
+    return (_package_root() / "include" / "fa_time_alignment" / "fa_time_alignment_node.hpp").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_default_config_declares_explicit_time_alignment_contract() -> None:
     config = yaml.safe_load((_package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_time_alignment"]["ros__parameters"]
@@ -138,6 +144,24 @@ def test_streaming_node_has_no_device_io_sample_editing_or_legacy_aliases() -> N
         assert token not in source
 
 
+def test_ros2_node_name_and_executable_match_required_contract() -> None:
+    source = _source()
+    header = _header()
+    main_source = (_package_root() / "src" / "main.cpp").read_text(encoding="utf-8")
+    launch = (_package_root() / "launch" / "fa_time_alignment.launch.py").read_text(
+        encoding="utf-8"
+    )
+    cmake = (_package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert "class FaTimeAlignmentNode : public rclcpp::Node" in header
+    assert 'rclcpp::Node("fa_time_alignment", options)' in source
+    assert "explicit FaTimeAlignmentNode(const rclcpp::NodeOptions & options" in header
+    assert "fa_time_alignment::FaTimeAlignmentNode" in main_source
+    assert 'default_value="fa_time_alignment"' in launch
+    assert 'executable="fa_time_alignment_node"' in launch
+    assert "add_executable(fa_time_alignment_node" in cmake
+
+
 def test_diagnostics_publish_required_counters() -> None:
     source = _source()
     publish_diagnostics = source.split("void FaTimeAlignmentNode::publishDiagnostics")[1]
@@ -161,7 +185,9 @@ def test_package_layout_matches_standard_streaming_layout() -> None:
         "launch/fa_time_alignment.launch.py",
         "include/fa_time_alignment/fa_time_alignment_node.hpp",
         "src/fa_time_alignment_node.cpp",
+        "src/main.cpp",
         "test/unit/test_fa_time_alignment_audio_frame_contract.py",
+        "test/cpp/test_fa_time_alignment_node_contract.cpp",
         "test/integration/.gitkeep",
         "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
@@ -176,10 +202,14 @@ def test_colcon_runs_pytest_contracts_and_lint_auto() -> None:
     package_xml = (_package_root() / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_lint_auto REQUIRED)" in cmake_text
+    assert "add_library(fa_time_alignment_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "ament_lint_auto_find_test_dependencies()" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
