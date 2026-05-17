@@ -8,19 +8,17 @@
 
 - text
 - voice id
-- volume dB
 
 ## 出力
 
 - sample rate
 - mono PCM16LE bytes
-- `AudioFrame.source_id=fa_tts`
-- `AudioFrame.stream_id=output_topic`
-- `AudioFrame.layout=interleaved`
 
 ## runtime dependency
 
-`pyopenjtalk` は ROS package dependency ではなく、node 実行環境に明示的に provision する。未導入なら import 時点で起動失敗する。
+`pyopenjtalk` は ROS package dependency ではなく、node 実行環境に明示的に provision する。`backend.name=pyopenjtalk` が選択された状態で未導入なら起動失敗する。
+
+Backend は ROS2 topic、ROS message、`rclpy` を知らない。`AudioFrame` への変換は node が行う。
 
 ## 失敗条件
 

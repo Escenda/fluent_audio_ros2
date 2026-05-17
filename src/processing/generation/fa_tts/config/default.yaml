@@ -1,5 +1,6 @@
 fa_tts:
   ros__parameters:
+    backend.name: "pyopenjtalk"
     default_voice: ""
     output_topic: "audio/tts/frame"
     cache_dir: "~/.cache/fluent_audio/tts"

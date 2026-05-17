@@ -1,48 +1,44 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import hashlib
 import logging
-import os
 from array import array
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
-import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
 from fa_interfaces.msg import AudioFrame
 from fa_interfaces.srv import Speak
+from fa_tts_py.backends.base import SynthesizedAudio
+from fa_tts_py.backends.factory import build_tts_backend
 
-# Set pyopenjtalk dictionary directory to user's home directory
-os.environ.setdefault("OPEN_JTALK_DICT_DIR", str(Path.home() / ".pyopenjtalk"))
 
-# Disable tqdm progress bar for pyopenjtalk downloads
-os.environ["TQDM_DISABLE"] = "1"
-
-import pyopenjtalk  # noqa: E402
-
-class CachedAudio:
-    __slots__ = ("audio_bytes", "sample_rate", "channels", "bit_depth")
-
-    def __init__(self, audio_bytes: bytes, sample_rate: int, channels: int, bit_depth: int) -> None:
-        self.audio_bytes = audio_bytes
-        self.sample_rate = sample_rate
-        self.channels = channels
-        self.bit_depth = bit_depth
+@dataclass(frozen=True)
+class CacheMetadata:
+    sample_rate: int
+    channels: int
+    bit_depth: int
 
 
 class FaTtsNode(Node):
     def __init__(self) -> None:
         super().__init__("fa_tts")
-        self.get_logger().info("Starting FA TTS node (pyopenjtalk backend)")
 
+        self.declare_parameter("backend.name", "")
         self.declare_parameter("default_voice", "")
         self.declare_parameter("output_topic", "audio/tts/frame")
         self.declare_parameter("cache_dir", "")
 
+        self.backend_name = self.get_parameter("backend.name").get_parameter_value().string_value
         self.default_voice = self.get_parameter("default_voice").get_parameter_value().string_value
         self.output_topic = self.get_parameter("output_topic").get_parameter_value().string_value
+        if not self.output_topic:
+            raise RuntimeError("output_topic is required")
+        self.backend = build_tts_backend(self.backend_name)
 
         cache_dir_param = self.get_parameter("cache_dir").get_parameter_value().string_value
         self.cache_dir = Path(cache_dir_param).expanduser() if cache_dir_param else None
@@ -58,7 +54,8 @@ class FaTtsNode(Node):
         self.tts_pub = self.create_publisher(AudioFrame, self.output_topic, qos)
         self.srv = self.create_service(Speak, "speak", self.handle_speak)
 
-        self.cache: dict[str, CachedAudio] = {}
+        self.cache: dict[str, SynthesizedAudio] = {}
+        self.get_logger().info("Starting FA TTS node with backend=%s", self.backend.name)
 
     def handle_speak(self, request: Speak.Request, response: Speak.Response) -> Speak.Response:
         text = request.text.strip()
@@ -92,7 +89,7 @@ class FaTtsNode(Node):
         if cached is None:
             self.get_logger().info("TTS cache miss, synthesizing...")
             try:
-                cached = self.synthesize(text, voice_id)
+                cached = self.backend.synthesize(text, voice_id)
             except Exception as exc:  # pylint: disable=broad-except
                 self.get_logger().error(f"TTS failed: {exc}")
                 response.success = False
@@ -115,29 +112,13 @@ class FaTtsNode(Node):
 
         return response
 
-    def synthesize(self, text: str, voice_id: str) -> CachedAudio:
-        options: dict[str, str] = {}
-        if voice_id:
-            options["voice"] = voice_id
-        wav, sample_rate = pyopenjtalk.tts(text, **options)
-        waveform = np.asarray(wav, dtype=np.float32)
-
-        # pyopenjtalk が返す波形は float64 だが、環境によっては
-        # -32768〜32767 相当のスケールで返ってくることがある。
-        # そのまま[-1,1]にクリップすると全区間が潰れてノイズ化するため、
-        # 振幅が1.0を超える場合は16bitスケールとして正規化する。
-        if waveform.size:
-            abs_max = float(np.max(np.abs(waveform)))
-            if abs_max > 1.0:
-                waveform /= 32768.0
-        else:
-            abs_max = 1.0
-        waveform = np.clip(waveform, -1.0, 1.0)
-        pcm = (waveform * 32767.0).astype(np.int16)
-        audio_bytes = pcm.tobytes()
-        return CachedAudio(audio_bytes, int(sample_rate), 1, 16)
-
-    def build_frame(self, cached: CachedAudio, *, stamp=None, epoch: int | None = None) -> AudioFrame:
+    def build_frame(
+        self,
+        cached: SynthesizedAudio,
+        *,
+        stamp=None,
+        epoch: int | None = None,
+    ) -> AudioFrame:
         frame = AudioFrame()
         frame.header.stamp = stamp if stamp is not None else self.get_clock().now().to_msg()
         frame.source_id = "fa_tts"
@@ -157,12 +138,12 @@ class FaTtsNode(Node):
         digest.update(voice_id.encode("utf-8"))
         return digest.hexdigest()
 
-    def cache_file_path(self, cache_key: str) -> Optional[Path]:
+    def cache_file_path(self, cache_key: str) -> Path | None:
         if not self.cache_dir:
             return None
         return self.cache_dir / f"{cache_key}.pcm"
 
-    def load_cache_from_disk(self, cache_key: str) -> Optional[CachedAudio]:
+    def load_cache_from_disk(self, cache_key: str) -> SynthesizedAudio | None:
         path = self.cache_file_path(cache_key)
         if not path or not path.exists():
             return None
@@ -172,29 +153,46 @@ class FaTtsNode(Node):
             self.get_logger().warning("Failed to read cache file %s: %s", path, exc)
             return None
         meta_path = path.with_suffix(".meta")
-        sample_rate = 48000
-        channels = 1
-        bit_depth = 16
-        if meta_path.exists():
-            try:
-                content = meta_path.read_text().strip().split("\n")
-                for line in content:
-                    if not line:
-                        continue
-                    key, _, value = line.partition(":")
-                    key = key.strip()
-                    value = value.strip()
-                    if key == "sample_rate":
-                        sample_rate = int(value)
-                    elif key == "channels":
-                        channels = int(value)
-                    elif key == "bit_depth":
-                        bit_depth = int(value)
-            except OSError as exc:
-                self.get_logger().warning("Failed to parse cache metadata %s: %s", meta_path, exc)
-        return CachedAudio(data, sample_rate, channels, bit_depth)
+        if not meta_path.exists():
+            self.get_logger().warning("Ignoring TTS cache without metadata: %s", path)
+            return None
+        try:
+            metadata = self.parse_cache_metadata(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            self.get_logger().warning("Ignoring invalid TTS cache metadata %s: %s", meta_path, exc)
+            return None
+        return SynthesizedAudio(
+            data,
+            metadata.sample_rate,
+            metadata.channels,
+            metadata.bit_depth,
+        )
 
-    def write_cache_to_disk(self, cache_key: str, cached: CachedAudio) -> None:
+    @staticmethod
+    def parse_cache_metadata(text: str) -> CacheMetadata:
+        values: dict[str, int] = {}
+        for line in text.strip().split("\n"):
+            if not line:
+                continue
+            key, _, value = line.partition(":")
+            if not value:
+                raise ValueError("cache metadata line must be key:value")
+            key = key.strip()
+            if key not in ("sample_rate", "channels", "bit_depth"):
+                raise ValueError(f"unsupported cache metadata key: {key}")
+            values[key] = int(value.strip())
+        missing = {"sample_rate", "channels", "bit_depth"}.difference(values)
+        if missing:
+            raise ValueError(f"cache metadata missing keys: {sorted(missing)}")
+        if values["sample_rate"] <= 0 or values["channels"] <= 0 or values["bit_depth"] <= 0:
+            raise ValueError("cache metadata numeric values must be > 0")
+        return CacheMetadata(
+            values["sample_rate"],
+            values["channels"],
+            values["bit_depth"],
+        )
+
+    def write_cache_to_disk(self, cache_key: str, cached: SynthesizedAudio) -> None:
         path = self.cache_file_path(cache_key)
         if not path:
             return
