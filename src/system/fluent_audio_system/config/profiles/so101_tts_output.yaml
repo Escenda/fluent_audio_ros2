@@ -1,0 +1,101 @@
+system:
+  default_start_delay: 0.2
+  inter_group_delay: 0.5
+
+groups:
+  - id: audio_io
+    enable: true
+    nodes:
+      - id: fa_in
+        enable: false
+        package: fa_in
+        exec: fa_in_node
+        node_name: fa_in_node
+        namespace: ""
+        params_file: "${share:fa_in}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_out
+        enable: true
+        package: fa_out
+        exec: fa_out_node
+        node_name: fa_out
+        namespace: ""
+        params_file: "${share:fa_out}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+  - id: audio_generation
+    enable: true
+    nodes:
+      - id: fa_tts
+        enable: true
+        package: fa_tts
+        exec: fa_tts_node
+        node_name: fa_tts
+        namespace: ""
+        params_file: "${share:fa_tts}/config/default.yaml"
+        remappings: {}
+        parameters:
+          output_topic: "audio/tts/frame"
+
+  - id: audio_format
+    enable: true
+    nodes:
+      - id: fa_resample
+        enable: true
+        package: fa_resample
+        exec: fa_resample_node
+        node_name: fa_resample_tts
+        namespace: ""
+        params_file: "${share:fa_resample}/config/default.yaml"
+        remappings: {}
+        parameters:
+          target_sample_rate: 48000
+          mic.enabled: true
+          mic.input_topic: "audio/tts/frame"
+          mic.output_topic: "audio/tts/48k_float32"
+          ref.enabled: false
+
+      - id: fa_sample_format
+        enable: true
+        package: fa_sample_format
+        exec: fa_sample_format_node
+        node_name: fa_sample_format_tts
+        namespace: ""
+        params_file: "${share:fa_sample_format}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/tts/48k_float32"
+          output_topic: "audio/tts/pcm16"
+          input.encoding: "FLOAT32LE"
+          input.bit_depth: 32
+          output.encoding: "PCM16LE"
+          output.bit_depth: 16
+          expected.sample_rate: 48000
+          expected.channels: 1
+          expected.layout: "interleaved"
+
+  - id: audio_routing
+    enable: true
+    nodes:
+      - id: fa_mix
+        enable: true
+        package: fa_mix
+        exec: fa_mix_node
+        node_name: fa_mix_tts
+        namespace: ""
+        params_file: "${share:fa_mix}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topics:
+            - "audio/tts/pcm16"
+          input_gains_db:
+            - 0.0
+          master_index: 0
+          output_topic: "audio/output/frame"
+          expected.sample_rate: 48000
+          expected.channels: 1
+          expected.bit_depth: 16
+          expected.encoding: "PCM16LE"

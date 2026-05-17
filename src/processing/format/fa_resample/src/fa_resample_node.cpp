@@ -69,10 +69,8 @@ void FaResampleNode::loadParameters()
   config_.diagnostics_publish_period_ms =
     this->get_parameter("diagnostics.publish_period_ms").as_int();
 
-  if (config_.target_sample_rate != kRequiredTargetSampleRate) {
-    throw std::runtime_error(
-            "fa_resample requires target_sample_rate=16000 by design (got " +
-            std::to_string(config_.target_sample_rate) + ")");
+  if (config_.target_sample_rate <= 0) {
+    throw std::runtime_error("target_sample_rate must be > 0 (set via YAML)");
   }
   if (config_.input_encoding != kEncodingFloat32Le) {
     throw std::runtime_error("fa_resample input.encoding must be FLOAT32LE");

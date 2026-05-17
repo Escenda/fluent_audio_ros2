@@ -24,7 +24,14 @@ def _patch_profile_package_shares(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for package_name in ("fa_in", "fa_out", "fa_sample_format", "fa_resample"):
+    for package_name in (
+        "fa_in",
+        "fa_out",
+        "fa_sample_format",
+        "fa_resample",
+        "fa_tts",
+        "fa_mix",
+    ):
         config_dir = tmp_path / package_name / "config"
         config_dir.mkdir(parents=True)
         (config_dir / "default.yaml").write_text(
@@ -35,7 +42,14 @@ def _patch_profile_package_shares(
     def package_share(package_name: str) -> str:
         if package_name == "fluent_audio_system":
             return str(PACKAGE_ROOT)
-        if package_name in ("fa_in", "fa_out", "fa_sample_format", "fa_resample"):
+        if package_name in (
+            "fa_in",
+            "fa_out",
+            "fa_sample_format",
+            "fa_resample",
+            "fa_tts",
+            "fa_mix",
+        ):
             return str(tmp_path / package_name)
         raise RuntimeError(f"unexpected package share lookup: {package_name}")
 
@@ -136,6 +150,87 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
     assert resample.parameters == {
         "mic.input_topic": "audio/sample_format/mic",
         "mic.output_topic": "audio/resample16k/mic",
+    }
+
+
+def test_so101_tts_output_profile_expands_explicit_playback_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+
+    spec = load_system_config(
+        "${share:fluent_audio_system}/config/profiles/so101_tts_output.yaml"
+    )
+
+    enabled_nodes = [
+        node
+        for group in spec.groups
+        for node in group.nodes
+    ]
+
+    assert [node.id for node in enabled_nodes] == [
+        "fa_out",
+        "fa_tts",
+        "fa_resample",
+        "fa_sample_format",
+        "fa_mix",
+    ]
+    assert [node.package for node in enabled_nodes] == [
+        "fa_out",
+        "fa_tts",
+        "fa_resample",
+        "fa_sample_format",
+        "fa_mix",
+    ]
+
+    tts = enabled_nodes[1]
+    assert tts.params_file == str(
+        tmp_path / "fa_tts" / "config" / "default.yaml"
+    )
+    assert tts.parameters == {"output_topic": "audio/tts/frame"}
+
+    resample = enabled_nodes[2]
+    assert resample.params_file == str(
+        tmp_path / "fa_resample" / "config" / "default.yaml"
+    )
+    assert resample.parameters == {
+        "target_sample_rate": 48000,
+        "mic.enabled": True,
+        "mic.input_topic": "audio/tts/frame",
+        "mic.output_topic": "audio/tts/48k_float32",
+        "ref.enabled": False,
+    }
+
+    sample_format = enabled_nodes[3]
+    assert sample_format.params_file == str(
+        tmp_path / "fa_sample_format" / "config" / "default.yaml"
+    )
+    assert sample_format.parameters == {
+        "input_topic": "audio/tts/48k_float32",
+        "output_topic": "audio/tts/pcm16",
+        "input.encoding": "FLOAT32LE",
+        "input.bit_depth": 32,
+        "output.encoding": "PCM16LE",
+        "output.bit_depth": 16,
+        "expected.sample_rate": 48000,
+        "expected.channels": 1,
+        "expected.layout": "interleaved",
+    }
+
+    mix = enabled_nodes[4]
+    assert mix.params_file == str(
+        tmp_path / "fa_mix" / "config" / "default.yaml"
+    )
+    assert mix.parameters == {
+        "input_topics": ["audio/tts/pcm16"],
+        "input_gains_db": [0.0],
+        "master_index": 0,
+        "output_topic": "audio/output/frame",
+        "expected.sample_rate": 48000,
+        "expected.channels": 1,
+        "expected.bit_depth": 16,
+        "expected.encoding": "PCM16LE",
     }
 
 

@@ -17,7 +17,7 @@ It has no external DSP backend.
 ## Output Contract
 
 The node emits `FLOAT32LE` / 32-bit / interleaved frames at the configured
-`target_sample_rate`. The current design requires `target_sample_rate=16000`.
+`target_sample_rate`. The target sample rate must be greater than zero.
 
 ## Failure Policy
 

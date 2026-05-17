@@ -11,7 +11,6 @@
 namespace fa_resample
 {
 
-inline constexpr int kRequiredTargetSampleRate = 16000;
 inline constexpr const char * kEncodingFloat32Le = "FLOAT32LE";
 inline constexpr const char * kInterleavedLayout = "interleaved";
 

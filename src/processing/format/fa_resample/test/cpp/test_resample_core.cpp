@@ -109,3 +109,17 @@ TEST(ResampleCoreContract, ResamplesLinearFloat32WithoutChangingChannels)
   EXPECT_GT(output.back(), 0.0F);
   EXPECT_LT(output.back(), 1.0F);
 }
+
+TEST(ResampleCoreContract, ResamplesToConfiguredHigherSampleRate)
+{
+  const std::vector<float> input{0.0F, 0.25F, 0.5F, 0.75F, 1.0F};
+
+  uint32_t out_frames = 0;
+  const std::vector<float> output =
+    fa_resample::resampleLinear(input, 16000, 48000, 1, 5, out_frames);
+
+  EXPECT_EQ(out_frames, 15U);
+  ASSERT_EQ(output.size(), 15U);
+  EXPECT_FLOAT_EQ(output.front(), input.front());
+  EXPECT_LE(output.back(), 1.0F);
+}

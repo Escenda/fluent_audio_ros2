@@ -39,6 +39,8 @@ def test_resample_rejects_non_float32le_or_unidentified_frames() -> None:
     ).read_text(encoding="utf-8")
 
     assert "in.source_id.empty() || in.stream_id.empty()" in source
+    assert "target_sample_rate must be > 0" in source
+    assert "requires target_sample_rate=16000" not in source
     assert "fa_resample input.encoding must be FLOAT32LE" in source
     assert "fa_resample input.bit_depth must be 32" in source
     assert "fa_resample input.layout must be interleaved" in source
