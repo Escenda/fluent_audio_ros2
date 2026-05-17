@@ -13,54 +13,65 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
-option(FA_DENOISE_ENABLE_ONNXRUNTIME "Enable ONNX Runtime backend" ON)
+set(FA_DENOISE_ONNXRUNTIME "AUTO" CACHE STRING "ONNX Runtime backend build mode: AUTO, ON, or OFF")
+set_property(CACHE FA_DENOISE_ONNXRUNTIME PROPERTY STRINGS AUTO ON OFF)
 
-if(NOT FA_DENOISE_ENABLE_ONNXRUNTIME)
-  message(FATAL_ERROR "fa_denoise requires ONNX Runtime. Set FA_DENOISE_ENABLE_ONNXRUNTIME=ON and provide ONNXRUNTIME_ROOT or ONNXRUNTIME_INCLUDE_DIR/ONNXRUNTIME_LIBRARY.")
+if(NOT FA_DENOISE_ONNXRUNTIME MATCHES "^(AUTO|ON|OFF)$")
+  message(FATAL_ERROR "FA_DENOISE_ONNXRUNTIME must be AUTO, ON, or OFF")
 endif()
 
 set(ONNXRUNTIME_INCLUDE_DIR "" CACHE PATH "ONNX Runtime include directory (contains onnxruntime/core/session/onnxruntime_cxx_api.h)")
 set(ONNXRUNTIME_LIBRARY "" CACHE FILEPATH "ONNX Runtime library file (e.g. libonnxruntime.so)")
 
-if(NOT ONNXRUNTIME_INCLUDE_DIR)
-  find_path(ONNXRUNTIME_INCLUDE_DIR
-    NAMES onnxruntime/core/session/onnxruntime_cxx_api.h
-    HINTS ENV ONNXRUNTIME_ROOT ENV ONNXRUNTIME_DIR
-    PATH_SUFFIXES include
+set(FA_DENOISE_WITH_ONNXRUNTIME OFF)
+
+if(NOT FA_DENOISE_ONNXRUNTIME STREQUAL "OFF")
+  if(NOT ONNXRUNTIME_INCLUDE_DIR)
+    find_path(ONNXRUNTIME_INCLUDE_DIR
+      NAMES onnxruntime/core/session/onnxruntime_cxx_api.h
+      HINTS ENV ONNXRUNTIME_ROOT ENV ONNXRUNTIME_DIR
+      PATH_SUFFIXES include
+    )
+  endif()
+
+  if(NOT ONNXRUNTIME_LIBRARY)
+    find_library(ONNXRUNTIME_LIBRARY
+      NAMES onnxruntime
+      HINTS ENV ONNXRUNTIME_ROOT ENV ONNXRUNTIME_DIR
+      PATH_SUFFIXES lib lib64
+    )
+  endif()
+
+  if(ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
+    set(FA_DENOISE_WITH_ONNXRUNTIME ON)
+  elseif(FA_DENOISE_ONNXRUNTIME STREQUAL "ON")
+    message(FATAL_ERROR "ONNX Runtime is required when FA_DENOISE_ONNXRUNTIME=ON. Set ONNXRUNTIME_ROOT or ONNXRUNTIME_INCLUDE_DIR/ONNXRUNTIME_LIBRARY.")
+  else()
+    message(STATUS "ONNX Runtime not found; building fa_denoise without dtln_onnx runtime. Selecting backend.name=dtln_onnx will fail closed at node startup.")
+  endif()
+endif()
+
+if(FA_DENOISE_WITH_ONNXRUNTIME)
+  message(STATUS "ONNX Runtime found: include=${ONNXRUNTIME_INCLUDE_DIR} lib=${ONNXRUNTIME_LIBRARY}")
+  add_library(fa_denoise_backends STATIC
+    src/backends/dtln_onnx_engine.cpp
+    third_party/kissfft/kiss_fft.c
+    third_party/kissfft/kiss_fftr.c
+  )
+
+  target_include_directories(fa_denoise_backends PUBLIC
+    include
+  )
+
+  target_include_directories(fa_denoise_backends PRIVATE
+    ${ONNXRUNTIME_INCLUDE_DIR}
+    third_party/kissfft
+  )
+
+  target_link_libraries(fa_denoise_backends PUBLIC
+    ${ONNXRUNTIME_LIBRARY}
   )
 endif()
-
-if(NOT ONNXRUNTIME_LIBRARY)
-  find_library(ONNXRUNTIME_LIBRARY
-    NAMES onnxruntime
-    HINTS ENV ONNXRUNTIME_ROOT ENV ONNXRUNTIME_DIR
-    PATH_SUFFIXES lib lib64
-  )
-endif()
-
-if(NOT ONNXRUNTIME_INCLUDE_DIR OR NOT ONNXRUNTIME_LIBRARY)
-  message(FATAL_ERROR "ONNX Runtime is required for fa_denoise dtln_onnx backend. Set ONNXRUNTIME_ROOT or ONNXRUNTIME_INCLUDE_DIR/ONNXRUNTIME_LIBRARY.")
-endif()
-
-message(STATUS "ONNX Runtime found: include=${ONNXRUNTIME_INCLUDE_DIR} lib=${ONNXRUNTIME_LIBRARY}")
-add_library(fa_denoise_backends STATIC
-  src/backends/dtln_onnx_engine.cpp
-  third_party/kissfft/kiss_fft.c
-  third_party/kissfft/kiss_fftr.c
-)
-
-target_include_directories(fa_denoise_backends PUBLIC
-  include
-)
-
-target_include_directories(fa_denoise_backends PRIVATE
-  ${ONNXRUNTIME_INCLUDE_DIR}
-  third_party/kissfft
-)
-
-target_link_libraries(fa_denoise_backends PUBLIC
-  ${ONNXRUNTIME_LIBRARY}
-)
 
 add_executable(fa_denoise_node
   src/fa_denoise_node.cpp
@@ -70,27 +81,35 @@ target_include_directories(fa_denoise_node PRIVATE
   include
 )
 
-target_compile_definitions(fa_denoise_node PRIVATE FA_DENOISE_WITH_ONNXRUNTIME=1)
-
 ament_target_dependencies(fa_denoise_node
   rclcpp
   diagnostic_msgs
   fa_interfaces
 )
 
-target_link_libraries(fa_denoise_node
-  fa_denoise_backends
-)
+if(FA_DENOISE_WITH_ONNXRUNTIME)
+  target_compile_definitions(fa_denoise_node PRIVATE FA_DENOISE_WITH_ONNXRUNTIME=1)
 
-get_filename_component(ONNXRUNTIME_LIB_DIR "${ONNXRUNTIME_LIBRARY}" DIRECTORY)
-set_target_properties(fa_denoise_node PROPERTIES
-  BUILD_RPATH "${ONNXRUNTIME_LIB_DIR}"
-  INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}"
-)
+  target_link_libraries(fa_denoise_node
+    fa_denoise_backends
+  )
+
+  get_filename_component(ONNXRUNTIME_LIB_DIR "${ONNXRUNTIME_LIBRARY}" DIRECTORY)
+  set_target_properties(fa_denoise_node PROPERTIES
+    BUILD_RPATH "${ONNXRUNTIME_LIB_DIR}"
+    INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}"
+  )
+endif()
 
 install(TARGETS fa_denoise_node
   DESTINATION lib/${PROJECT_NAME}
 )
+
+if(FA_DENOISE_WITH_ONNXRUNTIME)
+  install(TARGETS fa_denoise_backends
+    DESTINATION lib/${PROJECT_NAME}
+  )
+endif()
 
 install(DIRECTORY
   launch

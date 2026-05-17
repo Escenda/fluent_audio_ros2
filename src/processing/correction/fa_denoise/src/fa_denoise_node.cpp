@@ -26,6 +26,7 @@ namespace
 constexpr int kRequiredSampleRate = 16000;
 constexpr const char * kInterleavedLayout = "interleaved";
 
+#ifdef FA_DENOISE_WITH_ONNXRUNTIME
 std::string resolveModelPathOrThrow(const std::string & path_or_empty, const std::string & parameter_name)
 {
   if (path_or_empty.empty()) {
@@ -38,6 +39,7 @@ std::string resolveModelPathOrThrow(const std::string & path_or_empty, const std
   }
   return path.string();
 }
+#endif
 
 uint64_t nanosSince(const std::chrono::steady_clock::time_point & start)
 {

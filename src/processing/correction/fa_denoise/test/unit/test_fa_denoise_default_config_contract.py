@@ -73,13 +73,34 @@ def test_cmake_builds_backend_library_and_registers_pytest() -> None:
     cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
     package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
 
+    assert 'set(FA_DENOISE_ONNXRUNTIME "AUTO"' in cmake_text
+    assert 'FA_DENOISE_ONNXRUNTIME MATCHES "^(AUTO|ON|OFF)$"' in cmake_text
+    assert 'FA_DENOISE_ONNXRUNTIME STREQUAL "ON"' in cmake_text
+    assert 'FA_DENOISE_WITH_ONNXRUNTIME' in cmake_text
+    assert "Selecting backend.name=dtln_onnx will fail closed at node startup" in cmake_text
     assert "add_library(fa_denoise_backends STATIC" in cmake_text
     assert "src/backends/dtln_onnx_engine.cpp" in cmake_text
     assert "third_party/kissfft/kiss_fft.c" in cmake_text
-    assert "target_link_libraries(fa_denoise_node\n  fa_denoise_backends" in cmake_text
+    assert "target_link_libraries(fa_denoise_node" in cmake_text
+    assert "fa_denoise_backends" in cmake_text
     assert "target_sources(fa_denoise_node" not in cmake_text
     assert "src/dtln_onnx_engine.cpp" not in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
+
+
+def test_node_fails_closed_when_dtln_selected_without_onnxruntime() -> None:
+    node_text = (Path(__file__).parents[2] / "src" / "fa_denoise_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    spec_text = (Path(__file__).parents[2] / "docs" / "仕様書.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "fa_denoise was built without ONNX Runtime support "
+        "(FA_DENOISE_WITH_ONNXRUNTIME=0)"
+    ) in node_text
+    assert "別 backend へ暗黙に切り替えない" in spec_text

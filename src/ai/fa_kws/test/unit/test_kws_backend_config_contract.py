@@ -48,16 +48,21 @@ def test_cmake_accepts_sherpa_prefix_from_environment() -> None:
     assert '$ENV{SHERPA_ONNX_PREFIX}' in cmake_text
 
 
-def test_cmake_has_explicit_test_only_mode_without_sherpa() -> None:
+def test_cmake_builds_node_without_sherpa_and_fails_closed_at_runtime() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
 
-    assert "FA_KWS_ALLOW_TEST_ONLY_WITHOUT_SHERPA" in cmake_text
-    assert "Runtime targets fa_kws_node/fa_kws_wav_tool will not be built" in cmake_text
+    assert 'set(FA_KWS_SHERPA_ONNX "AUTO"' in cmake_text
+    assert 'FA_KWS_SHERPA_ONNX MATCHES "^(AUTO|ON|OFF)$"' in cmake_text
+    assert 'FA_KWS_SHERPA_ONNX STREQUAL "ON"' in cmake_text
+    assert "FA_KWS_WITH_SHERPA_ONNX" in cmake_text
+    assert "Selecting backend.name=sherpa_onnx_kws will fail closed at node startup" in cmake_text
+    assert "add_executable(fa_kws_node" in cmake_text
+    assert "fa_kws was built without sherpa-onnx support" in node_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "message(FATAL_ERROR" in cmake_text
-    assert "if(FA_KWS_HAS_SHERPA_ONNX)" in cmake_text
-    assert "add_executable(fa_kws_node" in cmake_text
+    assert "if(FA_KWS_WITH_SHERPA_ONNX)" in cmake_text
 
 
 def test_backend_builds_as_shared_runtime_boundary() -> None:
@@ -65,7 +70,8 @@ def test_backend_builds_as_shared_runtime_boundary() -> None:
 
     assert "add_library(fa_kws_backends STATIC" in cmake_text
     assert "src/backends/sherpa_onnx_kws_backend.cpp" in cmake_text
-    assert "target_link_libraries(fa_kws_node\n    fa_kws_backends" in cmake_text
+    assert "target_link_libraries(fa_kws_node" in cmake_text
+    assert "fa_kws_backends" in cmake_text
     assert "target_link_libraries(fa_kws_wav_tool\n    fa_kws_backends" in cmake_text
     assert "src/backends/sherpa_onnx_kws_backend.cpp" not in cmake_text.split(
         "add_executable(fa_kws_node"

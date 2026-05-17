@@ -18,12 +18,18 @@
 
 ## runtime dependency
 
-ONNX Runtime C++ が build 時に必要。見つからない場合、`fa_denoise` は configure で失敗する。
+ONNX Runtime C++ が backend build 時に必要。CMake の `FA_DENOISE_ONNXRUNTIME` は `AUTO` / `ON` / `OFF` を取る。
+
+- `AUTO`: ONNX Runtime が見つかる場合だけ `dtln_onnx` runtime を組み込む。見つからない場合も package は build するが、`backend.name=dtln_onnx` を選んだ node は起動時に fail closed する。
+- `ON`: ONNX Runtime が見つからない場合は configure で失敗する。
+- `OFF`: `dtln_onnx` runtime を組み込まない。
+
+ONNX Runtime が無い環境で別 model、別 backend、passthrough へ暗黙に切り替えることはしない。
 
 ## 失敗条件
 
 - model path が存在しない
-- ONNX Runtime が見つからない
+- `backend.name=dtln_onnx` 選択時に ONNX Runtime support なしで build されている
 - input format が 16kHz mono ではない
 - inference failure
 

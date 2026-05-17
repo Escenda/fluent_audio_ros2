@@ -18,7 +18,9 @@
 
 #include "fa_kws/audio_utils.hpp"
 #include "fa_kws/backends/kws_backend.hpp"
+#ifdef FA_KWS_WITH_SHERPA_ONNX
 #include "fa_kws/backends/sherpa_onnx_kws_backend.hpp"
+#endif
 #include "fa_kws/vad_gate.hpp"
 
 namespace fa_kws
@@ -64,6 +66,8 @@ public:
     loadParameters();
     validateBackendOrThrow();
     validateVadInputOrThrow();
+
+#ifdef FA_KWS_WITH_SHERPA_ONNX
     validateExecutionProviderOrThrow();
     validateModelFilesOrThrow();
 
@@ -84,6 +88,11 @@ public:
     cfg.cooldown = std::chrono::milliseconds(cooldown_ms_);
 
     kws_backend_ = std::make_unique<SherpaOnnxKwsBackend>(cfg);
+#else
+    throw std::runtime_error(
+      "fa_kws was built without sherpa-onnx support (FA_KWS_WITH_SHERPA_ONNX=0)");
+#endif
+
     setupCommunication();
     setupDebug();
 
@@ -157,6 +166,17 @@ private:
     }
   }
 
+  void validateVadInputOrThrow() const
+  {
+    if (!isValidVadGateThreshold(probability_gate_)) {
+      throw std::runtime_error("vad.probability_gate must be finite and in (0.0, 1.0]");
+    }
+    if (vad_max_age_ms_ <= 0) {
+      throw std::runtime_error("vad.max_age_ms must be greater than zero");
+    }
+  }
+
+#ifdef FA_KWS_WITH_SHERPA_ONNX
   void validateExecutionProviderOrThrow() const
   {
     if (execution_provider_.empty()) {
@@ -168,16 +188,7 @@ private:
         "; supported providers: " + supportedSherpaOnnxExecutionProvidersForMessage());
     }
   }
-
-  void validateVadInputOrThrow() const
-  {
-    if (!isValidVadGateThreshold(probability_gate_)) {
-      throw std::runtime_error("vad.probability_gate must be finite and in (0.0, 1.0]");
-    }
-    if (vad_max_age_ms_ <= 0) {
-      throw std::runtime_error("vad.max_age_ms must be greater than zero");
-    }
-  }
+#endif
 
   static void writeWav(const std::string &path,
                        const std::vector<float> &samples,
