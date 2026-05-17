@@ -77,6 +77,9 @@ void FaInNode::loadParameters()
   config_.encoding = this->get_parameter("audio.encoding").as_string();
   config_.diag_period_ms = this->get_parameter("diagnostics.publish_period_ms").as_int();
 
+  if (config_.backend_name.empty()) {
+    throw std::runtime_error("backend.name is required");
+  }
   if (config_.backend_name != "alsa_capture") {
     throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
   }
@@ -363,7 +366,7 @@ bool FaInNode::determineDeviceFromConfig(std::string &device_id, std::string &de
     for (const auto &dev : devices) {
       std::string label = dev.second.empty() ? dev.first : dev.second;
       if (dev.first == config_.device_identifier ||
-          label.find(config_.device_identifier) != std::string::npos) {
+          label == config_.device_identifier) {
         device_id = dev.first;
         device_name = label;
         return true;
@@ -440,24 +443,12 @@ void FaInNode::handleSwitchDevice(
       ? device_id
       : devices[request->target_index].second;
   } else if (!request->target_identifier.empty()) {
-    // Prefer matching device_id (ALSA identifier) directly.
     for (const auto &dev : devices) {
-      if (dev.first == request->target_identifier) {
+      std::string label = dev.second.empty() ? dev.first : dev.second;
+      if (dev.first == request->target_identifier || label == request->target_identifier) {
         device_id = dev.first;
-        device_name = dev.second.empty() ? dev.first : dev.second;
+        device_name = label;
         break;
-      }
-    }
-
-    if (device_id.empty()) {
-      for (const auto &dev : devices) {
-        std::string label = dev.second.empty() ? dev.first : dev.second;
-        if (dev.first.find(request->target_identifier) != std::string::npos ||
-            label.find(request->target_identifier) != std::string::npos) {
-          device_id = dev.first;
-          device_name = label;
-          break;
-        }
       }
     }
   }

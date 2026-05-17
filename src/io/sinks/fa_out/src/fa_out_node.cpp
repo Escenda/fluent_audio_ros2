@@ -92,6 +92,9 @@ void FaOutNode::loadParameters()
 
   config_.backend_name = this->get_parameter("backend.name").as_string();
   config_.device_id = this->get_parameter("audio.device_id").as_string();
+  if (config_.backend_name.empty()) {
+    throw std::invalid_argument("backend.name is required");
+  }
   if (config_.backend_name != "alsa_playback") {
     throw std::invalid_argument("unsupported fa_out backend.name: " + config_.backend_name);
   }

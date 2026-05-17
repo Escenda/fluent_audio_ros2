@@ -25,7 +25,7 @@ namespace fa_in
 
 struct AudioConfig
 {
-  std::string backend_name{"alsa_capture"};
+  std::string backend_name{};
   std::string device_mode{"name"};
   std::string device_identifier{};
   int device_index{-1};
