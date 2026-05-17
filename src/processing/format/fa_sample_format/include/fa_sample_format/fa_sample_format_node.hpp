@@ -38,7 +38,7 @@ struct SampleFormatConfig
 class FaSampleFormatNode : public rclcpp::Node
 {
 public:
-  FaSampleFormatNode();
+  explicit FaSampleFormatNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaSampleFormatNode() override = default;
 
 private:

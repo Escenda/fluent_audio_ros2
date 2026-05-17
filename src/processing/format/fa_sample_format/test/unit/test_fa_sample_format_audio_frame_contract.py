@@ -137,6 +137,7 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "include/fa_sample_format/fa_sample_format_node.hpp",
         "include/fa_sample_format/sample_format_conversion.hpp",
         "src/fa_sample_format_node.cpp",
+        "src/main.cpp",
         "test/cpp",
         "test/unit",
         "test/integration",
@@ -155,7 +156,10 @@ def test_colcon_runs_pytest_contracts() -> None:
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
+    assert "add_library(fa_sample_format_node_core" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_conversion_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_graph_smoke_test" in cmake_text
+    assert "target_link_libraries(${PROJECT_NAME}_graph_smoke_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml

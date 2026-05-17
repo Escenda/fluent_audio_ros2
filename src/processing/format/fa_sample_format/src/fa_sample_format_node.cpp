@@ -33,8 +33,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaSampleFormatNode::FaSampleFormatNode()
-: rclcpp::Node("fa_sample_format")
+FaSampleFormatNode::FaSampleFormatNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_sample_format", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Sample Format node");
   loadParameters();
@@ -282,17 +282,3 @@ void FaSampleFormatNode::publishDiagnostics()
 }
 
 }  // namespace fa_sample_format
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_sample_format::FaSampleFormatNode>();
-    rclcpp::spin(node);
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_sample_format"), "Exception: %s", e.what());
-    return EXIT_FAILURE;
-  }
-  rclcpp::shutdown();
-  return EXIT_SUCCESS;
-}

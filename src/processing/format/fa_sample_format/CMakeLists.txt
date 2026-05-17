@@ -13,18 +13,26 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
-add_executable(fa_sample_format_node
+add_library(fa_sample_format_node_core
   src/fa_sample_format_node.cpp
 )
 
-target_include_directories(fa_sample_format_node PRIVATE
+target_include_directories(fa_sample_format_node_core PUBLIC
   include
 )
 
-ament_target_dependencies(fa_sample_format_node
+ament_target_dependencies(fa_sample_format_node_core
   rclcpp
   diagnostic_msgs
   fa_interfaces
+)
+
+add_executable(fa_sample_format_node
+  src/main.cpp
+)
+
+target_link_libraries(fa_sample_format_node
+  fa_sample_format_node_core
 )
 
 install(TARGETS fa_sample_format_node
@@ -51,6 +59,20 @@ if(BUILD_TESTING)
   )
   target_include_directories(${PROJECT_NAME}_conversion_test PRIVATE
     include
+  )
+
+  ament_add_gtest(${PROJECT_NAME}_graph_smoke_test
+    test/cpp/test_sample_format_graph.cpp
+  )
+  target_include_directories(${PROJECT_NAME}_graph_smoke_test PRIVATE
+    include
+  )
+  target_link_libraries(${PROJECT_NAME}_graph_smoke_test
+    fa_sample_format_node_core
+  )
+  ament_target_dependencies(${PROJECT_NAME}_graph_smoke_test
+    rclcpp
+    fa_interfaces
   )
 
   set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
