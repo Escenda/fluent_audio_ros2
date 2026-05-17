@@ -135,7 +135,33 @@ def test_device_services_surface_enumeration_failure() -> None:
     assert "response->message = e.what();" in switch_device
     assert "validation::requireExactlyOneSwitchDeviceSelector" in switch_device
     assert "device index not found" in switch_device
+    assert "device name is ambiguous" in switch_device
     assert "else if (!request->target_identifier.empty())" not in switch_device
+
+
+def test_alsa_name_selector_fails_closed_on_duplicate_display_names() -> None:
+    package_root = Path(__file__).parents[2]
+    backend_source = (
+        package_root / "src" / "backends" / "alsa_capture_backend.cpp"
+    ).read_text(encoding="utf-8")
+    node_source = (package_root / "src" / "fa_in_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    spec = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
+    backend_doc = (package_root / "docs" / "backends" / "alsa.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "device.id == selector.identifier" in backend_source
+    assert "display_name_matches.size() == 1" in backend_source
+    assert "display_name_matches.size() > 1" in backend_source
+    assert "Configured ALSA input source name is ambiguous" in backend_source
+    assert "display_name_matches.size() == 1" in node_source
+    assert "display_name_matches.size() > 1" in node_source
+    assert "device name is ambiguous" in node_source
+    assert "一意に解決できる表示名" in spec
+    assert "重複表示名では fail closed" in spec
+    assert "configured display name が複数 source に一致する" in backend_doc
 
 
 def test_backend_implementation_files_are_ros_free() -> None:

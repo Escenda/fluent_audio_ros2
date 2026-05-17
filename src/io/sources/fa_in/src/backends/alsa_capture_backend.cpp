@@ -130,10 +130,22 @@ public:
 
     if (selector.mode == "name") {
       for (const auto& device : devices) {
-        const std::string label = displayName(device);
-        if (device.id == selector.identifier || label == selector.identifier) {
+        if (device.id == selector.identifier) {
           return device;
         }
+      }
+
+      std::vector<DeviceInfo> display_name_matches;
+      for (const auto& device : devices) {
+        if (displayName(device) == selector.identifier) {
+          display_name_matches.push_back(device);
+        }
+      }
+      if (display_name_matches.size() == 1) {
+        return display_name_matches[0];
+      }
+      if (display_name_matches.size() > 1) {
+        throw BackendError("Configured ALSA input source name is ambiguous: " + selector.identifier);
       }
       throw BackendError("Configured ALSA input source name was not found: " + selector.identifier);
     }

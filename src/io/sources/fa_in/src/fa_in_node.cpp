@@ -445,11 +445,26 @@ void FaInNode::handleSwitchDevice(
     device_name = displayName(devices[request->target_index]);
   } else {
     for (const auto &dev : devices) {
-      std::string label = displayName(dev);
-      if (dev.id == request->target_identifier || label == request->target_identifier) {
+      if (dev.id == request->target_identifier) {
         device_id = dev.id;
-        device_name = label;
+        device_name = displayName(dev);
         break;
+      }
+    }
+    if (device_id.empty()) {
+      std::vector<backends::DeviceInfo> display_name_matches;
+      for (const auto &dev : devices) {
+        if (displayName(dev) == request->target_identifier) {
+          display_name_matches.push_back(dev);
+        }
+      }
+      if (display_name_matches.size() == 1) {
+        device_id = display_name_matches[0].id;
+        device_name = displayName(display_name_matches[0]);
+      } else if (display_name_matches.size() > 1) {
+        response->success = false;
+        response->message = "device name is ambiguous";
+        return;
       }
     }
   }

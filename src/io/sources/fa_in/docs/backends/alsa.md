@@ -6,13 +6,14 @@
 
 ## Contract
 
-`backend.name=alsa_capture` の backend です。ALSA raw hardware capture source を明示 id または index で開き、PCM frame を `fa_in` に返します。
+`backend.name=alsa_capture` の backend です。ALSA raw hardware capture source を明示 id、index、または一意に解決できる表示名で開き、PCM frame を `fa_in` に返します。
 
 この backend は ROS-free です。`rclcpp`、`fa_interfaces`、ROS message header を include せず、ALSA device enumeration / open / read / drop / close のみを担当します。
 
 ## Input
 
 - ALSA PCM source id。`hw:` で始まる raw hardware source のみ許可する
+- 表示名指定時は完全一致かつ 1 件だけに解決されること
 - sample rate
 - channels
 - encoding / bit depth pair。許可する組は `PCM16LE/16`, `PCM32LE/32`, `FLOAT32LE/32`
@@ -27,6 +28,7 @@
 
 - source enumeration failure
 - configured source missing
+- configured display name が複数 source に一致する
 - configured source が ALSA plugin PCM (`default`, `plug*`, `plughw*`, `sysdefault`, `pulse`, `pipewire` など)
 - open failure
 - unsupported format
