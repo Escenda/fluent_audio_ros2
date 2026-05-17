@@ -77,10 +77,14 @@ def test_publish_frame_sets_required_audio_frame_identity_without_analysis_field
 
 def test_alsa_backend_filters_plugin_pcm_sources() -> None:
     source_path = Path(__file__).parents[2] / "src" / "backends" / "alsa_capture_backend.cpp"
+    validation_header_path = Path(__file__).parents[2] / "include" / "fa_in" / "audio_config_validation.hpp"
     source = source_path.read_text(encoding="utf-8")
+    validation_header = validation_header_path.read_text(encoding="utf-8")
 
-    assert "isRawAlsaHardwareSource" in source
-    assert 'rfind("hw:", 0)' in source
+    assert "isRawAlsaHardwareSource" in validation_header
+    assert 'rfind("hw:", 0)' in validation_header
+    assert "validation::isRawAlsaHardwareSource(source_id)" in source
+    assert "validation::requireRawAlsaHardwareSource(device_id);" in source
     assert "devices.push_back(DeviceInfo{source_id" in source
     assert "throw BackendError(alsaError(\"snd_device_name_hint failed\", err));" in source
 
@@ -129,6 +133,9 @@ def test_device_services_surface_enumeration_failure() -> None:
     assert "response->message = \"ok\";" in list_devices
     assert "response->success = false;" in switch_device
     assert "response->message = e.what();" in switch_device
+    assert "validation::requireExactlyOneSwitchDeviceSelector" in switch_device
+    assert "device index not found" in switch_device
+    assert "else if (!request->target_identifier.empty())" not in switch_device
 
 
 def test_backend_implementation_files_are_ros_free() -> None:

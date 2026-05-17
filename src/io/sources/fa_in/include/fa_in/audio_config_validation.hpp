@@ -42,6 +42,33 @@ inline void requireDeviceSelector(
   throw std::runtime_error("unsupported audio.device_selector.mode: " + mode);
 }
 
+inline bool isRawAlsaHardwareSource(const std::string & source_id)
+{
+  return source_id.rfind("hw:", 0) == 0;
+}
+
+inline void requireRawAlsaHardwareSource(const std::string & source_id)
+{
+  if (source_id.empty()) {
+    throw std::runtime_error("audio input source id is required");
+  }
+  if (!isRawAlsaHardwareSource(source_id)) {
+    throw std::runtime_error(
+      "ALSA capture source must be a raw hw: device id; plugin PCM is not allowed: " + source_id);
+  }
+}
+
+inline void requireExactlyOneSwitchDeviceSelector(
+  const std::string & target_identifier, const int64_t target_index)
+{
+  const bool has_identifier = !target_identifier.empty();
+  const bool has_index = target_index >= 0;
+  if (has_identifier == has_index) {
+    throw std::runtime_error(
+      "switch_device requires exactly one selector: target_identifier or target_index");
+  }
+}
+
 inline size_t captureFramesPerBuffer(const uint32_t sample_rate, const uint32_t chunk_ms)
 {
   const uint64_t frame_product =

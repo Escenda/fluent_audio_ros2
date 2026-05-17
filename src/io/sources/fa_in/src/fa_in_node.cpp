@@ -413,6 +413,16 @@ void FaInNode::handleSwitchDevice(
   const std::shared_ptr<fa_interfaces::srv::SwitchDevice::Request> request,
   std::shared_ptr<fa_interfaces::srv::SwitchDevice::Response> response)
 {
+  try {
+    validation::requireExactlyOneSwitchDeviceSelector(
+      request->target_identifier,
+      request->target_index);
+  } catch (const std::runtime_error & e) {
+    response->success = false;
+    response->message = e.what();
+    return;
+  }
+
   std::vector<backends::DeviceInfo> devices;
   try {
     devices = enumerateCaptureDevices();
@@ -425,11 +435,15 @@ void FaInNode::handleSwitchDevice(
   std::string device_id;
   std::string device_name;
 
-  if (request->target_index >= 0 &&
-      static_cast<size_t>(request->target_index) < devices.size()) {
+  if (request->target_index >= 0) {
+    if (static_cast<size_t>(request->target_index) >= devices.size()) {
+      response->success = false;
+      response->message = "device index not found";
+      return;
+    }
     device_id = devices[request->target_index].id;
     device_name = displayName(devices[request->target_index]);
-  } else if (!request->target_identifier.empty()) {
+  } else {
     for (const auto &dev : devices) {
       std::string label = displayName(dev);
       if (dev.id == request->target_identifier || label == request->target_identifier) {

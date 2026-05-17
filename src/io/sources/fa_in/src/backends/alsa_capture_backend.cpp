@@ -28,11 +28,6 @@ void silenceAlsaErrors(
   // ALSA prints directly to stderr when devices are missing. fa_in surfaces these failures through BackendError.
 }
 
-bool isRawAlsaHardwareSource(const std::string& source_id)
-{
-  return source_id.rfind("hw:", 0) == 0;
-}
-
 std::string displayName(const DeviceInfo& device)
 {
   if (device.name.empty()) {
@@ -98,7 +93,7 @@ public:
       const bool is_input = (io == nullptr) || (std::strcmp(io, "Input") == 0);
       if (name != nullptr && is_input) {
         const std::string source_id{name};
-        if (isRawAlsaHardwareSource(source_id)) {
+        if (validation::isRawAlsaHardwareSource(source_id)) {
           devices.push_back(DeviceInfo{source_id, desc != nullptr ? std::string(desc) : ""});
         }
       }
@@ -150,9 +145,7 @@ public:
   {
     close();
 
-    if (device_id.empty()) {
-      throw BackendError("audio input source id is required");
-    }
+    validation::requireRawAlsaHardwareSource(device_id);
 
     int err = snd_pcm_open(&pcm_handle_, device_id.c_str(), SND_PCM_STREAM_CAPTURE, 0);
     if (err < 0) {

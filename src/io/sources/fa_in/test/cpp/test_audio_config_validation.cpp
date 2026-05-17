@@ -41,6 +41,31 @@ TEST(FaInAudioConfigValidation, RejectsMissingExplicitDeviceSelector)
     std::runtime_error);
 }
 
+TEST(FaInAudioConfigValidation, RejectsAlsaPluginPcmSourceIds)
+{
+  EXPECT_NO_THROW(fa_in::validation::requireRawAlsaHardwareSource("hw:1,0"));
+  EXPECT_NO_THROW(fa_in::validation::requireRawAlsaHardwareSource("hw:CARD=Device,DEV=0"));
+
+  EXPECT_THROW(fa_in::validation::requireRawAlsaHardwareSource(""), std::runtime_error);
+  EXPECT_THROW(fa_in::validation::requireRawAlsaHardwareSource("default"), std::runtime_error);
+  EXPECT_THROW(fa_in::validation::requireRawAlsaHardwareSource("plughw:1,0"), std::runtime_error);
+  EXPECT_THROW(fa_in::validation::requireRawAlsaHardwareSource("pulse"), std::runtime_error);
+  EXPECT_THROW(fa_in::validation::requireRawAlsaHardwareSource("pipewire"), std::runtime_error);
+}
+
+TEST(FaInAudioConfigValidation, RejectsAmbiguousSwitchDeviceSelectors)
+{
+  EXPECT_NO_THROW(fa_in::validation::requireExactlyOneSwitchDeviceSelector("hw:1,0", -1));
+  EXPECT_NO_THROW(fa_in::validation::requireExactlyOneSwitchDeviceSelector("", 0));
+
+  EXPECT_THROW(
+    fa_in::validation::requireExactlyOneSwitchDeviceSelector("", -1),
+    std::runtime_error);
+  EXPECT_THROW(
+    fa_in::validation::requireExactlyOneSwitchDeviceSelector("hw:1,0", 0),
+    std::runtime_error);
+}
+
 TEST(FaInAudioConfigValidation, RejectsNonIntegerCaptureFrameCounts)
 {
   EXPECT_EQ(fa_in::validation::captureFramesPerBuffer(48000, 20), 960u);
