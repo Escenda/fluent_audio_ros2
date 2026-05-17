@@ -1,0 +1,46 @@
+from pathlib import Path
+
+
+PACKAGE_ROOT = Path(__file__).parents[2]
+
+
+def test_sherpa_backend_source_stays_ros_free() -> None:
+    backend_files = (
+        PACKAGE_ROOT / "include" / "fa_kws" / "backends" / "kws_backend.hpp",
+        PACKAGE_ROOT
+        / "include"
+        / "fa_kws"
+        / "backends"
+        / "sherpa_onnx_kws_backend.hpp",
+        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp",
+    )
+    forbidden_tokens = (
+        "rclcpp",
+        "fa_interfaces",
+        "AudioFrame",
+        "VadState",
+        "WakeWordResult",
+    )
+
+    for backend_file in backend_files:
+        source = backend_file.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            assert token not in source
+
+
+def test_native_backend_is_explicit_runtime_boundary_not_dummy_fallback() -> None:
+    cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
+    docs_text = (
+        PACKAGE_ROOT / "docs" / "backends" / "sherpa_onnx_kws.md"
+    ).read_text(encoding="utf-8")
+
+    assert 'set(FA_KWS_SHERPA_ONNX "AUTO"' in cmake_text
+    assert 'FA_KWS_SHERPA_ONNX STREQUAL "ON"' in cmake_text
+    assert "message(FATAL_ERROR" in cmake_text
+    assert "add_library(fa_kws_backends STATIC" in cmake_text
+    assert "fa_kws was built without sherpa-onnx support" in node_text
+    assert "dummy" not in cmake_text.lower()
+    assert "dummy" not in node_text.lower()
+    assert "fail closed" in docs_text
+    assert "別 model、別 backend、dummy backend へ暗黙に切り替えることはしない" in docs_text

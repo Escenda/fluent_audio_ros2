@@ -14,4 +14,4 @@
 
 ビルド時には sherpa-onnx C API が必要です。標準パスに無い場合は `SHERPA_ONNX_PREFIX` 環境変数または CMake cache で install prefix を指定してください。
 
-Contract test だけを実行する環境では、`-DFA_KWS_ALLOW_TEST_ONLY_WITHOUT_SHERPA=ON` を明示できます。この場合でも runtime target は作らず、sherpa-onnx 欠落を backend fallback や dummy backend で隠しません。
+Contract test だけを実行する環境では、`-DFA_KWS_SHERPA_ONNX=OFF` を明示できます。sherpa-onnx C API を必須にする runtime build では `-DFA_KWS_SHERPA_ONNX=ON` を使います。`AUTO` または `OFF` で sherpa-onnx が組み込まれない場合でも、別 backend や dummy backend へ暗黙に切り替えることはありません。
