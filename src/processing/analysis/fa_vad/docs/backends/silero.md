@@ -42,4 +42,4 @@ External Silero VAD process。
 
 `backend.command` は ROS2 node と異なる Python / venv / container runtime を指すための境界です。command が失敗しても別 backend へ fallback しません。
 
-`fa_vad` は `scripts/silero_vad_worker` を reference worker として同梱します。運用ではこの script をそのまま使っても、別 venv / 別 container に配置した互換 worker command を指定してもかまいません。互換 worker は `--audio`, `--model`, `--provider`, `--sample-rate` を受け取り、stdout の最終非空行に probability float を出力します。
+`fa_vad` は `scripts/silero_vad_worker` を reference worker として同梱します。この script は entrypoint のみを持ち、実装は `fa_vad_py.backends.silero_worker` に置きます。運用では同梱 script をそのまま使っても、別 venv / 別 container に配置した互換 worker command を指定してもかまいません。互換 worker は `--audio`, `--model`, `--provider`, `--sample-rate` を受け取り、stdout の最終非空行に probability float を出力します。

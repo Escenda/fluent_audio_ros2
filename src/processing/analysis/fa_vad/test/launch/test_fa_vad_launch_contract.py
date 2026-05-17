@@ -33,3 +33,14 @@ def test_default_config_requires_external_worker_command() -> None:
     rendered_args = " ".join(params["backend.args"])
     for placeholder in ("{audio}", "{model}", "{provider}", "{sample_rate}"):
         assert placeholder in rendered_args
+
+
+def test_reference_worker_script_is_thin_backend_entrypoint() -> None:
+    script_text = (PACKAGE_ROOT / "scripts" / "silero_vad_worker").read_text(
+        encoding="utf-8"
+    )
+    backend_worker = PACKAGE_ROOT / "fa_vad_py" / "backends" / "silero_worker.py"
+
+    assert backend_worker.is_file()
+    assert "from fa_vad_py.backends.silero_worker import main" in script_text
+    assert "torch.hub.load" not in script_text
