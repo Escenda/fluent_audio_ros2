@@ -38,7 +38,7 @@ struct ResampleConfig
 class FaResampleNode : public rclcpp::Node
 {
 public:
-  FaResampleNode();
+  explicit FaResampleNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaResampleNode() override = default;
 
 private:

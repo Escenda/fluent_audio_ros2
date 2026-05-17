@@ -80,6 +80,8 @@ def test_colcon_runs_cpp_and_pytest_contracts() -> None:
     package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
+    assert "add_library(fa_resample_node_core" in cmake_text
     assert "ament_add_gtest(test_resample_core" in cmake_text
+    assert "ament_add_gtest(test_resample_graph" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml

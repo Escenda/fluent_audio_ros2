@@ -13,18 +13,26 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
-add_executable(fa_resample_node
+add_library(fa_resample_node_core
   src/fa_resample_node.cpp
 )
 
-target_include_directories(fa_resample_node PRIVATE
+target_include_directories(fa_resample_node_core PUBLIC
   include
 )
 
-ament_target_dependencies(fa_resample_node
+ament_target_dependencies(fa_resample_node_core
   rclcpp
   diagnostic_msgs
   fa_interfaces
+)
+
+add_executable(fa_resample_node
+  src/main.cpp
+)
+
+target_link_libraries(fa_resample_node
+  fa_resample_node_core
 )
 
 install(TARGETS fa_resample_node
@@ -52,6 +60,22 @@ if(BUILD_TESTING)
   if(TARGET test_resample_core)
     target_include_directories(test_resample_core PRIVATE
       include
+    )
+  endif()
+
+  ament_add_gtest(test_resample_graph
+    test/cpp/test_resample_graph.cpp
+  )
+  if(TARGET test_resample_graph)
+    target_include_directories(test_resample_graph PRIVATE
+      include
+    )
+    target_link_libraries(test_resample_graph
+      fa_resample_node_core
+    )
+    ament_target_dependencies(test_resample_graph
+      rclcpp
+      fa_interfaces
     )
   endif()
 

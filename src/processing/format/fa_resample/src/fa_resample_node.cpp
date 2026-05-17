@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -17,8 +16,8 @@
 namespace fa_resample
 {
 
-FaResampleNode::FaResampleNode()
-: rclcpp::Node("fa_resample")
+FaResampleNode::FaResampleNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_resample", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Resample node");
   loadParameters();
@@ -297,17 +296,3 @@ void FaResampleNode::publishDiagnostics()
 }
 
 }  // namespace fa_resample
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_resample::FaResampleNode>();
-    rclcpp::spin(node);
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_resample"), "Exception: %s", e.what());
-    return EXIT_FAILURE;
-  }
-  rclcpp::shutdown();
-  return EXIT_SUCCESS;
-}
