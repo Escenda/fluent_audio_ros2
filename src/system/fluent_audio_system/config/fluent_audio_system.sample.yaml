@@ -49,6 +49,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_channel_convert
+        enable: false
+        package: fa_channel_convert
+        exec: fa_channel_convert_node
+        node_name: fa_channel_convert
+        namespace: ""
+        params_file: "${share:fa_channel_convert}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
   - id: dynamics
     enable: true
     nodes:
@@ -69,6 +79,16 @@ groups:
         node_name: fa_limiter
         namespace: ""
         params_file: "${share:fa_limiter}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_noise_gate
+        enable: false
+        package: fa_noise_gate
+        exec: fa_noise_gate_node
+        node_name: fa_noise_gate
+        namespace: ""
+        params_file: "${share:fa_noise_gate}/config/default.yaml"
         remappings: {}
         parameters: {}
 
@@ -125,6 +145,16 @@ groups:
         node_name: fa_denoise
         namespace: ""
         params_file: "${share:fa_denoise}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_dc_offset_removal
+        enable: false
+        package: fa_dc_offset_removal
+        exec: fa_dc_offset_removal_node
+        node_name: fa_dc_offset_removal
+        namespace: ""
+        params_file: "${share:fa_dc_offset_removal}/config/default.yaml"
         remappings: {}
         parameters: {}
 
@@ -195,5 +225,18 @@ groups:
         node_name: fa_mix
         namespace: ""
         params_file: "${share:fa_mix}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+  - id: streaming
+    enable: true
+    nodes:
+      - id: fa_frame_buffer
+        enable: false
+        package: fa_frame_buffer
+        exec: fa_frame_buffer_node
+        node_name: fa_frame_buffer
+        namespace: ""
+        params_file: "${share:fa_frame_buffer}/config/default.yaml"
         remappings: {}
         parameters: {}

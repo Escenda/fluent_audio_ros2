@@ -42,13 +42,13 @@ and must not be counted as implemented package coverage.
 
 | Category | Current ROS 2 packages | Status |
 | --- | --- | --- |
-| `format/` | `fa_resample`, `fa_sample_format` | implemented packages |
-| `dynamics/` | `fa_gain`, `fa_limiter` | implemented packages |
+| `format/` | `fa_resample`, `fa_sample_format`, `fa_channel_convert` | implemented packages |
+| `dynamics/` | `fa_gain`, `fa_limiter`, `fa_noise_gate` | implemented packages |
 | `frequency/` | `fa_high_pass`, `fa_notch` | implemented packages |
 | `temporal/` | none | taxonomy placeholder only |
-| `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise` | implemented packages |
+| `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise`, `fa_dc_offset_removal` | implemented packages |
 | `spatial/` | none | taxonomy placeholder only |
 | `analysis/` | `fa_vad`, `fa_kws`, `fa_asr`, `fa_turn_detector` | implemented packages plus roadmap placeholders |
 | `generation/` | `fa_tts` | implemented package |
 | `routing/` | `fa_mix` | implemented package |
-| `streaming/` | none | taxonomy placeholder only |
+| `streaming/` | `fa_frame_buffer` | implemented package |
