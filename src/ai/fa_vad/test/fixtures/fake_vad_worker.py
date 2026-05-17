@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import wave
 from pathlib import Path
 
 
@@ -24,15 +23,11 @@ def main() -> int:
     if args.provider != "cpu":
         raise RuntimeError(f"unexpected provider: {args.provider}")
 
-    with wave.open(str(audio_path), "rb") as wav_file:
-        if wav_file.getframerate() != args.sample_rate:
-            raise RuntimeError("sample rate mismatch")
-        if wav_file.getnchannels() != 1:
-            raise RuntimeError("expected mono")
-        if wav_file.getsampwidth() != 2:
-            raise RuntimeError("expected PCM16")
-        if wav_file.getnframes() == 0:
-            raise RuntimeError("empty audio")
+    audio_bytes = audio_path.read_bytes()
+    if not audio_bytes:
+        raise RuntimeError("empty audio")
+    if len(audio_bytes) % 4 != 0:
+        raise RuntimeError("expected raw float32le")
 
     probability_text = str(args.probability).strip()
     probability_file = model_path / "probability.txt"

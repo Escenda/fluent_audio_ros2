@@ -1,7 +1,9 @@
 from pathlib import Path
 import sys
 
-from fa_vad_py.backends.base import Pcm16MonoWindow
+import numpy as np
+
+from fa_vad_py.backends.base import Float32MonoWindow
 from fa_vad_py.backends.silero import SileroVAD
 
 
@@ -46,7 +48,12 @@ def test_external_worker_pipeline_reports_speech_start(tmp_path: Path) -> None:
     (model_dir / "probability.txt").write_text("0.75", encoding="utf-8")
     backend = _backend(tmp_path=tmp_path, model_dir=model_dir)
 
-    result = backend.update(Pcm16MonoWindow(sample_rate=16000, data=bytes(512 * 2)))
+    result = backend.update(
+        Float32MonoWindow(
+            sample_rate=16000,
+            data=np.zeros(512, dtype="<f4").tobytes(),
+        )
+    )
 
     assert result is not None
     assert result.probability == 0.75
@@ -62,12 +69,22 @@ def test_external_worker_pipeline_reports_speech_end_after_hangover(tmp_path: Pa
     (model_dir / "probability.txt").write_text("0.75", encoding="utf-8")
     backend = _backend(tmp_path=tmp_path, model_dir=model_dir, hangover_ms=20)
 
-    start = backend.update(Pcm16MonoWindow(sample_rate=16000, data=bytes(512 * 2)))
+    start = backend.update(
+        Float32MonoWindow(
+            sample_rate=16000,
+            data=np.zeros(512, dtype="<f4").tobytes(),
+        )
+    )
     assert start is not None
     assert start.start is True
 
     (model_dir / "probability.txt").write_text("0.10", encoding="utf-8")
-    end = backend.update(Pcm16MonoWindow(sample_rate=16000, data=bytes(512 * 2)))
+    end = backend.update(
+        Float32MonoWindow(
+            sample_rate=16000,
+            data=np.zeros(512, dtype="<f4").tobytes(),
+        )
+    )
 
     assert end is not None
     assert end.probability == 0.1

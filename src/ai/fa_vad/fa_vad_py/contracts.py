@@ -34,6 +34,7 @@ def audio_frame_to_float_samples(
     data: bytes,
     source_id: str,
     stream_id: str,
+    encoding: str,
     layout: str,
     channels: int,
     bit_depth: int,
@@ -46,6 +47,8 @@ def audio_frame_to_float_samples(
         raise ValueError(f"AudioFrame layout must be interleaved, got {layout}")
     if int(channels) != 1:
         raise ValueError(f"AudioFrame channels must be 1, got {channels}")
+    if encoding != "FLOAT32LE":
+        raise ValueError(f"AudioFrame encoding must be FLOAT32LE, got {encoding}")
     if int(bit_depth) != 32:
         raise ValueError(f"AudioFrame bit_depth must be 32, got {bit_depth}")
     if len(data) % np.dtype(np.float32).itemsize != 0:

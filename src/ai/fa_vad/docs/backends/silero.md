@@ -8,14 +8,14 @@
 
 External Silero VAD process。
 
-`fa_vad` は PyTorch / Silero を ROS2 node process 内で import しません。`backend.command` で指定した外部 worker process に audio window を WAV file として渡し、stdout に出力された probability float を読みます。
+`fa_vad` は PyTorch / Silero を ROS2 node process 内で import しません。`backend.command` で指定した外部 worker process に audio window を raw float32le `.f32` file として渡し、stdout に出力された probability float を読みます。
 
 ## Input
 
-- `Pcm16MonoWindow`
-- mono PCM16 bytes
+- `Float32MonoWindow`
+- mono raw float32le bytes
 - target sample rate
-- local WAV path passed as `{audio}`
+- local `.f32` path passed as `{audio}`
 - model path passed as `{model}`
 - execution provider string passed as `{provider}`
 
@@ -36,7 +36,7 @@ External Silero VAD process。
 - `backend.command` が実行不能
 - `backend.args` に `{audio}`, `{model}`, `{provider}`, `{sample_rate}` が含まれない
 - `backend.args` に unknown placeholder / malformed format / conversion / format spec が含まれる
-- `Pcm16MonoWindow` の sample rate / byte alignment が契約外
+- `Float32MonoWindow` の sample rate / byte alignment / finite / normalized range が契約外
 - worker `--sample-rate` が 8kHz / 16kHz 以外
 - external command timeout / non-zero exit
 - external command stdout が probability float ではない

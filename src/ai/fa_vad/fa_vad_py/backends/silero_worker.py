@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import wave
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,7 +18,7 @@ class WorkerConfig:
 
 def parse_args() -> WorkerConfig:
     parser = argparse.ArgumentParser(description="Silero VAD external worker")
-    parser.add_argument("--audio", required=True, help="Mono PCM16 WAV file path")
+    parser.add_argument("--audio", required=True, help="Mono raw float32le audio path")
     parser.add_argument("--model", required=True, help="Local torch.hub Silero repository")
     parser.add_argument("--provider", required=True, help="cpu, cuda, or cuda:<index>")
     parser.add_argument("--sample-rate", required=True, type=int, help="Expected sample rate")
@@ -60,18 +59,16 @@ def validate_provider(provider: str) -> str:
 
 
 def read_audio_window(config: WorkerConfig) -> np.ndarray:
-    with wave.open(str(config.audio_path), "rb") as wav_file:
-        if wav_file.getnchannels() != 1:
-            raise RuntimeError("audio file must be mono")
-        if wav_file.getsampwidth() != 2:
-            raise RuntimeError("audio file must be PCM16")
-        if wav_file.getframerate() != config.sample_rate:
-            raise RuntimeError(
-                f"audio sample rate mismatch: {wav_file.getframerate()} != {config.sample_rate}"
-            )
-        pcm = wav_file.readframes(wav_file.getnframes())
-
-    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    audio_bytes = config.audio_path.read_bytes()
+    if not audio_bytes:
+        raise RuntimeError("audio file is empty")
+    if len(audio_bytes) % np.dtype("<f4").itemsize != 0:
+        raise RuntimeError("audio file must be raw float32le")
+    samples = np.frombuffer(audio_bytes, dtype="<f4")
+    if not np.all(np.isfinite(samples)):
+        raise RuntimeError("audio file contains non-finite samples")
+    if np.any(samples < -1.0) or np.any(samples > 1.0):
+        raise RuntimeError("audio samples must be normalized to [-1.0, 1.0]")
     required_samples = 512 if config.sample_rate == 16000 else 256
     if samples.size < required_samples:
         raise RuntimeError(

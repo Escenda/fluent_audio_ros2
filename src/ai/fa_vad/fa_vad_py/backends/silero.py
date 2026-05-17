@@ -5,13 +5,12 @@ import shutil
 import string
 import subprocess
 import time
-import wave
 from pathlib import Path
 
-from fa_vad_py.backends.base import Pcm16MonoWindow, VADDecision, VADResult
+from fa_vad_py.backends.base import Float32MonoWindow, VADDecision, VADResult
 
 
-_PAYLOAD_ENCODING = "pcm16_wav"
+_PAYLOAD_ENCODING = "float32le_raw"
 _ALLOWED_ARG_FIELDS = frozenset(("audio", "model", "provider", "sample_rate"))
 _REQUIRED_ARG_FIELDS = frozenset(("audio", "model", "provider", "sample_rate"))
 
@@ -69,10 +68,10 @@ class SileroVAD:
         self._buffer = bytearray()
         self._buf_ready = False
 
-    def update(self, window: Pcm16MonoWindow) -> VADDecision:
+    def update(self, window: Float32MonoWindow) -> VADDecision:
         if window.sample_rate != self.sample_rate:
             raise ValueError(
-                "Pcm16MonoWindow sample_rate must match backend sample_rate "
+                "Float32MonoWindow sample_rate must match backend sample_rate "
                 f"{self.sample_rate}, got {window.sample_rate}"
             )
         probability = self._probability(window.data)
@@ -99,23 +98,23 @@ class SileroVAD:
 
         return VADResult(probability, self._triggered, start, end)
 
-    def _probability(self, pcm16_bytes: bytes) -> float | None:
-        self._buffer.extend(pcm16_bytes)
-        max_bytes = self._max_samples * 2
+    def _probability(self, float32le_bytes: bytes) -> float | None:
+        self._buffer.extend(float32le_bytes)
+        max_bytes = self._max_samples * 4
         if len(self._buffer) > max_bytes:
             self._buffer = self._buffer[-max_bytes:]
 
-        required_bytes = self._required_samples * 2
+        required_bytes = self._required_samples * 4
         if len(self._buffer) < required_bytes:
             return None
 
         self._buf_ready = True
         window = bytes(self._buffer[-required_bytes:])
-        wav_path = self._workspace_dir / f"{time.time_ns()}_vad.wav"
+        audio_path = self._workspace_dir / f"{time.time_ns()}_vad.f32"
         try:
-            self._write_audio_payload(wav_path, window)
+            self._write_audio_payload(audio_path, window)
             command = [self._command]
-            command.extend(self._format_args(wav_path))
+            command.extend(self._format_args(audio_path))
             try:
                 completed = subprocess.run(
                     command,
@@ -134,13 +133,13 @@ class SileroVAD:
                 )
             return self._parse_probability(completed.stdout)
         finally:
-            if self._cleanup_audio_files and wav_path.exists():
-                wav_path.unlink()
+            if self._cleanup_audio_files and audio_path.exists():
+                audio_path.unlink()
 
-    def _format_args(self, wav_path: Path) -> list[str]:
+    def _format_args(self, audio_path: Path) -> list[str]:
         return [
             item.format(
-                audio=str(wav_path),
+                audio=str(audio_path),
                 model=str(self._model_path),
                 provider=self._execution_provider,
                 sample_rate=str(self.sample_rate),
@@ -148,17 +147,10 @@ class SileroVAD:
             for item in self._args
         ]
 
-    def _write_wav(self, wav_path: Path, pcm16_bytes: bytes) -> None:
-        with wave.open(str(wav_path), "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(self.sample_rate)
-            wav_file.writeframes(pcm16_bytes)
-
-    def _write_audio_payload(self, wav_path: Path, pcm16_bytes: bytes) -> None:
+    def _write_audio_payload(self, audio_path: Path, float32le_bytes: bytes) -> None:
         if self._payload_encoding != _PAYLOAD_ENCODING:
             raise RuntimeError(f"unsupported VAD payload_encoding: {self._payload_encoding}")
-        self._write_wav(wav_path, pcm16_bytes)
+        audio_path.write_bytes(float32le_bytes)
 
     @staticmethod
     def _validate_sample_rate(sample_rate: int) -> int:

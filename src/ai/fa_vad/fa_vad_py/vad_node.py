@@ -3,24 +3,19 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import Bool, Float32
 
 from fa_interfaces.msg import AudioFrame, VadState
-from fa_vad_py.backends.base import Pcm16MonoWindow, VADBackend
+from fa_vad_py.backends.base import Float32MonoWindow, VADBackend
 from fa_vad_py.backends.silero import SileroVAD
 from fa_vad_py.contracts import (
     audio_frame_to_float_samples,
     validate_node_config,
     validate_qos_depth,
 )
-
-
-def _float_to_pcm16(samples: np.ndarray) -> bytes:
-    return (samples * 32767.0).astype(np.int16).tobytes()
 
 
 class FaVadNode(Node):
@@ -192,16 +187,12 @@ class FaVadNode(Node):
                     "AudioFrame sample_rate must match target_sample_rate "
                     f"{self._target_sample_rate}, got {msg.sample_rate}"
                 )
-            samples = self._audio_to_float(msg)
+            window = self._audio_to_window(msg)
         except ValueError as exc:
             self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
             return
-        pcm_window = Pcm16MonoWindow(
-            sample_rate=self._target_sample_rate,
-            data=_float_to_pcm16(samples),
-        )
         try:
-            decision = self._vad.update(pcm_window)
+            decision = self._vad.update(window)
         except Exception as exc:
             self.get_logger().fatal("VAD backend failed: %s", exc)
             rclpy.shutdown()
@@ -237,15 +228,18 @@ class FaVadNode(Node):
             self._vad_pub.publish(vad_msg)
 
     @staticmethod
-    def _audio_to_float(msg: AudioFrame) -> np.ndarray:
-        return audio_frame_to_float_samples(
-            data=bytes(msg.data),
+    def _audio_to_window(msg: AudioFrame) -> Float32MonoWindow:
+        data = bytes(msg.data)
+        audio_frame_to_float_samples(
+            data=data,
             source_id=msg.source_id,
             stream_id=msg.stream_id,
+            encoding=msg.encoding,
             layout=msg.layout,
             channels=int(msg.channels),
             bit_depth=int(msg.bit_depth),
         )
+        return Float32MonoWindow(sample_rate=int(msg.sample_rate), data=data)
 
 
 def main(args: Iterable[str] | None = None) -> None:
