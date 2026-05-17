@@ -1,5 +1,5 @@
-# src/processing/analysis/fa_log_mel
+# fa_log_mel
 
-log-mel スペクトログラム等、特徴量の生成/提供 node を配置する予定地です。
+`fa_log_mel` は `FLOAT32LE` mono `AudioFrame` から log-mel feature matrix を生成する非 AI analysis node です。
 
-現時点では ROS 2 package ではありません。`package.xml`、launch、config、node 実装を持たないため、実装済みとして扱いません。
+この package は VAD、KWS、ASR、Turn Detector の推論を実行しません。model runtime は持たず、ROS-free な `internal_log_mel` backend で deterministic feature extraction だけを行います。

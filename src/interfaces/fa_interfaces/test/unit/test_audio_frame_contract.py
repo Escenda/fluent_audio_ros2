@@ -24,3 +24,32 @@ def test_audio_frame_is_waveform_payload_only() -> None:
     assert all("rms" not in field for field in fields)
     assert all("peak" not in field for field in fields)
     assert all("vad" not in field for field in fields)
+
+
+def test_log_mel_frame_is_feature_payload_only() -> None:
+    msg_path = Path(__file__).parents[2] / "msg" / "LogMelFrame.msg"
+    fields = [
+        line.strip()
+        for line in msg_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+    assert fields == [
+        "std_msgs/Header header",
+        "string source_id",
+        "string stream_id",
+        "uint32 sample_rate",
+        "uint32 input_sample_count",
+        "uint32 n_fft",
+        "uint32 hop_length",
+        "uint32 n_mels",
+        "uint32 frame_count",
+        "float32 f_min_hz",
+        "float32 f_max_hz",
+        "float32 log_floor",
+        "string layout",
+        "float32[] values",
+    ]
+    assert all("probability" not in field for field in fields)
+    assert all("detected" not in field for field in fields)
+    assert all("text" not in field for field in fields)

@@ -9,6 +9,7 @@ find_package(std_msgs REQUIRED)
 set(message_files
   "msg/AsrResult.msg"
   "msg/AudioFrame.msg"
+  "msg/LogMelFrame.msg"
   "msg/PlaybackDone.msg"
   "msg/TurnContext.msg"
   "msg/TurnEnd.msg"

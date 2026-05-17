@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+from fa_log_mel_py.log_mel_node import main
+
+
+if __name__ == "__main__":
+    main()

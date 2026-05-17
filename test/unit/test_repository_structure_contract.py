@@ -175,12 +175,15 @@ def test_processing_ros_packages_live_under_taxonomy_categories() -> None:
 def test_analysis_category_contains_only_non_ai_feature_packages() -> None:
     invalid: list[str] = []
     analysis_root = SRC_ROOT / "processing" / "analysis"
+    package_names: list[str] = []
 
     for package_root in sorted(path.parent for path in analysis_root.rglob("package.xml")):
+        package_names.append(package_root.name)
         if package_root.name not in ANALYSIS_PACKAGE_NAMES:
             invalid.append(str(package_root.relative_to(REPO_ROOT)))
 
     assert invalid == []
+    assert tuple(package_names) == ANALYSIS_PACKAGE_NAMES
 
 
 def test_ai_ros_packages_live_under_src_ai() -> None:

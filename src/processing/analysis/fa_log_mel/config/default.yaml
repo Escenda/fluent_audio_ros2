@@ -1,0 +1,18 @@
+fa_log_mel:
+  ros__parameters:
+    input_topic: "audio/features/input"
+    output_topic: "audio/features/log_mel"
+    backend.name: "internal_log_mel"
+    expected.sample_rate: 16000
+    expected.channels: 1
+    expected.encoding: "FLOAT32LE"
+    expected.bit_depth: 32
+    expected.layout: "interleaved"
+    feature.n_fft: 400
+    feature.hop_length: 160
+    feature.n_mels: 80
+    feature.f_min_hz: 0.0
+    feature.f_max_hz: 8000.0
+    feature.log_floor: 0.0000000001
+    qos.depth: 10
+    qos.reliable: false
