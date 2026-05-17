@@ -20,6 +20,17 @@ REQUIRED_PACKAGE_PATHS = (
     "test/fixtures",
 )
 
+IO_ROADMAP_PACKAGE_PATHS = (
+    "io/sources/fa_in",
+    "io/sources/fa_file_in",
+    "io/sources/fa_network_in",
+    "io/sinks/fa_out",
+    "io/sinks/fa_file_out",
+    "io/sinks/fa_network_out",
+    "io/utilities/fa_record",
+    "io/utilities/fa_stream",
+)
+
 
 PROCESSING_CATEGORIES = (
     "format",
@@ -31,6 +42,130 @@ PROCESSING_CATEGORIES = (
     "analysis",
     "generation",
     "routing",
+)
+
+PROCESSING_ROADMAP_PACKAGE_NAMES = (
+    (
+        "format",
+        (
+            "fa_resample",
+            "fa_bit_depth",
+            "fa_channel_convert",
+            "fa_interleave",
+            "fa_sample_format",
+            "fa_encode",
+            "fa_decode",
+            "fa_format",
+        ),
+    ),
+    (
+        "dynamics",
+        (
+            "fa_gain",
+            "fa_normalize",
+            "fa_compressor",
+            "fa_limiter",
+            "fa_expander",
+            "fa_noise_gate",
+            "fa_agc",
+        ),
+    ),
+    (
+        "frequency",
+        (
+            "fa_eq",
+            "fa_low_pass",
+            "fa_high_pass",
+            "fa_band_pass",
+            "fa_notch",
+            "fa_deesser",
+            "fa_spectral_subtraction",
+            "fa_wiener",
+            "fa_filter",
+        ),
+    ),
+    (
+        "temporal",
+        (
+            "fa_trim",
+            "fa_silence_removal",
+            "fa_time_stretch",
+            "fa_pitch_shift",
+            "fa_delay",
+            "fa_echo",
+            "fa_reverb",
+            "fa_crossfade",
+            "fa_fade",
+            "fa_window",
+        ),
+    ),
+    (
+        "correction",
+        (
+            "fa_denoise",
+            "fa_aec_linear",
+            "fa_aec_nn",
+            "fa_dereverb",
+            "fa_declip",
+            "fa_debreath",
+            "fa_declick",
+            "fa_wind",
+            "fa_hum",
+            "fa_dc_offset_removal",
+        ),
+    ),
+    (
+        "spatial",
+        (
+            "fa_pan",
+            "fa_stereo_widening",
+            "fa_downmix",
+            "fa_upmix",
+            "fa_beamforming",
+            "fa_source_separation",
+            "fa_binaural",
+            "fa_ambisonics",
+        ),
+    ),
+    (
+        "analysis",
+        (
+            "fa_onset",
+            "fa_pitch",
+            "fa_tempo",
+            "fa_stft",
+            "fa_log_mel",
+            "fa_mfcc",
+            "fa_cqt",
+            "fa_loudness",
+        ),
+    ),
+    (
+        "generation",
+        (
+            "fa_tts",
+            "fa_voice_conversion",
+            "fa_speech_enhancement",
+            "fa_speech_separation",
+            "fa_speech_translation",
+            "fa_music_source_separation",
+            "fa_neural_codec",
+            "fa_neural_vocoder",
+            "fa_super_resolution",
+        ),
+    ),
+    (
+        "routing",
+        (
+            "fa_mix",
+            "fa_bus_router",
+            "fa_sidechain",
+            "fa_ducking",
+            "fa_monitor_mix",
+            "fa_loopback",
+            "fa_patchbay",
+        ),
+    ),
 )
 
 ANALYSIS_PACKAGE_NAMES = (
@@ -166,6 +301,19 @@ def test_all_ros_packages_use_standard_documented_layout() -> None:
     assert missing == []
 
 
+def test_io_taxonomy_exposes_design_source_sink_utility_directories() -> None:
+    missing: list[str] = []
+
+    for package_path in IO_ROADMAP_PACKAGE_PATHS:
+        package_root = SRC_ROOT / package_path
+        if not package_root.is_dir():
+            missing.append(f"src/{package_path}/")
+        if not (package_root / "README.md").is_file():
+            missing.append(f"src/{package_path}/README.md")
+
+    assert missing == []
+
+
 def test_processing_taxonomy_has_all_design_categories() -> None:
     missing: list[str] = []
 
@@ -175,6 +323,20 @@ def test_processing_taxonomy_has_all_design_categories() -> None:
             missing.append(f"src/processing/{category}/")
         if not (category_path / "README.md").is_file():
             missing.append(f"src/processing/{category}/README.md")
+
+    assert missing == []
+
+
+def test_processing_taxonomy_exposes_all_design_roadmap_directories() -> None:
+    missing: list[str] = []
+
+    for category, package_names in PROCESSING_ROADMAP_PACKAGE_NAMES:
+        for package_name in package_names:
+            package_path = SRC_ROOT / "processing" / category / package_name
+            if not package_path.is_dir():
+                missing.append(f"src/processing/{category}/{package_name}/")
+            if not (package_path / "README.md").is_file():
+                missing.append(f"src/processing/{category}/{package_name}/README.md")
 
     assert missing == []
 
