@@ -1,9 +1,10 @@
 #include "fa_sample_format/fa_sample_format_node.hpp"
 
+#include "fa_sample_format/sample_format_conversion.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -18,12 +19,7 @@ namespace fa_sample_format
 
 namespace
 {
-constexpr const char * kEncodingPcm16 = "PCM16LE";
-constexpr const char * kEncodingPcm32 = "PCM32LE";
-constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr float kPcm16Scale = 32768.0F;
-constexpr double kPcm32Scale = 2147483648.0;
 
 void pushKeyValue(
   diagnostic_msgs::msg::DiagnosticStatus & status,
@@ -82,7 +78,7 @@ void FaSampleFormatNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
-  if (!isSupportedConversion(
+  if (!isSupportedSampleFormatConversion(
       config_.input_encoding,
       config_.input_bit_depth,
       config_.output_encoding,
@@ -257,71 +253,6 @@ bool FaSampleFormatNode::convertFrame(
   out.layout = in.layout;
   out.data = output_data;
   return true;
-}
-
-bool FaSampleFormatNode::isSupportedConversion(
-  const std::string & input_encoding,
-  int input_bit_depth,
-  const std::string & output_encoding,
-  int output_bit_depth)
-{
-  if (output_encoding != kEncodingFloat32 || output_bit_depth != 32) {
-    return false;
-  }
-  return (input_encoding == kEncodingPcm16 && input_bit_depth == 16) ||
-         (input_encoding == kEncodingPcm32 && input_bit_depth == 32);
-}
-
-std::vector<uint8_t> FaSampleFormatNode::convertPcm16ToFloat32(const std::vector<uint8_t> & input_bytes)
-{
-  if (input_bytes.empty() || (input_bytes.size() % sizeof(uint16_t)) != 0) {
-    return {};
-  }
-
-  std::vector<uint8_t> out_bytes;
-  out_bytes.reserve((input_bytes.size() / sizeof(uint16_t)) * sizeof(float));
-  for (size_t i = 0; i < input_bytes.size(); i += sizeof(uint16_t)) {
-    const uint16_t raw =
-      static_cast<uint16_t>(input_bytes.at(i)) |
-      (static_cast<uint16_t>(input_bytes.at(i + 1)) << 8U);
-    const int32_t signed_value = raw >= 0x8000U ?
-      static_cast<int32_t>(raw) - 0x10000 :
-      static_cast<int32_t>(raw);
-    appendFloat32Le(static_cast<float>(signed_value) / kPcm16Scale, out_bytes);
-  }
-  return out_bytes;
-}
-
-std::vector<uint8_t> FaSampleFormatNode::convertPcm32ToFloat32(const std::vector<uint8_t> & input_bytes)
-{
-  if (input_bytes.empty() || (input_bytes.size() % sizeof(uint32_t)) != 0) {
-    return {};
-  }
-
-  std::vector<uint8_t> out_bytes;
-  out_bytes.reserve((input_bytes.size() / sizeof(uint32_t)) * sizeof(float));
-  for (size_t i = 0; i < input_bytes.size(); i += sizeof(uint32_t)) {
-    const uint32_t raw =
-      static_cast<uint32_t>(input_bytes.at(i)) |
-      (static_cast<uint32_t>(input_bytes.at(i + 1)) << 8U) |
-      (static_cast<uint32_t>(input_bytes.at(i + 2)) << 16U) |
-      (static_cast<uint32_t>(input_bytes.at(i + 3)) << 24U);
-    const int64_t signed_value = raw >= 0x80000000UL ?
-      static_cast<int64_t>(raw) - 0x100000000LL :
-      static_cast<int64_t>(raw);
-    appendFloat32Le(static_cast<float>(static_cast<double>(signed_value) / kPcm32Scale), out_bytes);
-  }
-  return out_bytes;
-}
-
-void FaSampleFormatNode::appendFloat32Le(float sample, std::vector<uint8_t> & out_bytes)
-{
-  uint32_t raw = 0;
-  std::memcpy(&raw, &sample, sizeof(float));
-  out_bytes.push_back(static_cast<uint8_t>(raw & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((raw >> 8U) & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((raw >> 16U) & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((raw >> 24U) & 0xFFU));
 }
 
 void FaSampleFormatNode::publishDiagnostics()

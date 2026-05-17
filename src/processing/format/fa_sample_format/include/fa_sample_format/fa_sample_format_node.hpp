@@ -50,15 +50,6 @@ private:
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool convertFrame(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
-  static bool isSupportedConversion(
-    const std::string & input_encoding,
-    int input_bit_depth,
-    const std::string & output_encoding,
-    int output_bit_depth);
-  static std::vector<uint8_t> convertPcm16ToFloat32(const std::vector<uint8_t> & input_bytes);
-  static std::vector<uint8_t> convertPcm32ToFloat32(const std::vector<uint8_t> & input_bytes);
-  static void appendFloat32Le(float sample, std::vector<uint8_t> & out_bytes);
-
   SampleFormatConfig config_;
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;

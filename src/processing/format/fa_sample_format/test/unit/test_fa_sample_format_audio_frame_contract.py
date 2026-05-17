@@ -44,14 +44,17 @@ def test_sample_format_does_not_hide_io_or_other_processing_responsibilities() -
 def test_startup_rejects_unknown_or_implicit_conversion_config() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_sample_format_node.cpp").read_text(encoding="utf-8")
-    is_supported = source.split("bool FaSampleFormatNode::isSupportedConversion")[1].split(
-        "std::vector<uint8_t> FaSampleFormatNode::convertPcm16ToFloat32"
+    conversion = (
+        package_root / "include" / "fa_sample_format" / "sample_format_conversion.hpp"
+    ).read_text(encoding="utf-8")
+    is_supported = conversion.split("inline bool isSupportedSampleFormatConversion")[1].split(
+        "inline void appendFloat32Le"
     )[0]
 
     assert "output_encoding != kEncodingFloat32 || output_bit_depth != 32" in is_supported
     assert "input_encoding == kEncodingPcm16 && input_bit_depth == 16" in is_supported
     assert "input_encoding == kEncodingPcm32 && input_bit_depth == 32" in is_supported
-    assert "isSupportedConversion(" in source
+    assert "isSupportedSampleFormatConversion(" in source
     assert "throw std::runtime_error(" in source
     assert "metadata" not in is_supported
 
@@ -96,15 +99,17 @@ def test_sample_format_preserves_identity_and_updates_format_metadata() -> None:
 
 def test_pcm_integer_samples_are_mapped_to_float32le_bytes_explicitly() -> None:
     package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_sample_format_node.cpp").read_text(encoding="utf-8")
-    pcm16 = source.split("std::vector<uint8_t> FaSampleFormatNode::convertPcm16ToFloat32")[1].split(
-        "std::vector<uint8_t> FaSampleFormatNode::convertPcm32ToFloat32"
+    conversion = (
+        package_root / "include" / "fa_sample_format" / "sample_format_conversion.hpp"
+    ).read_text(encoding="utf-8")
+    pcm16 = conversion.split("inline std::vector<uint8_t> convertPcm16ToFloat32")[1].split(
+        "inline std::vector<uint8_t> convertPcm32ToFloat32"
     )[0]
-    pcm32 = source.split("std::vector<uint8_t> FaSampleFormatNode::convertPcm32ToFloat32")[1].split(
-        "void FaSampleFormatNode::appendFloat32Le"
+    pcm32 = conversion.split("inline std::vector<uint8_t> convertPcm32ToFloat32")[1].split(
+        "}  // namespace fa_sample_format"
     )[0]
-    append = source.split("void FaSampleFormatNode::appendFloat32Le")[1].split(
-        "void FaSampleFormatNode::publishDiagnostics"
+    append = conversion.split("inline void appendFloat32Le")[1].split(
+        "inline std::vector<uint8_t> convertPcm16ToFloat32"
     )[0]
 
     assert "input_bytes.size() % sizeof(uint16_t)" in pcm16
@@ -130,7 +135,9 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_sample_format.launch.py",
         "include/fa_sample_format/fa_sample_format_node.hpp",
+        "include/fa_sample_format/sample_format_conversion.hpp",
         "src/fa_sample_format_node.cpp",
+        "test/cpp",
         "test/unit",
         "test/integration",
         "test/launch",
@@ -147,8 +154,11 @@ def test_colcon_runs_pytest_contracts() -> None:
     package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_conversion_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

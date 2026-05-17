@@ -42,8 +42,16 @@ install(DIRECTORY include/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  ament_add_gtest(${PROJECT_NAME}_conversion_test
+    test/cpp/test_sample_format_conversion.cpp
+  )
+  target_include_directories(${PROJECT_NAME}_conversion_test PRIVATE
+    include
+  )
 
   set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
   ament_add_pytest_test(${PROJECT_NAME}_pytest test
