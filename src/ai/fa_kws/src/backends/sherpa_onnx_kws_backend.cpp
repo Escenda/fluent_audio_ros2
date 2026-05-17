@@ -1,6 +1,5 @@
 #include "fa_kws/backends/sherpa_onnx_kws_backend.hpp"
 
-#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -8,6 +7,8 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+
+#include "fa_kws/vad_gate.hpp"
 
 namespace
 {
@@ -62,9 +63,7 @@ SherpaOnnxKwsBackend::SherpaOnnxKwsBackend(const SherpaOnnxKwsBackendConfig &con
       "; supported providers: " +
       supportedSherpaOnnxExecutionProvidersForMessage());
   }
-  if (!std::isfinite(config_.vad_threshold) ||
-      config_.vad_threshold <= 0.0f ||
-      config_.vad_threshold > 1.0f) {
+  if (!isValidVadGateThreshold(static_cast<double>(config_.vad_threshold))) {
     throw std::invalid_argument("vad_threshold must be finite and in (0.0, 1.0]");
   }
 
@@ -138,10 +137,10 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
   if (!spotter_ || !stream_ || samples.empty()) {
     return std::nullopt;
   }
-  if (!std::isfinite(vad_prob) || vad_prob < 0.0f || vad_prob > 1.0f) {
+  if (!isValidVadProbability(vad_prob)) {
     throw std::invalid_argument("vad_prob must be finite and in [0.0, 1.0]");
   }
-  if (vad_prob < config_.vad_threshold) {
+  if (!passesVadGate(vad_prob, config_.vad_threshold)) {
     tracef("fa_kws: VAD gate dropped (vad_prob=%.4f threshold=%.4f)\n",
            static_cast<double>(vad_prob),
            static_cast<double>(config_.vad_threshold));

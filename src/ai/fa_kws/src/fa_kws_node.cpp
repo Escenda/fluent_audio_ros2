@@ -1,6 +1,5 @@
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <cstdint>
 #include <cstdarg>
 #include <cstdio>
@@ -20,6 +19,7 @@
 #include "fa_kws/audio_utils.hpp"
 #include "fa_kws/backends/kws_backend.hpp"
 #include "fa_kws/backends/sherpa_onnx_kws_backend.hpp"
+#include "fa_kws/vad_gate.hpp"
 
 namespace fa_kws
 {
@@ -171,9 +171,7 @@ private:
 
   void validateVadInputOrThrow() const
   {
-    if (!std::isfinite(probability_gate_) ||
-        probability_gate_ <= 0.0 ||
-        probability_gate_ > 1.0) {
+    if (!isValidVadGateThreshold(probability_gate_)) {
       throw std::runtime_error("vad.probability_gate must be finite and in (0.0, 1.0]");
     }
     if (vad_max_age_ms_ <= 0) {
@@ -314,9 +312,7 @@ private:
     if (!msg) {
       return;
     }
-    if (!std::isfinite(msg->probability) ||
-        msg->probability < 0.0f ||
-        msg->probability > 1.0f) {
+    if (!isValidVadProbability(msg->probability)) {
       current_vad_prob_.store(0.0f, std::memory_order_relaxed);
       last_vad_rx_ns_.store(0, std::memory_order_relaxed);
       RCLCPP_ERROR_THROTTLE(
@@ -434,7 +430,7 @@ private:
     if (!readFreshVadProbability(now_rx_ns, vad_prob)) {
       return;
     }
-    if (vad_prob < static_cast<float>(probability_gate_)) {
+    if (!passesVadGate(vad_prob, static_cast<float>(probability_gate_))) {
       RCLCPP_DEBUG(
         this->get_logger(),
         "Dropping AudioFrame below VAD probability gate: vad_prob=%.6f threshold=%.6f",

@@ -112,7 +112,17 @@ install(DIRECTORY
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  ament_add_gtest(${PROJECT_NAME}_vad_gate_test
+    test/unit/vad_gate_contract.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_vad_gate_test)
+    target_include_directories(${PROJECT_NAME}_vad_gate_test PRIVATE
+      include
+    )
+  endif()
 
   # Keep package tests isolated from ambient pytest plugins in ROS images.
   set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
