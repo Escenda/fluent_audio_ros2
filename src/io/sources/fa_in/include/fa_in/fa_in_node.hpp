@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -41,7 +42,10 @@ struct AudioConfig
 class FaInNode : public rclcpp::Node
 {
 public:
-  FaInNode();
+  using BackendFactory = std::function<std::unique_ptr<fa_in::backends::SourceBackend>()>;
+
+  explicit FaInNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  FaInNode(const rclcpp::NodeOptions & options, BackendFactory backend_factory);
   ~FaInNode() override;
   bool hasFatalError() const;
 
@@ -69,6 +73,7 @@ private:
     std::shared_ptr<fa_interfaces::srv::SwitchDevice::Response> response);
 
   AudioConfig config_;
+  BackendFactory backend_factory_;
 
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;

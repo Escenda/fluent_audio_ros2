@@ -52,12 +52,27 @@ std::string displayName(const backends::DeviceInfo & device)
   }
   return device.name;
 }
+
+FaInNode::BackendFactory defaultBackendFactory()
+{
+  return []() {
+    return std::make_unique<backends::AlsaCaptureBackend>();
+  };
+}
 }  // namespace
 
-FaInNode::FaInNode()
-: rclcpp::Node("fa_in_node")
+FaInNode::FaInNode(const rclcpp::NodeOptions & options)
+: FaInNode(options, defaultBackendFactory())
+{
+}
+
+FaInNode::FaInNode(const rclcpp::NodeOptions & options, BackendFactory backend_factory)
+: rclcpp::Node("fa_in_node", options), backend_factory_(std::move(backend_factory))
 {
   RCLCPP_INFO(this->get_logger(), "Initializing FA In node");
+  if (!backend_factory_) {
+    throw std::invalid_argument("fa_in backend factory is required");
+  }
   loadParameters();
 
   audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>("audio/frame", rclcpp::SensorDataQoS());
@@ -161,7 +176,10 @@ void FaInNode::loadParameters()
 void FaInNode::initializeBackend()
 {
   if (config_.backend_name == "alsa_capture") {
-    source_backend_ = std::make_unique<backends::AlsaCaptureBackend>();
+    source_backend_ = backend_factory_();
+    if (!source_backend_) {
+      throw std::runtime_error("fa_in backend factory returned null backend");
+    }
     return;
   }
   throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
@@ -496,19 +514,3 @@ void FaInNode::handleSwitchDevice(
   response->message = "switched";
 }
 }  // namespace fa_in
-
-int main(int argc, char **argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_in::FaInNode>();
-    rclcpp::spin(node);
-    const bool fatal_error = node->hasFatalError();
-    rclcpp::shutdown();
-    return fatal_error ? EXIT_FAILURE : EXIT_SUCCESS;
-  } catch (const std::exception &e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_in_node"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

@@ -187,7 +187,11 @@ def test_backend_builds_as_separate_library() -> None:
 
     assert "add_library(fa_in_backends" in cmake_text
     assert "src/backends/alsa_capture_backend.cpp" in cmake_text
-    assert "target_link_libraries(fa_in_node fa_in_backends)" in cmake_text
+    assert "add_library(fa_in_node_core" in cmake_text
+    assert "src/fa_in_node.cpp" in cmake_text
+    assert "src/main.cpp" in cmake_text
+    assert "target_link_libraries(fa_in_node_core fa_in_backends)" in cmake_text
+    assert "target_link_libraries(fa_in_node fa_in_node_core)" in cmake_text
 
 
 def test_node_header_does_not_store_alsa_pcm_handle() -> None:
@@ -198,6 +202,8 @@ def test_node_header_does_not_store_alsa_pcm_handle() -> None:
     assert "pcm_handle_" not in header
     assert "alsa/asoundlib.h" not in header
     assert "std::unique_ptr<fa_in::backends::SourceBackend> source_backend_;" in header
+    assert "using BackendFactory =" in header
+    assert "BackendFactory backend_factory_;" in header
 
 
 def test_colcon_runs_pytest_contracts() -> None:
@@ -209,6 +215,7 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_audio_config_validation_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml

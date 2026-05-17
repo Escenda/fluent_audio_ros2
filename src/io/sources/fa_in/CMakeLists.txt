@@ -29,21 +29,30 @@ target_include_directories(fa_in_backends
 )
 target_link_libraries(fa_in_backends PUBLIC ${ALSA_LIBRARIES})
 
-add_executable(fa_in_node
+add_library(fa_in_node_core
   src/fa_in_node.cpp
 )
 
-ament_target_dependencies(fa_in_node
+ament_target_dependencies(fa_in_node_core
   rclcpp
   std_srvs
   diagnostic_msgs
   fa_interfaces
 )
 
-target_include_directories(fa_in_node PRIVATE
+target_include_directories(fa_in_node_core PUBLIC
   include
 )
-target_link_libraries(fa_in_node fa_in_backends)
+target_link_libraries(fa_in_node_core fa_in_backends)
+
+add_executable(fa_in_node
+  src/main.cpp
+)
+
+ament_target_dependencies(fa_in_node
+  rclcpp
+)
+target_link_libraries(fa_in_node fa_in_node_core)
 
 install(TARGETS fa_in_node
   DESTINATION lib/${PROJECT_NAME}
@@ -83,6 +92,21 @@ if(BUILD_TESTING)
   )
   target_include_directories(${PROJECT_NAME}_audio_config_validation_test PRIVATE
     include
+  )
+
+  ament_add_gtest(${PROJECT_NAME}_node_contract_test
+    test/cpp/test_fa_in_node_contract.cpp
+  )
+  target_include_directories(${PROJECT_NAME}_node_contract_test PRIVATE
+    include
+  )
+  ament_target_dependencies(${PROJECT_NAME}_node_contract_test
+    rclcpp
+    diagnostic_msgs
+    fa_interfaces
+  )
+  target_link_libraries(${PROJECT_NAME}_node_contract_test
+    fa_in_node_core
   )
 
   ament_lint_auto_find_test_dependencies()
