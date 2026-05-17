@@ -17,7 +17,7 @@ groups:
         parameters: {}
 
       - id: fa_out
-        enable: true
+        enable: false
         package: fa_out
         exec: fa_out_node
         node_name: fa_out
@@ -27,7 +27,7 @@ groups:
         parameters: {}
 
   - id: audio_format
-    enable: false
+    enable: true
     nodes:
       - id: fa_sample_format
         enable: true
@@ -46,7 +46,7 @@ groups:
         enable: true
         package: fa_resample
         exec: fa_resample_node
-        node_name: fa_resample
+        node_name: fa_resample_mic
         namespace: ""
         params_file: "${share:fa_resample}/config/default.yaml"
         remappings: {}
@@ -54,49 +54,14 @@ groups:
           mic.input_topic: "audio/sample_format/mic"
           mic.output_topic: "audio/resample16k/mic"
 
-  - id: audio_correction
-    enable: true
-    nodes:
-      - id: fa_aec_linear
-        enable: false
-        package: fa_aec_linear
-        exec: fa_aec_linear_node
-        node_name: fa_aec_linear
-        namespace: ""
-        params_file: "${share:fa_aec_linear}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_aec_nn
-        enable: false
-        package: fa_aec_nn
-        exec: fa_aec_nn_node
-        node_name: fa_aec_nn
-        namespace: ""
-        params_file: "${share:fa_aec_nn}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_denoise
-        enable: false
-        package: fa_denoise
-        exec: fa_denoise_node
-        node_name: fa_denoise
-        namespace: ""
-        params_file: "${share:fa_denoise}/config/default.yaml"
-        remappings: {}
-        parameters:
-          dtln.model_1_path: "${share:fa_denoise}/models/model_1.onnx"
-          dtln.model_2_path: "${share:fa_denoise}/models/model_2.onnx"
-
-  - id: ai
-    enable: true
+  - id: voice_frontend
+    enable: false
     nodes:
       - id: fa_vad
         enable: false
         package: fa_vad
         exec: fa_vad_node
-        node_name: fa_vad_node
+        node_name: fa_vad
         namespace: ""
         params_file: "${share:fa_vad}/config/default.yaml"
         remappings: {}
@@ -135,19 +100,3 @@ groups:
         remappings: {}
         parameters:
           audio_topic: "audio/resample16k/mic"
-          backend.model_path: "${share:fa_turn_detector}/models/smart-turn-v3/smart-turn-v3.0.onnx"
-          backend.execution_provider: "CPUExecutionProvider"
-          backend.command: "smart_turn_onnx_worker"
-          backend.args:
-            - "--audio"
-            - "{audio}"
-            - "--model"
-            - "{model}"
-            - "--provider"
-            - "{provider}"
-          backend.health_args:
-            - "--model"
-            - "{model}"
-            - "--provider"
-            - "{provider}"
-            - "--health-check"
