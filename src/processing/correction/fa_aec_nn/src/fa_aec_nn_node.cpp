@@ -5,9 +5,13 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_aec_nn/backends/aec_nn_backend.hpp"
+#include "fa_aec_nn/backends/passthrough_backend.hpp"
 
 namespace fa_aec_nn
 {
@@ -23,6 +27,7 @@ FaAecNnNode::FaAecNnNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA AEC NN node");
   loadParameters();
+  initializeBackend();
   setupInterfaces();
 }
 
@@ -85,6 +90,15 @@ void FaAecNnNode::loadParameters()
     config_.expected_channels,
     config_.qos_depth,
     config_.qos_reliable ? "true" : "false");
+}
+
+void FaAecNnNode::initializeBackend()
+{
+  if (config_.backend_name == "passthrough") {
+    backend_ = std::make_unique<backends::PassthroughBackend>();
+    return;
+  }
+  throw std::runtime_error("unsupported fa_aec_nn backend.name: " + config_.backend_name);
 }
 
 void FaAecNnNode::setupInterfaces()
@@ -165,7 +179,43 @@ void FaAecNnNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr m
     return;
   }
 
+  if (!backend_) {
+    drop_.fetch_add(1);
+    RCLCPP_ERROR_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because fa_aec_nn backend is not initialized");
+    return;
+  }
+
+  backends::AudioChunk chunk;
+  chunk.sample_rate = static_cast<int>(msg->sample_rate);
+  chunk.channels = static_cast<int>(msg->channels);
+  chunk.bit_depth = static_cast<int>(msg->bit_depth);
+  chunk.layout = msg->layout;
+  chunk.data = msg->data.data();
+  chunk.data_size = msg->data.size();
+
+  std::vector<uint8_t> processed_data;
+  try {
+    processed_data = backend_->process(chunk);
+  } catch (const std::exception & e) {
+    drop_.fetch_add(1);
+    RCLCPP_ERROR_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because fa_aec_nn backend failed: %s", e.what());
+    return;
+  }
+
+  if (processed_data.empty()) {
+    drop_.fetch_add(1);
+    RCLCPP_ERROR_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because fa_aec_nn backend returned empty audio data");
+    return;
+  }
+
   auto out_msg = *msg;
+  out_msg.data = std::move(processed_data);
   out_msg.stream_id = config_.output_topic;
   out_msg.layout = kInterleavedLayout;
   pub_->publish(out_msg);

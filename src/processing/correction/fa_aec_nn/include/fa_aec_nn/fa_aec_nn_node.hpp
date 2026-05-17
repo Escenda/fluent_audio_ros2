@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
@@ -11,6 +12,11 @@
 
 namespace fa_aec_nn
 {
+
+namespace backends
+{
+class AecNnBackend;
+}
 
 struct AecNnConfig
 {
@@ -37,12 +43,14 @@ public:
 
 private:
   void loadParameters();
+  void initializeBackend();
   void setupInterfaces();
   void onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
 
   AecNnConfig config_;
+  std::unique_ptr<backends::AecNnBackend> backend_;
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr pub_;

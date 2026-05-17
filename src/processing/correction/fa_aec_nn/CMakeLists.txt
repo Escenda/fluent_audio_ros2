@@ -13,6 +13,14 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
+add_library(fa_aec_nn_backends STATIC
+  src/backends/passthrough_backend.cpp
+)
+
+target_include_directories(fa_aec_nn_backends PUBLIC
+  include
+)
+
 add_executable(fa_aec_nn_node
   src/fa_aec_nn_node.cpp
 )
@@ -27,7 +35,13 @@ ament_target_dependencies(fa_aec_nn_node
   fa_interfaces
 )
 
-install(TARGETS fa_aec_nn_node
+target_link_libraries(fa_aec_nn_node
+  fa_aec_nn_backends
+)
+
+install(TARGETS
+  fa_aec_nn_node
+  fa_aec_nn_backends
   DESTINATION lib/${PROJECT_NAME}
 )
 
