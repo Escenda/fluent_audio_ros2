@@ -12,13 +12,13 @@ def test_launch_uses_explicit_config_file_contract() -> None:
     )
 
     assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert 'FindPackageShare("fa_vad"), "config", "default_vad.yaml"' in launch_text
+    assert 'FindPackageShare("fa_vad"), "config", "default.yaml"' in launch_text
     assert "parameters=[config_file]" in launch_text
 
 
 def test_default_config_requires_external_worker_command() -> None:
     config = yaml.safe_load(
-        (PACKAGE_ROOT / "config" / "default_vad.yaml").read_text(encoding="utf-8")
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
     params = config["fa_vad_node"]["ros__parameters"]
 

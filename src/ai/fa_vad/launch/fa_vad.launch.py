@@ -18,7 +18,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "config_file",
             default_value=PathJoinSubstitution(
-                [FindPackageShare("fa_vad"), "config", "default_vad.yaml"]
+                [FindPackageShare("fa_vad"), "config", "default.yaml"]
             ),
             description="設定ファイルへのパス"
         ),

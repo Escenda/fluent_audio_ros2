@@ -193,7 +193,7 @@ def _write_executable(path: Path) -> None:
 
 
 def test_default_config_requires_explicit_silero_model_path() -> None:
-    config_path = Path(__file__).parents[2] / "config" / "default_vad.yaml"
+    config_path = Path(__file__).parents[2] / "config" / "default.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     params = config["fa_vad_node"]["ros__parameters"]

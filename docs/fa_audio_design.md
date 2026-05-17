@@ -88,7 +88,7 @@ fa_tts
 
 例:
 - `fa_in`: `src/io/sources/fa_in/config/default.yaml`（root: `fa_in_node`）
-- `fa_vad`: `src/ai/fa_vad/config/default_vad.yaml`（root: `fa_vad_node`）
+- `fa_vad`: `src/ai/fa_vad/config/default.yaml`（root: `fa_vad_node`）
 - `fa_out`: `src/io/sinks/fa_out/config/default.yaml`（root: `fa_out`）
 - `fa_tts`: `src/processing/generation/fa_tts/config/default.yaml`（root: `fa_tts`）
 - `fa_kws`: `src/ai/fa_kws/config/default.yaml`（root: `fa_kws`）

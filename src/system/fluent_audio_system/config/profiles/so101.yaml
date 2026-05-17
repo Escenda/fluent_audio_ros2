@@ -83,7 +83,7 @@ groups:
         exec: fa_vad_node
         node_name: fa_vad_node
         namespace: ""
-        params_file: "${share:fa_vad}/config/default_vad.yaml"
+        params_file: "${share:fa_vad}/config/default.yaml"
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
