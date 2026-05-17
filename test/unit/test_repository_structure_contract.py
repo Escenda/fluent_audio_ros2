@@ -334,6 +334,18 @@ def test_generation_category_is_audio_data_plane_not_dialogue_ai() -> None:
     assert missing_terms == []
 
 
+def test_voice_command_docs_do_not_collapse_ai_events_into_analysis() -> None:
+    source = (SRC_ROOT / "apps" / "voice_command" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    normalized_source = " ".join(source.split())
+
+    assert "audio-analysis" not in normalized_source
+    assert "analysis events" not in normalized_source
+    assert "AI events" in normalized_source
+    assert "non-AI feature events" in normalized_source
+
+
 def test_all_ros_packages_have_backend_documentation_file() -> None:
     missing: list[str] = []
 
