@@ -186,6 +186,18 @@ def test_playback_backend_access_is_serialized() -> None:
     assert "isBackendRunning()" in playback_thread
 
 
+def test_missing_sink_backend_fails_closed_while_running() -> None:
+    source_path = Path(__file__).parents[2] / "src" / "fa_out_node.cpp"
+    source = source_path.read_text(encoding="utf-8")
+    is_backend_running = source.split("bool FaOutNode::isBackendRunning()")[1].split(
+        "void FaOutNode::failClosed"
+    )[0]
+
+    assert "required sink backend missing while fa_out is running" in is_backend_running
+    assert "failClosed(error_message);" in is_backend_running
+    assert "return false;" in is_backend_running
+
+
 def test_alsa_backend_files_are_ros_free() -> None:
     package_root = Path(__file__).parents[2]
     backend_paths = [

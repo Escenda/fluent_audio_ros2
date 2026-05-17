@@ -346,7 +346,7 @@ void FaInNode::publishDiagnostics()
 std::vector<backends::DeviceInfo> FaInNode::enumerateCaptureDevices() const
 {
   if (!source_backend_) {
-    return {};
+    throw backends::BackendError("source backend is not initialized");
   }
   return source_backend_->listDevices();
 }
@@ -363,7 +363,18 @@ void FaInNode::handleListDevices(
   const std::shared_ptr<fa_interfaces::srv::ListDevices::Request> /*request*/,
   std::shared_ptr<fa_interfaces::srv::ListDevices::Response> response)
 {
-  auto devices = enumerateCaptureDevices();
+  std::vector<backends::DeviceInfo> devices;
+  try {
+    devices = enumerateCaptureDevices();
+  } catch (const backends::BackendError & e) {
+    response->success = false;
+    response->message = e.what();
+    response->active_device_id = active_device_id_;
+    response->active_device_name = active_device_name_;
+    response->active_device_index = -1;
+    return;
+  }
+
   response->success = true;
   response->message = "ok";
 
@@ -398,7 +409,15 @@ void FaInNode::handleSwitchDevice(
   const std::shared_ptr<fa_interfaces::srv::SwitchDevice::Request> request,
   std::shared_ptr<fa_interfaces::srv::SwitchDevice::Response> response)
 {
-  auto devices = enumerateCaptureDevices();
+  std::vector<backends::DeviceInfo> devices;
+  try {
+    devices = enumerateCaptureDevices();
+  } catch (const backends::BackendError & e) {
+    response->success = false;
+    response->message = e.what();
+    return;
+  }
+
   std::string device_id;
   std::string device_name;
 

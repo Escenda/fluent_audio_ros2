@@ -84,8 +84,9 @@ public:
   {
     std::vector<DeviceInfo> devices;
     void** hints = nullptr;
-    if (snd_device_name_hint(-1, "pcm", &hints) != 0) {
-      return devices;
+    const int err = snd_device_name_hint(-1, "pcm", &hints);
+    if (err != 0) {
+      throw BackendError(alsaError("snd_device_name_hint failed", err));
     }
 
     for (void** hint = hints; *hint != nullptr; ++hint) {

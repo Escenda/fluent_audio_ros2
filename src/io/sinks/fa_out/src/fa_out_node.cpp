@@ -239,12 +239,13 @@ bool FaOutNode::isBackendRunning()
   {
     std::lock_guard<std::mutex> lock(backend_mutex_);
     if (!sink_backend_) {
-      return false;
-    }
-    try {
-      running = sink_backend_->isRunning();
-    } catch (const std::exception & e) {
-      error_message = e.what();
+      error_message = "required sink backend missing while fa_out is running";
+    } else {
+      try {
+        running = sink_backend_->isRunning();
+      } catch (const std::exception & e) {
+        error_message = e.what();
+      }
     }
   }
   if (!error_message.empty()) {

@@ -34,21 +34,11 @@ class _TimingConfig(BaseModel):
         return self
 
 
-class _RemappingConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True, strict=True)
-
-    source: str = Field(alias="from")
-    target: str = Field(alias="to")
-
-
-RemappingPair: TypeAlias = list[str]
-RemappingConfigValue: TypeAlias = (
-    dict[str, str] | list[_RemappingConfig] | list[RemappingPair]
-)
+RemappingConfigValue: TypeAlias = dict[str, str]
 
 
 class _NodeConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True, strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     id: str | None = None
     enable: bool | None = None
@@ -264,27 +254,14 @@ def _optional_remappings(
 ) -> list[RemappingSpec]:
     if value is None:
         return []
-    if isinstance(value, dict):
-        remappings: list[RemappingSpec] = []
-        for source, target in value.items():
-            if not isinstance(source, str) or not source.strip():
-                raise RuntimeError(f"node {node_id} remapping source must be a non-empty string")
-            if not isinstance(target, str) or not target.strip():
-                raise RuntimeError(f"node {node_id} remapping target must be a non-empty string")
-            remappings.append(RemappingSpec(source=source.strip(), target=target.strip()))
-        return remappings
     remappings: list[RemappingSpec] = []
-    for item in value:
-        if isinstance(item, _RemappingConfig):
-            source = item.source.strip()
-            target = item.target.strip()
-        else:
-            if len(item) != 2:
-                raise RuntimeError(
-                    f"node {node_id} remapping pair must contain exactly two strings"
-                )
-            source = item[0].strip()
-            target = item[1].strip()
+    for source, target in value.items():
+        if not isinstance(source, str) or not source.strip():
+            raise RuntimeError(f"node {node_id} remapping source must be a non-empty string")
+        if not isinstance(target, str) or not target.strip():
+            raise RuntimeError(f"node {node_id} remapping target must be a non-empty string")
+        source = source.strip()
+        target = target.strip()
         if not source:
             raise RuntimeError(f"node {node_id} remapping source must be a non-empty string")
         if not target:

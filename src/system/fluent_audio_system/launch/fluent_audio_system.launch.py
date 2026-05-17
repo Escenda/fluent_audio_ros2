@@ -26,9 +26,9 @@ def _site_binding_overrides(context) -> SiteBindingOverrides:
 
 
 def _node_enabled_by_site_binding(node: AudioNodeSpec, overrides: SiteBindingOverrides) -> bool:
-    if node.id == "fa_in":
+    if node.package == "fa_in":
         return overrides.fa_in_enabled
-    if node.id == "fa_out":
+    if node.package == "fa_out":
         return overrides.fa_out_enabled
     return True
 
@@ -39,10 +39,10 @@ def _node_launch_parameters(
 ) -> list[str | dict[str, ParamValue]]:
     parameters = node.launch_parameters()
     override_params: dict[str, ParamValue] = {}
-    if node.id == "fa_in" and overrides.fa_in_source_id:
+    if node.package == "fa_in" and overrides.fa_in_source_id:
         override_params["audio.device_selector.mode"] = "name"
         override_params["audio.device_selector.identifier"] = overrides.fa_in_source_id
-    if node.id == "fa_out" and overrides.fa_out_sink_id:
+    if node.package == "fa_out" and overrides.fa_out_sink_id:
         override_params["audio.device_id"] = overrides.fa_out_sink_id
     if override_params:
         parameters.append(override_params)

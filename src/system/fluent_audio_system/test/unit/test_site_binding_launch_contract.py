@@ -26,6 +26,10 @@ def test_system_launch_declares_site_binding_arguments() -> None:
     assert "_required_bool_launch_arg" in launch_text
     assert "_node_enabled_by_site_binding" in launch_text
     assert "_node_launch_parameters" in launch_text
+    assert 'node.package == "fa_in"' in launch_text
+    assert 'node.package == "fa_out"' in launch_text
+    assert 'node.id == "fa_in"' not in launch_text
+    assert 'node.id == "fa_out"' not in launch_text
 
 
 def test_sample_config_keeps_site_binding_out_of_system_config() -> None:

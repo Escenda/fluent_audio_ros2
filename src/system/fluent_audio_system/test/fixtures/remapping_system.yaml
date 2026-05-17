@@ -12,7 +12,5 @@ groups:
         node_name: fa_vad
         params_file: "${share:fluent_audio_system}/test/fixtures/fa_in.params.yaml"
         remappings:
-          - from: audio/frame
-            to: robot/audio/input
-          - from: vad/state
-            to: robot/audio/vad/state
+          audio/frame: robot/audio/input
+          vad/state: robot/audio/vad/state

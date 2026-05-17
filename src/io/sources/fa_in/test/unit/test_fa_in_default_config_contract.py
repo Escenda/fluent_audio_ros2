@@ -81,6 +81,7 @@ def test_alsa_backend_filters_plugin_pcm_sources() -> None:
     assert "isRawAlsaHardwareSource" in source
     assert 'rfind("hw:", 0)' in source
     assert "devices.push_back(DeviceInfo{source_id" in source
+    assert "throw BackendError(alsaError(\"snd_device_name_hint failed\", err));" in source
 
 
 def test_alsa_backend_validates_format_contract_and_disables_resampling() -> None:
@@ -105,6 +106,25 @@ def test_runtime_read_failure_fails_closed_without_prepare_retry() -> None:
     assert "snd_pcm_prepare" not in capture_loop
     assert "std::this_thread::sleep_for" not in capture_loop
     assert "rclcpp::shutdown()" in source
+
+
+def test_device_services_surface_enumeration_failure() -> None:
+    source_path = Path(__file__).parents[2] / "src" / "fa_in_node.cpp"
+    source = source_path.read_text(encoding="utf-8")
+    list_devices = source.split("void FaInNode::handleListDevices")[1].split(
+        "void FaInNode::handleSwitchDevice"
+    )[0]
+    switch_device = source.split("void FaInNode::handleSwitchDevice")[1].split(
+        "bool FaInNode::reopenStream"
+    )[0]
+
+    assert "throw backends::BackendError(\"source backend is not initialized\")" in source
+    assert "response->success = false;" in list_devices
+    assert "response->message = e.what();" in list_devices
+    assert "response->success = true;" in list_devices
+    assert "response->message = \"ok\";" in list_devices
+    assert "response->success = false;" in switch_device
+    assert "response->message = e.what();" in switch_device
 
 
 def test_backend_implementation_files_are_ros_free() -> None:

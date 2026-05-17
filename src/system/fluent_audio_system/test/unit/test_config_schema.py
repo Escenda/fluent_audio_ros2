@@ -213,75 +213,69 @@ def test_load_missing_config_fails(tmp_path: Path) -> None:
         load_system_config(str(tmp_path / "missing.yaml"))
 
 
-def test_sequence_remappings_are_supported(tmp_path: Path) -> None:
+def test_from_to_sequence_remappings_fail(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
     params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
 
-    spec = parse_system_config(
-        {
-            "system": _valid_system(),
-            "groups": [
-                {
-                    "id": "io",
-                    "enable": True,
-                    "nodes": [
-                        {
-                            "id": "fa_in",
-                            "enable": True,
-                            "package": "fa_in",
-                            "exec": "fa_in_node",
-                            "params_file": str(params_file),
-                            "remappings": [
-                                {"from": "audio/frame", "to": "robot/audio/frame"}
-                            ],
-                        }
-                    ],
-                }
-            ]
-        }
-    )
-
-    assert spec.groups[0].nodes[0].launch_remappings() == [
-        ("audio/frame", "robot/audio/frame")
-    ]
+    with pytest.raises(RuntimeError, match="remappings"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "io",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "enable": True,
+                                "package": "fa_in",
+                                "exec": "fa_in_node",
+                                "params_file": str(params_file),
+                                "remappings": [
+                                    {"from": "audio/frame", "to": "robot/audio/frame"}
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
 
 
-def test_pair_sequence_remappings_match_design_example(tmp_path: Path) -> None:
+def test_pair_sequence_remappings_fail(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
     params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
 
-    spec = parse_system_config(
-        {
-            "system": _valid_system(),
-            "groups": [
-                {
-                    "id": "io",
-                    "enable": True,
-                    "nodes": [
-                        {
-                            "id": "fa_in",
-                            "enable": True,
-                            "package": "fa_in",
-                            "exec": "fa_in_node",
-                            "params_file": str(params_file),
-                            "remappings": [["audio/frame", "robot/audio/frame"]],
-                        }
-                    ],
-                }
-            ],
-        }
-    )
-
-    assert spec.groups[0].nodes[0].launch_remappings() == [
-        ("audio/frame", "robot/audio/frame")
-    ]
+    with pytest.raises(RuntimeError, match="remappings"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "io",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "enable": True,
+                                "package": "fa_in",
+                                "exec": "fa_in_node",
+                                "params_file": str(params_file),
+                                "remappings": [["audio/frame", "robot/audio/frame"]],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
 
 
 def test_invalid_pair_sequence_remappings_fail(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
     params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match="remapping pair must contain exactly two strings"):
+    with pytest.raises(RuntimeError, match="remappings"):
         parse_system_config(
             {
                 "system": _valid_system(),
@@ -459,6 +453,33 @@ def test_node_enable_is_required(tmp_path: Path) -> None:
                                 "id": "fa_in",
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "params_file": str(params_file),
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_node_executable_field_name_is_rejected(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="executable"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "io",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "enable": True,
+                                "package": "fa_in",
+                                "executable": "fa_in_node",
                                 "params_file": str(params_file),
                             }
                         ],
