@@ -140,6 +140,14 @@ void FaAecNnNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr m
     return;
   }
 
+  if (!config_.enabled) {
+    drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because fa_aec_nn is disabled; disable the system node instead");
+    return;
+  }
+
   if (!validateFrame(*msg)) {
     drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
