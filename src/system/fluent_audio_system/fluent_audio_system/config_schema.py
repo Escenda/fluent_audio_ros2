@@ -41,6 +41,12 @@ class _RemappingConfig(BaseModel):
     target: str = Field(alias="to")
 
 
+RemappingPair: TypeAlias = list[str]
+RemappingConfigValue: TypeAlias = (
+    dict[str, str] | list[_RemappingConfig] | list[RemappingPair]
+)
+
+
 class _NodeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True, strict=True)
 
@@ -53,7 +59,7 @@ class _NodeConfig(BaseModel):
     output: str | None = None
     params_file: str | None = None
     parameters: dict[str, ParamValue] | None = None
-    remappings: dict[str, str] | list[_RemappingConfig] | None = None
+    remappings: RemappingConfigValue | None = None
 
     @model_validator(mode="after")
     def _validate_required_fields(self) -> "_NodeConfig":
@@ -253,7 +259,7 @@ def _optional_parameters(
 
 
 def _optional_remappings(
-    value: dict[str, str] | list[_RemappingConfig] | None,
+    value: RemappingConfigValue | None,
     node_id: str,
 ) -> list[RemappingSpec]:
     if value is None:
@@ -269,8 +275,16 @@ def _optional_remappings(
         return remappings
     remappings: list[RemappingSpec] = []
     for item in value:
-        source = item.source.strip()
-        target = item.target.strip()
+        if isinstance(item, _RemappingConfig):
+            source = item.source.strip()
+            target = item.target.strip()
+        else:
+            if len(item) != 2:
+                raise RuntimeError(
+                    f"node {node_id} remapping pair must contain exactly two strings"
+                )
+            source = item[0].strip()
+            target = item[1].strip()
         if not source:
             raise RuntimeError(f"node {node_id} remapping source must be a non-empty string")
         if not target:

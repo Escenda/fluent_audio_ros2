@@ -246,6 +246,65 @@ def test_sequence_remappings_are_supported(tmp_path: Path) -> None:
     ]
 
 
+def test_pair_sequence_remappings_match_design_example(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "io",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_in",
+                            "enable": True,
+                            "package": "fa_in",
+                            "exec": "fa_in_node",
+                            "params_file": str(params_file),
+                            "remappings": [["audio/frame", "robot/audio/frame"]],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert spec.groups[0].nodes[0].launch_remappings() == [
+        ("audio/frame", "robot/audio/frame")
+    ]
+
+
+def test_invalid_pair_sequence_remappings_fail(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="remapping pair must contain exactly two strings"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "io",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "enable": True,
+                                "package": "fa_in",
+                                "exec": "fa_in_node",
+                                "params_file": str(params_file),
+                                "remappings": [["audio/frame"]],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
 def test_invalid_remappings_fail(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
     params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")

@@ -1,32 +1,23 @@
-from dataclasses import dataclass
-
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 from fluent_audio_system.config_schema import AudioNodeSpec, ParamValue, load_system_config
-
-
-@dataclass(frozen=True)
-class SiteBindingOverrides:
-    fa_in_enabled: bool
-    fa_out_enabled: bool
-    fa_in_source_id: str
-    fa_out_sink_id: str
+from fluent_audio_system.site_binding import (
+    SiteBindingOverrides,
+    build_site_binding_overrides,
+    parse_bool_launch_arg_value,
+)
 
 
 def _required_bool_launch_arg(context, name: str) -> bool:
-    value = LaunchConfiguration(name).perform(context).strip().lower()
-    if value == "true":
-        return True
-    if value == "false":
-        return False
-    raise RuntimeError(f"{name} must be true or false")
+    value = LaunchConfiguration(name).perform(context)
+    return parse_bool_launch_arg_value(name, value)
 
 
 def _site_binding_overrides(context) -> SiteBindingOverrides:
-    return SiteBindingOverrides(
+    return build_site_binding_overrides(
         fa_in_enabled=_required_bool_launch_arg(context, "fa_in_enabled"),
         fa_out_enabled=_required_bool_launch_arg(context, "fa_out_enabled"),
         fa_in_source_id=LaunchConfiguration("fa_in_source_id").perform(context).strip(),

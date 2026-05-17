@@ -33,6 +33,24 @@ def test_system_launch_uses_node_actions_without_temp_yaml_rewrite() -> None:
     assert "safe_dump" not in launch_text
 
 
+def test_vlabor_entrypoints_do_not_accept_backend_or_model_site_args() -> None:
+    launch_text = (
+        PACKAGE_ROOT / "launch" / "fluent_audio_system.launch.py"
+    ).read_text(encoding="utf-8")
+    run_text = (PACKAGE_ROOT / "launch" / "run.py").read_text(encoding="utf-8")
+    combined = launch_text + "\n" + run_text
+
+    for forbidden_arg in (
+        "backend.name",
+        "backend.model",
+        "backend.model_path",
+        "vad_threshold",
+        "asr_prompt",
+        "openai_api_key",
+    ):
+        assert forbidden_arg not in combined
+
+
 def test_fixture_files_document_launch_contract() -> None:
     fixture_dir = PACKAGE_ROOT / "test" / "fixtures"
 
