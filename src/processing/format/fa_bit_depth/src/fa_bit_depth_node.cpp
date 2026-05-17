@@ -1,9 +1,7 @@
 #include "fa_bit_depth/fa_bit_depth_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <functional>
-#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -32,8 +30,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaBitDepthNode::FaBitDepthNode()
-: rclcpp::Node("fa_bit_depth")
+FaBitDepthNode::FaBitDepthNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_bit_depth", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Bit Depth node");
   loadParameters();
@@ -122,7 +120,7 @@ void FaBitDepthNode::loadParameters()
 
 void FaBitDepthNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -337,17 +335,3 @@ void FaBitDepthNode::publishDiagnostics()
 }
 
 }  // namespace fa_bit_depth
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_bit_depth::FaBitDepthNode>();
-    rclcpp::spin(node);
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_bit_depth"), "Exception: %s", e.what());
-    return EXIT_FAILURE;
-  }
-  rclcpp::shutdown();
-  return EXIT_SUCCESS;
-}

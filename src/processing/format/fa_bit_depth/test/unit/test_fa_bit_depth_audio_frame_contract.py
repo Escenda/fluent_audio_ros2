@@ -62,6 +62,25 @@ def test_startup_rejects_unknown_or_implicit_conversion_config() -> None:
     assert "metadata" not in is_supported
 
 
+def test_ros2_node_name_and_executable_match_required_contract() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (package_root / "src" / "fa_bit_depth_node.cpp").read_text(encoding="utf-8")
+    header = (
+        package_root / "include" / "fa_bit_depth" / "fa_bit_depth_node.hpp"
+    ).read_text(encoding="utf-8")
+    main_source = (package_root / "src" / "main.cpp").read_text(encoding="utf-8")
+    launch = (package_root / "launch" / "fa_bit_depth.launch.py").read_text(encoding="utf-8")
+    cmake = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert "class FaBitDepthNode : public rclcpp::Node" in header
+    assert 'rclcpp::Node("fa_bit_depth", options)' in source
+    assert "explicit FaBitDepthNode(const rclcpp::NodeOptions & options" in header
+    assert "fa_bit_depth::FaBitDepthNode" in main_source
+    assert 'default_value="fa_bit_depth"' in launch
+    assert 'executable="fa_bit_depth_node"' in launch
+    assert "add_executable(fa_bit_depth_node" in cmake
+
+
 def test_bit_depth_validates_frame_contract_before_processing() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_bit_depth_node.cpp").read_text(encoding="utf-8")
@@ -160,7 +179,9 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "launch/fa_bit_depth.launch.py",
         "include/fa_bit_depth/fa_bit_depth_node.hpp",
         "src/fa_bit_depth_node.cpp",
+        "src/main.cpp",
         "test/unit",
+        "test/cpp/test_fa_bit_depth_node_contract.cpp",
         "test/integration",
         "test/launch",
         "test/fixtures",
@@ -176,8 +197,12 @@ def test_colcon_runs_pytest_contracts() -> None:
     package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
+    assert "add_library(fa_bit_depth_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

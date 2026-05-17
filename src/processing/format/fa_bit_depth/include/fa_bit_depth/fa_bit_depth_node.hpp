@@ -39,7 +39,7 @@ struct BitDepthConfig
 class FaBitDepthNode : public rclcpp::Node
 {
 public:
-  FaBitDepthNode();
+  explicit FaBitDepthNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaBitDepthNode() override = default;
 
 private:

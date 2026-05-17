@@ -13,18 +13,28 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
-add_executable(fa_bit_depth_node
+add_library(fa_bit_depth_node_core
   src/fa_bit_depth_node.cpp
 )
 
-target_include_directories(fa_bit_depth_node PRIVATE
+target_include_directories(fa_bit_depth_node_core PUBLIC
   include
 )
 
-ament_target_dependencies(fa_bit_depth_node
+ament_target_dependencies(fa_bit_depth_node_core
   rclcpp
   diagnostic_msgs
   fa_interfaces
+)
+
+add_executable(fa_bit_depth_node
+  src/main.cpp
+)
+
+target_link_libraries(fa_bit_depth_node fa_bit_depth_node_core)
+
+ament_target_dependencies(fa_bit_depth_node
+  rclcpp
 )
 
 install(TARGETS fa_bit_depth_node
@@ -42,6 +52,7 @@ install(DIRECTORY include/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
 
@@ -51,6 +62,21 @@ if(BUILD_TESTING)
     APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
     TIMEOUT 30
   )
+
+  ament_add_gtest(${PROJECT_NAME}_node_contract_test
+    test/cpp/test_fa_bit_depth_node_contract.cpp
+  )
+  target_include_directories(${PROJECT_NAME}_node_contract_test PRIVATE
+    include
+  )
+  ament_target_dependencies(${PROJECT_NAME}_node_contract_test
+    rclcpp
+    fa_interfaces
+  )
+  target_link_libraries(${PROJECT_NAME}_node_contract_test
+    fa_bit_depth_node_core
+  )
+
   ament_lint_auto_find_test_dependencies()
 endif()
 
