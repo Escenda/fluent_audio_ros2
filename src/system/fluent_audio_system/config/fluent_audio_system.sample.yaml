@@ -92,6 +92,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_normalize
+        enable: false
+        package: fa_normalize
+        exec: fa_normalize_node
+        node_name: fa_normalize
+        namespace: ""
+        params_file: "${share:fa_normalize}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
   - id: frequency
     enable: true
     nodes:
@@ -105,6 +115,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_low_pass
+        enable: false
+        package: fa_low_pass
+        exec: fa_low_pass_node
+        node_name: fa_low_pass
+        namespace: ""
+        params_file: "${share:fa_low_pass}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_notch
         enable: false
         package: fa_notch
@@ -112,6 +132,19 @@ groups:
         node_name: fa_notch
         namespace: ""
         params_file: "${share:fa_notch}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+  - id: temporal
+    enable: true
+    nodes:
+      - id: fa_fade
+        enable: false
+        package: fa_fade
+        exec: fa_fade_node
+        node_name: fa_fade
+        namespace: ""
+        params_file: "${share:fa_fade}/config/default.yaml"
         remappings: {}
         parameters: {}
 
@@ -155,6 +188,19 @@ groups:
         node_name: fa_dc_offset_removal
         namespace: ""
         params_file: "${share:fa_dc_offset_removal}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+  - id: spatial
+    enable: true
+    nodes:
+      - id: fa_pan
+        enable: false
+        package: fa_pan
+        exec: fa_pan_node
+        node_name: fa_pan
+        namespace: ""
+        params_file: "${share:fa_pan}/config/default.yaml"
         remappings: {}
         parameters: {}
 
