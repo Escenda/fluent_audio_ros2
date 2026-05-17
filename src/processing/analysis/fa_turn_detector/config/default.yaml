@@ -7,5 +7,6 @@ fa_turn_detector:
     backend.name: "smart_turn_onnx"
     # Required. Set an explicit model path in launch/system config.
     backend.model_path: ""
-    backend.execution_provider: "CPUExecutionProvider"
+    # Required ONNX Runtime provider, e.g. CPUExecutionProvider or CUDAExecutionProvider.
+    backend.execution_provider: ""
     backend.threshold: 0.5
