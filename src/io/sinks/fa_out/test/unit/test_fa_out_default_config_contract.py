@@ -75,3 +75,16 @@ def test_runtime_write_failure_fails_closed_without_reopen_retry() -> None:
     assert "ALSA device unavailable, dropping frame" not in playback_thread
     assert "snd_pcm_prepare(pcm_handle_);" not in playback_thread
     assert "rclcpp::shutdown()" in source
+
+
+def test_colcon_runs_pytest_contracts() -> None:
+    package_root = Path(__file__).parents[2]
+    cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
+    package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
+
+    assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>python3-pytest</test_depend>" in package_xml
+    assert "<test_depend>python3-yaml</test_depend>" in package_xml
