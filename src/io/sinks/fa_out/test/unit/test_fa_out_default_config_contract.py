@@ -12,6 +12,7 @@ def test_default_config_requires_explicit_sink_device() -> None:
 
     assert params["backend.name"] == "alsa_playback"
     assert params["audio.device_id"] == ""
+    assert params["audio.bit_depth"] == 16
     assert params["audio.chunk_duration_ms"] == 30
     assert params["audio.qos.depth"] == 10
     assert params["audio.qos.reliable"] is True
@@ -51,6 +52,15 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     assert 'declare_parameter<int>("audio.chunk_duration_ms")' in source
     assert 'declare_parameter<int>("audio.qos.depth")' in source
     assert 'declare_parameter<bool>("audio.qos.reliable")' in source
+
+
+def test_playback_contract_is_pcm16_only_at_startup() -> None:
+    source_path = Path(__file__).parents[2] / "src" / "fa_out_node.cpp"
+    source = source_path.read_text(encoding="utf-8")
+
+    assert "audio.bit_depth must be 16 for PCM16LE playback" in source
+    assert "SND_PCM_FORMAT_S16_LE" in source
+    assert "SND_PCM_FORMAT_S32_LE" not in source
 
 
 def test_runtime_write_failure_fails_closed_without_reopen_retry() -> None:

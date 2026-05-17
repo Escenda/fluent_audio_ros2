@@ -4,7 +4,7 @@ fa_out:
     audio.device_id: ""
     audio.sample_rate: 48000
     audio.channels: 1
-    audio.bit_depth: 16
+    audio.bit_depth: 16  # PCM16LE-only playback sink
     audio.chunk_duration_ms: 30
     audio.qos.depth: 10
     audio.qos.reliable: true

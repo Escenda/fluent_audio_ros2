@@ -13,7 +13,7 @@
 - ALSA playback device id。`hw:` で始まる raw hardware device のみ許可する
 - expected sample rate
 - expected channels
-- expected bit depth
+- expected bit depth。現行 backend は `PCM16LE/16` のみ対応
 - PCM frame bytes
 
 ## Output
@@ -26,6 +26,7 @@
 - device open failure
 - configured device が ALSA plugin PCM (`default`, `plug*`, `plughw*`, `sysdefault`, `pulse`, `pipewire` など)
 - unsupported format
+- bit depth が `16` ではない
 - unsupported sample rate
 - unsupported channel count
 - runtime `snd_pcm_writei` XRUN / EAGAIN / error / zero-frame write

@@ -12,6 +12,8 @@ def test_default_config_requires_explicit_source_identifier() -> None:
     selector = params["audio"]["device_selector"]
 
     assert params["backend"]["name"] == "alsa_capture"
+    assert params["audio"]["encoding"] == "PCM16LE"
+    assert params["audio"]["bit_depth"] == 16
     assert selector["mode"] == "name"
     assert selector["identifier"] == ""
     assert '"default"' not in config_text
@@ -30,6 +32,15 @@ def test_alsa_backend_filters_plugin_pcm_sources() -> None:
     assert "isRawAlsaHardwareSource" in source
     assert 'rfind("hw:", 0)' in source
     assert "devices.emplace_back(source_id" in source
+
+
+def test_alsa_backend_validates_format_contract_and_disables_resampling() -> None:
+    source_path = Path(__file__).parents[2] / "src" / "fa_in_node.cpp"
+    source = source_path.read_text(encoding="utf-8")
+
+    assert "alsaFormatForConfig" in source
+    assert '"audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32"' in source
+    assert "snd_pcm_hw_params_set_rate_resample(pcm_handle_, params, 0)" in source
 
 
 def test_runtime_read_failure_fails_closed_without_prepare_retry() -> None:

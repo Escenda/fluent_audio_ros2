@@ -117,6 +117,15 @@ void FaOutNode::loadParameters()
   config_.sample_rate = this->get_parameter("audio.sample_rate").as_int();
   config_.channels = this->get_parameter("audio.channels").as_int();
   config_.bit_depth = this->get_parameter("audio.bit_depth").as_int();
+  if (config_.sample_rate == 0) {
+    throw std::invalid_argument("audio.sample_rate must be > 0");
+  }
+  if (config_.channels == 0) {
+    throw std::invalid_argument("audio.channels must be > 0");
+  }
+  if (config_.bit_depth != 16) {
+    throw std::invalid_argument("audio.bit_depth must be 16 for PCM16LE playback");
+  }
   const int64_t max_frames_param = this->get_parameter("queue.max_frames").as_int();
   if (max_frames_param <= 0) {
     throw std::invalid_argument("queue.max_frames must be > 0");
@@ -158,18 +167,7 @@ bool FaOutNode::openDevice()
     return false;
   }
 
-  snd_pcm_format_t format = SND_PCM_FORMAT_UNKNOWN;
-  if (config_.bit_depth == 16) {
-    format = SND_PCM_FORMAT_S16_LE;
-  } else if (config_.bit_depth == 32) {
-    format = SND_PCM_FORMAT_S32_LE;
-  }
-
-  if (format == SND_PCM_FORMAT_UNKNOWN) {
-    RCLCPP_ERROR(this->get_logger(), "Unsupported bit depth: %u", config_.bit_depth);
-    snd_pcm_close(handle);
-    return false;
-  }
+  snd_pcm_format_t format = SND_PCM_FORMAT_S16_LE;
 
   // Use hardware parameters for more control over buffer settings
   snd_pcm_hw_params_t *hw_params;

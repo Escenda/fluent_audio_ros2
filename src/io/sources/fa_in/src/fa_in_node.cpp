@@ -13,6 +13,10 @@ namespace fa_in
 
 namespace
 {
+constexpr const char * kEncodingPcm16 = "PCM16LE";
+constexpr const char * kEncodingPcm32 = "PCM32LE";
+constexpr const char * kEncodingFloat32 = "FLOAT32LE";
+
 void silenceAlsaErrors(const char * /*file*/, int /*line*/, const char * /*function*/,
                        int /*err*/, const char * /*fmt*/, ...)
 {
@@ -22,6 +26,20 @@ void silenceAlsaErrors(const char * /*file*/, int /*line*/, const char * /*funct
 bool isRawAlsaHardwareSource(const std::string & source_id)
 {
   return source_id.rfind("hw:", 0) == 0;
+}
+
+snd_pcm_format_t alsaFormatForConfig(const AudioConfig & config)
+{
+  if (config.encoding == kEncodingPcm16 && config.bit_depth == 16) {
+    return SND_PCM_FORMAT_S16_LE;
+  }
+  if (config.encoding == kEncodingPcm32 && config.bit_depth == 32) {
+    return SND_PCM_FORMAT_S32_LE;
+  }
+  if (config.encoding == kEncodingFloat32 && config.bit_depth == 32) {
+    return SND_PCM_FORMAT_FLOAT_LE;
+  }
+  return SND_PCM_FORMAT_UNKNOWN;
 }
 }  // namespace
 
@@ -93,6 +111,22 @@ void FaInNode::loadParameters()
   }
   if (config_.backend_name != "alsa_capture") {
     throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
+  }
+  if (config_.sample_rate == 0) {
+    throw std::runtime_error("audio.sample_rate must be > 0");
+  }
+  if (config_.channels == 0) {
+    throw std::runtime_error("audio.channels must be > 0");
+  }
+  if (config_.chunk_ms == 0) {
+    throw std::runtime_error("audio.chunk_ms must be > 0");
+  }
+  if (config_.diag_period_ms == 0) {
+    throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
+  }
+  if (alsaFormatForConfig(config_) == SND_PCM_FORMAT_UNKNOWN) {
+    throw std::runtime_error(
+      "audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32");
   }
 
   frames_per_buffer_ = std::max<uint32_t>(config_.sample_rate * config_.chunk_ms / 1000, 64u);
@@ -178,9 +212,18 @@ bool FaInNode::reopenStream(const std::string &device_id)
   snd_pcm_hw_params_t *params = nullptr;
   snd_pcm_hw_params_malloc(&params);
   snd_pcm_hw_params_any(pcm_handle_, params);
+
+  if ((err = snd_pcm_hw_params_set_rate_resample(pcm_handle_, params, 0)) < 0) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to disable ALSA software resampling: %s", snd_strerror(err));
+    snd_pcm_hw_params_free(params);
+    snd_pcm_close(pcm_handle_);
+    pcm_handle_ = nullptr;
+    return false;
+  }
+
   snd_pcm_hw_params_set_access(pcm_handle_, params, SND_PCM_ACCESS_RW_INTERLEAVED);
 
-  snd_pcm_format_t format = (config_.bit_depth == 16) ? SND_PCM_FORMAT_S16_LE : SND_PCM_FORMAT_FLOAT_LE;
+  snd_pcm_format_t format = alsaFormatForConfig(config_);
   if ((err = snd_pcm_hw_params_set_format(pcm_handle_, params, format)) < 0) {
     RCLCPP_ERROR(this->get_logger(), "Failed to set format: %s", snd_strerror(err));
     snd_pcm_hw_params_free(params);

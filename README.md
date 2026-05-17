@@ -1,6 +1,6 @@
 # FluentAudio ROS2
 
-`fluent_vision_ros2`（設計・開発: Takashi Otsuka / @takatronix）をベースに、ROS2上で「聴覚（Audio）」を扱うためのノード群を追加したフォークです。
+`fluent_vision_ros2`（設計・開発: Takashi Otsuka / @takatronix）をベースに、ROS2 上で「聴覚（Audio）」を扱うためのノード群を整理した repository です。
 
 - Upstream: https://github.com/takatronix/fluent_vision_ros2
 - This fork: https://github.com/Escenda/fluent_audio_ros2
@@ -8,7 +8,7 @@
 ## このリポジトリの位置づけ
 - upstream の設計思想（ノード分割、低遅延、YAML/launch 運用）を踏襲します
 - `src/` 以下を用途別（`io/`, `processing/`, `apps/`, `system/`, `interfaces/`）に分割して管理します
-- クラウドを使わず、音声入力で「起動/停止/モード切替」できる運用を目標にしています
+- source / sink、DSP、音声 AI、音声 app を分離し、backend を明示的に切り替えられる構造を目標にしています
 - 音声にフォーカスするため、vision 系パッケージ（カメラ/AI/UI/配信/SLAM など）は本リポジトリから削除しています（視覚系は upstream を参照してください）
 
 ## 主要パッケージ（Audio）
@@ -96,11 +96,12 @@ ros2 launch fa_turn_detector fa_turn_detector.launch.py
   - `speak`（`fa_tts`）
 
 ## ドキュメント
+- `docs/仕様書.md`: repository 全体の責務境界
+- `docs/アルゴリズム詳細説明書.md`: package 横断の処理分類と backend 境界
+- `docs/テスト設計.md`: package 横断のテスト方針
 - `docs/fa_audio_system.md`: 全体像・データフロー
 - `docs/fa_audio_design.md`: 設計メモ
-- `docs/fa_dsp_design.md`: DSP（NS/AEC/Resample/Mix）設計メモ
-- `docs/fa_benchmark_policy.md`: ベンチマークの保存ポリシー
-- 各パッケージ配下の `README.md`
+- 各 package 配下の `README.md` と `docs/`
 
 ## ライセンス
 このリポジトリには MIT / Apache-2.0 など複数ライセンスのパッケージが含まれます。各パッケージの `package.xml` の `<license>` を参照してください。
