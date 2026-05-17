@@ -2,6 +2,7 @@ fa_out:
   ros__parameters:
     backend.name: "alsa_playback"
     audio.device_id: ""
+    audio.encoding: "PCM16LE"
     audio.sample_rate: 48000
     audio.channels: 1
     audio.bit_depth: 16  # PCM16LE-only playback sink

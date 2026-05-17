@@ -84,16 +84,16 @@ bool FaInNode::hasFatalError() const
 
 void FaInNode::loadParameters()
 {
-  this->declare_parameter("backend.name", config_.backend_name);
-  this->declare_parameter("audio.device_selector.mode", config_.device_mode);
+  this->declare_parameter<std::string>("backend.name");
+  this->declare_parameter<std::string>("audio.device_selector.mode");
   this->declare_parameter("audio.device_selector.identifier", config_.device_identifier);
   this->declare_parameter<int>("audio.device_selector.index", config_.device_index);
-  this->declare_parameter<int>("audio.sample_rate", static_cast<int>(config_.sample_rate));
-  this->declare_parameter<int>("audio.channels", static_cast<int>(config_.channels));
-  this->declare_parameter<int>("audio.bit_depth", static_cast<int>(config_.bit_depth));
-  this->declare_parameter<int>("audio.chunk_ms", static_cast<int>(config_.chunk_ms));
-  this->declare_parameter("audio.encoding", config_.encoding);
-  this->declare_parameter<int>("diagnostics.publish_period_ms", static_cast<int>(config_.diag_period_ms));
+  this->declare_parameter<int>("audio.sample_rate");
+  this->declare_parameter<int>("audio.channels");
+  this->declare_parameter<int>("audio.bit_depth");
+  this->declare_parameter<int>("audio.chunk_ms");
+  this->declare_parameter<std::string>("audio.encoding");
+  this->declare_parameter<int>("diagnostics.publish_period_ms");
 
   config_.backend_name = this->get_parameter("backend.name").as_string();
   config_.device_mode = this->get_parameter("audio.device_selector.mode").as_string();

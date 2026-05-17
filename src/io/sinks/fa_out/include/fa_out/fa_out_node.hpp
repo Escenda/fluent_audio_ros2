@@ -26,6 +26,7 @@ struct OutputConfig
 {
   std::string backend_name{};
   std::string device_id{};
+  std::string encoding{};
   uint32_t sample_rate{0};
   uint32_t channels{0};
   uint32_t bit_depth{0};

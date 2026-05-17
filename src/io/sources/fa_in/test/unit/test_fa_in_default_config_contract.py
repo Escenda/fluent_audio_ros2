@@ -20,9 +20,27 @@ def test_default_config_requires_explicit_source_identifier() -> None:
 
 
 def test_source_backend_has_no_struct_default() -> None:
-    header_path = Path(__file__).parents[2] / "include" / "fa_in" / "fa_in_node.hpp"
+    package_root = Path(__file__).parents[2]
+    header_path = package_root / "include" / "fa_in" / "fa_in_node.hpp"
+    source_path = package_root / "src" / "fa_in_node.cpp"
 
-    assert "std::string backend_name{};" in header_path.read_text(encoding="utf-8")
+    header_text = header_path.read_text(encoding="utf-8")
+    source_text = source_path.read_text(encoding="utf-8")
+
+    assert "std::string backend_name{};" in header_text
+    assert "std::string device_mode{};" in header_text
+    assert "uint32_t sample_rate{0};" in header_text
+    assert "uint32_t channels{0};" in header_text
+    assert "uint32_t bit_depth{0};" in header_text
+    assert "uint32_t chunk_ms{0};" in header_text
+    assert "std::string encoding{};" in header_text
+    assert "uint32_t diag_period_ms{0};" in header_text
+    assert 'declare_parameter<int>("audio.sample_rate")' in source_text
+    assert 'declare_parameter<int>("audio.channels")' in source_text
+    assert 'declare_parameter<int>("audio.bit_depth")' in source_text
+    assert 'declare_parameter<int>("audio.chunk_ms")' in source_text
+    assert 'declare_parameter<std::string>("audio.encoding")' in source_text
+    assert 'declare_parameter<int>("diagnostics.publish_period_ms")' in source_text
 
 
 def test_alsa_backend_filters_plugin_pcm_sources() -> None:

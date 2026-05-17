@@ -12,6 +12,7 @@ def test_default_config_requires_explicit_sink_device() -> None:
 
     assert params["backend.name"] == "alsa_playback"
     assert params["audio.device_id"] == ""
+    assert params["audio.encoding"] == "PCM16LE"
     assert params["audio.bit_depth"] == 16
     assert params["audio.chunk_duration_ms"] == 30
     assert params["audio.qos.depth"] == 10
@@ -24,6 +25,7 @@ def test_sink_backend_has_no_struct_default() -> None:
     header_text = header_path.read_text(encoding="utf-8")
 
     assert "std::string backend_name{};" in header_text
+    assert "std::string encoding{};" in header_text
     assert "uint32_t sample_rate{0};" in header_text
     assert "uint32_t channels{0};" in header_text
     assert "uint32_t bit_depth{0};" in header_text
@@ -45,6 +47,7 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     source_path = Path(__file__).parents[2] / "src" / "fa_out_node.cpp"
     source = source_path.read_text(encoding="utf-8")
 
+    assert 'declare_parameter<std::string>("audio.encoding")' in source
     assert 'declare_parameter<int>("audio.sample_rate")' in source
     assert 'declare_parameter<int>("audio.channels")' in source
     assert 'declare_parameter<int>("audio.bit_depth")' in source
@@ -58,9 +61,11 @@ def test_playback_contract_is_pcm16_only_at_startup() -> None:
     source_path = Path(__file__).parents[2] / "src" / "fa_out_node.cpp"
     source = source_path.read_text(encoding="utf-8")
 
+    assert "audio.encoding must be PCM16LE for backend.name=alsa_playback" in source
     assert "audio.bit_depth must be 16 for PCM16LE playback" in source
     assert "SND_PCM_FORMAT_S16_LE" in source
     assert "SND_PCM_FORMAT_S32_LE" not in source
+    assert "msg.encoding != config_.encoding" in source
 
 
 def test_runtime_write_failure_fails_closed_without_reopen_retry() -> None:

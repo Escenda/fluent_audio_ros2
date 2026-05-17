@@ -91,6 +91,7 @@ void FaOutNode::loadParameters()
 {
   this->declare_parameter<std::string>("backend.name");
   this->declare_parameter<std::string>("audio.device_id");
+  this->declare_parameter<std::string>("audio.encoding");
   this->declare_parameter<int>("audio.sample_rate");
   this->declare_parameter<int>("audio.channels");
   this->declare_parameter<int>("audio.bit_depth");
@@ -101,6 +102,7 @@ void FaOutNode::loadParameters()
 
   config_.backend_name = this->get_parameter("backend.name").as_string();
   config_.device_id = this->get_parameter("audio.device_id").as_string();
+  config_.encoding = this->get_parameter("audio.encoding").as_string();
   if (config_.backend_name.empty()) {
     throw std::invalid_argument("backend.name is required");
   }
@@ -109,6 +111,9 @@ void FaOutNode::loadParameters()
   }
   if (config_.device_id.empty()) {
     throw std::invalid_argument("audio.device_id is required for backend.name=alsa_playback");
+  }
+  if (config_.encoding != kEncodingPcm16) {
+    throw std::invalid_argument("audio.encoding must be PCM16LE for backend.name=alsa_playback");
   }
   if (!isRawAlsaPlaybackDevice(config_.device_id)) {
     throw std::invalid_argument(
@@ -149,11 +154,11 @@ void FaOutNode::loadParameters()
   config_.qos_reliable = this->get_parameter("audio.qos.reliable").as_bool();
 
   RCLCPP_INFO(this->get_logger(),
-    "Output config: backend=%s device=%s rate=%uHz channels=%u bits=%u queue=%zu "
+    "Output config: backend=%s device=%s encoding=%s rate=%uHz channels=%u bits=%u queue=%zu "
     "chunk=%ums qos_depth=%zu reliable=%s",
-    config_.backend_name.c_str(), config_.device_id.c_str(), config_.sample_rate, config_.channels,
-    config_.bit_depth, config_.max_queue_frames, config_.chunk_duration_ms, config_.qos_depth,
-    config_.qos_reliable ? "true" : "false");
+    config_.backend_name.c_str(), config_.device_id.c_str(), config_.encoding.c_str(),
+    config_.sample_rate, config_.channels, config_.bit_depth, config_.max_queue_frames,
+    config_.chunk_duration_ms, config_.qos_depth, config_.qos_reliable ? "true" : "false");
 }
 
 bool FaOutNode::openDevice()
@@ -451,10 +456,10 @@ void FaOutNode::handleResume(const std_msgs::msg::Empty::SharedPtr /*msg*/)
 
 bool FaOutNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
 {
-  if (msg.encoding != kEncodingPcm16) {
+  if (msg.encoding != config_.encoding) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Unsupported encoding %s, expected %s", msg.encoding.c_str(), kEncodingPcm16);
+      "Unsupported encoding %s, expected %s", msg.encoding.c_str(), config_.encoding.c_str());
     return false;
   }
   if (msg.sample_rate != config_.sample_rate || msg.channels != config_.channels ||

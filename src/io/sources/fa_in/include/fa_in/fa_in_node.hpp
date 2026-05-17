@@ -26,15 +26,15 @@ namespace fa_in
 struct AudioConfig
 {
   std::string backend_name{};
-  std::string device_mode{"name"};
+  std::string device_mode{};
   std::string device_identifier{};
   int device_index{-1};
-  uint32_t sample_rate{48000};
-  uint32_t channels{1};
-  uint32_t bit_depth{16};
-  uint32_t chunk_ms{20};
-  std::string encoding{"PCM16LE"};
-  uint32_t diag_period_ms{1000};
+  uint32_t sample_rate{0};
+  uint32_t channels{0};
+  uint32_t bit_depth{0};
+  uint32_t chunk_ms{0};
+  std::string encoding{};
+  uint32_t diag_period_ms{0};
 };
 
 class FaInNode : public rclcpp::Node
