@@ -1,0 +1,23 @@
+fa_upmix:
+  ros__parameters:
+    input_topic: "audio/mono/mic"
+    output_topic: "audio/upmixed/mic"
+
+    expected:
+      sample_rate: 16000
+      input_channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    output:
+      channels: 2
+
+    mode: "mono_duplicate"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

@@ -205,6 +205,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_deesser
+        enable: false
+        package: fa_deesser
+        exec: fa_deesser_node
+        node_name: fa_deesser
+        namespace: ""
+        params_file: "${share:fa_deesser}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
   - id: temporal
     enable: true
     nodes:
@@ -215,6 +225,16 @@ groups:
         node_name: fa_delay
         namespace: ""
         params_file: "${share:fa_delay}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_echo
+        enable: false
+        package: fa_echo
+        exec: fa_echo_node
+        node_name: fa_echo
+        namespace: ""
+        params_file: "${share:fa_echo}/config/default.yaml"
         remappings: {}
         parameters: {}
 
@@ -341,6 +361,16 @@ groups:
         node_name: fa_downmix
         namespace: ""
         params_file: "${share:fa_downmix}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_upmix
+        enable: false
+        package: fa_upmix
+        exec: fa_upmix_node
+        node_name: fa_upmix
+        namespace: ""
+        params_file: "${share:fa_upmix}/config/default.yaml"
         remappings: {}
         parameters: {}
 

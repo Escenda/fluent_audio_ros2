@@ -1,0 +1,24 @@
+fa_echo:
+  ros__parameters:
+    input_topic: "audio/buffered/mic"
+    output_topic: "audio/echo/mic"
+
+    echo:
+      delay_ms: 250.0
+      feedback_gain: 0.35
+      wet_gain: 0.4
+      dry_gain: 0.8
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000
