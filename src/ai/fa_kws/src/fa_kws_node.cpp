@@ -144,9 +144,19 @@ private:
         return;
       }
       std::error_code ec;
-      const bool ok = std::filesystem::exists(path, ec) && !ec;
-      if (!ok) {
+      const bool exists = std::filesystem::exists(path, ec) && !ec;
+      if (!exists) {
         oss << "  - " << label << ": not found (" << path << ")\n";
+        return;
+      }
+      const bool is_regular = std::filesystem::is_regular_file(path, ec) && !ec;
+      if (!is_regular) {
+        oss << "  - " << label << ": not a regular file (" << path << ")\n";
+        return;
+      }
+      std::ifstream probe(path, std::ios::binary);
+      if (!probe.is_open()) {
+        oss << "  - " << label << ": not readable (" << path << ")\n";
       }
     };
 

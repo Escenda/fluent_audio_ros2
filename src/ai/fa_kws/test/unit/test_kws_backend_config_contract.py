@@ -104,6 +104,17 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     assert gate_index < process_index
 
 
+def test_model_file_validation_rejects_non_regular_or_unreadable_paths() -> None:
+    node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
+    spec_text = (PACKAGE_ROOT / "docs" / "仕様書.md").read_text(encoding="utf-8")
+
+    assert "std::filesystem::is_regular_file(path, ec)" in node_text
+    assert "not a regular file" in node_text
+    assert "std::ifstream probe(path, std::ios::binary)" in node_text
+    assert "not readable" in node_text
+    assert "model path missing / not a regular readable file" in spec_text
+
+
 def test_backend_keeps_vad_gate_mandatory() -> None:
     header_text = (
         PACKAGE_ROOT
