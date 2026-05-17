@@ -53,7 +53,7 @@ struct BufferedSegment
 class FaChunkOverlapNode : public rclcpp::Node
 {
 public:
-  FaChunkOverlapNode();
+  explicit FaChunkOverlapNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaChunkOverlapNode() override = default;
 
 private:

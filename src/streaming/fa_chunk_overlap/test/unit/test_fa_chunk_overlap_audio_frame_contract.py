@@ -11,6 +11,12 @@ def source_text() -> str:
     return (package_root() / "src" / "fa_chunk_overlap_node.cpp").read_text(encoding="utf-8")
 
 
+def header_text() -> str:
+    return (
+        package_root() / "include" / "fa_chunk_overlap" / "fa_chunk_overlap_node.hpp"
+    ).read_text(encoding="utf-8")
+
+
 def test_default_config_requires_float32_interleaved_overlap_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_chunk_overlap"]["ros__parameters"]
@@ -45,6 +51,23 @@ def test_chunk_overlap_does_not_include_device_io_conversion_or_padding() -> Non
     )
     for token in forbidden:
         assert token not in source
+
+
+def test_node_identity_matches_contract() -> None:
+    source = source_text()
+    header = header_text()
+    main_source = (package_root() / "src" / "main.cpp").read_text(encoding="utf-8")
+    launch = (package_root() / "launch" / "fa_chunk_overlap.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "namespace fa_chunk_overlap" in header
+    assert "class FaChunkOverlapNode : public rclcpp::Node" in header
+    assert 'rclcpp::Node("fa_chunk_overlap", options)' in source
+    assert "explicit FaChunkOverlapNode(const rclcpp::NodeOptions & options" in header
+    assert "fa_chunk_overlap::FaChunkOverlapNode" in main_source
+    assert 'executable="fa_chunk_overlap_node"' in launch
+    assert 'default_value="fa_chunk_overlap"' in launch
 
 
 def test_startup_validation_fails_closed_for_invalid_config() -> None:
@@ -175,6 +198,8 @@ def test_diagnostics_publish_overlap_counters() -> None:
 
 def test_package_layout_matches_required_streaming_layout() -> None:
     required_paths = (
+        "CMakeLists.txt",
+        "package.xml",
         "README.md",
         "docs/仕様書.md",
         "docs/アルゴリズム詳細説明書.md",
@@ -184,7 +209,9 @@ def test_package_layout_matches_required_streaming_layout() -> None:
         "launch/fa_chunk_overlap.launch.py",
         "include/fa_chunk_overlap/fa_chunk_overlap_node.hpp",
         "src/fa_chunk_overlap_node.cpp",
+        "src/main.cpp",
         "test/unit/test_fa_chunk_overlap_audio_frame_contract.py",
+        "test/cpp/test_fa_chunk_overlap_node_contract.cpp",
         "test/integration/.gitkeep",
         "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
@@ -199,10 +226,14 @@ def test_colcon_runs_pytest_contracts_and_lint_auto() -> None:
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_lint_auto REQUIRED)" in cmake_text
+    assert "add_library(fa_chunk_overlap_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "ament_lint_auto_find_test_dependencies()" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml

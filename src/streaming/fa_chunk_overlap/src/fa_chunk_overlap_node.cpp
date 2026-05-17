@@ -1,9 +1,7 @@
 #include "fa_chunk_overlap/fa_chunk_overlap_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <limits>
@@ -52,8 +50,8 @@ builtin_interfaces::msg::Time nanosecondsToStamp(const int64_t nanoseconds)
 }
 }  // namespace
 
-FaChunkOverlapNode::FaChunkOverlapNode()
-: rclcpp::Node("fa_chunk_overlap")
+FaChunkOverlapNode::FaChunkOverlapNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_chunk_overlap", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Chunk Overlap node");
   loadParameters();
@@ -146,7 +144,7 @@ void FaChunkOverlapNode::loadParameters()
 
 void FaChunkOverlapNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -453,18 +451,3 @@ void FaChunkOverlapNode::publishDiagnostics()
 }
 
 }  // namespace fa_chunk_overlap
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_chunk_overlap::FaChunkOverlapNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_chunk_overlap"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}
