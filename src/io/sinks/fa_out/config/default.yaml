@@ -1,5 +1,6 @@
 fa_out:
   ros__parameters:
+    backend.name: "alsa_playback"
     audio.device_id: "default"
     audio.sample_rate: 48000
     audio.channels: 1

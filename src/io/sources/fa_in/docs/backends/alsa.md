@@ -6,7 +6,7 @@
 
 ## Contract
 
-ALSA capture source を明示 id または index で開き、PCM frame を `fa_in` に返します。
+`backend.name=alsa_capture` の backend です。ALSA capture source を明示 id または index で開き、PCM frame を `fa_in` に返します。
 
 ## Input
 

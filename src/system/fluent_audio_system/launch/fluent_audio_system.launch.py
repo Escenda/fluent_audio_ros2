@@ -22,6 +22,7 @@ def _launch_setup(context):
                 namespace=node.namespace,
                 output=node.output,
                 parameters=node.launch_parameters(),
+                remappings=node.launch_remappings(),
             )
             actions.append(
                 LogInfo(

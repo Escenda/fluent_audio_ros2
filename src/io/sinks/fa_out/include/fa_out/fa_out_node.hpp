@@ -24,6 +24,7 @@ namespace fa_out
 
 struct OutputConfig
 {
+  std::string backend_name = "alsa_playback";
   std::string device_id = "default";
   uint32_t sample_rate = 48000;
   uint32_t channels = 1;

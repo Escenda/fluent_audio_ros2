@@ -13,9 +13,17 @@ fa_asr:
     workspace_dir: "/tmp/fa_asr"
     cleanup_audio_files: true
 
-    # Local ASR backend. These values are required; fa_asr fails closed at
-    # startup if command/model_path are empty or invalid.
+    # Supported backend.name values:
+    # - local_command: generic local ASR process, requires backend.model_path
+    # - whisper_cpp: whisper.cpp process, requires backend.model_path
+    # - parakeet_worker: external worker/process/container, requires backend.model
+    # - openai_realtime: external OpenAI Realtime worker/process, requires backend.model
+    #
+    # OpenAI SDK/API clients are not imported by fa_asr. The openai_realtime
+    # backend is an external worker boundary and fails closed if command/model
+    # are not explicitly configured.
     backend.name: "local_command"
+    backend.model: ""
     backend.command: ""
     backend.model_path: ""
     backend.language: "ja"

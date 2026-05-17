@@ -80,6 +80,7 @@ void FaOutNode::loadParameters()
 {
   const bool default_qos_reliable = config_.qos_reliable;
 
+  this->declare_parameter("backend.name", config_.backend_name);
   this->declare_parameter("audio.device_id", config_.device_id);
   this->declare_parameter<int>("audio.sample_rate", static_cast<int>(config_.sample_rate));
   this->declare_parameter<int>("audio.channels", static_cast<int>(config_.channels));
@@ -89,7 +90,11 @@ void FaOutNode::loadParameters()
   this->declare_parameter<int>("audio.qos.depth", static_cast<int>(config_.qos_depth));
   this->declare_parameter<bool>("audio.qos.reliable", default_qos_reliable);
 
+  config_.backend_name = this->get_parameter("backend.name").as_string();
   config_.device_id = this->get_parameter("audio.device_id").as_string();
+  if (config_.backend_name != "alsa_playback") {
+    throw std::invalid_argument("unsupported fa_out backend.name: " + config_.backend_name);
+  }
   config_.sample_rate = this->get_parameter("audio.sample_rate").as_int();
   config_.channels = this->get_parameter("audio.channels").as_int();
   config_.bit_depth = this->get_parameter("audio.bit_depth").as_int();
@@ -116,10 +121,10 @@ void FaOutNode::loadParameters()
   config_.qos_reliable = this->get_parameter("audio.qos.reliable").as_bool();
 
   RCLCPP_INFO(this->get_logger(),
-    "Output config: device=%s rate=%uHz channels=%u bits=%u queue=%zu "
+    "Output config: backend=%s device=%s rate=%uHz channels=%u bits=%u queue=%zu "
     "chunk=%ums qos_depth=%zu reliable=%s",
-    config_.device_id.c_str(), config_.sample_rate, config_.channels, config_.bit_depth,
-    config_.max_queue_frames, config_.chunk_duration_ms, config_.qos_depth,
+    config_.backend_name.c_str(), config_.device_id.c_str(), config_.sample_rate, config_.channels,
+    config_.bit_depth, config_.max_queue_frames, config_.chunk_duration_ms, config_.qos_depth,
     config_.qos_reliable ? "true" : "false");
 }
 

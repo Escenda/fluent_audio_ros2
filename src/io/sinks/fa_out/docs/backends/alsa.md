@@ -6,7 +6,7 @@
 
 ## Contract
 
-ALSA playback device を明示 id で開き、validated PCM frame を device へ書き込みます。
+`backend.name=alsa_playback` の backend です。ALSA playback device を明示 id で開き、validated PCM frame を device へ書き込みます。
 
 ## Input
 

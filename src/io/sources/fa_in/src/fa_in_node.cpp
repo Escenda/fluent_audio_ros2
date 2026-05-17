@@ -55,6 +55,7 @@ FaInNode::~FaInNode()
 
 void FaInNode::loadParameters()
 {
+  this->declare_parameter("backend.name", config_.backend_name);
   this->declare_parameter("audio.device_selector.mode", config_.device_mode);
   this->declare_parameter("audio.device_selector.identifier", config_.device_identifier);
   this->declare_parameter<int>("audio.device_selector.index", config_.device_index);
@@ -65,6 +66,7 @@ void FaInNode::loadParameters()
   this->declare_parameter("audio.encoding", config_.encoding);
   this->declare_parameter<int>("diagnostics.publish_period_ms", static_cast<int>(config_.diag_period_ms));
 
+  config_.backend_name = this->get_parameter("backend.name").as_string();
   config_.device_mode = this->get_parameter("audio.device_selector.mode").as_string();
   config_.device_identifier = this->get_parameter("audio.device_selector.identifier").as_string();
   config_.device_index = this->get_parameter("audio.device_selector.index").as_int();
@@ -75,12 +77,17 @@ void FaInNode::loadParameters()
   config_.encoding = this->get_parameter("audio.encoding").as_string();
   config_.diag_period_ms = this->get_parameter("diagnostics.publish_period_ms").as_int();
 
+  if (config_.backend_name != "alsa_capture") {
+    throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
+  }
+
   frames_per_buffer_ = std::max<uint32_t>(config_.sample_rate * config_.chunk_ms / 1000, 64u);
   bytes_per_frame_ = config_.channels * (config_.bit_depth / 8);
   last_frame_time_ = std::chrono::steady_clock::now();
 
-  RCLCPP_INFO(this->get_logger(), "Audio configuration: mode=%s rate=%uHz channels=%u bits=%u chunk=%ums",
-    config_.device_mode.c_str(), config_.sample_rate, config_.channels, config_.bit_depth, config_.chunk_ms);
+  RCLCPP_INFO(this->get_logger(), "Audio configuration: backend=%s mode=%s rate=%uHz channels=%u bits=%u chunk=%ums",
+    config_.backend_name.c_str(), config_.device_mode.c_str(), config_.sample_rate, config_.channels,
+    config_.bit_depth, config_.chunk_ms);
 }
 
 void FaInNode::initializeAlsa()

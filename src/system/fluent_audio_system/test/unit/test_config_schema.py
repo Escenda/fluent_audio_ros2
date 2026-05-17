@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from fluent_audio_system import config_schema
 from fluent_audio_system.config_schema import load_system_config, parse_system_config
 
 
@@ -18,6 +19,7 @@ def test_parse_valid_inline_config() -> None:
                             "id": "fa_in",
                             "package": "fa_in",
                             "exec": "fa_in_node",
+                            "remappings": {"audio/frame": "robot/audio/frame"},
                             "parameters": {
                                 "audio.sample_rate": 48000,
                                 "audio.encoding": "PCM16LE",
@@ -34,6 +36,9 @@ def test_parse_valid_inline_config() -> None:
     assert spec.inter_group_delay == 0.5
     assert len(spec.groups) == 1
     assert spec.groups[0].nodes[0].package == "fa_in"
+    assert spec.groups[0].nodes[0].launch_remappings() == [
+        ("audio/frame", "robot/audio/frame")
+    ]
     assert spec.groups[0].nodes[0].launch_parameters() == [
         {
             "audio.sample_rate": 48000,
@@ -127,3 +132,79 @@ def test_nested_inline_parameters_fail() -> None:
 def test_load_missing_config_fails(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="config not found"):
         load_system_config(str(tmp_path / "missing.yaml"))
+
+
+def test_sequence_remappings_are_supported() -> None:
+    spec = parse_system_config(
+        {
+            "groups": [
+                {
+                    "id": "io",
+                    "nodes": [
+                        {
+                            "id": "fa_in",
+                            "package": "fa_in",
+                            "exec": "fa_in_node",
+                            "remappings": [
+                                {"from": "audio/frame", "to": "robot/audio/frame"}
+                            ],
+                            "parameters": {"audio.sample_rate": 48000},
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+
+    assert spec.groups[0].nodes[0].launch_remappings() == [
+        ("audio/frame", "robot/audio/frame")
+    ]
+
+
+def test_invalid_remappings_fail() -> None:
+    with pytest.raises(RuntimeError, match="remapping target"):
+        parse_system_config(
+            {
+                "groups": [
+                    {
+                        "id": "io",
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "package": "fa_in",
+                                "exec": "fa_in_node",
+                                "remappings": {"audio/frame": ""},
+                                "parameters": {"audio.sample_rate": 48000},
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+
+def test_share_path_expansion(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
+    system_file = tmp_path / "system.yaml"
+    system_file.write_text(
+        """
+groups:
+  - id: io
+    nodes:
+      - id: fa_in
+        package: fa_in
+        exec: fa_in_node
+        params_file: "${share:demo_pkg}/fa_in.yaml"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        config_schema,
+        "_get_package_share_directory",
+        lambda package_name: str(tmp_path),
+    )
+
+    spec = load_system_config("${share:demo_pkg}/system.yaml")
+
+    assert spec.groups[0].nodes[0].params_file == str(params_file)

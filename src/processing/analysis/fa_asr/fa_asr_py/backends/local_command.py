@@ -15,7 +15,8 @@ from fa_asr_py.backends.base import AsrRequest
 @dataclass(frozen=True)
 class LocalCommandAsrConfig:
     executable: str
-    model_path: Path
+    model: str
+    model_path: Path | None
     language: str
     args: tuple[str, ...]
     timeout_sec: float
@@ -28,8 +29,9 @@ class LocalCommandAsrConfig:
 class LocalCommandAsrBackend:
     name = "local_command"
 
-    def __init__(self, config: LocalCommandAsrConfig) -> None:
+    def __init__(self, config: LocalCommandAsrConfig, *, backend_name: str | None = None) -> None:
         self._config = config
+        self.name = backend_name or self.name
         self._config.workspace_dir.mkdir(parents=True, exist_ok=True)
 
     def transcribe(self, request: AsrRequest) -> str:
@@ -71,7 +73,7 @@ class LocalCommandAsrBackend:
             return None
         rendered = self._config.output_text_path.format(
             audio=str(wav_path),
-            model=str(self._config.model_path),
+            model=self._config.model,
             language=self._config.language,
             session_id=request.session_id,
             user_turn_id=request.user_turn_id,
@@ -86,7 +88,7 @@ class LocalCommandAsrBackend:
         return [
             part.format(
                 audio=str(wav_path),
-                model=str(self._config.model_path),
+                model=self._config.model,
                 language=self._config.language,
                 output=output_value,
             )
@@ -123,13 +125,76 @@ def load_local_command_config(
     workspace_dir: Path,
     cleanup_audio_files: bool,
 ) -> LocalCommandAsrConfig:
+    return _load_command_config(
+        command=command,
+        model_value="",
+        model_path_value=model_path_value,
+        require_model_path=True,
+        language=language,
+        args=args,
+        timeout_sec=timeout_sec,
+        working_directory_value=working_directory_value,
+        output_text_path=output_text_path,
+        workspace_dir=workspace_dir,
+        cleanup_audio_files=cleanup_audio_files,
+    )
+
+
+def load_external_worker_config(
+    *,
+    command: str,
+    model: str,
+    language: str,
+    args: tuple[str, ...],
+    timeout_sec: float,
+    working_directory_value: str,
+    output_text_path: str,
+    workspace_dir: Path,
+    cleanup_audio_files: bool,
+) -> LocalCommandAsrConfig:
+    return _load_command_config(
+        command=command,
+        model_value=model,
+        model_path_value="",
+        require_model_path=False,
+        language=language,
+        args=args,
+        timeout_sec=timeout_sec,
+        working_directory_value=working_directory_value,
+        output_text_path=output_text_path,
+        workspace_dir=workspace_dir,
+        cleanup_audio_files=cleanup_audio_files,
+    )
+
+
+def _load_command_config(
+    *,
+    command: str,
+    model_value: str,
+    model_path_value: str,
+    require_model_path: bool,
+    language: str,
+    args: tuple[str, ...],
+    timeout_sec: float,
+    working_directory_value: str,
+    output_text_path: str,
+    workspace_dir: Path,
+    cleanup_audio_files: bool,
+) -> LocalCommandAsrConfig:
     executable = _resolve_executable(command)
 
-    if not model_path_value:
-        raise RuntimeError("backend.model_path is required")
-    model_path = Path(model_path_value).expanduser()
-    if not model_path.is_file():
-        raise RuntimeError(f"backend.model_path does not exist: {model_path}")
+    model_path: Path | None = None
+    if require_model_path:
+        if not model_path_value:
+            raise RuntimeError("backend.model_path is required")
+        model_path = Path(model_path_value).expanduser()
+        if not model_path.is_file():
+            raise RuntimeError(f"backend.model_path does not exist: {model_path}")
+        model = str(model_path)
+    else:
+        model = model_value.strip()
+        if not model:
+            raise RuntimeError("backend.model is required")
 
     if not args:
         raise RuntimeError("backend.args must not be empty")
@@ -150,6 +215,7 @@ def load_local_command_config(
 
     return LocalCommandAsrConfig(
         executable=executable,
+        model=model,
         model_path=model_path,
         language=language,
         args=args,

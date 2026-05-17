@@ -15,7 +15,11 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from fa_interfaces.msg import AsrResult, AudioFrame, TurnContext, VadState
 from fa_asr_py.backends.base import AsrBackend, AsrRequest
-from fa_asr_py.backends.local_command import LocalCommandAsrBackend, load_local_command_config
+from fa_asr_py.backends.local_command import (
+    LocalCommandAsrBackend,
+    load_external_worker_config,
+    load_local_command_config,
+)
 
 
 def _to_mono(samples: np.ndarray, channels: int) -> np.ndarray:
@@ -65,6 +69,7 @@ class FaAsrNode(Node):
         self.declare_parameter("workspace_dir", "/tmp/fa_asr")
         self.declare_parameter("cleanup_audio_files", True)
         self.declare_parameter("backend.name", "")
+        self.declare_parameter("backend.model", "")
         self.declare_parameter("backend.command", "")
         self.declare_parameter("backend.model_path", "")
         self.declare_parameter("backend.language", "ja")
@@ -142,13 +147,35 @@ class FaAsrNode(Node):
         backend_name = str(self.get_parameter("backend.name").value).strip()
         if not backend_name:
             raise RuntimeError("backend.name is required")
-        if backend_name != LocalCommandAsrBackend.name:
+        command_backends = {
+            LocalCommandAsrBackend.name,
+            "whisper_cpp",
+            "parakeet_worker",
+            "openai_realtime",
+        }
+        if backend_name not in command_backends:
             raise RuntimeError(f"unsupported ASR backend.name: {backend_name}")
 
         args_value = self.get_parameter("backend.args").get_parameter_value().string_array_value
-        config = load_local_command_config(
+        if backend_name in {LocalCommandAsrBackend.name, "whisper_cpp"}:
+            config = load_local_command_config(
+                command=str(self.get_parameter("backend.command").value).strip(),
+                model_path_value=str(self.get_parameter("backend.model_path").value).strip(),
+                language=str(self.get_parameter("backend.language").value),
+                args=tuple(str(part) for part in args_value),
+                timeout_sec=float(self.get_parameter("backend.timeout_sec").value),
+                working_directory_value=str(
+                    self.get_parameter("backend.working_directory").value
+                ).strip(),
+                output_text_path=str(self.get_parameter("backend.output_text_path").value).strip(),
+                workspace_dir=self.workspace_dir,
+                cleanup_audio_files=self.cleanup_audio_files,
+            )
+            return LocalCommandAsrBackend(config, backend_name=backend_name)
+
+        config = load_external_worker_config(
             command=str(self.get_parameter("backend.command").value).strip(),
-            model_path_value=str(self.get_parameter("backend.model_path").value).strip(),
+            model=str(self.get_parameter("backend.model").value).strip(),
             language=str(self.get_parameter("backend.language").value),
             args=tuple(str(part) for part in args_value),
             timeout_sec=float(self.get_parameter("backend.timeout_sec").value),
@@ -159,7 +186,7 @@ class FaAsrNode(Node):
             workspace_dir=self.workspace_dir,
             cleanup_audio_files=self.cleanup_audio_files,
         )
-        return LocalCommandAsrBackend(config)
+        return LocalCommandAsrBackend(config, backend_name=backend_name)
 
     def on_turn_context(self, msg: TurnContext) -> None:
         if not msg.active or not msg.session_id:

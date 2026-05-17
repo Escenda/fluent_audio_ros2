@@ -13,7 +13,9 @@ groups:
         node_name: fa_in_node
         namespace: ""
         params_file: ""
+        remappings: {}
         parameters:
+          backend.name: alsa_capture
           audio.device_selector.mode: name
           audio.device_selector.identifier: default
           audio.sample_rate: 48000
@@ -30,7 +32,9 @@ groups:
         node_name: fa_out
         namespace: ""
         params_file: ""
+        remappings: {}
         parameters:
+          backend.name: alsa_playback
           audio.device_id: default
           audio.sample_rate: 48000
           audio.channels: 1
