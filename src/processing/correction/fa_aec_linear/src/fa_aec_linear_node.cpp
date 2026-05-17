@@ -1,9 +1,9 @@
 #include "fa_aec_linear/fa_aec_linear_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -27,10 +27,10 @@ bool isSupportedAudioFormatPair(const std::string & encoding, uint32_t bit_depth
   return (encoding == kEncodingPcm16 && bit_depth == 16) ||
          (encoding == kEncodingFloat32 && bit_depth == 32);
 }
-}
+}  // namespace
 
-FaAecLinearNode::FaAecLinearNode()
-: rclcpp::Node("fa_aec_linear")
+FaAecLinearNode::FaAecLinearNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_aec_linear", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA AEC Linear node");
   loadParameters();
@@ -82,6 +82,9 @@ void FaAecLinearNode::loadParameters()
             "fa_aec_linear requires expected_sample_rate=16000 by design (got " +
             std::to_string(config_.expected_sample_rate) + ")");
   }
+  if (config_.expected_channels <= 0) {
+    throw std::runtime_error("expected_channels must be > 0");
+  }
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0 (set via YAML)");
   }
@@ -116,7 +119,7 @@ void FaAecLinearNode::loadParameters()
 
 void FaAecLinearNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -138,12 +141,14 @@ void FaAecLinearNode::setupInterfaces()
     std::bind(&FaAecLinearNode::publishDiagnostics, this));
 }
 
-bool FaAecLinearNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
+bool FaAecLinearNode::validateFrame(
+  const fa_interfaces::msg::AudioFrame & msg,
+  const std::string & expected_stream_id) const
 {
   if (msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)) {
     return false;
   }
-  if (config_.expected_channels > 0 && msg.channels != static_cast<uint32_t>(config_.expected_channels)) {
+  if (msg.channels != static_cast<uint32_t>(config_.expected_channels)) {
     return false;
   }
   if (msg.channels == 0 || msg.sample_rate == 0) {
@@ -152,7 +157,10 @@ bool FaAecLinearNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) 
   if (!isSupportedAudioFormatPair(msg.encoding, msg.bit_depth)) {
     return false;
   }
-  if (msg.source_id.empty() || msg.stream_id.empty()) {
+  if (msg.source_id.empty()) {
+    return false;
+  }
+  if (msg.stream_id != expected_stream_id) {
     return false;
   }
   if (msg.layout != kInterleavedLayout) {
@@ -272,7 +280,7 @@ void FaAecLinearNode::onRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     ref_drop_.fetch_add(1);
     return;
   }
-  if (!validateFrame(*msg)) {
+  if (!validateFrame(*msg, config_.ref_topic)) {
     ref_drop_.fetch_add(1);
     return;
   }
@@ -289,7 +297,7 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     mic_drop_.fetch_add(1);
     return;
   }
-  if (!validateFrame(*msg)) {
+  if (!validateFrame(*msg, config_.mic_topic)) {
     mic_drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
@@ -447,17 +455,3 @@ void FaAecLinearNode::publishDiagnostics()
 }
 
 }  // namespace fa_aec_linear
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>();
-    rclcpp::spin(node);
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_aec_linear"), "Exception: %s", e.what());
-    return EXIT_FAILURE;
-  }
-  rclcpp::shutdown();
-  return EXIT_SUCCESS;
-}

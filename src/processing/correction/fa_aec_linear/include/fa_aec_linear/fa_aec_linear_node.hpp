@@ -38,7 +38,7 @@ struct AecLinearConfig
 class FaAecLinearNode : public rclcpp::Node
 {
 public:
-  FaAecLinearNode();
+  explicit FaAecLinearNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaAecLinearNode() override = default;
 
 private:
@@ -48,7 +48,9 @@ private:
   void onRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
 
-  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
+  bool validateFrame(
+    const fa_interfaces::msg::AudioFrame & msg,
+    const std::string & expected_stream_id) const;
   static bool decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out_samples);
   static bool encodeFromFloat(
     const std::vector<float> & samples,

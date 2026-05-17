@@ -9,6 +9,9 @@ engine.
 - mic `AudioFrame`
 - reference `AudioFrame`
 - same sample rate, channels, sample count, encoding, and bit depth contract
+- `expected_channels > 0`; wildcard channel validation is not allowed
+- mic `stream_id` must match `mic_topic`
+- reference `stream_id` must match `ref_topic`
 - supported format pairs are `PCM16LE/16` and `FLOAT32LE/32`
 - explicit `ref_timeout_ms`
 - `reference_failure_policy: "drop"`
@@ -26,6 +29,7 @@ The node drops frames instead of passing mic through when:
 
 - reference is missing
 - reference is stale
+- mic/reference stream id does not match the configured topic
 - reference format differs from mic format
 - mic/reference decode fails
 - no aligned samples are available

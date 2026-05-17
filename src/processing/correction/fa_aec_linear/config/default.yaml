@@ -7,7 +7,7 @@ fa_aec_linear:
     output_topic: "audio/aec_linear/frame"
 
     expected_sample_rate: 16000
-    expected_channels: 1     # -1で無効
+    expected_channels: 1
 
     ref_timeout_ms: 200
     reference_failure_policy: "drop"
