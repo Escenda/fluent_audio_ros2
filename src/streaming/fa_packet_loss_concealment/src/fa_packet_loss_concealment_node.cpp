@@ -455,7 +455,7 @@ void FaPacketLossConcealmentNode::publishDiagnostics()
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
   status.values.reserve(18);
-  pushKeyValue(status, "backend", kBackendName);
+  pushKeyValue(status, "backend.name", kBackendName);
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
   pushKeyValue(status, "expected_sample_rate", std::to_string(config_.expected_sample_rate));

@@ -290,7 +290,7 @@ void FaDcOffsetRemovalNode::publishDiagnostics()
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
-  pushKeyValue(status, "backend", "internal_frame_mean");
+  pushKeyValue(status, "backend.name", "internal_frame_mean");
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);

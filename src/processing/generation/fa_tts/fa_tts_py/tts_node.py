@@ -55,7 +55,7 @@ class FaTtsNode(Node):
         self.srv = self.create_service(Speak, "speak", self.handle_speak)
 
         self.cache: dict[str, SynthesizedAudio] = {}
-        self.get_logger().info("Starting FA TTS node with backend=%s", self.backend.name)
+        self.get_logger().info("Starting FA TTS node with backend.name=%s", self.backend.name)
 
     def handle_speak(self, request: Speak.Request, response: Speak.Response) -> Speak.Response:
         text = request.text.strip()

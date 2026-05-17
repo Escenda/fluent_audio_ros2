@@ -33,7 +33,7 @@ synthetic frame は previous frame の format を維持し、`stream_id` だけ 
 
 ## 6. Diagnostics
 
-- `backend=repeat_attenuation_plc`
+- `backend.name=repeat_attenuation_plc`
 - `concealed_frames`
 - `gap_resets`
 - `duplicate_drops`

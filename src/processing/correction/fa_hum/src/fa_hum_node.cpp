@@ -412,7 +412,7 @@ void FaHumNode::publishDiagnostics()
   pushKeyValue(status, "source_resets", std::to_string(source_resets_.load()));
   pushKeyValue(status, "active_source_id", active_source_id_);
   pushKeyValue(status, "output_topic", config_.output_topic);
-  pushKeyValue(status, "backend", "internal_notch_cascade");
+  pushKeyValue(status, "backend.name", "internal_notch_cascade");
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);

@@ -76,7 +76,7 @@ class FaTurnDetectorNode(Node):
         )
 
         self.get_logger().info(
-            "fa_turn_detector started: audio=%s vad=%s turn_context=%s output=%s backend=%s model=%s",
+            "fa_turn_detector started: audio=%s vad=%s turn_context=%s output=%s backend.name=%s model=%s",
             self.audio_topic,
             self.vad_topic,
             self.turn_context_topic,

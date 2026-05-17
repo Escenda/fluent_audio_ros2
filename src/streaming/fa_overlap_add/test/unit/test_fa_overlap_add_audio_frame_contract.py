@@ -298,7 +298,7 @@ def test_diagnostics_publish_config_counters_and_backend_identity() -> None:
         "resets",
     ):
         assert key in diagnostics
-    assert '"backend", "internal_overlap_add"' in diagnostics
+    assert '"backend.name", "internal_overlap_add"' in diagnostics
 
 
 def test_package_layout_matches_required_streaming_layout() -> None:

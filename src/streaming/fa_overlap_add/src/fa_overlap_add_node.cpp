@@ -618,7 +618,7 @@ void FaOverlapAddNode::publishDiagnostics()
   pushKeyValue(status, "epoch_regression_drops", std::to_string(epoch_regression_drops_.load()));
   pushKeyValue(status, "chunks_accumulated", std::to_string(chunks_accumulated_.load()));
   pushKeyValue(status, "resets", std::to_string(resets_.load()));
-  pushKeyValue(status, "backend", "internal_overlap_add");
+  pushKeyValue(status, "backend.name", "internal_overlap_add");
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);

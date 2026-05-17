@@ -192,7 +192,7 @@ def test_diagnostics_publish_config_and_required_counters() -> None:
     assert "std::atomic<uint64_t> duplicate_drops_" in header
     assert "std::atomic<uint64_t> gap_resets_" in header
     for key in (
-        '"backend"',
+        '"backend.name"',
         '"input_topic"',
         '"output_topic"',
         '"expected_sample_rate"',

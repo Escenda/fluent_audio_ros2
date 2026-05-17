@@ -154,7 +154,7 @@ void FaOutNode::loadParameters()
   config_.qos_reliable = this->get_parameter("audio.qos.reliable").as_bool();
 
   RCLCPP_INFO(this->get_logger(),
-    "Output config: backend=%s device=%s encoding=%s rate=%uHz channels=%u bits=%u queue=%zu "
+    "Output config: backend.name=%s device=%s encoding=%s rate=%uHz channels=%u bits=%u queue=%zu "
     "chunk=%ums chunk_frames=%zu alsa_buffer=%zu alsa_period=%zu qos_depth=%zu reliable=%s",
     config_.backend_name.c_str(), config_.device_id.c_str(), config_.encoding.c_str(),
     config_.sample_rate, config_.channels, config_.bit_depth, config_.max_queue_frames,

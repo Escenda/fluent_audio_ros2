@@ -328,7 +328,7 @@ void FaTimeAlignmentNode::publishDiagnostics()
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
   pushKeyValue(status, "frames_aligned", std::to_string(frames_aligned_.load()));
   pushKeyValue(status, "frames_excess_adjust", std::to_string(frames_excess_adjust_.load()));
-  pushKeyValue(status, "backend", "no_runtime_backend");
+  pushKeyValue(status, "backend.name", "no_runtime_backend");
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);

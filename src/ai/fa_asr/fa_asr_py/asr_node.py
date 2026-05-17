@@ -105,7 +105,7 @@ class FaAsrNode(Node):
         self._worker.start()
 
         self.get_logger().info(
-            "fa_asr started: audio=%s vad=%s turn_context=%s result=%s target_sr=%d backend=%s",
+            "fa_asr started: audio=%s vad=%s turn_context=%s result=%s target_sr=%d backend.name=%s",
             self.audio_topic,
             self.vad_topic,
             self.turn_context_topic,

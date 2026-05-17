@@ -147,7 +147,7 @@ def test_diagnostics_publish_required_counters() -> None:
     assert '"frames_dropped"' in publish_diagnostics
     assert '"frames_aligned"' in publish_diagnostics
     assert '"frames_excess_adjust"' in publish_diagnostics
-    assert '"backend", "no_runtime_backend"' in publish_diagnostics
+    assert '"backend.name", "no_runtime_backend"' in publish_diagnostics
 
 
 def test_package_layout_matches_standard_streaming_layout() -> None:
