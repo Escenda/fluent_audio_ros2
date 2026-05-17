@@ -8,8 +8,5 @@ fa_voice_command_router:
     announce_tts: false
     tts_service: "speak"
     tts_voice_id: ""
-    tts_play: true
-    tts_volume_db: 0.0
     stop_output_on_stop: true
     output_stop_topic: "audio/output/stop"
-

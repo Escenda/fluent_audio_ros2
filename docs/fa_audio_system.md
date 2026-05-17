@@ -18,7 +18,8 @@
 | `fa_asr` | ローカルASR実行ファイルの呼び出し | Sub: `audio/frame`, `voice/vad_state`, `conversation/turn_context` → Pub: `voice/asr/result` |
 | `fa_turn_detector` | Smart Turn v3 ONNX によるターン終了推定 | Sub: `audio/frame`, `voice/vad_state`, `conversation/turn_context` → Pub: `voice/turn_end` |
 | `fa_record` | `audio/frame` をWAVへ録音 | Sub: `audio/frame` / Srv: `record` |
-| `fa_tts` | テキスト→音声合成 | Srv: `speak` →（任意）Pub: `audio/tts/frame` /（既定）Pub: `audio/output/frame` |
+| `fa_tts` | テキスト→音声合成 | Srv: `speak` → Pub: `audio/tts/frame` |
+| `fa_mix` | routing / mixing | Sub: `audio/tts/frame` 等 → Pub: `audio/output/frame` |
 | `fa_out` | スピーカーを開いてPCMを再生 | Sub: `audio/output/frame` |
 | `fa_stream` | 配信 sink（Icecast等） | Sub: `audio/frame` → 外部へ送出（`ffmpeg`） |
 | `fa_voice_command_router` | 起動/停止/モード切替の状態管理 | Sub: `voice/command` → Pub: `voice/router/state` / Srv: `start`, `stop`, `status` |
@@ -42,8 +43,8 @@
 | `conversation/turn_context` | `fa_interfaces/msg/TurnContext` | 会話オーケストレータ | ASR/TDのID相関 |
 | `voice/asr/result` | `fa_interfaces/msg/AsrResult` | `fa_asr` | ASR結果/タイムアウト/エラー |
 | `voice/turn_end` | `fa_interfaces/msg/TurnEnd` | `fa_turn_detector` | ターン終了確率 |
-| `audio/output/frame` | `fa_interfaces/msg/AudioFrame` | `fa_tts` 等 | スピーカー再生用 |
-| `audio/tts/frame` | `fa_interfaces/msg/AudioFrame` | `fa_tts` | TTS結果のPCM配信（任意） |
+| `audio/output/frame` | `fa_interfaces/msg/AudioFrame` | `fa_mix` 等 | スピーカー再生用 |
+| `audio/tts/frame` | `fa_interfaces/msg/AudioFrame` | `fa_tts` | TTS結果のPCM配信 |
 
 ### 4.2 サービス
 | サービス | 型 | サーバー | 内容 |
@@ -58,7 +59,8 @@
 ### 5.1 TTS をスピーカーへ再生
 1. `fa_out`を起動
 2. `fa_tts`を起動
-3. `/speak` を呼び出し（`play: true`）、`audio/output/frame`経由で再生
+3. `fa_mix`を起動し、`audio/tts/frame`を`audio/output/frame`へ routing
+4. `/speak` を呼び出し（`play: false`）、`audio/tts/frame -> fa_mix -> audio/output/frame`経由で再生
 
 ### 5.2 マイク入力 + VAD
 1. `fa_in_node`を起動（`audio/frame`をPublish）

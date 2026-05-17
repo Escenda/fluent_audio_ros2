@@ -1,6 +1,6 @@
 # FA TTS
 
-`fa_tts`はpyopenjtalk(Open JTalk)を利用したシンプルなTTSノードです。`fa_interfaces/msg/AudioFrame`をPublishしつつ`fa_interfaces/srv/Speak`サービスで合成を提供します。
+`fa_tts`はpyopenjtalk(Open JTalk)を利用したTTS生成ノードです。`fa_interfaces/msg/AudioFrame`を`audio/tts/frame`へPublishし、`fa_interfaces/srv/Speak`サービスで合成を提供します。
 
 ## 依存
 - `python3-numpy`
@@ -18,9 +18,9 @@ ros2 launch fa_tts fa_tts.launch.py
 
 ## サービス呼び出し例
 ```bash
-ros2 service call /speak fa_interfaces/srv/Speak "{text: 'こんにちは', voice_id: '', play: true, volume_db: 0.0, cache_key: ''}"
+ros2 service call /speak fa_interfaces/srv/Speak "{text: 'こんにちは', voice_id: '', play: false, volume_db: 0.0, cache_key: ''}"
 ```
-レスポンスの`frame`をそのまま録音・出力ノードに渡せます。`play: true`の場合は`audio/output/frame`へPublishするため、別途`fa_out`が購読していればスピーカー再生されます。
+`fa_tts` は `audio/output/frame` へ直接 publish しません。再生する場合は `audio/tts/frame` を `fa_mix` などの routing node に通し、`fa_out` へ接続します。`play: true` と `volume_db != 0.0` は generation node の責務外として拒否します。
 
 ## キャッシュ
 `cache_dir`（デフォルト: `~/.cache/fluent_audio/tts`）にPCMとメタ情報を保存します。`cache_key`を指定すると同じキーでキャッシュを共有できます。

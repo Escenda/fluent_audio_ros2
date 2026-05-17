@@ -2,7 +2,6 @@
 import hashlib
 import logging
 import os
-import sys
 from array import array
 from pathlib import Path
 from typing import Optional
@@ -11,8 +10,6 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-
-from std_msgs.msg import Empty
 
 from fa_interfaces.msg import AudioFrame
 from fa_interfaces.srv import Speak
@@ -45,18 +42,10 @@ class FaTtsNode(Node):
 
         self.declare_parameter("default_voice", "")
         self.declare_parameter("output_topic", "audio/tts/frame")
-        self.declare_parameter("playback_topic", "audio/output/frame")
-        self.declare_parameter("use_playback_topic", True)
-        self.declare_parameter("stop_topic", "audio/output/stop")
         self.declare_parameter("cache_dir", "")
-        self.declare_parameter("default_volume_db", 0.0)
 
         self.default_voice = self.get_parameter("default_voice").get_parameter_value().string_value
         self.output_topic = self.get_parameter("output_topic").get_parameter_value().string_value
-        self.playback_topic = self.get_parameter("playback_topic").get_parameter_value().string_value
-        self.publish_playback = self.get_parameter("use_playback_topic").get_parameter_value().bool_value
-        self.stop_topic = self.get_parameter("stop_topic").get_parameter_value().string_value
-        self.default_volume_db = self.get_parameter("default_volume_db").get_parameter_value().double_value
 
         cache_dir_param = self.get_parameter("cache_dir").get_parameter_value().string_value
         self.cache_dir = Path(cache_dir_param).expanduser() if cache_dir_param else None
@@ -70,38 +59,34 @@ class FaTtsNode(Node):
         qos.history = HistoryPolicy.KEEP_LAST
 
         self.tts_pub = self.create_publisher(AudioFrame, self.output_topic, qos)
-        self.play_pub = self.create_publisher(AudioFrame, self.playback_topic, qos)
         self.srv = self.create_service(Speak, "speak", self.handle_speak)
-
-        # Barge-in/stop 後に古い音声が鳴らないよう、再生世代(epoch)を管理する。
-        # epoch は AudioFrame.epoch に埋め込み、audio_output 側で stop 時に世代を進めて破棄する。
-        self.playback_epoch = 1
-        self.stop_sub = self.create_subscription(Empty, self.stop_topic, self.on_stop, qos)
 
         self.cache: dict[str, CachedAudio] = {}
 
-    def on_stop(self, _msg: Empty) -> None:
-        """音声停止を受けたら再生世代を進める。"""
-        self.playback_epoch += 1
-
     def handle_speak(self, request: Speak.Request, response: Speak.Response) -> Speak.Response:
         text = request.text.strip()
-        self.get_logger().info(f"TTS request: text={text[:50]}... play={request.play}")
+        self.get_logger().info(f"TTS request: text={text[:50]}...")
 
         if not text:
             response.success = False
             response.message = "text is empty"
             self.get_logger().warn("TTS rejected: empty text")
             return response
+        if request.play:
+            response.success = False
+            response.message = "request.play is not supported by fa_tts; route audio/tts/frame through fa_mix/fa_out"
+            self.get_logger().warn("TTS rejected: playback routing requested")
+            return response
+        if request.volume_db != 0.0:
+            response.success = False
+            response.message = "request.volume_db is not supported by fa_tts; use fa_mix or a dynamics node"
+            self.get_logger().warn("TTS rejected: playback gain requested")
+            return response
 
-        # stop 後に遅れて publish される旧音声を確実に drop できるよう、
-        # stamp/epoch はリクエスト受領時点で確定させて全フレームに適用する。
         request_stamp = self.get_clock().now().to_msg()
-        request_epoch = self.playback_epoch
 
         voice_id = request.voice_id or self.default_voice
-        volume_db = request.volume_db if request.volume_db != 0.0 else self.default_volume_db
-        cache_key = request.cache_key or self.make_cache_key(text, voice_id, volume_db)
+        cache_key = request.cache_key or self.make_cache_key(text, voice_id)
 
         cached = self.cache.get(cache_key)
         if cached is None and self.cache_dir:
@@ -110,7 +95,7 @@ class FaTtsNode(Node):
         if cached is None:
             self.get_logger().info("TTS cache miss, synthesizing...")
             try:
-                cached = self.synthesize(text, voice_id, volume_db)
+                cached = self.synthesize(text, voice_id)
             except Exception as exc:  # pylint: disable=broad-except
                 self.get_logger().error(f"TTS failed: {exc}")
                 response.success = False
@@ -123,24 +108,17 @@ class FaTtsNode(Node):
         else:
             self.get_logger().info("TTS cache hit")
 
-        frame = self.build_frame(cached, stamp=request_stamp, epoch=request_epoch)
+        frame = self.build_frame(cached, stamp=request_stamp)
         response.frame = frame
         response.success = True
         response.message = "ok"
 
         self.tts_pub.publish(frame)
         response.played = False
-        if request.play and self.publish_playback:
-            self.play_pub.publish(frame)
-            response.played = True
-            audio_duration = len(cached.audio_bytes) / 2 / cached.sample_rate  # 16bit mono
-            self.get_logger().info(f"TTS published to playback: {audio_duration:.2f}s")
-        else:
-            self.get_logger().warn(f"TTS NOT published to playback: play={request.play}, publish_playback={self.publish_playback}")
 
         return response
 
-    def synthesize(self, text: str, voice_id: str, volume_db: float) -> CachedAudio:
+    def synthesize(self, text: str, voice_id: str) -> CachedAudio:
         options = {}
         if voice_id:
             options["voice"] = voice_id
@@ -157,9 +135,6 @@ class FaTtsNode(Node):
                 waveform /= 32768.0
         else:
             abs_max = 1.0
-        if volume_db != 0.0:
-            gain = float(10.0 ** (volume_db / 20.0))
-            waveform *= gain
         waveform = np.clip(waveform, -1.0, 1.0)
         pcm = (waveform * 32767.0).astype(np.int16)
         audio_bytes = pcm.tobytes()
@@ -182,11 +157,10 @@ class FaTtsNode(Node):
         frame.epoch = int(epoch) if epoch is not None else 0
         return frame
 
-    def make_cache_key(self, text: str, voice_id: str, volume_db: float) -> str:
+    def make_cache_key(self, text: str, voice_id: str) -> str:
         digest = hashlib.sha1()  # nosec B303
         digest.update(text.encode("utf-8"))
         digest.update(voice_id.encode("utf-8"))
-        digest.update(str(volume_db).encode("utf-8"))
         return digest.hexdigest()
 
     def cache_file_path(self, cache_key: str) -> Optional[Path]:

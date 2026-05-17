@@ -25,8 +25,6 @@ class FaVoiceCommandRouterNode(Node):
         self.declare_parameter("announce_tts", False)
         self.declare_parameter("tts_service", "speak")
         self.declare_parameter("tts_voice_id", "")
-        self.declare_parameter("tts_play", True)
-        self.declare_parameter("tts_volume_db", 0.0)
 
         self.declare_parameter("stop_output_on_stop", True)
         self.declare_parameter("output_stop_topic", "audio/output/stop")
@@ -112,8 +110,8 @@ class FaVoiceCommandRouterNode(Node):
         request = Speak.Request()
         request.text = text
         request.voice_id = str(self.get_parameter("tts_voice_id").value)
-        request.play = bool(self.get_parameter("tts_play").value)
-        request.volume_db = float(self.get_parameter("tts_volume_db").value)
+        request.play = False
+        request.volume_db = 0.0
         request.cache_key = ""
         self._tts_client.call_async(request)
 

@@ -55,9 +55,13 @@ ros2 launch fa_out fa_out.launch.py
 # Terminal B
 ros2 launch fa_tts fa_tts.launch.py
 
-# Terminal C（サービス名は namespace により変わる場合があります。`ros2 service list | grep speak` で確認）
-ros2 service call /speak fa_interfaces/srv/Speak "{text: 'こんにちは', voice_id: '', play: true}"
+# Terminal C
+ros2 launch fa_mix fa_mix.launch.py
+
+# Terminal D（サービス名は namespace により変わる場合があります。`ros2 service list | grep speak` で確認）
+ros2 service call /speak fa_interfaces/srv/Speak "{text: 'こんにちは', voice_id: '', play: false, volume_db: 0.0, cache_key: ''}"
 ```
+`fa_tts` は `audio/tts/frame` だけを出力します。スピーカー再生は `fa_mix` で `audio/output/frame` へ routing してから `fa_out` が行います。
 
 ### 2) マイク入力 + VAD
 ```bash
