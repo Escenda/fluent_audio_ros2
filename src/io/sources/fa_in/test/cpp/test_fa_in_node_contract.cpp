@@ -33,8 +33,8 @@ struct FakeSourceState
   std::atomic<bool> fail_list_devices{false};
   std::atomic<bool> fail_open_on_switch_target{false};
   std::vector<fa_in::backends::DeviceInfo> devices{
-    fa_in::backends::DeviceInfo{"hw:0,0", "Primary Mic"},
-    fa_in::backends::DeviceInfo{"hw:1,0", "Backup Mic"},
+    fa_in::backends::DeviceInfo{"hw:0,0", "Primary Mic", 2, 44100},
+    fa_in::backends::DeviceInfo{"hw:1,0", "Backup Mic", 4, 96000},
   };
   std::vector<uint8_t> payload{0, 0, 1, 0, 2, 0, 3, 0};
   std::mutex opened_device_mutex;
@@ -315,6 +315,43 @@ TEST_F(RclcppContractTest, ListDevicesSurfacesBackendEnumerationFailure)
   EXPECT_FALSE(response->success);
   EXPECT_EQ(response->message, "fake source enumeration failure");
   EXPECT_EQ(response->active_device_id, "hw:0,0");
+  EXPECT_FALSE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, ListDevicesReturnsBackendReportedCapabilities)
+{
+  const auto state = std::make_shared<FakeSourceState>();
+  auto node = std::make_shared<fa_in::FaInNode>(
+    optionsWith(validParameters()),
+    factoryFor(state));
+  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_list_capabilities_client");
+  auto client = client_node->create_client<fa_interfaces::srv::ListDevices>("list_devices");
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(client_node);
+
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  auto request = std::make_shared<fa_interfaces::srv::ListDevices::Request>();
+  request->refresh = true;
+  auto future = client->async_send_request(request);
+
+  ASSERT_TRUE(spinUntil(executor, [&future]() {
+    return future.wait_for(0ms) == std::future_status::ready;
+  }));
+  const auto response = future.get();
+  ASSERT_TRUE(response->success);
+  ASSERT_EQ(response->device_ids.size(), 2u);
+  ASSERT_EQ(response->max_input_channels.size(), 2u);
+  ASSERT_EQ(response->default_sample_rates.size(), 2u);
+  EXPECT_EQ(response->device_ids[0], "hw:0,0");
+  EXPECT_EQ(response->max_input_channels[0], 2u);
+  EXPECT_EQ(response->default_sample_rates[0], 44100u);
+  EXPECT_EQ(response->device_ids[1], "hw:1,0");
+  EXPECT_EQ(response->max_input_channels[1], 4u);
+  EXPECT_EQ(response->default_sample_rates[1], 96000u);
   EXPECT_FALSE(node->hasFatalError());
 }
 

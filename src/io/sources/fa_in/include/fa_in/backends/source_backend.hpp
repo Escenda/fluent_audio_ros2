@@ -32,6 +32,8 @@ struct DeviceInfo
 {
   std::string id{};
   std::string name{};
+  uint32_t max_input_channels{0};
+  uint32_t default_sample_rate{0};
 };
 
 enum class ReadStatus

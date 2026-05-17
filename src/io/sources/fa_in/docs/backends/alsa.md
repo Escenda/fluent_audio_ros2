@@ -23,6 +23,7 @@
 
 - interleaved PCM bytes
 - format metadata
+- device list capability は unknown の場合 `0`。ALSA hint enumeration から安全に確定できない channel / sample rate を configured stream format で合成しない
 
 ## Failure Conditions
 

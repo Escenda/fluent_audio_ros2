@@ -131,6 +131,10 @@ def test_device_services_surface_enumeration_failure() -> None:
     assert "response->message = e.what();" in list_devices
     assert "response->success = true;" in list_devices
     assert "response->message = \"ok\";" in list_devices
+    assert "response->max_input_channels.push_back(dev.max_input_channels);" in list_devices
+    assert "response->default_sample_rates.push_back(dev.default_sample_rate);" in list_devices
+    assert "response->max_input_channels.push_back(config_.channels);" not in list_devices
+    assert "response->default_sample_rates.push_back(config_.sample_rate);" not in list_devices
     assert "response->success = false;" in switch_device
     assert "response->message = e.what();" in switch_device
     assert "validation::requireExactlyOneSwitchDeviceSelector" in switch_device

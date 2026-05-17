@@ -410,8 +410,8 @@ void FaInNode::handleListDevices(
     response->device_names.push_back(displayName(dev));
     response->host_api_names.push_back("ALSA");
     response->device_indices.push_back(index++);
-    response->max_input_channels.push_back(config_.channels);
-    response->default_sample_rates.push_back(config_.sample_rate);
+    response->max_input_channels.push_back(dev.max_input_channels);
+    response->default_sample_rates.push_back(dev.default_sample_rate);
   }
 
   if (!active_device_id_.empty()) {
