@@ -1,5 +1,6 @@
 import threading
 import importlib
+import os
 from pathlib import Path
 import sys
 from types import ModuleType
@@ -32,6 +33,12 @@ PYTHON_SOURCES = tuple(
     for path in sorted((PACKAGE_ROOT / "fa_asr_py").rglob("*.py"))
     if "__pycache__" not in path.parts
 )
+
+
+def _write_executable(path: Path) -> Path:
+    path.write_text("#!/bin/sh\n", encoding="utf-8")
+    path.chmod(path.stat().st_mode | 0o111)
+    return path
 
 
 class _FakeNode:
@@ -170,8 +177,7 @@ def _settings(
 
 
 def test_local_command_requires_existing_model_path(tmp_path: Path) -> None:
-    command = tmp_path / "asr"
-    command.write_text("#!/bin/sh\n", encoding="utf-8")
+    command = _write_executable(tmp_path / "asr")
 
     with pytest.raises(RuntimeError, match="backend.model_path does not exist"):
         load_local_command_config(
@@ -431,8 +437,7 @@ def test_build_backend_rejects_unknown_backend(tmp_path: Path) -> None:
 
 
 def test_backends_use_dedicated_classes(tmp_path: Path) -> None:
-    command = tmp_path / "worker"
-    command.write_text("#!/bin/sh\n", encoding="utf-8")
+    command = _write_executable(tmp_path / "worker")
     model_path = tmp_path / "model.bin"
     model_path.write_text("model", encoding="utf-8")
 
@@ -490,8 +495,7 @@ def test_backends_use_dedicated_classes(tmp_path: Path) -> None:
 
 
 def test_whisper_cpp_uses_model_path_contract(tmp_path: Path) -> None:
-    command = tmp_path / "worker"
-    command.write_text("#!/bin/sh\n", encoding="utf-8")
+    command = _write_executable(tmp_path / "worker")
 
     with pytest.raises(RuntimeError, match="backend.model_path is required"):
         load_whisper_cpp_config(
@@ -504,4 +508,183 @@ def test_whisper_cpp_uses_model_path_contract(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+        )
+
+
+def test_command_and_model_paths_are_resolved_and_executable(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    config = load_local_command_config(
+        command=str(command),
+        model_path_value=str(model_path),
+        language="ja",
+        args=("--model", "{model}", "--audio", "{audio}"),
+        timeout_sec=10.0,
+        working_directory_value="",
+        output_text_path="",
+        workspace_dir=tmp_path / "work",
+        cleanup_audio_files=True,
+    )
+
+    assert config.process.executable == str(command.resolve(strict=True))
+    assert os.access(config.process.executable, os.X_OK)
+    assert config.process.model == str(model_path.resolve(strict=True))
+    assert config.process.payload_encoding == "pcm16_wav"
+
+
+def test_command_backend_rejects_non_executable_command(tmp_path: Path) -> None:
+    command = tmp_path / "worker"
+    command.write_text("#!/bin/sh\n", encoding="utf-8")
+    command.chmod(command.stat().st_mode & ~0o111)
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="backend.command is not executable"):
+        load_local_command_config(
+            command=str(command),
+            model_path_value=str(model_path),
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_backend_args_reject_unknown_or_malformed_placeholders(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="unsupported backend.args placeholder: unknown"):
+        load_local_command_config(
+            command=str(command),
+            model_path_value=str(model_path),
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--x", "{unknown}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+    with pytest.raises(RuntimeError, match="malformed format string"):
+        load_local_command_config(
+            command=str(command),
+            model_path_value=str(model_path),
+            language="ja",
+            args=("--model", "{model", "--audio", "{audio}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_backend_args_require_audio_and_model_placeholders(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match=r"backend.args must include placeholders: \{audio\}"):
+        load_local_command_config(
+            command=str(command),
+            model_path_value=str(model_path),
+            language="ja",
+            args=("--model", "{model}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_output_placeholder_requires_output_text_path(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="backend.output_text_path is required"):
+        load_local_command_config(
+            command=str(command),
+            model_path_value=str(model_path),
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--output", "{output}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_output_text_path_rejects_unknown_placeholder(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeError,
+        match="unsupported backend.output_text_path placeholder: unknown",
+    ):
+        load_local_command_config(
+            command=str(command),
+            model_path_value=str(model_path),
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--output", "{output}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="transcript_{unknown}.txt",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_asr_request_validation_rejects_implicit_sample_casts(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("ok", encoding="utf-8")
+    backend = build_asr_backend(
+        _settings(
+            tmp_path,
+            backend_name="local_command",
+            command=command,
+            model="",
+            model_path=str(model_path),
+        )
+    )
+
+    with pytest.raises(ValueError, match="samples must be float32"):
+        backend.transcribe(
+            AsrRequest(
+                session_id="session",
+                user_turn_id=1,
+                samples=np.zeros(160, dtype=np.float64),
+                sample_rate=16000,
+            )
+        )
+    with pytest.raises(ValueError, match="samples must be one-dimensional"):
+        backend.transcribe(
+            AsrRequest(
+                session_id="session",
+                user_turn_id=1,
+                samples=np.zeros((2, 80), dtype=np.float32),
+                sample_rate=16000,
+            )
+        )
+    with pytest.raises(ValueError, match="sample_rate must be positive"):
+        backend.transcribe(
+            AsrRequest(
+                session_id="session",
+                user_turn_id=1,
+                samples=np.zeros(160, dtype=np.float32),
+                sample_rate=0,
+            )
         )

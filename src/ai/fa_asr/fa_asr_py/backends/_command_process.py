@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import shutil
+import string
 import subprocess
 import time
 import wave
@@ -10,6 +12,14 @@ from pathlib import Path
 import numpy as np
 
 from fa_asr_py.backends.base import AsrRequest
+
+
+_PAYLOAD_ENCODING = "pcm16_wav"
+_ALLOWED_ARG_FIELDS = frozenset(("audio", "model", "language", "output"))
+_ALLOWED_OUTPUT_PATH_FIELDS = frozenset(
+    ("audio", "model", "language", "session_id", "user_turn_id")
+)
+_REQUIRED_ARG_FIELDS = frozenset(("audio", "model"))
 
 
 @dataclass(frozen=True)
@@ -23,6 +33,7 @@ class CommandProcessConfig:
     output_text_path: str
     workspace_dir: Path
     cleanup_audio_files: bool
+    payload_encoding: str
 
 
 class _CommandProcessRunner:
@@ -31,10 +42,11 @@ class _CommandProcessRunner:
         self._config.workspace_dir.mkdir(parents=True, exist_ok=True)
 
     def transcribe(self, request: AsrRequest) -> str:
+        self._validate_request(request)
         wav_path = self._config.workspace_dir / f"{time.time_ns()}_{request.user_turn_id}.wav"
         output_path = self._build_output_text_path(wav_path, request)
         try:
-            self._write_wav(wav_path, request.samples, request.sample_rate)
+            self._write_audio_payload(wav_path, request)
             command = [self._config.executable]
             command.extend(self._format_args(wav_path, output_path))
             try:
@@ -100,7 +112,23 @@ class _CommandProcessRunner:
         return stdout_text.strip()
 
     @staticmethod
-    def _write_wav(path: Path, samples: np.ndarray, sample_rate: int) -> None:
+    def _validate_request(request: AsrRequest) -> None:
+        if int(request.sample_rate) <= 0:
+            raise ValueError("ASR request sample_rate must be positive")
+        if request.samples.dtype != np.float32:
+            raise ValueError("ASR request samples must be float32")
+        if request.samples.ndim != 1:
+            raise ValueError("ASR request samples must be one-dimensional")
+        if request.samples.size == 0:
+            raise ValueError("ASR request samples are required")
+
+    def _write_audio_payload(self, path: Path, request: AsrRequest) -> None:
+        if self._config.payload_encoding != _PAYLOAD_ENCODING:
+            raise RuntimeError(f"unsupported ASR payload_encoding: {self._config.payload_encoding}")
+        self._write_pcm16_wav(path, request.samples, request.sample_rate)
+
+    @staticmethod
+    def _write_pcm16_wav(path: Path, samples: np.ndarray, sample_rate: int) -> None:
         pcm = _float_to_pcm16(samples)
         with wave.open(str(path), "wb") as wav_file:
             wav_file.setnchannels(1)
@@ -123,9 +151,14 @@ def _load_model_path_command_config(
 ) -> CommandProcessConfig:
     if not model_path_value:
         raise RuntimeError("backend.model_path is required")
-    model_path = Path(model_path_value).expanduser()
+    try:
+        model_path = Path(model_path_value).expanduser().resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"backend.model_path does not exist: {model_path_value}") from exc
     if not model_path.is_file():
         raise RuntimeError(f"backend.model_path does not exist: {model_path}")
+    if not os.access(model_path, os.R_OK):
+        raise RuntimeError(f"backend.model_path is not readable: {model_path}")
     return _load_command_config(
         command=command,
         model_value=str(model_path),
@@ -181,20 +214,26 @@ def _load_command_config(
 ) -> CommandProcessConfig:
     executable = _resolve_executable(command)
 
-    if not args:
-        raise RuntimeError("backend.args must not be empty")
-    joined_args = " ".join(args)
-    if "{audio}" not in joined_args:
-        raise RuntimeError("backend.args must include the {audio} placeholder")
-    if "{model}" not in joined_args:
-        raise RuntimeError("backend.args must include the {model} placeholder")
+    arg_fields = _validate_backend_args(args)
+    _validate_output_text_path(output_text_path)
+    if "output" in arg_fields and not output_text_path:
+        raise RuntimeError(
+            "backend.output_text_path is required when backend.args uses the {output} placeholder"
+        )
 
     if timeout_sec <= 0.0:
         raise RuntimeError("backend.timeout_sec must be greater than zero")
 
-    working_directory = (
-        Path(working_directory_value).expanduser() if working_directory_value else None
-    )
+    try:
+        working_directory = (
+            Path(working_directory_value).expanduser().resolve(strict=True)
+            if working_directory_value
+            else None
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"backend.working_directory does not exist: {working_directory_value}"
+        ) from exc
     if working_directory is not None and not working_directory.is_dir():
         raise RuntimeError(f"backend.working_directory does not exist: {working_directory}")
 
@@ -208,6 +247,7 @@ def _load_command_config(
         output_text_path=output_text_path,
         workspace_dir=workspace_dir,
         cleanup_audio_files=cleanup_audio_files,
+        payload_encoding=_PAYLOAD_ENCODING,
     )
 
 
@@ -216,13 +256,75 @@ def _resolve_executable(command: str) -> str:
         raise RuntimeError("backend.command is required")
     command_path = Path(command).expanduser()
     if "/" in command or command_path.is_absolute():
-        if not command_path.is_file():
-            raise RuntimeError(f"backend.command does not exist: {command_path}")
-        return str(command_path)
+        try:
+            resolved_path = command_path.resolve(strict=True)
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"backend.command does not exist: {command_path}") from exc
+        if not resolved_path.is_file():
+            raise RuntimeError(f"backend.command is not a file: {resolved_path}")
+        if not os.access(resolved_path, os.X_OK):
+            raise RuntimeError(f"backend.command is not executable: {resolved_path}")
+        return str(resolved_path)
     resolved = shutil.which(command)
     if not resolved:
         raise RuntimeError(f"backend.command not found in PATH: {command}")
-    return resolved
+    return str(Path(resolved).resolve(strict=True))
+
+
+def _validate_backend_args(args: tuple[str, ...]) -> set[str]:
+    if not args:
+        raise RuntimeError("backend.args must not be empty")
+    fields: set[str] = set()
+    for part in args:
+        fields.update(
+            _parse_format_fields(
+                value=part,
+                allowed_fields=_ALLOWED_ARG_FIELDS,
+                field_label="backend.args",
+            )
+        )
+    missing = sorted(_REQUIRED_ARG_FIELDS.difference(fields))
+    if missing:
+        raise RuntimeError(
+            "backend.args must include placeholders: "
+            + ", ".join(f"{{{field}}}" for field in missing)
+        )
+    return fields
+
+
+def _validate_output_text_path(output_text_path: str) -> None:
+    if not output_text_path:
+        return
+    _parse_format_fields(
+        value=output_text_path,
+        allowed_fields=_ALLOWED_OUTPUT_PATH_FIELDS,
+        field_label="backend.output_text_path",
+    )
+
+
+def _parse_format_fields(
+    *,
+    value: str,
+    allowed_fields: frozenset[str],
+    field_label: str,
+) -> set[str]:
+    formatter = string.Formatter()
+    try:
+        parsed_parts = tuple(formatter.parse(value))
+    except ValueError as exc:
+        raise RuntimeError(f"{field_label} contains malformed format string: {value}") from exc
+    fields: set[str] = set()
+    for _, field_name, format_spec, conversion in parsed_parts:
+        if field_name is None:
+            continue
+        if conversion is not None or format_spec:
+            raise RuntimeError(
+                f"{field_label} placeholders must not use conversion or format spec"
+            )
+        if field_name not in allowed_fields:
+            raise RuntimeError(f"unsupported {field_label} placeholder: {field_name}")
+        fields.add(field_name)
+    return fields
 
 
 def _float_to_pcm16(samples: np.ndarray) -> bytes:
