@@ -34,10 +34,61 @@ def test_recorder_drops_invalid_frames_without_format_conversion() -> None:
 
     assert "isSupportedFrame" in source
     assert "msg.layout != kInterleavedLayout" in source
+    assert 'msg.encoding == "PCM16LE"' in source
+    assert 'msg.encoding == "FLOAT32LE"' in source
     assert "Frame format changed during recording; dropping frame" in source
     assert "resample" not in source
     assert "normalize" not in source
     assert "gain" not in source.lower()
+
+
+def test_file_writer_backend_is_ros_free() -> None:
+    backend_header = (
+        PACKAGE_ROOT / "include" / "fa_record" / "backends" / "file_writer_backend.hpp"
+    )
+    backend_source = PACKAGE_ROOT / "src" / "backends" / "file_writer_backend.cpp"
+    forbidden_tokens = (
+        "rclcpp",
+        "fa_interfaces",
+        "diagnostic_msgs",
+        "std_msgs/msg",
+    )
+
+    assert backend_header.is_file()
+    assert backend_source.is_file()
+    for path in (backend_header, backend_source):
+        source = path.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            assert token not in source
+
+
+def test_file_writer_backend_contract_is_explicit() -> None:
+    header = (
+        PACKAGE_ROOT / "include" / "fa_record" / "backends" / "file_writer_backend.hpp"
+    ).read_text(encoding="utf-8")
+    source = (
+        PACKAGE_ROOT / "src" / "backends" / "file_writer_backend.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "class FileWriterBackend" in header
+    assert "class WavFileWriterBackend final" in header
+    assert "record parent directory does not exist" in source
+    assert (
+        "recording AudioFormat encoding must be PCM16LE/16-bit or FLOAT32LE/32-bit"
+        in source
+    )
+    assert "recording format changed during active file" in source
+    assert "recording data exceeds WAV uint32 data length" in source
+
+
+def test_cmake_links_record_node_to_file_writer_backend() -> None:
+    cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert "add_library(fa_record_backends STATIC" in cmake_text
+    assert "src/backends/file_writer_backend.cpp" in cmake_text
+    assert "target_link_libraries(fa_record_node" in cmake_text
+    assert "fa_record_backends" in cmake_text
+    assert "install(DIRECTORY include/" in cmake_text
 
 
 def test_colcon_runs_pytest_contracts() -> None:

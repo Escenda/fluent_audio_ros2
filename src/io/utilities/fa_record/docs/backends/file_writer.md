@@ -7,11 +7,18 @@
 ## 入力
 
 - output path
-- expected encoding
-- expected sample rate
-- expected channels
-- expected bit depth
+- `AudioFormat.encoding`
+- `AudioFormat.sample_rate`
+- `AudioFormat.channels`
+- `AudioFormat.bit_depth`
 - PCM chunk
+
+## 対応 format
+
+- `PCM16LE` / 16 bit
+- `FLOAT32LE` / 32 bit
+
+いずれも interleaved chunk を前提にする。resample、channel conversion、bit-depth conversion は行わない。
 
 ## 失敗条件
 

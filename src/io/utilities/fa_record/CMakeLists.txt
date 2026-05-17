@@ -12,8 +12,20 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
+add_library(fa_record_backends STATIC
+  src/backends/file_writer_backend.cpp
+)
+
+target_include_directories(fa_record_backends PUBLIC
+  include
+)
+
 add_executable(fa_record_node
   src/fa_record_node.cpp
+)
+
+target_include_directories(fa_record_node PRIVATE
+  include
 )
 
 ament_target_dependencies(fa_record_node
@@ -21,7 +33,13 @@ ament_target_dependencies(fa_record_node
   fa_interfaces
 )
 
-install(TARGETS fa_record_node
+target_link_libraries(fa_record_node
+  fa_record_backends
+)
+
+install(TARGETS
+  fa_record_node
+  fa_record_backends
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -29,6 +47,10 @@ install(DIRECTORY
   launch
   config
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY include/
+  DESTINATION include/
 )
 
 if(BUILD_TESTING)
