@@ -1,0 +1,26 @@
+fa_overlap_add_node:
+  ros__parameters:
+    input_topic: "audio/chunked_overlap/mic"
+    output_topic: "audio/overlap_added/mic"
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    window:
+      frame_samples: 512
+      hop_samples: 256
+      type: "hann"
+
+    overlap:
+      max_buffered_chunks: 4
+
+    qos:
+      depth: 10
+      reliable: true
+
+    diagnostics:
+      publish_period_ms: 1000

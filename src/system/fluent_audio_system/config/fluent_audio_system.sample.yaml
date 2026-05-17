@@ -507,6 +507,26 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_jitter_buffer
+        enable: false
+        package: fa_jitter_buffer
+        exec: fa_jitter_buffer_node
+        node_name: fa_jitter_buffer_node
+        namespace: ""
+        params_file: "${share:fa_jitter_buffer}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_packet_loss_concealment
+        enable: false
+        package: fa_packet_loss_concealment
+        exec: fa_packet_loss_concealment_node
+        node_name: fa_packet_loss_concealment_node
+        namespace: ""
+        params_file: "${share:fa_packet_loss_concealment}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_latency_compensation
         enable: false
         package: fa_latency_compensation
@@ -534,5 +554,15 @@ groups:
         node_name: fa_chunk_overlap
         namespace: ""
         params_file: "${share:fa_chunk_overlap}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_overlap_add
+        enable: false
+        package: fa_overlap_add
+        exec: fa_overlap_add_node
+        node_name: fa_overlap_add_node
+        namespace: ""
+        params_file: "${share:fa_overlap_add}/config/default.yaml"
         remappings: {}
         parameters: {}
