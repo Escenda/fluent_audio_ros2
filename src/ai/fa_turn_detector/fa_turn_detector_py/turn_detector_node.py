@@ -143,9 +143,10 @@ class FaTurnDetectorNode(Node):
         audio = np.asarray(list(self.audio_buffer)[-available_samples:], dtype=np.float32)
         try:
             result = self.backend.detect(audio)
-        except (RuntimeError, ValueError) as exc:
-            self.get_logger().error("Turn detection backend failed: %s", exc)
-            return
+        except Exception as exc:
+            self.get_logger().fatal("Turn detection backend failed: %s", exc)
+            rclpy.shutdown()
+            raise
 
         out = TurnEnd()
         out.timestamp = self.get_clock().now().to_msg()
