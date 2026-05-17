@@ -7,6 +7,7 @@ from typing import Iterable
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from fa_interfaces.msg import AudioFrame, TurnContext, TurnEnd, VadState
@@ -29,8 +30,8 @@ class FaTurnDetectorNode(Node):
         self.declare_parameter("backend.threshold", 0.5)
         self.declare_parameter("backend.execution_provider", "")
         self.declare_parameter("backend.command", "")
-        self.declare_parameter("backend.args", [])
-        self.declare_parameter("backend.health_args", [])
+        self.declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)
+        self.declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)
         self.declare_parameter("backend.timeout_sec", 5.0)
         self.declare_parameter("backend.workspace_dir", "/tmp/fluent_audio_fa_turn_detector")
         self.declare_parameter("backend.cleanup_audio_files", True)
@@ -104,10 +105,9 @@ class FaTurnDetectorNode(Node):
         )
 
     def _string_tuple_parameter(self, name: str) -> tuple[str, ...]:
-        value = self.get_parameter(name).value
-        if not isinstance(value, (list, tuple)):
-            raise RuntimeError(f"{name} must be a string list")
-        return tuple(str(item) for item in value)
+        return tuple(
+            self.get_parameter(name).get_parameter_value().string_array_value
+        )
 
     def on_turn_context(self, msg: TurnContext) -> None:
         self._active_session_id = str(msg.session_id)

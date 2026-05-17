@@ -28,6 +28,11 @@ class _FakeNode:
         return self._logger
 
 
+class _FakeParameter:
+    class Type:
+        STRING_ARRAY = "string_array"
+
+
 class _FakeQoSProfile:
     def __init__(self, *, depth: int) -> None:
         self.depth = depth
@@ -93,6 +98,9 @@ def _install_turn_detector_import_fakes(
     node_module = ModuleType("rclpy.node")
     node_module.Node = _FakeNode
 
+    parameter_module = ModuleType("rclpy.parameter")
+    parameter_module.Parameter = _FakeParameter
+
     qos_module = ModuleType("rclpy.qos")
     qos_module.HistoryPolicy = _FakeHistoryPolicy
     qos_module.QoSProfile = _FakeQoSProfile
@@ -107,6 +115,7 @@ def _install_turn_detector_import_fakes(
 
     monkeypatch.setitem(sys.modules, "rclpy", rclpy_module)
     monkeypatch.setitem(sys.modules, "rclpy.node", node_module)
+    monkeypatch.setitem(sys.modules, "rclpy.parameter", parameter_module)
     monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
     monkeypatch.setitem(sys.modules, "fa_interfaces", fa_interfaces_module)
     monkeypatch.setitem(sys.modules, "fa_interfaces.msg", fa_interfaces_msg_module)
@@ -204,6 +213,9 @@ def _install_onnxruntime_fake(
 def test_default_config_requires_explicit_model_and_provider() -> None:
     config_path = Path(__file__).parents[2] / "config" / "default.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    source = (
+        Path(__file__).parents[2] / "fa_turn_detector_py" / "turn_detector_node.py"
+    ).read_text(encoding="utf-8")
 
     params = config["fa_turn_detector"]["ros__parameters"]
 
@@ -213,6 +225,9 @@ def test_default_config_requires_explicit_model_and_provider() -> None:
     assert params["backend.command"] == ""
     assert params["backend.args"] == []
     assert params["backend.health_args"] == []
+    assert 'declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)' in source
+    assert 'declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)' in source
+    assert "tuple(str(item) for item in value)" not in source
 
 
 def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
