@@ -258,9 +258,12 @@ def test_streaming_docs_do_not_describe_packages_as_processing_nodes() -> None:
         and path.suffix in (".md", ".hpp", ".py")
         and "__pycache__" not in path.parts
     ]
+    checked_files.append(REPO_ROOT / "docs" / "仕様書.md")
     violations: list[str] = []
 
     forbidden_phrases = (
+        "Frame Processing",
+        "Processing Pipeline",
         "processing node",
         "processing package",
         "processing layout",
@@ -270,6 +273,10 @@ def test_streaming_docs_do_not_describe_packages_as_processing_nodes() -> None:
         "standard_processing_layout",
         "processing responsibilities",
         "processing_responsibilities",
+        "処理手順",
+        "処理対象",
+        "後段処理",
+        "リアルタイム伝送処理",
     )
     for path in sorted(checked_files):
         source = path.read_text(encoding="utf-8")
