@@ -12,18 +12,11 @@ groups:
         exec: fa_in_node
         node_name: fa_in_node
         namespace: ""
-        params_file: ""
+        params_file: "${share:fa_in}/config/default.yaml"
         remappings: {}
         parameters:
-          backend.name: alsa_capture
           audio.device_selector.mode: name
           audio.device_selector.identifier: default
-          audio.sample_rate: 48000
-          audio.channels: 1
-          audio.bit_depth: 16
-          audio.chunk_ms: 20
-          audio.encoding: PCM16LE
-          diagnostics.publish_period_ms: 1000
 
       - id: fa_out
         enable: false
@@ -31,18 +24,10 @@ groups:
         exec: fa_out_node
         node_name: fa_out
         namespace: ""
-        params_file: ""
+        params_file: "${share:fa_out}/config/default.yaml"
         remappings: {}
         parameters:
-          backend.name: alsa_playback
           audio.device_id: default
-          audio.sample_rate: 48000
-          audio.channels: 1
-          audio.bit_depth: 16
-          audio.chunk_duration_ms: 30
-          audio.qos.depth: 10
-          audio.qos.reliable: true
-          queue.max_frames: 32
 
   - id: format
     enable: true

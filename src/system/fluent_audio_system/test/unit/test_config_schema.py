@@ -6,7 +6,10 @@ from fluent_audio_system import config_schema
 from fluent_audio_system.config_schema import load_system_config, parse_system_config
 
 
-def test_parse_valid_inline_config() -> None:
+def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+
     spec = parse_system_config(
         {
             "system": {"default_start_delay": 0.2, "inter_group_delay": 0.5},
@@ -19,6 +22,7 @@ def test_parse_valid_inline_config() -> None:
                             "id": "fa_in",
                             "package": "fa_in",
                             "exec": "fa_in_node",
+                            "params_file": str(params_file),
                             "remappings": {"audio/frame": "robot/audio/frame"},
                             "parameters": {
                                 "audio.sample_rate": 48000,
@@ -40,6 +44,7 @@ def test_parse_valid_inline_config() -> None:
         ("audio/frame", "robot/audio/frame")
     ]
     assert spec.groups[0].nodes[0].launch_parameters() == [
+        str(params_file),
         {
             "audio.sample_rate": 48000,
             "audio.encoding": "PCM16LE",
@@ -61,7 +66,7 @@ def test_disabled_nodes_are_not_expanded() -> None:
                             "enable": False,
                             "package": "fa_out",
                             "exec": "fa_out_node",
-                            "parameters": {"audio.device_id": "default"},
+                            "params_file": "/disabled/node/is/not/parsed.yaml",
                         }
                     ],
                 }
@@ -96,8 +101,8 @@ def test_missing_params_file_fails(tmp_path: Path) -> None:
         )
 
 
-def test_node_requires_params_file_or_inline_parameters() -> None:
-    with pytest.raises(RuntimeError, match="requires params_file or parameters"):
+def test_node_requires_params_file() -> None:
+    with pytest.raises(RuntimeError, match="node fa_in.params_file is required"):
         parse_system_config(
             {
                 "system": {},
@@ -111,7 +116,54 @@ def test_node_requires_params_file_or_inline_parameters() -> None:
         )
 
 
-def test_nested_inline_parameters_fail() -> None:
+def test_inline_parameters_without_params_file_fail() -> None:
+    with pytest.raises(RuntimeError, match="node fa_in.params_file is required"):
+        parse_system_config(
+            {
+                "system": {},
+                "groups": [
+                    {
+                        "id": "io",
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "package": "fa_in",
+                                "exec": "fa_in_node",
+                                "parameters": {"audio.sample_rate": 48000},
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+
+def test_empty_params_file_fails() -> None:
+    with pytest.raises(RuntimeError, match="node fa_in.params_file is required"):
+        parse_system_config(
+            {
+                "system": {},
+                "groups": [
+                    {
+                        "id": "io",
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "package": "fa_in",
+                                "exec": "fa_in_node",
+                                "params_file": "",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+
+def test_nested_inline_parameters_fail(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+
     with pytest.raises(RuntimeError, match="unsupported value type"):
         parse_system_config(
             {
@@ -124,6 +176,7 @@ def test_nested_inline_parameters_fail() -> None:
                                 "id": "fa_in",
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "params_file": str(params_file),
                                 "parameters": {"audio": {"sample_rate": 48000}},
                             }
                         ],
@@ -138,7 +191,10 @@ def test_load_missing_config_fails(tmp_path: Path) -> None:
         load_system_config(str(tmp_path / "missing.yaml"))
 
 
-def test_sequence_remappings_are_supported() -> None:
+def test_sequence_remappings_are_supported(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+
     spec = parse_system_config(
         {
             "system": {},
@@ -150,10 +206,10 @@ def test_sequence_remappings_are_supported() -> None:
                             "id": "fa_in",
                             "package": "fa_in",
                             "exec": "fa_in_node",
+                            "params_file": str(params_file),
                             "remappings": [
                                 {"from": "audio/frame", "to": "robot/audio/frame"}
                             ],
-                            "parameters": {"audio.sample_rate": 48000},
                         }
                     ],
                 }
@@ -166,7 +222,10 @@ def test_sequence_remappings_are_supported() -> None:
     ]
 
 
-def test_invalid_remappings_fail() -> None:
+def test_invalid_remappings_fail(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+
     with pytest.raises(RuntimeError, match="remapping target"):
         parse_system_config(
             {
@@ -179,8 +238,8 @@ def test_invalid_remappings_fail() -> None:
                                 "id": "fa_in",
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "params_file": str(params_file),
                                 "remappings": {"audio/frame": ""},
-                                "parameters": {"audio.sample_rate": 48000},
                             }
                         ],
                     }
@@ -221,10 +280,14 @@ def test_inline_parameter_share_path_expansion(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    params_file = tmp_path / "fa_denoise.yaml"
+    params_file.write_text("fa_denoise:\n  ros__parameters: {}\n", encoding="utf-8")
     monkeypatch.setattr(
         config_schema,
         "_get_package_share_directory",
-        lambda package_name: str(tmp_path / package_name),
+        lambda package_name: str(tmp_path / package_name)
+        if package_name != "params_pkg"
+        else str(tmp_path),
     )
 
     spec = parse_system_config(
@@ -238,6 +301,7 @@ def test_inline_parameter_share_path_expansion(
                             "id": "fa_denoise",
                             "package": "fa_denoise",
                             "exec": "fa_denoise_node",
+                            "params_file": "${share:params_pkg}/fa_denoise.yaml",
                             "parameters": {
                                 "dtln.model_1_path": "${share:fa_denoise}/models/model_1.onnx",
                                 "model_paths": [

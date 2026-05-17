@@ -123,13 +123,11 @@ def _parse_node(node: ConfigMapping, group_id: str, node_index: int) -> AudioNod
     if namespace == "/":
         namespace = ""
     output = _optional_text(node, "output", "screen")
-    params_file = _resolve_share_refs(_optional_text(node, "params_file", "").strip())
-    if params_file and not os.path.isfile(params_file):
+    params_file = _resolve_share_refs(_required_text(node, "params_file", f"node {node_id}"))
+    if not os.path.isfile(params_file):
         raise RuntimeError(f"params_file not found: {params_file}")
     parameters = _optional_parameters(node.get("parameters", {}), node_id)
     remappings = _optional_remappings(node.get("remappings", []), node_id)
-    if not params_file and not parameters:
-        raise RuntimeError(f"node {node_id} requires params_file or parameters")
     return AudioNodeSpec(
         id=node_id,
         package=package,
