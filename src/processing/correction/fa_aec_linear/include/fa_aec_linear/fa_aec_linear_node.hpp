@@ -50,7 +50,12 @@ private:
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
   static bool decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out_samples);
-  static void encodeFromFloat(const std::vector<float> & samples, uint32_t bit_depth, std::vector<uint8_t> & out_bytes);
+  static bool encodeFromFloat(
+    const std::vector<float> & samples,
+    const std::string & encoding,
+    uint32_t bit_depth,
+    std::vector<uint8_t> & out_bytes,
+    std::string & error_message);
 
   AecLinearConfig config_;
 

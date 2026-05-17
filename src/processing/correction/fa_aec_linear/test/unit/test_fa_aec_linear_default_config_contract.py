@@ -25,3 +25,39 @@ def test_aec_linear_outputs_audio_frame_identity_without_analysis_metadata() -> 
     assert ".rms" not in source
     assert ".peak" not in source
     assert ".vad" not in source
+
+
+def test_aec_linear_rejects_ambiguous_format_and_hidden_clamp() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (package_root / "src" / "fa_aec_linear_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    header = (
+        package_root
+        / "include"
+        / "fa_aec_linear"
+        / "fa_aec_linear_node.hpp"
+    ).read_text(encoding="utf-8")
+    spec = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
+    algorithm = (package_root / "docs" / "アルゴリズム詳細説明書.md").read_text(
+        encoding="utf-8"
+    )
+    test_plan = (package_root / "docs" / "テスト設計.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "isSupportedAudioFormatPair" in source
+    assert "PCM16LE" in source
+    assert "FLOAT32LE" in source
+    assert "PCM32LE" not in source
+    assert "ref->encoding != msg->encoding" in source
+    assert "mic_f32.size() != ref_f32.size()" in source
+    assert "AEC linear output sample out of normalized range" in source
+    assert "Add an explicit dynamics/limiter node if range control is required" in source
+    assert "std::clamp" not in source
+    assert "static bool encodeFromFloat" in header
+    assert "std::string & error_message" in header
+    assert "hidden range clamp" in spec
+    assert "PCM32LE/32" in algorithm
+    assert "clamp せず frame を drop" in algorithm
+    assert "output range overflow は clamp せず drop" in test_plan

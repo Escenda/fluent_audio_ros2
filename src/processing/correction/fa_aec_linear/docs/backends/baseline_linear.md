@@ -8,14 +8,17 @@ engine.
 
 - mic `AudioFrame`
 - reference `AudioFrame`
-- same sample rate, channels, bit depth, and encoding contract
+- same sample rate, channels, sample count, encoding, and bit depth contract
+- supported format pairs are `PCM16LE/16` and `FLOAT32LE/32`
 - explicit `ref_timeout_ms`
 - `reference_failure_policy: "drop"`
 
 ## Output Contract
 
 When mic and reference frames are valid and aligned, the node subtracts
-`cancel_gain * reference` from mic samples and publishes a new `AudioFrame`.
+`cancel_gain * reference` from mic samples and publishes a new `AudioFrame`
+with the original explicit encoding / bit depth pair. It does not emit
+`PCM32LE/32` and does not clamp out-of-range samples.
 
 ## Failure Policy
 
@@ -26,6 +29,8 @@ The node drops frames instead of passing mic through when:
 - reference format differs from mic format
 - mic/reference decode fails
 - no aligned samples are available
+- mic/reference sample counts differ
+- output samples are non-finite or outside `[-1.0, 1.0]`
 - node `enabled=false`
 
 Future production AEC engines should be added as explicit processing backends

@@ -18,7 +18,15 @@ namespace fa_aec_linear
 namespace
 {
 constexpr int kRequiredSampleRate = 16000;
+constexpr const char * kEncodingPcm16 = "PCM16LE";
+constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
+
+bool isSupportedAudioFormatPair(const std::string & encoding, uint32_t bit_depth)
+{
+  return (encoding == kEncodingPcm16 && bit_depth == 16) ||
+         (encoding == kEncodingFloat32 && bit_depth == 32);
+}
 }
 
 FaAecLinearNode::FaAecLinearNode()
@@ -86,6 +94,9 @@ void FaAecLinearNode::loadParameters()
   if (config_.reference_failure_policy != "drop") {
     throw std::runtime_error("reference_failure_policy must be drop");
   }
+  if (!std::isfinite(config_.cancel_gain)) {
+    throw std::runtime_error("cancel_gain must be finite");
+  }
 
   RCLCPP_INFO(this->get_logger(),
     "AEC Linear config: enabled=%s mic=%s ref=%s output=%s expected_sr=%d expected_ch=%d "
@@ -138,7 +149,7 @@ bool FaAecLinearNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) 
   if (msg.channels == 0 || msg.sample_rate == 0) {
     return false;
   }
-  if (msg.bit_depth != 16 && msg.bit_depth != 32) {
+  if (!isSupportedAudioFormatPair(msg.encoding, msg.bit_depth)) {
     return false;
   }
   if (msg.source_id.empty() || msg.stream_id.empty()) {
@@ -164,7 +175,7 @@ bool FaAecLinearNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, 
   if (msg.channels == 0) {
     return false;
   }
-  if (msg.bit_depth != 16 && msg.bit_depth != 32) {
+  if (!isSupportedAudioFormatPair(msg.encoding, msg.bit_depth)) {
     return false;
   }
   const size_t bytes_per_sample = static_cast<size_t>(msg.bit_depth / 8);
@@ -180,39 +191,78 @@ bool FaAecLinearNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, 
   }
   out_samples.resize(sample_count);
 
-  if (msg.bit_depth == 16) {
+  if (msg.encoding == kEncodingPcm16 && msg.bit_depth == 16) {
     std::vector<int16_t> tmp(sample_count);
     std::memcpy(tmp.data(), msg.data.data(), msg.data.size());
     for (size_t i = 0; i < sample_count; ++i) {
       out_samples[i] = static_cast<float>(tmp[i]) / 32768.0f;
     }
-  } else {
-    std::memcpy(out_samples.data(), msg.data.data(), msg.data.size());
+    return true;
+  }
+
+  if (msg.encoding != kEncodingFloat32 || msg.bit_depth != 32) {
+    return false;
+  }
+  std::memcpy(out_samples.data(), msg.data.data(), msg.data.size());
+  for (const float sample : out_samples) {
+    if (!std::isfinite(sample) || sample < -1.0f || sample > 1.0f) {
+      return false;
+    }
   }
   return true;
 }
 
-void FaAecLinearNode::encodeFromFloat(const std::vector<float> & samples, uint32_t bit_depth, std::vector<uint8_t> & out_bytes)
+bool FaAecLinearNode::encodeFromFloat(
+  const std::vector<float> & samples,
+  const std::string & encoding,
+  uint32_t bit_depth,
+  std::vector<uint8_t> & out_bytes,
+  std::string & error_message)
 {
   out_bytes.clear();
+  error_message.clear();
   if (samples.empty()) {
-    return;
+    error_message = "AEC linear output sample buffer is empty";
+    return false;
   }
-  if (bit_depth == 16) {
+  if (!isSupportedAudioFormatPair(encoding, bit_depth)) {
+    error_message = "AEC linear output format must be PCM16LE/16 or FLOAT32LE/32";
+    return false;
+  }
+  for (const float sample : samples) {
+    if (!std::isfinite(sample)) {
+      error_message = "AEC linear output sample is not finite";
+      return false;
+    }
+    if (sample < -1.0f || sample > 1.0f) {
+      error_message = "AEC linear output sample out of normalized range";
+      return false;
+    }
+  }
+  if (encoding == kEncodingPcm16 && bit_depth == 16) {
     std::vector<int16_t> pcm(samples.size());
     for (size_t i = 0; i < samples.size(); ++i) {
-      float s = std::clamp(samples[i], -1.0f, 1.0f);
-      const int32_t scaled = static_cast<int32_t>(std::lround(static_cast<double>(s) * 32767.0));
-      pcm[i] = static_cast<int16_t>(std::clamp<int32_t>(scaled, -32768, 32767));
+      const double scaled = samples[i] < 0.0f ?
+        static_cast<double>(samples[i]) * 32768.0 :
+        static_cast<double>(samples[i]) * 32767.0;
+      const int32_t rounded = static_cast<int32_t>(std::lround(scaled));
+      if (rounded < -32768 || rounded > 32767) {
+        error_message = "AEC linear output sample does not fit PCM16 after scaling";
+        return false;
+      }
+      pcm[i] = static_cast<int16_t>(rounded);
     }
     out_bytes.resize(pcm.size() * sizeof(int16_t));
     std::memcpy(out_bytes.data(), pcm.data(), out_bytes.size());
-    return;
+    return true;
   }
-  if (bit_depth == 32) {
+  if (encoding == kEncodingFloat32 && bit_depth == 32) {
     out_bytes.resize(samples.size() * sizeof(float));
     std::memcpy(out_bytes.data(), samples.data(), out_bytes.size());
+    return true;
   }
+  error_message = "AEC linear output format must be PCM16LE/16 or FLOAT32LE/32";
+  return false;
 }
 
 void FaAecLinearNode::onRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
@@ -278,14 +328,16 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     return;
   }
 
-  if (ref->sample_rate != msg->sample_rate || ref->channels != msg->channels || ref->bit_depth != msg->bit_depth) {
+  if (ref->sample_rate != msg->sample_rate || ref->channels != msg->channels ||
+    ref->encoding != msg->encoding || ref->bit_depth != msg->bit_depth)
+  {
     mic_drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "Dropping mic frame because reference format does not match: "
-      "mic=%uHz/%uch/%ubit ref=%uHz/%uch/%ubit",
-      msg->sample_rate, msg->channels, msg->bit_depth,
-      ref->sample_rate, ref->channels, ref->bit_depth);
+      "mic=%uHz/%uch/%s/%ubit ref=%uHz/%uch/%s/%ubit",
+      msg->sample_rate, msg->channels, msg->encoding.c_str(), msg->bit_depth,
+      ref->sample_rate, ref->channels, ref->encoding.c_str(), ref->bit_depth);
     return;
   }
 
@@ -299,25 +351,36 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     return;
   }
 
-  const size_t sample_count = std::min(mic_f32.size(), ref_f32.size());
-  if (sample_count == 0) {
+  if (mic_f32.empty() || ref_f32.empty()) {
     mic_drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "Dropping mic frame because no aligned mic/reference samples are available");
     return;
   }
+  if (mic_f32.size() != ref_f32.size()) {
+    mic_drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping mic frame because mic/reference sample counts differ: mic=%zu ref=%zu",
+      mic_f32.size(), ref_f32.size());
+    return;
+  }
 
   std::vector<float> out_f32 = mic_f32;
   const float gain = static_cast<float>(config_.cancel_gain);
-  for (size_t i = 0; i < sample_count; ++i) {
+  for (size_t i = 0; i < mic_f32.size(); ++i) {
     out_f32[i] = mic_f32[i] - gain * ref_f32[i];
   }
 
   std::vector<uint8_t> out_bytes;
-  encodeFromFloat(out_f32, msg->bit_depth, out_bytes);
-  if (out_bytes.empty()) {
+  std::string encode_error;
+  if (!encodeFromFloat(out_f32, msg->encoding, msg->bit_depth, out_bytes, encode_error)) {
     mic_drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping AEC linear output frame: %s. Add an explicit dynamics/limiter node if range control is required.",
+      encode_error.c_str());
     return;
   }
 
