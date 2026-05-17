@@ -50,5 +50,5 @@ and must not be counted as implemented package coverage.
 | `spatial/` | `fa_pan`, `fa_stereo_widening`, `fa_downmix`, `fa_upmix`, `fa_beamforming` | implemented packages |
 | `analysis/` | `fa_vad`, `fa_kws`, `fa_asr`, `fa_turn_detector` | implemented packages plus roadmap placeholders |
 | `generation/` | `fa_tts` | implemented package |
-| `routing/` | `fa_mix`, `fa_bus_router`, `fa_ducking` | implemented packages |
+| `routing/` | `fa_mix`, `fa_bus_router`, `fa_sidechain`, `fa_ducking`, `fa_loopback` | implemented packages |
 | `streaming/` | `fa_frame_buffer`, `fa_jitter_buffer`, `fa_clock_drift`, `fa_packet_loss_concealment`, `fa_latency_compensation`, `fa_time_alignment`, `fa_chunk_overlap`, `fa_overlap_add` | implemented packages |

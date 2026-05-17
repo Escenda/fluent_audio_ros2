@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fa_sidechain</name>
+  <version>0.1.0</version>
+  <description>Sidechain RMS to explicit gain-control AudioFrame bridge for FluentAudio routing graphs.</description>
+  <maintainer email="maintainer@example.com">FluentAudio</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>fa_interfaces</depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>python3-yaml</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

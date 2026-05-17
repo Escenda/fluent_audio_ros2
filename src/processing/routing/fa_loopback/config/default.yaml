@@ -1,0 +1,21 @@
+fa_loopback:
+  ros__parameters:
+    input_topic: "audio/output/frame"
+    output_topic: "audio/loopback/frame"
+
+    loopback:
+      require_distinct_topics: true
+
+    expected:
+      sample_rate: 48000
+      channels: 1
+      encoding: "PCM16LE"
+      bit_depth: 16
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: true
+
+    diagnostics:
+      publish_period_ms: 1000

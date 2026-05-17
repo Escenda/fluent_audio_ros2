@@ -484,6 +484,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_sidechain
+        enable: false
+        package: fa_sidechain
+        exec: fa_sidechain_node
+        node_name: fa_sidechain
+        namespace: ""
+        params_file: "${share:fa_sidechain}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_ducking
         enable: false
         package: fa_ducking
@@ -491,6 +501,16 @@ groups:
         node_name: fa_ducking
         namespace: ""
         params_file: "${share:fa_ducking}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_loopback
+        enable: false
+        package: fa_loopback
+        exec: fa_loopback_node
+        node_name: fa_loopback
+        namespace: ""
+        params_file: "${share:fa_loopback}/config/default.yaml"
         remappings: {}
         parameters: {}
 

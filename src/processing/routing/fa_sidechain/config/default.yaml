@@ -1,0 +1,26 @@
+fa_sidechain:
+  ros__parameters:
+    sidechain_topic: "audio/sidechain/frame"
+    control_topic: "audio/sidechain/control"
+
+    detector:
+      threshold_rms: 0.05
+      active_gain_db: -12.0
+      inactive_gain_db: 0.0
+
+    control:
+      sample_rate: 1000
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000
