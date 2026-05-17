@@ -21,14 +21,14 @@ class FaStreamNode(Node):
     def __init__(self) -> None:
         super().__init__("fa_stream")
 
-        self.declare_parameter("input_topic", "audio/frame")
-        self.declare_parameter("ffmpeg_path", "ffmpeg")
-        self.declare_parameter("output_url", "")
-        self.declare_parameter("audio_codec", "libmp3lame")
-        self.declare_parameter("bitrate", "128k")
-        self.declare_parameter("container_format", "mp3")
-        self.declare_parameter("content_type", "audio/mpeg")
-        self.declare_parameter("loglevel", "warning")
+        self.declare_parameter("input_topic")
+        self.declare_parameter("ffmpeg_path")
+        self.declare_parameter("output_url")
+        self.declare_parameter("audio_codec")
+        self.declare_parameter("bitrate")
+        self.declare_parameter("container_format")
+        self.declare_parameter("content_type")
+        self.declare_parameter("loglevel")
 
         self._input_topic = self._required_string_parameter("input_topic")
         self._ffmpeg_path = self._required_string_parameter("ffmpeg_path")

@@ -63,6 +63,19 @@ def test_all_ros_packages_use_standard_documented_layout() -> None:
     assert missing == []
 
 
+def test_all_ros_packages_have_backend_documentation_file() -> None:
+    missing: list[str] = []
+
+    for package_root in _package_roots():
+        backend_docs = sorted((package_root / "docs" / "backends").glob("*.md"))
+        if not backend_docs:
+            missing.append(
+                f"{package_root.relative_to(REPO_ROOT)}/docs/backends/*.md"
+            )
+
+    assert missing == []
+
+
 def test_legacy_fa_capture_and_fa_output_paths_are_not_present() -> None:
     legacy_paths = [
         str(path.relative_to(REPO_ROOT))

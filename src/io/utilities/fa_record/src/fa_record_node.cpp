@@ -123,7 +123,8 @@ public:
   FaRecordNode()
   : rclcpp::Node("fa_record")
   {
-    input_topic_ = this->declare_parameter<std::string>("input_topic", input_topic_);
+    this->declare_parameter<std::string>("input_topic");
+    input_topic_ = this->get_parameter("input_topic").as_string();
     if (input_topic_.empty()) {
       throw std::runtime_error("input_topic is required");
     }
@@ -289,7 +290,7 @@ private:
     record_path_.clear();
   }
 
-  std::string input_topic_{"audio/frame"};
+  std::string input_topic_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Service<fa_interfaces::srv::Record>::SharedPtr record_srv_;
