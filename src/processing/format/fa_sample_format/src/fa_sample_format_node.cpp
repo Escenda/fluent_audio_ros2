@@ -85,7 +85,7 @@ void FaSampleFormatNode::loadParameters()
       config_.output_bit_depth))
   {
     throw std::runtime_error(
-            "fa_sample_format supports only PCM16LE/16 or PCM32LE/32 input to FLOAT32LE/32 output");
+            "fa_sample_format supports only PCM16LE/16 or PCM32LE/32 to FLOAT32LE/32, or FLOAT32LE/32 to PCM16LE/16");
   }
   if (config_.expected_sample_rate <= 0) {
     throw std::runtime_error("expected.sample_rate must be > 0");
@@ -236,6 +236,10 @@ bool FaSampleFormatNode::convertFrame(
     output_data = convertPcm16ToFloat32(in.data);
   } else if (config_.input_encoding == kEncodingPcm32 && config_.input_bit_depth == 32) {
     output_data = convertPcm32ToFloat32(in.data);
+  } else if (config_.input_encoding == kEncodingFloat32 && config_.input_bit_depth == 32 &&
+    config_.output_encoding == kEncodingPcm16 && config_.output_bit_depth == 16)
+  {
+    output_data = convertFloat32ToPcm16(in.data);
   } else {
     return false;
   }

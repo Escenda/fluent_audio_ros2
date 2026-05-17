@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -20,11 +21,17 @@ inline bool isSupportedSampleFormatConversion(
   const std::string & output_encoding,
   const int output_bit_depth)
 {
-  if (output_encoding != kEncodingFloat32 || output_bit_depth != 32) {
-    return false;
-  }
-  return (input_encoding == kEncodingPcm16 && input_bit_depth == 16) ||
-         (input_encoding == kEncodingPcm32 && input_bit_depth == 32);
+  return (
+           output_encoding == kEncodingFloat32 && output_bit_depth == 32 &&
+           (
+             (input_encoding == kEncodingPcm16 && input_bit_depth == 16) ||
+             (input_encoding == kEncodingPcm32 && input_bit_depth == 32)
+           )
+         ) ||
+         (
+           input_encoding == kEncodingFloat32 && input_bit_depth == 32 &&
+           output_encoding == kEncodingPcm16 && output_bit_depth == 16
+         );
 }
 
 inline void appendFloat32Le(const float sample, std::vector<uint8_t> & out_bytes)
@@ -75,6 +82,39 @@ inline std::vector<uint8_t> convertPcm32ToFloat32(const std::vector<uint8_t> & i
       static_cast<int64_t>(raw) - 0x100000000LL :
       static_cast<int64_t>(raw);
     appendFloat32Le(static_cast<float>(static_cast<double>(signed_value) / kPcm32Scale), out_bytes);
+  }
+  return out_bytes;
+}
+
+inline void appendPcm16Le(const int16_t sample, std::vector<uint8_t> & out_bytes)
+{
+  const uint16_t raw = static_cast<uint16_t>(sample);
+  out_bytes.push_back(static_cast<uint8_t>(raw & 0xFFU));
+  out_bytes.push_back(static_cast<uint8_t>((raw >> 8U) & 0xFFU));
+}
+
+inline std::vector<uint8_t> convertFloat32ToPcm16(const std::vector<uint8_t> & input_bytes)
+{
+  if (input_bytes.empty() || (input_bytes.size() % sizeof(float)) != 0) {
+    return {};
+  }
+
+  std::vector<uint8_t> out_bytes;
+  out_bytes.reserve((input_bytes.size() / sizeof(float)) * sizeof(int16_t));
+  for (size_t i = 0; i < input_bytes.size(); i += sizeof(float)) {
+    float sample = 0.0F;
+    std::memcpy(&sample, input_bytes.data() + i, sizeof(float));
+    if (!std::isfinite(sample) || sample < -1.0F || sample > 1.0F) {
+      return {};
+    }
+    const double scaled = sample < 0.0F ?
+      static_cast<double>(sample) * 32768.0 :
+      static_cast<double>(sample) * 32767.0;
+    const int32_t rounded = static_cast<int32_t>(std::lround(scaled));
+    if (rounded < -32768 || rounded > 32767) {
+      return {};
+    }
+    appendPcm16Le(static_cast<int16_t>(rounded), out_bytes);
   }
   return out_bytes;
 }

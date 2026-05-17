@@ -51,11 +51,14 @@ def test_startup_rejects_unknown_or_implicit_conversion_config() -> None:
         "inline void appendFloat32Le"
     )[0]
 
-    assert "output_encoding != kEncodingFloat32 || output_bit_depth != 32" in is_supported
+    assert "output_encoding == kEncodingFloat32 && output_bit_depth == 32" in is_supported
     assert "input_encoding == kEncodingPcm16 && input_bit_depth == 16" in is_supported
     assert "input_encoding == kEncodingPcm32 && input_bit_depth == 32" in is_supported
+    assert "input_encoding == kEncodingFloat32 && input_bit_depth == 32" in is_supported
+    assert "output_encoding == kEncodingPcm16 && output_bit_depth == 16" in is_supported
     assert "isSupportedSampleFormatConversion(" in source
     assert "throw std::runtime_error(" in source
+    assert "FLOAT32LE/32 to PCM16LE/16" in source
     assert "metadata" not in is_supported
 
 
@@ -97,7 +100,7 @@ def test_sample_format_preserves_identity_and_updates_format_metadata() -> None:
     assert ".vad" not in convert_frame
 
 
-def test_pcm_integer_samples_are_mapped_to_float32le_bytes_explicitly() -> None:
+def test_sample_format_conversions_are_explicit_without_hidden_clamp() -> None:
     package_root = Path(__file__).parents[2]
     conversion = (
         package_root / "include" / "fa_sample_format" / "sample_format_conversion.hpp"
@@ -106,8 +109,11 @@ def test_pcm_integer_samples_are_mapped_to_float32le_bytes_explicitly() -> None:
         "inline std::vector<uint8_t> convertPcm32ToFloat32"
     )[0]
     pcm32 = conversion.split("inline std::vector<uint8_t> convertPcm32ToFloat32")[1].split(
-        "}  // namespace fa_sample_format"
+        "inline void appendPcm16Le"
     )[0]
+    float32_to_pcm16 = conversion.split(
+        "inline std::vector<uint8_t> convertFloat32ToPcm16"
+    )[1].split("}  // namespace fa_sample_format")[0]
     append = conversion.split("inline void appendFloat32Le")[1].split(
         "inline std::vector<uint8_t> convertPcm16ToFloat32"
     )[0]
@@ -122,6 +128,11 @@ def test_pcm_integer_samples_are_mapped_to_float32le_bytes_explicitly() -> None:
     assert "kPcm32Scale" in pcm32
     assert "std::memcpy(&raw, &sample, sizeof(float));" in append
     assert "out_bytes.push_back(static_cast<uint8_t>(raw & 0xFFU));" in append
+    assert "std::isfinite(sample)" in float32_to_pcm16
+    assert "sample < -1.0F || sample > 1.0F" in float32_to_pcm16
+    assert "std::lround(scaled)" in float32_to_pcm16
+    assert "appendPcm16Le(static_cast<int16_t>(rounded), out_bytes);" in float32_to_pcm16
+    assert "std::clamp" not in conversion
 
 
 def test_package_layout_matches_standard_processing_layout() -> None:

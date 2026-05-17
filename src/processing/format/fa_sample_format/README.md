@@ -8,8 +8,9 @@
 
 - `PCM16LE` / 16 bit / `interleaved` -> `FLOAT32LE` / 32 bit / `interleaved`
 - `PCM32LE` / 32 bit / `interleaved` -> `FLOAT32LE` / 32 bit / `interleaved`
+- `FLOAT32LE` / 32 bit / `interleaved` -> `PCM16LE` / 16 bit / `interleaved`
 
-変換は config で明示された組み合わせだけを受け付けます。frame metadata から自動判定しません。
+変換は config で明示された組み合わせだけを受け付けます。frame metadata から自動判定しません。`FLOAT32LE -> PCM16LE` では non-finite または `[-1.0, 1.0]` 範囲外 sample を clamp せず drop します。
 
 ## 入出力契約
 
