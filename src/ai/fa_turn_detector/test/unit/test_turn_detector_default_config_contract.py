@@ -17,10 +17,10 @@ class _BackendError(Exception):
 
 class _FakeLogger:
     def __init__(self) -> None:
-        self.fatal_records: list[tuple[str, Exception]] = []
+        self.fatal_records: list[str] = []
 
-    def fatal(self, message: str, exc: Exception) -> None:
-        self.fatal_records.append((message, exc))
+    def fatal(self, message: str) -> None:
+        self.fatal_records.append(message)
 
 
 class _FakeNode:
@@ -258,6 +258,8 @@ def test_default_config_requires_explicit_model_and_provider() -> None:
     assert params["backend.health_args"] == []
     assert 'declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)' in source
     assert 'declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)' in source
+    assert "parameter_overrides: Iterable[Parameter] | None = None" in source
+    assert "parameter_overrides=list(parameter_overrides)" in source
     assert "tuple(str(item) for item in value)" not in source
 
 
@@ -395,10 +397,7 @@ def test_turn_detector_backend_runtime_failure_is_fail_closed(
 
         assert shutdown_calls == [True]
         assert len(node._logger.fatal_records) == 1
-        fatal_message, fatal_exception = node._logger.fatal_records[0]
-        assert fatal_message == "Turn detection backend failed: %s"
-        assert isinstance(fatal_exception, _BackendError)
-        assert str(fatal_exception) == "backend down"
+        assert node._logger.fatal_records[0] == "Turn detection backend failed: backend down"
     finally:
         sys.modules.pop("fa_turn_detector_py.backends.smart_turn_onnx", None)
         sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)

@@ -18,8 +18,14 @@ from fa_turn_detector_py.backends.smart_turn_onnx import SmartTurnOnnxBackend
 class FaTurnDetectorNode(Node):
     """Turn detection node using a local Smart Turn v3 ONNX model."""
 
-    def __init__(self) -> None:
-        super().__init__("fa_turn_detector")
+    def __init__(self, *, parameter_overrides: Iterable[Parameter] | None = None) -> None:
+        if parameter_overrides is None:
+            super().__init__("fa_turn_detector")
+        else:
+            super().__init__(
+                "fa_turn_detector",
+                parameter_overrides=list(parameter_overrides),
+            )
 
         self.declare_parameter("audio_topic", "audio/frame")
         self.declare_parameter("vad_topic", "voice/vad_state")
@@ -77,13 +83,13 @@ class FaTurnDetectorNode(Node):
         )
 
         self.get_logger().info(
-            "fa_turn_detector started: audio=%s vad=%s turn_context=%s output=%s backend.name=%s model=%s",
-            self.audio_topic,
-            self.vad_topic,
-            self.turn_context_topic,
-            self.output_topic,
-            self.backend.name,
-            self.backend.model_path,
+            "fa_turn_detector started: "
+            f"audio={self.audio_topic} "
+            f"vad={self.vad_topic} "
+            f"turn_context={self.turn_context_topic} "
+            f"output={self.output_topic} "
+            f"backend.name={self.backend.name} "
+            f"model={self.backend.model_path}"
         )
 
     def _load_backend(self) -> TurnDetectorBackend:
@@ -146,7 +152,7 @@ class FaTurnDetectorNode(Node):
                 )
             audio_data = self._frame_to_float(msg)
         except ValueError as exc:
-            self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
+            self.get_logger().error(f"Dropping invalid AudioFrame: {exc}")
             return
         self.audio_buffer.extend(audio_data.tolist())
 
@@ -162,8 +168,7 @@ class FaTurnDetectorNode(Node):
     def _detect_turn_end(self) -> None:
         if len(self.audio_buffer) < self.backend.min_samples:
             self.get_logger().debug(
-                "Not enough audio data for turn detection: %d samples",
-                len(self.audio_buffer),
+                f"Not enough audio data for turn detection: {len(self.audio_buffer)} samples"
             )
             return
 
@@ -172,7 +177,7 @@ class FaTurnDetectorNode(Node):
         try:
             result = self.backend.detect(audio)
         except Exception as exc:
-            self.get_logger().fatal("Turn detection backend failed: %s", exc)
+            self.get_logger().fatal(f"Turn detection backend failed: {exc}")
             rclpy.shutdown()
             raise
 
@@ -185,9 +190,7 @@ class FaTurnDetectorNode(Node):
         self.turn_end_pub.publish(out)
 
         self.get_logger().info(
-            "Turn end probability: %.3f is_end=%s",
-            result.probability,
-            str(out.is_end).lower(),
+            f"Turn end probability: {result.probability:.3f} is_end={str(out.is_end).lower()}"
         )
 
     @staticmethod
