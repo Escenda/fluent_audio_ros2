@@ -2,7 +2,7 @@ system:
   default_start_delay: 0.0
   inter_group_delay: 0.0
 groups:
-  - id: analysis
+  - id: ai
     enable: true
     nodes:
       - id: fa_vad

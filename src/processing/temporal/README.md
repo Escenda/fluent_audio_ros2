@@ -17,4 +17,4 @@ Examples:
 
 Frame/window operations that prepare model input belong here only when the node
 is primarily a time-axis transform. Feature extraction belongs in
-`processing/analysis`.
+`src/processing/analysis`.

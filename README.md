@@ -7,7 +7,7 @@
 
 ## このリポジトリの位置づけ
 - upstream の設計思想（ノード分割、低遅延、YAML/launch 運用）を踏襲します
-- `src/` 以下を用途別（`io/`, `processing/`, `apps/`, `system/`, `interfaces/`）に分割して管理します
+- `src/` 以下を用途別（`io/`, `processing/`, `ai/`, `streaming/`, `apps/`, `system/`, `interfaces/`）に分割して管理します
 - source / sink、DSP、音声 AI、音声 app を分離し、backend を明示的に切り替えられる構造を目標にしています
 - 音声にフォーカスするため、vision 系パッケージ（カメラ/AI/UI/配信/SLAM など）は本リポジトリから削除しています（視覚系は upstream を参照してください）
 
@@ -16,10 +16,10 @@
 - `fa_out`（`src/io/sinks/fa_out/`）: `audio/output/frame` をスピーカーへ再生
 - `fa_record`（`src/io/utilities/fa_record/`）: `audio/frame` をWAVへ録音（`record` サービス）
 - `fa_stream`（`src/io/utilities/fa_stream/`）: `audio/frame` を外部へ配信する utility（Icecast向け `fa_stream_node.py`）
-- `fa_vad`（`src/processing/analysis/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と`voice/vad_state`を提供
-- `fa_kws`（`src/processing/analysis/fa_kws/`）: sherpa-onnx によるローカルKWS、`voice/wake_word`を提供
-- `fa_asr`（`src/processing/analysis/fa_asr/`）: ローカルASRコマンド（whisper.cpp等）を呼び出し、`voice/asr/result`を提供
-- `fa_turn_detector`（`src/processing/analysis/fa_turn_detector/`）: Smart Turn v3 ONNX によるターン終了推定、`voice/turn_end`を提供
+- `fa_vad`（`src/ai/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と`voice/vad_state`を提供
+- `fa_kws`（`src/ai/fa_kws/`）: sherpa-onnx によるローカルKWS、`voice/wake_word`を提供
+- `fa_asr`（`src/ai/fa_asr/`）: ローカルASRコマンド（whisper.cpp等）を呼び出し、`voice/asr/result`を提供
+- `fa_turn_detector`（`src/ai/fa_turn_detector/`）: Smart Turn v3 ONNX によるターン終了推定、`voice/turn_end`を提供
 - `fa_tts`（`src/processing/generation/fa_tts/`）: pyopenjtalk(Open JTalk) によるTTS（`speak` サービス）/ `AudioFrame` 出力
 - `fa_resample`（`src/processing/format/fa_resample/`）: 16k ストリーム供給（`audio/frame`→`audio/resample16k/mic`）
 - `fa_aec_linear`（`src/processing/correction/fa_aec_linear/`）: 線形AEC（`mic/ref`→`audio/aec_linear/frame`）

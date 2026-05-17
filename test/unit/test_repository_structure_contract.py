@@ -28,7 +28,33 @@ PROCESSING_CATEGORIES = (
     "analysis",
     "generation",
     "routing",
-    "streaming",
+)
+
+
+AI_PACKAGE_NAMES = (
+    "fa_asr",
+    "fa_kws",
+    "fa_turn_detector",
+    "fa_vad",
+)
+
+
+AI_PLACEHOLDER_NAMES = (
+    "fa_audio_embedding",
+    "fa_sed",
+    "fa_speaker",
+)
+
+
+STREAMING_PACKAGE_NAMES = (
+    "fa_chunk_overlap",
+    "fa_clock_drift",
+    "fa_frame_buffer",
+    "fa_jitter_buffer",
+    "fa_latency_compensation",
+    "fa_overlap_add",
+    "fa_packet_loss_concealment",
+    "fa_time_alignment",
 )
 
 
@@ -68,6 +94,16 @@ def _package_roots() -> list[Path]:
 def _processing_package_roots() -> list[Path]:
     processing_root = SRC_ROOT / "processing"
     return sorted(path.parent for path in processing_root.rglob("package.xml"))
+
+
+def _ai_package_roots() -> list[Path]:
+    ai_root = SRC_ROOT / "ai"
+    return sorted(path.parent for path in ai_root.rglob("package.xml"))
+
+
+def _streaming_package_roots() -> list[Path]:
+    streaming_root = SRC_ROOT / "streaming"
+    return sorted(path.parent for path in streaming_root.rglob("package.xml"))
 
 
 def _backend_code_files() -> list[Path]:
@@ -130,6 +166,60 @@ def test_processing_ros_packages_live_under_taxonomy_categories() -> None:
             invalid.append(str(package_root.relative_to(REPO_ROOT)))
 
     assert invalid == []
+
+
+def test_ai_ros_packages_live_under_src_ai() -> None:
+    missing: list[str] = []
+
+    if not (SRC_ROOT / "ai" / "README.md").is_file():
+        missing.append("src/ai/README.md")
+
+    for package_name in AI_PACKAGE_NAMES:
+        package_path = SRC_ROOT / "ai" / package_name
+        if not (package_path / "package.xml").is_file():
+            missing.append(f"src/ai/{package_name}/package.xml")
+
+    for placeholder_name in AI_PLACEHOLDER_NAMES:
+        placeholder_path = SRC_ROOT / "ai" / placeholder_name
+        if not placeholder_path.is_dir():
+            missing.append(f"src/ai/{placeholder_name}/")
+        if (placeholder_path / "package.xml").exists():
+            missing.append(f"src/ai/{placeholder_name}/package.xml")
+
+    for package_root in _ai_package_roots():
+        if package_root.name not in AI_PACKAGE_NAMES:
+            missing.append(str(package_root.relative_to(REPO_ROOT)))
+
+    assert missing == []
+
+
+def test_streaming_ros_packages_live_under_src_streaming() -> None:
+    missing: list[str] = []
+
+    if not (SRC_ROOT / "streaming" / "README.md").is_file():
+        missing.append("src/streaming/README.md")
+
+    for package_name in STREAMING_PACKAGE_NAMES:
+        package_path = SRC_ROOT / "streaming" / package_name
+        if not (package_path / "package.xml").is_file():
+            missing.append(f"src/streaming/{package_name}/package.xml")
+
+    for package_root in _streaming_package_roots():
+        if package_root.name not in STREAMING_PACKAGE_NAMES:
+            missing.append(str(package_root.relative_to(REPO_ROOT)))
+
+    assert missing == []
+
+
+def test_processing_does_not_contain_ai_or_streaming_packages() -> None:
+    forbidden_paths = [
+        "src/processing/streaming",
+        *(f"src/processing/analysis/{name}" for name in AI_PACKAGE_NAMES),
+        *(f"src/processing/analysis/{name}" for name in AI_PLACEHOLDER_NAMES),
+    ]
+    present = [path for path in forbidden_paths if (REPO_ROOT / path).exists()]
+
+    assert present == []
 
 
 def test_all_ros_packages_have_backend_documentation_file() -> None:

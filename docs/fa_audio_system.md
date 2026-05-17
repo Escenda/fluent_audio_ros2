@@ -25,11 +25,12 @@
 | `fa_voice_command_router` | 起動/停止/モード切替の状態管理 | Sub: `voice/command` → Pub: `voice/router/state` / Srv: `start`, `stop`, `status` |
 
 ## 3. 将来のノード（予定）
-- `src/processing/analysis/fa_sed`: 音イベント検出（オフライン）
-- `src/processing/analysis/fa_speaker`: 話者認識（オフライン）
+- `src/ai/fa_sed`: 音イベント検出（オフライン）
+- `src/ai/fa_speaker`: 話者認識（オフライン）
 - `src/apps/dialogue/fa_dialogue`: Wakeword/ASR/TD を合流する会話オーケストレーション
 - `src/apps/safety/fa_safety_policy`: 危険操作の拒否/確認要求など
-- `src/processing/<category>/*`: ノイズ抑制/AEC/特徴量など
+- `src/processing/<category>/*`: ノイズ抑制/AEC/特徴量などの DSP / feature extraction
+- `src/streaming/*`: jitter buffer、clock drift、PLC、time alignment などのリアルタイム伝送安定化
 
 ## 4. インターフェース
 

@@ -404,7 +404,7 @@ groups:
         remappings: {}
         parameters: {}
 
-  - id: analysis
+  - id: ai
     enable: true
     nodes:
       - id: fa_vad

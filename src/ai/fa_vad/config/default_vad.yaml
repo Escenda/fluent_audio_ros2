@@ -1,0 +1,37 @@
+fa_vad_node:
+  ros__parameters:
+    input_topic: "audio/frame"
+    output_topic: "audio/vad"
+    vad_state_topic: "voice/vad_state"
+    publish_vad_state: true
+    publish_probability: false
+    probability_topic: "audio/vad/probability"
+
+    target_sample_rate: 16000
+    threshold_start: 0.5
+    threshold_end: 0.1
+    hangover_ms: 300
+
+    backend.name: "silero"
+    # Required local torch.hub Silero repository path. Empty means startup fails closed.
+    backend.model_path: ""
+    # Required PyTorch device: cpu, cuda, or cuda:<index>. Empty means startup fails closed.
+    backend.execution_provider: ""
+    # Required external Silero worker command. It must print a probability float to stdout.
+    backend.command: ""
+    backend.args:
+      - "--audio"
+      - "{audio}"
+      - "--model"
+      - "{model}"
+      - "--provider"
+      - "{provider}"
+      - "--sample-rate"
+      - "{sample_rate}"
+    backend.timeout_sec: 1.0
+    backend.workspace_dir: "/tmp/fluent_audio/fa_vad"
+    backend.cleanup_audio_files: true
+
+    log_speech_events: true
+    qos.depth: 10
+    qos.reliable: false

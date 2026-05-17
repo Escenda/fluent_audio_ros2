@@ -1,8 +1,10 @@
 # FluentAudio Processing
 
-`src/processing` contains audio graph nodes that transform, analyze, generate,
-route, or stabilize audio streams. Device input and output stay in `src/io`.
-Application policy and dialogue orchestration stay in `src/apps`.
+`src/processing` contains DSP and feature-extraction nodes that transform,
+analyze, generate, or route audio streams. Device input and output stay in
+`src/io`. AI model nodes stay in `src/ai`. Real-time transport stabilization
+stays in `src/streaming`. Application policy and dialogue orchestration stay in
+`src/apps`.
 
 The direct children of this directory are the stable processing taxonomy. New
 ROS 2 packages must be placed under exactly one category:
@@ -15,10 +17,9 @@ ROS 2 packages must be placed under exactly one category:
 | `temporal/` | Time-axis editing such as trim, silence removal, delay, reverb, fade, and windowing. |
 | `correction/` | Input repair such as denoise, AEC, dereverberation, declip, hum removal, and DC offset removal. |
 | `spatial/` | Spatial and channel processing such as pan, downmix, upmix, beamforming, and source separation. |
-| `analysis/` | Audio analysis and model input such as VAD, KWS, ASR, turn detection, spectrograms, and embeddings. |
+| `analysis/` | Non-AI feature extraction and measurements such as STFT, Mel spectrogram, MFCC, and loudness. |
 | `generation/` | Audio generation and conversion such as TTS, voice conversion, neural codecs, and vocoders. |
 | `routing/` | Signal routing such as mixer, bus routing, ducking, loopback, monitor mix, and patchbay. |
-| `streaming/` | Real-time transport stability such as buffers, jitter buffers, drift correction, latency compensation, and overlap-add. |
 
 Each ROS 2 package under these categories should keep the standard package
 contract:
@@ -48,7 +49,6 @@ and must not be counted as implemented package coverage.
 | `temporal/` | `fa_delay`, `fa_echo`, `fa_reverb`, `fa_trim`, `fa_silence_removal`, `fa_fade`, `fa_window` | implemented packages |
 | `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise`, `fa_declick`, `fa_hum`, `fa_dc_offset_removal` | implemented packages |
 | `spatial/` | `fa_pan`, `fa_stereo_widening`, `fa_downmix`, `fa_upmix`, `fa_beamforming` | implemented packages |
-| `analysis/` | `fa_vad`, `fa_kws`, `fa_asr`, `fa_turn_detector` | implemented packages plus roadmap placeholders |
+| `analysis/` | none | feature-extraction roadmap placeholders |
 | `generation/` | `fa_tts` | implemented package |
 | `routing/` | `fa_mix`, `fa_bus_router`, `fa_sidechain`, `fa_ducking`, `fa_monitor_mix`, `fa_loopback`, `fa_patchbay` | implemented packages |
-| `streaming/` | `fa_frame_buffer`, `fa_jitter_buffer`, `fa_clock_drift`, `fa_packet_loss_concealment`, `fa_latency_compensation`, `fa_time_alignment`, `fa_chunk_overlap`, `fa_overlap_add` | implemented packages |
