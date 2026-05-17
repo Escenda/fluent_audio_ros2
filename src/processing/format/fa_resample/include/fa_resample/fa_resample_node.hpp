@@ -3,7 +3,6 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -16,6 +15,9 @@ namespace fa_resample
 struct ResampleConfig
 {
   int target_sample_rate = -1;
+  std::string input_encoding;
+  int input_bit_depth = -1;
+  std::string input_layout;
   std::string output_encoding;
   int output_bit_depth = -1;
 
@@ -53,25 +55,6 @@ private:
     const std::string & output_stream_id,
     std::atomic<uint64_t> & out_counter,
     std::atomic<uint64_t> & drop_counter);
-
-  static bool decodeToFloat(
-    const fa_interfaces::msg::AudioFrame & msg,
-    std::vector<float> & out_interleaved,
-    uint32_t & out_frames,
-    uint32_t & out_channels);
-
-  static std::vector<float> resampleLinear(
-    const std::vector<float> & interleaved,
-    uint32_t in_rate,
-    uint32_t out_rate,
-    uint32_t channels,
-    uint32_t in_frames,
-    uint32_t & out_frames);
-
-  static void encodeFromFloat(
-    const std::vector<float> & interleaved,
-    int bit_depth,
-    std::vector<uint8_t> & out_bytes);
 
   ResampleConfig config_;
 

@@ -1,13 +1,14 @@
 #include "fa_resample/fa_resample_node.hpp"
 
+#include "fa_resample/resample_core.hpp"
+
 #include <algorithm>
 #include <chrono>
-#include <cmath>
-#include <cstring>
+#include <cstdlib>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -15,17 +16,6 @@
 
 namespace fa_resample
 {
-
-namespace
-{
-constexpr int kRequiredTargetSampleRate = 16000;
-constexpr const char * kInterleavedLayout = "interleaved";
-
-bool isFiniteFloat(float v)
-{
-  return std::isfinite(static_cast<double>(v));
-}
-}  // namespace
 
 FaResampleNode::FaResampleNode()
 : rclcpp::Node("fa_resample")
@@ -38,6 +28,9 @@ FaResampleNode::FaResampleNode()
 void FaResampleNode::loadParameters()
 {
   this->declare_parameter<int>("target_sample_rate", config_.target_sample_rate);
+  this->declare_parameter("input.encoding", config_.input_encoding);
+  this->declare_parameter<int>("input.bit_depth", config_.input_bit_depth);
+  this->declare_parameter("input.layout", config_.input_layout);
   this->declare_parameter("output.encoding", config_.output_encoding);
   this->declare_parameter<int>("output.bit_depth", config_.output_bit_depth);
 
@@ -57,6 +50,9 @@ void FaResampleNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 
   config_.target_sample_rate = this->get_parameter("target_sample_rate").as_int();
+  config_.input_encoding = this->get_parameter("input.encoding").as_string();
+  config_.input_bit_depth = this->get_parameter("input.bit_depth").as_int();
+  config_.input_layout = this->get_parameter("input.layout").as_string();
   config_.output_encoding = this->get_parameter("output.encoding").as_string();
   config_.output_bit_depth = this->get_parameter("output.bit_depth").as_int();
 
@@ -79,11 +75,20 @@ void FaResampleNode::loadParameters()
             "fa_resample requires target_sample_rate=16000 by design (got " +
             std::to_string(config_.target_sample_rate) + ")");
   }
-  if (config_.output_encoding.empty()) {
-    throw std::runtime_error("output.encoding is required (set via YAML)");
+  if (config_.input_encoding != kEncodingFloat32Le) {
+    throw std::runtime_error("fa_resample input.encoding must be FLOAT32LE");
   }
-  if (config_.output_bit_depth != 16 && config_.output_bit_depth != 32) {
-    throw std::runtime_error("output.bit_depth must be 16 or 32 (set via YAML)");
+  if (config_.input_bit_depth != 32) {
+    throw std::runtime_error("fa_resample input.bit_depth must be 32");
+  }
+  if (config_.input_layout != kInterleavedLayout) {
+    throw std::runtime_error("fa_resample input.layout must be interleaved");
+  }
+  if (config_.output_encoding != kEncodingFloat32Le) {
+    throw std::runtime_error("fa_resample output.encoding must be FLOAT32LE");
+  }
+  if (config_.output_bit_depth != 32) {
+    throw std::runtime_error("fa_resample output.bit_depth must be 32");
   }
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0 (set via YAML)");
@@ -109,9 +114,11 @@ void FaResampleNode::loadParameters()
   }
 
   RCLCPP_INFO(this->get_logger(),
-    "Resample config: target_sr=%dHz out_encoding=%s out_bits=%d qos_depth=%d reliable=%s "
+    "Resample config: target_sr=%dHz input=%s/%d/%s output=%s/%d qos_depth=%d reliable=%s "
     "mic=%s (%s -> %s) ref=%s (%s -> %s) diag=%dms",
-    config_.target_sample_rate, config_.output_encoding.c_str(), config_.output_bit_depth,
+    config_.target_sample_rate,
+    config_.input_encoding.c_str(), config_.input_bit_depth, config_.input_layout.c_str(),
+    config_.output_encoding.c_str(), config_.output_bit_depth,
     config_.qos_depth, config_.qos_reliable ? "true" : "false",
     config_.mic_enabled ? "on" : "off",
     config_.mic_input_topic.c_str(), config_.mic_output_topic.c_str(),
@@ -181,13 +188,6 @@ bool FaResampleNode::processAndPublish(
     return false;
   }
 
-  if (in.sample_rate == 0 || in.channels == 0) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Invalid frame (%s): sample_rate=%u channels=%u", output_stream_id.c_str(), in.sample_rate, in.channels);
-    drop_counter.fetch_add(1);
-    return false;
-  }
   if (in.source_id.empty() || in.stream_id.empty()) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
@@ -195,36 +195,43 @@ bool FaResampleNode::processAndPublish(
     drop_counter.fetch_add(1);
     return false;
   }
-  if (in.data.empty()) {
+
+  const FrameContract frame_contract{
+    in.encoding,
+    in.sample_rate,
+    in.channels,
+    in.bit_depth,
+    in.layout,
+    in.data.size()};
+  const FrameContractStatus contract_status = validateFloat32InterleavedContract(frame_contract);
+  if (contract_status != FrameContractStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Empty frame data (%s), dropping", output_stream_id.c_str());
+      "Invalid FLOAT32LE frame contract (%s): %s",
+      output_stream_id.c_str(),
+      frameContractStatusName(contract_status));
     drop_counter.fetch_add(1);
     return false;
   }
 
-  std::vector<float> in_f32;
-  uint32_t in_frames = 0;
-  uint32_t in_channels = 0;
-  if (!decodeToFloat(in, in_f32, in_frames, in_channels)) {
+  const std::vector<float> in_f32 = decodeFloat32Le(in.data);
+  if (!containsOnlyFiniteNormalizedSamples(in_f32)) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Failed to decode input frame (%s): bit_depth=%u data=%zu",
-      output_stream_id.c_str(), in.bit_depth, in.data.size());
-    drop_counter.fetch_add(1);
-    return false;
-  }
-  if (in_channels != in.channels) {
+      "Invalid FLOAT32LE frame samples (%s): samples must be finite normalized [-1.0, 1.0]",
+      output_stream_id.c_str());
     drop_counter.fetch_add(1);
     return false;
   }
 
+  const uint32_t in_frames = static_cast<uint32_t>(
+    in.data.size() / (static_cast<size_t>(in.channels) * sizeof(float)));
   uint32_t out_frames = 0;
-  std::vector<float> out_f32 = resampleLinear(
+  const std::vector<float> out_f32 = resampleLinear(
     in_f32,
     in.sample_rate,
     static_cast<uint32_t>(config_.target_sample_rate),
-    in_channels,
+    in.channels,
     in_frames,
     out_frames);
 
@@ -233,15 +240,7 @@ bool FaResampleNode::processAndPublish(
     return false;
   }
 
-  for (float v : out_f32) {
-    if (!isFiniteFloat(v)) {
-      drop_counter.fetch_add(1);
-      return false;
-    }
-  }
-
-  std::vector<uint8_t> out_bytes;
-  encodeFromFloat(out_f32, config_.output_bit_depth, out_bytes);
+  const std::vector<uint8_t> out_bytes = encodeFloat32Le(out_f32);
   if (out_bytes.empty()) {
     drop_counter.fetch_add(1);
     return false;
@@ -262,135 +261,6 @@ bool FaResampleNode::processAndPublish(
   pub->publish(out);
   out_counter.fetch_add(1);
   return true;
-}
-
-bool FaResampleNode::decodeToFloat(
-  const fa_interfaces::msg::AudioFrame & msg,
-  std::vector<float> & out_interleaved,
-  uint32_t & out_frames,
-  uint32_t & out_channels)
-{
-  out_interleaved.clear();
-  out_frames = 0;
-  out_channels = 0;
-
-  if (msg.channels == 0) {
-    return false;
-  }
-  if (msg.layout != kInterleavedLayout) {
-    return false;
-  }
-  const uint32_t channels = msg.channels;
-  const uint32_t bit_depth = msg.bit_depth;
-  if (bit_depth != 16 && bit_depth != 32) {
-    return false;
-  }
-  const size_t bytes_per_sample = static_cast<size_t>(bit_depth / 8);
-  const size_t bytes_per_frame = static_cast<size_t>(channels) * bytes_per_sample;
-  if (bytes_per_frame == 0 || (msg.data.size() % bytes_per_frame) != 0) {
-    return false;
-  }
-
-  const uint32_t frames = static_cast<uint32_t>(msg.data.size() / bytes_per_frame);
-  const size_t sample_count = static_cast<size_t>(frames) * channels;
-  if (sample_count == 0) {
-    return false;
-  }
-
-  out_interleaved.resize(sample_count);
-
-  if (bit_depth == 16) {
-    std::vector<int16_t> tmp(sample_count);
-    std::memcpy(tmp.data(), msg.data.data(), msg.data.size());
-    for (size_t i = 0; i < sample_count; ++i) {
-      out_interleaved[i] = static_cast<float>(tmp[i]) / 32768.0f;
-    }
-  } else {
-    std::memcpy(out_interleaved.data(), msg.data.data(), msg.data.size());
-  }
-
-  out_frames = frames;
-  out_channels = channels;
-  return true;
-}
-
-std::vector<float> FaResampleNode::resampleLinear(
-  const std::vector<float> & interleaved,
-  uint32_t in_rate,
-  uint32_t out_rate,
-  uint32_t channels,
-  uint32_t in_frames,
-  uint32_t & out_frames)
-{
-  out_frames = 0;
-  if (in_rate == 0 || out_rate == 0 || channels == 0 || in_frames == 0 || interleaved.empty()) {
-    return {};
-  }
-  if (interleaved.size() != static_cast<size_t>(in_frames) * channels) {
-    return {};
-  }
-
-  if (in_rate == out_rate) {
-    out_frames = in_frames;
-    return interleaved;
-  }
-
-  const double ratio = static_cast<double>(out_rate) / static_cast<double>(in_rate);
-  const double out_frames_f = static_cast<double>(in_frames) * ratio;
-  const uint32_t frames = static_cast<uint32_t>(std::max<double>(1.0, std::lround(out_frames_f)));
-
-  std::vector<float> out;
-  out.resize(static_cast<size_t>(frames) * channels);
-
-  const double step = static_cast<double>(in_rate) / static_cast<double>(out_rate);
-  for (uint32_t i = 0; i < frames; ++i) {
-    const double src_pos = static_cast<double>(i) * step;
-    uint32_t idx0 = static_cast<uint32_t>(std::floor(src_pos));
-    const double frac = src_pos - static_cast<double>(idx0);
-
-    if (idx0 >= in_frames) {
-      idx0 = in_frames - 1;
-    }
-    const uint32_t idx1 = std::min<uint32_t>(idx0 + 1, in_frames - 1);
-
-    for (uint32_t ch = 0; ch < channels; ++ch) {
-      const float s0 = interleaved[static_cast<size_t>(idx0) * channels + ch];
-      const float s1 = interleaved[static_cast<size_t>(idx1) * channels + ch];
-      const float v = static_cast<float>((1.0 - frac) * static_cast<double>(s0) + frac * static_cast<double>(s1));
-      out[static_cast<size_t>(i) * channels + ch] = v;
-    }
-  }
-
-  out_frames = frames;
-  return out;
-}
-
-void FaResampleNode::encodeFromFloat(
-  const std::vector<float> & interleaved,
-  int bit_depth,
-  std::vector<uint8_t> & out_bytes)
-{
-  out_bytes.clear();
-  if (interleaved.empty()) {
-    return;
-  }
-
-  if (bit_depth == 16) {
-    std::vector<int16_t> pcm(interleaved.size());
-    for (size_t i = 0; i < interleaved.size(); ++i) {
-      float s = std::clamp(interleaved[i], -1.0f, 1.0f);
-      const int32_t scaled = static_cast<int32_t>(std::lround(static_cast<double>(s) * 32767.0));
-      pcm[i] = static_cast<int16_t>(std::clamp<int32_t>(scaled, -32768, 32767));
-    }
-    out_bytes.resize(pcm.size() * sizeof(int16_t));
-    std::memcpy(out_bytes.data(), pcm.data(), out_bytes.size());
-    return;
-  }
-
-  if (bit_depth == 32) {
-    out_bytes.resize(interleaved.size() * sizeof(float));
-    std::memcpy(out_bytes.data(), interleaved.data(), out_bytes.size());
-  }
 }
 
 void FaResampleNode::publishDiagnostics()

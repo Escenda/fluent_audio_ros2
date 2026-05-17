@@ -1,9 +1,13 @@
 fa_resample:
   ros__parameters:
     target_sample_rate: 16000
+    input:
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
     output:
-      encoding: "PCM16LE"
-      bit_depth: 16
+      encoding: "FLOAT32LE"
+      bit_depth: 32
 
     qos:
       depth: 10

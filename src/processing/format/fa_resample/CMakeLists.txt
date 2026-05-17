@@ -42,8 +42,18 @@ install(DIRECTORY include/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  ament_add_gtest(test_resample_core
+    test/cpp/test_resample_core.cpp
+  )
+  if(TARGET test_resample_core)
+    target_include_directories(test_resample_core PRIVATE
+      include
+    )
+  endif()
 
   # Keep package tests isolated from ambient pytest plugins in ROS images.
   set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
