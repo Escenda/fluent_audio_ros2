@@ -1,27 +1,82 @@
+from dataclasses import dataclass
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-from fluent_audio_system.config_schema import load_system_config
+from fluent_audio_system.config_schema import AudioNodeSpec, ParamValue, load_system_config
+
+
+@dataclass(frozen=True)
+class SiteBindingOverrides:
+    fa_in_enabled: bool
+    fa_out_enabled: bool
+    fa_in_source_id: str
+    fa_out_sink_id: str
+
+
+def _required_bool_launch_arg(context, name: str) -> bool:
+    value = LaunchConfiguration(name).perform(context).strip().lower()
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise RuntimeError(f"{name} must be true or false")
+
+
+def _site_binding_overrides(context) -> SiteBindingOverrides:
+    return SiteBindingOverrides(
+        fa_in_enabled=_required_bool_launch_arg(context, "fa_in_enabled"),
+        fa_out_enabled=_required_bool_launch_arg(context, "fa_out_enabled"),
+        fa_in_source_id=LaunchConfiguration("fa_in_source_id").perform(context).strip(),
+        fa_out_sink_id=LaunchConfiguration("fa_out_sink_id").perform(context).strip(),
+    )
+
+
+def _node_enabled_by_site_binding(node: AudioNodeSpec, overrides: SiteBindingOverrides) -> bool:
+    if node.id == "fa_in":
+        return overrides.fa_in_enabled
+    if node.id == "fa_out":
+        return overrides.fa_out_enabled
+    return True
+
+
+def _node_launch_parameters(
+    node: AudioNodeSpec,
+    overrides: SiteBindingOverrides,
+) -> list[str | dict[str, ParamValue]]:
+    parameters = node.launch_parameters()
+    override_params: dict[str, ParamValue] = {}
+    if node.id == "fa_in" and overrides.fa_in_source_id:
+        override_params["audio.device_selector.mode"] = "name"
+        override_params["audio.device_selector.identifier"] = overrides.fa_in_source_id
+    if node.id == "fa_out" and overrides.fa_out_sink_id:
+        override_params["audio.device_id"] = overrides.fa_out_sink_id
+    if override_params:
+        parameters.append(override_params)
+    return parameters
 
 
 def _launch_setup(context):
     config_path = LaunchConfiguration("config").perform(context)
     config = load_system_config(config_path)
+    overrides = _site_binding_overrides(context)
 
     actions = [LogInfo(msg=f"[fluent_audio_system] config={config_path}")]
     delay = 0.0
 
     for group_index, group in enumerate(config.groups):
         for node in group.nodes:
+            if not _node_enabled_by_site_binding(node, overrides):
+                continue
             node_action = Node(
                 package=node.package,
                 executable=node.executable,
                 name=node.node_name,
                 namespace=node.namespace,
                 output=node.output,
-                parameters=node.launch_parameters(),
+                parameters=_node_launch_parameters(node, overrides),
                 remappings=node.launch_remappings(),
             )
             actions.append(
@@ -49,6 +104,26 @@ def generate_launch_description():
                 "config",
                 default_value="/config/fluent_audio_system.yaml",
                 description="Absolute path to fluent_audio_system yaml.",
+            ),
+            DeclareLaunchArgument(
+                "fa_in_enabled",
+                default_value="false",
+                description="Enable fa_in from site profile binding.",
+            ),
+            DeclareLaunchArgument(
+                "fa_out_enabled",
+                default_value="false",
+                description="Enable fa_out from site profile binding.",
+            ),
+            DeclareLaunchArgument(
+                "fa_in_source_id",
+                default_value="",
+                description="Raw ALSA capture source id for fa_in.",
+            ),
+            DeclareLaunchArgument(
+                "fa_out_sink_id",
+                default_value="",
+                description="Raw ALSA playback sink id for fa_out.",
             ),
             OpaqueFunction(function=_launch_setup),
         ]
