@@ -150,7 +150,7 @@ void FaInNode::loadParameters()
     "audio.chunk_ms", frames_per_buffer_, bytes_per_frame_);
   last_frame_time_ = std::chrono::steady_clock::now();
 
-  RCLCPP_INFO(this->get_logger(), "Audio configuration: backend=%s mode=%s rate=%uHz channels=%u bits=%u chunk=%ums",
+  RCLCPP_INFO(this->get_logger(), "Audio configuration: backend.name=%s mode=%s rate=%uHz channels=%u bits=%u chunk=%ums",
     config_.backend_name.c_str(), config_.device_mode.c_str(), config_.sample_rate, config_.channels,
     config_.bit_depth, config_.chunk_ms);
 }

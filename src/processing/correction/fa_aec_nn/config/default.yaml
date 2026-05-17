@@ -2,7 +2,7 @@ fa_aec_nn:
   ros__parameters:
     enabled: true
     # Required. Use "passthrough" only for explicit wiring/debug validation.
-    backend: ""
+    backend.name: ""
 
     input_topic: "audio/aec_linear/frame"
     output_topic: "audio/aec/frame"

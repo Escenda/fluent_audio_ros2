@@ -11,7 +11,8 @@ def test_default_config_requires_explicit_source_identifier() -> None:
     params = config["fa_in_node"]["ros__parameters"]
     selector = params["audio"]["device_selector"]
 
-    assert params["backend"]["name"] == "alsa_capture"
+    assert params["backend.name"] == "alsa_capture"
+    assert "backend" not in params
     assert params["audio"]["encoding"] == "PCM16LE"
     assert params["audio"]["bit_depth"] == 16
     assert params["audio"]["stream_id"] == "audio/frame"

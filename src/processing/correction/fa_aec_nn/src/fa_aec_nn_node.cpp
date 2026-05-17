@@ -29,7 +29,7 @@ FaAecNnNode::FaAecNnNode()
 void FaAecNnNode::loadParameters()
 {
   this->declare_parameter<bool>("enabled", config_.enabled);
-  this->declare_parameter("backend", config_.backend);
+  this->declare_parameter("backend.name", config_.backend_name);
   this->declare_parameter("input_topic", config_.input_topic);
   this->declare_parameter("output_topic", config_.output_topic);
   this->declare_parameter<int>("expected_sample_rate", config_.expected_sample_rate);
@@ -41,7 +41,7 @@ void FaAecNnNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 
   config_.enabled = this->get_parameter("enabled").as_bool();
-  config_.backend = this->get_parameter("backend").as_string();
+  config_.backend_name = this->get_parameter("backend.name").as_string();
   config_.input_topic = this->get_parameter("input_topic").as_string();
   config_.output_topic = this->get_parameter("output_topic").as_string();
   config_.expected_sample_rate = this->get_parameter("expected_sample_rate").as_int();
@@ -68,17 +68,17 @@ void FaAecNnNode::loadParameters()
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0 (set via YAML)");
   }
-  if (config_.backend.empty()) {
-    throw std::runtime_error("backend is required (set via YAML)");
+  if (config_.backend_name.empty()) {
+    throw std::runtime_error("backend.name is required (set via YAML)");
   }
-  if (config_.backend != "passthrough") {
-    throw std::runtime_error("backend must be passthrough");
+  if (config_.backend_name != "passthrough") {
+    throw std::runtime_error("backend.name must be passthrough");
   }
 
   RCLCPP_INFO(this->get_logger(),
-    "AEC NN config: enabled=%s backend=%s input=%s output=%s expected_sr=%d expected_ch=%d qos_depth=%d reliable=%s",
+    "AEC NN config: enabled=%s backend.name=%s input=%s output=%s expected_sr=%d expected_ch=%d qos_depth=%d reliable=%s",
     config_.enabled ? "true" : "false",
-    config_.backend.c_str(),
+    config_.backend_name.c_str(),
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
     config_.expected_sample_rate,
@@ -192,7 +192,7 @@ void FaAecNnNode::publishDiagnostics()
 
   status.values.reserve(10);
   push_kv("enabled", config_.enabled ? "true" : "false");
-  push_kv("backend", config_.backend);
+  push_kv("backend.name", config_.backend_name);
   push_kv("input_topic", config_.input_topic);
   push_kv("output_topic", config_.output_topic);
   push_kv("expected_sample_rate", std::to_string(config_.expected_sample_rate));

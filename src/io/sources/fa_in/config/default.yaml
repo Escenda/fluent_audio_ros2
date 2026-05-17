@@ -1,7 +1,6 @@
 fa_in_node:
   ros__parameters:
-    backend:
-      name: "alsa_capture"
+    backend.name: "alsa_capture"
     audio:
       device_selector:
         mode: "name"        # index | name

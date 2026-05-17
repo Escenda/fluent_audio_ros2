@@ -10,7 +10,8 @@ def test_default_config_requires_explicit_backend() -> None:
     params = config["fa_aec_nn"]["ros__parameters"]
 
     assert params["enabled"] is True
-    assert params["backend"] == ""
+    assert params["backend.name"] == ""
+    assert "backend" not in params
 
 
 def test_disabled_branch_drops_before_publish() -> None:

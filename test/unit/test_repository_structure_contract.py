@@ -1,4 +1,7 @@
 from pathlib import Path
+from typing import TypeAlias
+
+import yaml
 
 
 REPO_ROOT = Path(__file__).parents[2]
@@ -90,6 +93,11 @@ FORBIDDEN_PYTHON_TYPE_ESCAPE_TOKENS = (
     "# type: ignore",
 )
 
+YamlScalar: TypeAlias = str | int | float | bool | None
+YamlMapping: TypeAlias = dict[str, "YamlValue"]
+YamlSequence: TypeAlias = list["YamlValue"]
+YamlValue: TypeAlias = YamlScalar | YamlMapping | YamlSequence
+
 
 def _package_roots() -> list[Path]:
     return sorted(path.parent for path in SRC_ROOT.rglob("package.xml"))
@@ -132,6 +140,18 @@ def _production_python_files() -> list[Path]:
         for path in SRC_ROOT.rglob("*.py")
         if "__pycache__" not in path.parts and "test" not in path.parts
     )
+
+
+def _collect_yaml_keys(value: YamlValue) -> list[str]:
+    keys: list[str] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            keys.append(key)
+            keys.extend(_collect_yaml_keys(child))
+    elif isinstance(value, list):
+        for child in value:
+            keys.extend(_collect_yaml_keys(child))
+    return keys
 
 
 def test_all_ros_packages_use_standard_documented_layout() -> None:
@@ -318,6 +338,18 @@ def test_all_ros_packages_have_backend_documentation_file() -> None:
             )
 
     assert missing == []
+
+
+def test_config_files_do_not_use_legacy_backend_mapping_key() -> None:
+    violations: list[str] = []
+
+    for config_path in sorted(SRC_ROOT.rglob("config/*.yaml")):
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        keys = _collect_yaml_keys(config)
+        if "backend" in keys:
+            violations.append(str(config_path.relative_to(REPO_ROOT)))
+
+    assert violations == []
 
 
 def test_legacy_fa_capture_and_fa_output_paths_are_not_present() -> None:

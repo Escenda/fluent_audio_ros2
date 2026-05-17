@@ -15,7 +15,7 @@ namespace fa_aec_nn
 struct AecNnConfig
 {
   bool enabled = false;
-  std::string backend;
+  std::string backend_name;
 
   std::string input_topic;
   std::string output_topic;
