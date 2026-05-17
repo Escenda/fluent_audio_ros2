@@ -256,6 +256,72 @@ def test_so101_tts_output_profile_requires_openjtalk_dictionary_env(
         )
 
 
+def test_sample_config_documents_tts_playback_conversion_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+
+    spec = load_system_config(
+        "${share:fluent_audio_system}/config/fluent_audio_system.sample.yaml"
+    )
+    enabled_nodes = [
+        node
+        for group in spec.groups
+        for node in group.nodes
+    ]
+
+    assert [node.id for node in enabled_nodes] == [
+        "fa_in",
+        "fa_out",
+        "fa_resample",
+    ]
+
+    raw = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "fluent_audio_system.sample.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    groups = {group["id"]: group for group in raw["groups"]}
+    format_nodes = {node["id"]: node for node in groups["format"]["nodes"]}
+    generation_nodes = {
+        node["id"]: node for node in groups["generation_routing"]["nodes"]
+    }
+
+    assert format_nodes["fa_resample_tts"]["parameters"] == {
+        "target_sample_rate": 48000,
+        "mic.enabled": True,
+        "mic.input_topic": "audio/tts/frame",
+        "mic.output_topic": "audio/tts/48k_float32",
+        "ref.enabled": False,
+    }
+    assert format_nodes["fa_sample_format_tts"]["parameters"] == {
+        "input_topic": "audio/tts/48k_float32",
+        "output_topic": "audio/tts/pcm16",
+        "input.encoding": "FLOAT32LE",
+        "input.bit_depth": 32,
+        "output.encoding": "PCM16LE",
+        "output.bit_depth": 16,
+        "expected.sample_rate": 48000,
+        "expected.channels": 1,
+        "expected.layout": "interleaved",
+    }
+    assert generation_nodes["fa_tts"]["parameters"] == {
+        "backend.openjtalk_dict_dir": "${env:FLUENT_AUDIO_OPENJTALK_DICT_DIR}",
+        "output_topic": "audio/tts/frame",
+    }
+    assert generation_nodes["fa_mix"]["parameters"] == {
+        "input_topics": ["audio/tts/pcm16"],
+        "input_gains_db": [0.0],
+        "master_index": 0,
+        "output_topic": "audio/output/frame",
+        "expected.sample_rate": 48000,
+        "expected.channels": 1,
+        "expected.bit_depth": 16,
+        "expected.encoding": "PCM16LE",
+    }
+
+
 def test_missing_fixture_params_file_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

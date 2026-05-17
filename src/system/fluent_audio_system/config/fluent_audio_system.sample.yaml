@@ -49,6 +49,40 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_resample_tts
+        enable: false
+        package: fa_resample
+        exec: fa_resample_node
+        node_name: fa_resample_tts
+        namespace: ""
+        params_file: "${share:fa_resample}/config/default.yaml"
+        remappings: {}
+        parameters:
+          target_sample_rate: 48000
+          mic.enabled: true
+          mic.input_topic: "audio/tts/frame"
+          mic.output_topic: "audio/tts/48k_float32"
+          ref.enabled: false
+
+      - id: fa_sample_format_tts
+        enable: false
+        package: fa_sample_format
+        exec: fa_sample_format_node
+        node_name: fa_sample_format_tts
+        namespace: ""
+        params_file: "${share:fa_sample_format}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/tts/48k_float32"
+          output_topic: "audio/tts/pcm16"
+          input.encoding: "FLOAT32LE"
+          input.bit_depth: 32
+          output.encoding: "PCM16LE"
+          output.bit_depth: 16
+          expected.sample_rate: 48000
+          expected.channels: 1
+          expected.layout: "interleaved"
+
       - id: fa_bit_depth
         enable: false
         package: fa_bit_depth
@@ -476,7 +510,9 @@ groups:
         namespace: ""
         params_file: "${share:fa_tts}/config/default.yaml"
         remappings: {}
-        parameters: {}
+        parameters:
+          backend.openjtalk_dict_dir: "${env:FLUENT_AUDIO_OPENJTALK_DICT_DIR}"
+          output_topic: "audio/tts/frame"
 
       - id: fa_mix
         enable: false
@@ -486,7 +522,17 @@ groups:
         namespace: ""
         params_file: "${share:fa_mix}/config/default.yaml"
         remappings: {}
-        parameters: {}
+        parameters:
+          input_topics:
+            - "audio/tts/pcm16"
+          input_gains_db:
+            - 0.0
+          master_index: 0
+          output_topic: "audio/output/frame"
+          expected.sample_rate: 48000
+          expected.channels: 1
+          expected.bit_depth: 16
+          expected.encoding: "PCM16LE"
 
       - id: fa_bus_router
         enable: false
