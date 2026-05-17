@@ -142,9 +142,29 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_agc
+        enable: false
+        package: fa_agc
+        exec: fa_agc_node
+        node_name: fa_agc
+        namespace: ""
+        params_file: "${share:fa_agc}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
   - id: frequency
     enable: true
     nodes:
+      - id: fa_eq
+        enable: false
+        package: fa_eq
+        exec: fa_eq_node
+        node_name: fa_eq
+        namespace: ""
+        params_file: "${share:fa_eq}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
       - id: fa_high_pass
         enable: false
         package: fa_high_pass
@@ -205,6 +225,16 @@ groups:
         node_name: fa_fade
         namespace: ""
         params_file: "${share:fa_fade}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_silence_removal
+        enable: false
+        package: fa_silence_removal
+        exec: fa_silence_removal_node
+        node_name: fa_silence_removal
+        namespace: ""
+        params_file: "${share:fa_silence_removal}/config/default.yaml"
         remappings: {}
         parameters: {}
 
@@ -271,6 +301,16 @@ groups:
         node_name: fa_pan
         namespace: ""
         params_file: "${share:fa_pan}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
+      - id: fa_stereo_widening
+        enable: false
+        package: fa_stereo_widening
+        exec: fa_stereo_widening_node
+        node_name: fa_stereo_widening
+        namespace: ""
+        params_file: "${share:fa_stereo_widening}/config/default.yaml"
         remappings: {}
         parameters: {}
 

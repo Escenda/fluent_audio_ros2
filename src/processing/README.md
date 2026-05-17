@@ -43,11 +43,11 @@ and must not be counted as implemented package coverage.
 | Category | Current ROS 2 packages | Status |
 | --- | --- | --- |
 | `format/` | `fa_resample`, `fa_sample_format`, `fa_bit_depth`, `fa_channel_convert`, `fa_interleave` | implemented packages |
-| `dynamics/` | `fa_gain`, `fa_limiter`, `fa_noise_gate`, `fa_normalize`, `fa_compressor`, `fa_expander` | implemented packages |
-| `frequency/` | `fa_high_pass`, `fa_low_pass`, `fa_band_pass`, `fa_notch` | implemented packages |
-| `temporal/` | `fa_delay`, `fa_fade`, `fa_window` | implemented packages |
+| `dynamics/` | `fa_gain`, `fa_normalize`, `fa_compressor`, `fa_limiter`, `fa_expander`, `fa_noise_gate`, `fa_agc` | implemented packages |
+| `frequency/` | `fa_eq`, `fa_high_pass`, `fa_low_pass`, `fa_band_pass`, `fa_notch` | implemented packages |
+| `temporal/` | `fa_delay`, `fa_silence_removal`, `fa_fade`, `fa_window` | implemented packages |
 | `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise`, `fa_dc_offset_removal` | implemented packages |
-| `spatial/` | `fa_pan`, `fa_downmix` | implemented packages |
+| `spatial/` | `fa_pan`, `fa_stereo_widening`, `fa_downmix` | implemented packages |
 | `analysis/` | `fa_vad`, `fa_kws`, `fa_asr`, `fa_turn_detector` | implemented packages plus roadmap placeholders |
 | `generation/` | `fa_tts` | implemented package |
 | `routing/` | `fa_mix` | implemented package |

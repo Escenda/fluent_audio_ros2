@@ -1,0 +1,20 @@
+fa_stereo_widening:
+  ros__parameters:
+    input_topic: "audio/spatial/mic"
+    output_topic: "audio/stereo_widened/mic"
+
+    width: 1.0
+
+    expected:
+      sample_rate: 16000
+      channels: 2
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

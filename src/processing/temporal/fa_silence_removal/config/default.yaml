@@ -1,0 +1,23 @@
+fa_silence_removal:
+  ros__parameters:
+    input_topic: "audio/buffered/mic"
+    output_topic: "audio/silence_removed/mic"
+
+    threshold:
+      rms: 0.02
+
+    hangover_ms: 200.0
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

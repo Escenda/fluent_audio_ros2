@@ -1,0 +1,25 @@
+fa_agc:
+  ros__parameters:
+    input_topic: "audio/compressed/mic"
+    output_topic: "audio/agc/mic"
+
+    agc:
+      target_rms: 0.1
+      min_gain: 0.25
+      max_gain: 4.0
+      attack_ms: 10.0
+      release_ms: 250.0
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000
