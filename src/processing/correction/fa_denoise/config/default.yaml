@@ -17,7 +17,7 @@ fa_denoise:
       # These are fixed for the pretrained DTLN models (16kHz only).
       block_len: 512
       block_shift: 128
-      # Empty = use package default models (share/fa_denoise/models)
+      # Required for dtln_onnx. Launch/system configs must set explicit model paths.
       model_1_path: ""
       model_2_path: ""
       intra_op_num_threads: 1

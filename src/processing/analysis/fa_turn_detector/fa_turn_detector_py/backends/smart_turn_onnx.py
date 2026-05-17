@@ -20,14 +20,22 @@ class SmartTurnOnnxBackend:
     min_samples = sample_rate
     max_samples = hop_length * n_frames + n_fft
 
-    def __init__(self, *, model_path: Path, threshold: float) -> None:
+    def __init__(self, *, model_path: Path, threshold: float, execution_provider: str) -> None:
         if threshold < 0.0 or threshold > 1.0:
             raise RuntimeError("backend.threshold must be between 0.0 and 1.0")
+        if not execution_provider.strip():
+            raise RuntimeError("backend.execution_provider is required")
+        available_providers = ort.get_available_providers()
+        if execution_provider not in available_providers:
+            raise RuntimeError(
+                "ONNX Runtime execution provider is not available: "
+                f"{execution_provider}; available={available_providers}"
+            )
         self._threshold = float(threshold)
         self._validate_model_file(model_path)
         self._session = ort.InferenceSession(
             str(model_path),
-            providers=["CPUExecutionProvider"],
+            providers=[execution_provider],
         )
         self._mel_filters_cache = self._mel_filterbank()
         self.model_path = model_path

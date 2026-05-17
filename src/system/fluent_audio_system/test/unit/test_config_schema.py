@@ -217,6 +217,50 @@ groups:
     assert spec.groups[0].nodes[0].params_file == str(params_file)
 
 
+def test_inline_parameter_share_path_expansion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        config_schema,
+        "_get_package_share_directory",
+        lambda package_name: str(tmp_path / package_name),
+    )
+
+    spec = parse_system_config(
+        {
+            "system": {},
+            "groups": [
+                {
+                    "id": "correction",
+                    "nodes": [
+                        {
+                            "id": "fa_denoise",
+                            "package": "fa_denoise",
+                            "exec": "fa_denoise_node",
+                            "parameters": {
+                                "dtln.model_1_path": "${share:fa_denoise}/models/model_1.onnx",
+                                "model_paths": [
+                                    "${share:fa_denoise}/models/model_1.onnx",
+                                    "${share:fa_denoise}/models/model_2.onnx",
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert spec.groups[0].nodes[0].parameters == {
+        "dtln.model_1_path": str(tmp_path / "fa_denoise" / "models" / "model_1.onnx"),
+        "model_paths": [
+            str(tmp_path / "fa_denoise" / "models" / "model_1.onnx"),
+            str(tmp_path / "fa_denoise" / "models" / "model_2.onnx"),
+        ],
+    }
+
+
 def test_missing_system_fails() -> None:
     with pytest.raises(RuntimeError, match="system is required"):
         parse_system_config({"groups": []})

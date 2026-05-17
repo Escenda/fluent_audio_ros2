@@ -11,7 +11,6 @@
 #include <utility>
 #include <vector>
 
-#include "ament_index_cpp/get_package_share_directory.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
 
@@ -26,13 +25,12 @@ namespace
 {
 constexpr int kRequiredSampleRate = 16000;
 
-std::string resolveModelPathOrThrow(const std::string & path_or_empty, const std::string & file_name)
+std::string resolveModelPathOrThrow(const std::string & path_or_empty, const std::string & parameter_name)
 {
-  std::filesystem::path path(path_or_empty);
   if (path_or_empty.empty()) {
-    const std::filesystem::path share_dir(ament_index_cpp::get_package_share_directory("fa_denoise"));
-    path = share_dir / "models" / file_name;
+    throw std::runtime_error(parameter_name + " is required for dtln_onnx backend");
   }
+  std::filesystem::path path(path_or_empty);
   std::error_code ec;
   if (!std::filesystem::exists(path, ec) || ec) {
     throw std::runtime_error("Model file not found: " + path.string());
@@ -161,8 +159,8 @@ void FaDenoiseNode::loadParameters()
     DtlnOnnxConfig dtln_cfg;
     dtln_cfg.block_len = config_.dtln_block_len;
     dtln_cfg.block_shift = config_.dtln_block_shift;
-    dtln_cfg.model_1_path = resolveModelPathOrThrow(config_.dtln_model_1_path, "model_1.onnx");
-    dtln_cfg.model_2_path = resolveModelPathOrThrow(config_.dtln_model_2_path, "model_2.onnx");
+    dtln_cfg.model_1_path = resolveModelPathOrThrow(config_.dtln_model_1_path, "dtln.model_1_path");
+    dtln_cfg.model_2_path = resolveModelPathOrThrow(config_.dtln_model_2_path, "dtln.model_2_path");
     dtln_cfg.intra_op_num_threads = config_.dtln_intra_op_num_threads;
     dtln_cfg.inter_op_num_threads = config_.dtln_inter_op_num_threads;
     dtln_cfg.enable_ort_optimizations = config_.dtln_enable_ort_optimizations;

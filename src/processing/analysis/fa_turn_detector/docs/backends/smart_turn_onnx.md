@@ -12,6 +12,7 @@ Python / ONNX Runtime。
 
 - mono float samples
 - sample rate
+- explicit ONNX Runtime execution provider
 
 ## Output
 
@@ -20,6 +21,7 @@ Python / ONNX Runtime。
 ## Failure Conditions
 
 - model path missing
+- execution provider missing / unavailable
 - invalid ONNX model
 - unsupported feature shape
 

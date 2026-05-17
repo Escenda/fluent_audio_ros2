@@ -9,7 +9,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
-find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
@@ -23,7 +22,6 @@ target_include_directories(fa_denoise_node PRIVATE
 )
 
 ament_target_dependencies(fa_denoise_node
-  ament_index_cpp
   rclcpp
   diagnostic_msgs
   fa_interfaces

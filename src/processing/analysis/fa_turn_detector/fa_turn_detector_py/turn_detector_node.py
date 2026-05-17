@@ -8,7 +8,6 @@ from typing import Iterable
 
 import numpy as np
 import rclpy
-from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
@@ -51,6 +50,7 @@ class FaTurnDetectorNode(Node):
         self.declare_parameter("backend.name", "")
         self.declare_parameter("backend.model_path", "")
         self.declare_parameter("backend.threshold", 0.5)
+        self.declare_parameter("backend.execution_provider", "")
 
         self.audio_topic = str(self.get_parameter("audio_topic").value)
         self.vad_topic = str(self.get_parameter("vad_topic").value)
@@ -111,14 +111,14 @@ class FaTurnDetectorNode(Node):
         return SmartTurnOnnxBackend(
             model_path=self._resolve_model_path(),
             threshold=float(self.get_parameter("backend.threshold").value),
+            execution_provider=str(self.get_parameter("backend.execution_provider").value).strip(),
         )
 
     def _resolve_model_path(self) -> Path:
         model_path_param = str(self.get_parameter("backend.model_path").value).strip()
-        if model_path_param:
-            return Path(model_path_param).expanduser()
-        pkg_share = Path(get_package_share_directory("fa_turn_detector"))
-        return pkg_share / "models" / "smart-turn-v3" / "smart-turn-v3.0.onnx"
+        if not model_path_param:
+            raise RuntimeError("backend.model_path is required")
+        return Path(model_path_param).expanduser()
 
     def on_turn_context(self, msg: TurnContext) -> None:
         self._active_session_id = str(msg.session_id)

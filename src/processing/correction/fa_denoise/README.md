@@ -13,7 +13,8 @@ DeepFIR 設計メモ: `docs/deepfir_ns_design_memo.md`
 ## Backend
 - `backend=dtln_onnx`（既定）:
   - 参照実装: https://github.com/breizhn/DTLN （MIT）
-  - 同梱モデル: `src/processing/correction/fa_denoise/models/model_1.onnx`, `src/processing/correction/fa_denoise/models/model_2.onnx`
+  - 同梱モデル: `models/model_1.onnx`, `models/model_2.onnx`
+  - `dtln.model_1_path` / `dtln.model_2_path` は必須。空値から model path を推測しません。
   - 前提: 16kHz / mono / `block_len=512`, `block_shift=128`（モデルが固定）
 - `backend=passthrough`: 入力をそのまま出力（デバッグ用）
 
@@ -33,3 +34,5 @@ colcon build --packages-select fa_denoise
 ```bash
 ros2 launch fa_denoise fa_denoise.launch.py
 ```
+
+standalone launch では `model_1_path` / `model_2_path` launch argument を明示してください。system config から起動する場合も、`dtln.model_1_path` / `dtln.model_2_path` を明示してください。

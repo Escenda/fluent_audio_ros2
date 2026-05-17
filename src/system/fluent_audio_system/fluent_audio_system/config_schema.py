@@ -202,9 +202,10 @@ def _optional_parameters(value: ConfigValue, node_id: str) -> dict[str, ParamVal
     for key, param_value in mapping.items():
         if not isinstance(key, str) or not key.strip():
             raise RuntimeError(f"node {node_id} parameter keys must be non-empty strings")
-        if not _is_param_value(param_value):
+        expanded_value = _expand_param_value(param_value)
+        if not _is_param_value(expanded_value):
             raise RuntimeError(f"node {node_id} parameter '{key}' has unsupported value type")
-        params[key.strip()] = param_value
+        params[key.strip()] = expanded_value
     return params
 
 
@@ -235,6 +236,14 @@ def _resolve_share_refs(value: str) -> str:
         return _get_package_share_directory(match_obj.group(1))
 
     return _INLINE_SHARE_RE.sub(_replace, value)
+
+
+def _expand_param_value(value: ConfigValue) -> ConfigValue:
+    if isinstance(value, str):
+        return _resolve_share_refs(value)
+    if isinstance(value, list):
+        return [_expand_param_value(item) for item in value]
+    return value
 
 
 def _get_package_share_directory(package_name: str) -> str:

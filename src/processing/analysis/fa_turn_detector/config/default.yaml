@@ -5,5 +5,7 @@ fa_turn_detector:
     turn_context_topic: "conversation/turn_context"
     output_topic: "voice/turn_end"
     backend.name: "smart_turn_onnx"
+    # Required. Set an explicit model path in launch/system config.
     backend.model_path: ""
+    backend.execution_provider: "CPUExecutionProvider"
     backend.threshold: 0.5

@@ -13,4 +13,4 @@
 
 ## Runtime
 
-ONNX Runtime は ROS package dependency ではなく、node 実行環境に明示的に provision します。`backend.name: smart_turn_onnx` では ONNX model path が必須です。
+ONNX Runtime は ROS package dependency ではなく、node 実行環境に明示的に provision します。`backend.name: smart_turn_onnx` では ONNX model path と execution provider が必須です。空 model path から package share の model は推測しません。
