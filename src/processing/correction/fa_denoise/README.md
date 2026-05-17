@@ -16,7 +16,9 @@ DeepFIR 設計メモ: `docs/deepfir_ns_design_memo.md`
   - 同梱モデル: `models/model_1.onnx`, `models/model_2.onnx`
   - `dtln.model_1_path` / `dtln.model_2_path` は必須。空値から model path を推測しません。
   - 前提: 16kHz / mono / `block_len=512`, `block_shift=128`（モデルが固定）
-- `backend=passthrough`: 入力をそのまま出力（デバッグ用）
+- `backend=passthrough`: 入力をそのまま出力する明示 debug / wiring validation 用 backend。default/system 経路では使いません。
+
+`enabled=false` は pass-through ではなく drop として扱います。pipeline から外す場合は system config で node 自体を disable してください。
 
 ## Build（ONNX Runtime）
 `fa_denoise` は DTLN ONNX backend を前提に build します。ビルド時に ONNX Runtime（C++）が見つからない場合は configure で失敗します。

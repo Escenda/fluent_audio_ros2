@@ -4,6 +4,8 @@
 
 `passthrough` は `fa_denoise` の topic wiring と diagnostics を確認するための backend である。denoise は行わない。
 
+default config では選択しない。使用する場合は debug / wiring validation 用 config で `backend: "passthrough"` を明示する。
+
 ## 入力
 
 - validated `AudioFrame`
@@ -14,4 +16,4 @@
 
 ## 注意
 
-model load failure や unknown backend を `passthrough` に変換してはならない。
+model load failure や unknown backend を `passthrough` に変換してはならない。`enabled=false` も pass-through ではなく drop として扱う。

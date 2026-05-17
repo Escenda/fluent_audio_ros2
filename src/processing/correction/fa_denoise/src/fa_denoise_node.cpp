@@ -330,7 +330,15 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
 
   const auto start = std::chrono::steady_clock::now();
 
-  if (!config_.enabled || config_.backend == "passthrough") {
+  if (!config_.enabled) {
+    drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because fa_denoise is disabled; disable the system node instead");
+    return;
+  }
+
+  if (config_.backend == "passthrough") {
     pub_->publish(*msg);
     out_.fetch_add(1);
     const uint64_t elapsed_ns = nanosSince(start);
