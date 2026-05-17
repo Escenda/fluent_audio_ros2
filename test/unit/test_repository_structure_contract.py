@@ -411,6 +411,19 @@ def test_streaming_ros_packages_live_under_src_streaming() -> None:
     assert missing == []
 
 
+def test_streaming_packages_have_executable_integration_and_launch_contracts() -> None:
+    missing: list[str] = []
+
+    for package_root in _streaming_package_roots():
+        for relative_path in ("test/integration", "test/launch"):
+            test_dir = package_root / relative_path
+            test_files = sorted(test_dir.glob("test_*.py"))
+            if not test_files:
+                missing.append(f"{test_dir.relative_to(REPO_ROOT)}/test_*.py")
+
+    assert missing == []
+
+
 def test_streaming_docs_do_not_describe_packages_as_processing_nodes() -> None:
     streaming_root = SRC_ROOT / "streaming"
     checked_files = [
