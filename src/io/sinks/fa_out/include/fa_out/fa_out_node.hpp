@@ -25,7 +25,7 @@ namespace fa_out
 struct OutputConfig
 {
   std::string backend_name = "alsa_playback";
-  std::string device_id = "default";
+  std::string device_id{};
   uint32_t sample_rate = 48000;
   uint32_t channels = 1;
   uint32_t bit_depth = 16;
@@ -58,7 +58,7 @@ private:
   void handleStop(const std_msgs::msg::Empty::SharedPtr msg);
   void handlePause(const std_msgs::msg::Empty::SharedPtr msg);
   void handleResume(const std_msgs::msg::Empty::SharedPtr msg);
-  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
+  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
 
   OutputConfig config_;
   snd_pcm_t * pcm_handle_ = nullptr;

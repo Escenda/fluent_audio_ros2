@@ -95,6 +95,9 @@ void FaOutNode::loadParameters()
   if (config_.backend_name != "alsa_playback") {
     throw std::invalid_argument("unsupported fa_out backend.name: " + config_.backend_name);
   }
+  if (config_.device_id.empty()) {
+    throw std::invalid_argument("audio.device_id is required for backend.name=alsa_playback");
+  }
   config_.sample_rate = this->get_parameter("audio.sample_rate").as_int();
   config_.channels = this->get_parameter("audio.channels").as_int();
   config_.bit_depth = this->get_parameter("audio.bit_depth").as_int();
@@ -387,22 +390,18 @@ void FaOutNode::handleResume(const std_msgs::msg::Empty::SharedPtr /*msg*/)
   queue_cv_.notify_all();  // playbackThreadを起こす
 }
 
-bool FaOutNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
+bool FaOutNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
 {
-  // Note: const_cast is needed because RCLCPP_WARN_THROTTLE requires non-const Clock
-  // but get_clock() returns const in const methods. This is safe because the macro
-  // doesn't modify the clock, it only reads from it.
-  auto & clk = const_cast<rclcpp::Clock &>(*this->get_clock());
   if (msg.encoding != kEncodingPcm16) {
     RCLCPP_WARN_THROTTLE(
-      this->get_logger(), clk, 3000,
+      this->get_logger(), *this->get_clock(), 3000,
       "Unsupported encoding %s, expected %s", msg.encoding.c_str(), kEncodingPcm16);
     return false;
   }
   if (msg.sample_rate != config_.sample_rate || msg.channels != config_.channels ||
     msg.bit_depth != config_.bit_depth) {
     RCLCPP_WARN_THROTTLE(
-      this->get_logger(), clk, 3000,
+      this->get_logger(), *this->get_clock(), 3000,
       "Frame format mismatch: frame=%uHz/%u/%u config=%uHz/%u/%u",
       msg.sample_rate, msg.channels, msg.bit_depth,
       config_.sample_rate, config_.channels, config_.bit_depth);

@@ -91,7 +91,7 @@ private:
       int16_t sample = static_cast<int16_t>(value * kInt16Scale);
 
       // 全チャンネルに同じ値を設定
-      for (uint32_t ch = 0; ch < channels_; ++ch) {
+      for (int ch = 0; ch < channels_; ++ch) {
         samples[i * channels_ + ch] = sample;
       }
 
@@ -117,7 +117,7 @@ private:
       }
 
       // 全チャンネルに同じ値を設定
-      for (uint32_t ch = 0; ch < channels_; ++ch) {
+      for (int ch = 0; ch < channels_; ++ch) {
         samples[i * channels_ + ch] = static_cast<float>(value);
       }
 

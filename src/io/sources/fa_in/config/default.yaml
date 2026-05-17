@@ -5,7 +5,7 @@ fa_in_node:
     audio:
       device_selector:
         mode: "name"        # index | name
-        identifier: "default"      # e.g., "default" or "USB Audio Device"
+        identifier: ""      # e.g., "default" or "USB Audio Device"; required when mode is name
         index: -1
       sample_rate: 48000
       channels: 1
