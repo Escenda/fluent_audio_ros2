@@ -36,7 +36,7 @@ def test_default_config_declares_required_jitter_buffer_contract() -> None:
     assert params["diagnostics"]["publish_period_ms"] == 1000
 
 
-def test_package_layout_matches_required_processing_layout() -> None:
+def test_package_layout_matches_required_streaming_layout() -> None:
     required_paths = (
         "CMakeLists.txt",
         "package.xml",
@@ -218,7 +218,7 @@ def test_source_and_format_contract_change_resets_buffer_without_mixing_streams(
     assert "activateStream(*msg);" in handle_frame
 
 
-def test_processing_node_has_no_device_io_audio_editing_or_legacy_aliases() -> None:
+def test_streaming_node_has_no_device_io_audio_editing_or_legacy_aliases() -> None:
     source = source_text()
     forbidden = (
         "SND_PCM",

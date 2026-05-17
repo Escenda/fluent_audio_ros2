@@ -1,6 +1,6 @@
 # fa_latency_compensation
 
-`fa_latency_compensation` は `fa_interfaces/msg/AudioFrame` の `header.stamp` だけを設定値で補正する C++ ROS2 processing node です。
+`fa_latency_compensation` は `fa_interfaces/msg/AudioFrame` の `header.stamp` だけを設定値で補正する C++ ROS2 streaming node です。
 
 この package は device I/O、sample 変換、gain、filter、resample、buffering を行いません。入力 `AudioFrame.data` は byte 列として保持し、出力へ同一内容を渡します。
 

@@ -173,7 +173,7 @@ def test_diagnostics_publish_overlap_counters() -> None:
     assert "source_resets" in diagnostics
 
 
-def test_package_layout_matches_required_processing_layout() -> None:
+def test_package_layout_matches_required_streaming_layout() -> None:
     required_paths = (
         "README.md",
         "docs/仕様書.md",

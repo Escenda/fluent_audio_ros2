@@ -22,7 +22,7 @@ def test_default_config_requires_float32_interleaved_fixed_chunk_contract() -> N
     assert params["diagnostics"]["publish_period_ms"] == 1000
 
 
-def test_frame_buffer_does_not_hide_io_or_other_processing_responsibilities() -> None:
+def test_frame_buffer_does_not_hide_io_dsp_or_analysis_responsibilities() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_frame_buffer_node.cpp").read_text(encoding="utf-8")
 
@@ -156,7 +156,7 @@ def test_overflow_drops_oldest_whole_chunk_and_reports_diagnostics() -> None:
     assert "buffer_resets" in diagnostics
 
 
-def test_package_layout_matches_required_processing_layout() -> None:
+def test_package_layout_matches_required_streaming_layout() -> None:
     package_root = Path(__file__).parents[2]
     required_paths = (
         "README.md",

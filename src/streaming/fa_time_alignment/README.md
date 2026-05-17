@@ -1,6 +1,6 @@
 # fa_time_alignment
 
-`fa_time_alignment` は `fa_interfaces/msg/AudioFrame` の `header.stamp` を明示的な時間グリッドへ揃える processing node です。
+`fa_time_alignment` は `fa_interfaces/msg/AudioFrame` の `header.stamp` を明示的な時間グリッドへ揃える streaming node です。
 
 このノードは音声データを編集しません。入力フレームを検証し、許容範囲内の時刻補正だけを `header.stamp` に反映し、出力ストリームの `stream_id` に更新して publish します。
 

@@ -51,7 +51,7 @@ struct BufferedSegment
 };
 
 /**
- * @brief FLOAT32LE interleaved AudioFrame を固定フレーム数の chunk にまとめる processing node。
+ * @brief FLOAT32LE interleaved AudioFrame を固定フレーム数の chunk にまとめる streaming node。
  */
 class FaFrameBufferNode : public rclcpp::Node
 {

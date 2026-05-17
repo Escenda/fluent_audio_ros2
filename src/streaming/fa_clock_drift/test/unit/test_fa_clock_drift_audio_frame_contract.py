@@ -36,7 +36,7 @@ def test_default_config_declares_required_clock_drift_contract() -> None:
     assert params["diagnostics"]["publish_period_ms"] == 1000
 
 
-def test_package_layout_matches_required_processing_layout() -> None:
+def test_package_layout_matches_required_streaming_layout() -> None:
     required_paths = (
         "CMakeLists.txt",
         "package.xml",
@@ -273,7 +273,7 @@ def test_output_preserves_payload_epoch_and_updates_stamp_stream_id_only() -> No
     assert "out.source_id" not in baseline
 
 
-def test_processing_node_has_no_device_io_sample_editing_or_legacy_aliases() -> None:
+def test_streaming_node_has_no_device_io_sample_editing_or_legacy_aliases() -> None:
     source = source_text()
     forbidden = (
         "SND_PCM",

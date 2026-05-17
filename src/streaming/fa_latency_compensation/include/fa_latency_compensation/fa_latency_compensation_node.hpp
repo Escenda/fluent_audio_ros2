@@ -29,7 +29,7 @@ struct LatencyCompensationConfig
 };
 
 /**
- * @brief AudioFrame の byte payload を変更せず header.stamp だけを補正する processing node。
+ * @brief AudioFrame の byte payload を変更せず header.stamp だけを補正する streaming node。
  */
 class FaLatencyCompensationNode : public rclcpp::Node
 {

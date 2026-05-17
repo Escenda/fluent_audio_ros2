@@ -1,6 +1,6 @@
 # fa_frame_buffer
 
-`fa_frame_buffer` は FluentAudio の `fa_interfaces/msg/AudioFrame` を固定サイズ chunk にまとめる ROS2 processing package です。
+`fa_frame_buffer` は FluentAudio の `fa_interfaces/msg/AudioFrame` を固定サイズ chunk にまとめる ROS2 streaming package です。
 
 ## 責務
 

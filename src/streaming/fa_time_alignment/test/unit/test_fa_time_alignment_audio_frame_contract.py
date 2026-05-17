@@ -116,7 +116,7 @@ def test_output_preserves_audio_data_and_updates_only_stamp_and_stream_id() -> N
     assert "std::memcpy" not in align_frame
 
 
-def test_processing_node_has_no_device_io_sample_editing_or_legacy_aliases() -> None:
+def test_streaming_node_has_no_device_io_sample_editing_or_legacy_aliases() -> None:
     source = _source()
     forbidden = (
         "SND_PCM",
@@ -150,7 +150,7 @@ def test_diagnostics_publish_required_counters() -> None:
     assert '"backend", "no_runtime_backend"' in publish_diagnostics
 
 
-def test_package_layout_matches_standard_processing_layout() -> None:
+def test_package_layout_matches_standard_streaming_layout() -> None:
     required_paths = (
         "README.md",
         "docs/仕様書.md",

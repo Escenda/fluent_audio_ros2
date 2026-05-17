@@ -301,7 +301,7 @@ def test_diagnostics_publish_config_counters_and_backend_identity() -> None:
     assert '"backend", "internal_overlap_add"' in diagnostics
 
 
-def test_package_layout_matches_required_processing_layout() -> None:
+def test_package_layout_matches_required_streaming_layout() -> None:
     required_paths = (
         "CMakeLists.txt",
         "package.xml",

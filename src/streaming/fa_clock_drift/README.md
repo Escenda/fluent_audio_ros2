@@ -1,6 +1,6 @@
 # fa_clock_drift
 
-`fa_clock_drift` は `fa_interfaces/msg/AudioFrame` の `header.stamp` を、sample-clock drift の推定値に基づいて bounded correction する C++ ROS2 processing node です。
+`fa_clock_drift` は `fa_interfaces/msg/AudioFrame` の `header.stamp` を、sample-clock drift の推定値に基づいて bounded correction する C++ ROS2 streaming node です。
 
 この package は device I/O、sample rate conversion、drop/add samples、padding、normalization、payload の編集を行いません。入力 `AudioFrame.data` は byte 列として保持し、出力へ同一内容を渡します。
 

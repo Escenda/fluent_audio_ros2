@@ -1,6 +1,6 @@
 # fa_chunk_overlap
 
-`fa_chunk_overlap` は、FluentAudio の `fa_interfaces/msg/AudioFrame` を固定長 window に分割し、明示的な overlap を残して次の chunk を生成する ROS2 processing node である。
+`fa_chunk_overlap` は、FluentAudio の `fa_interfaces/msg/AudioFrame` を固定長 window に分割し、明示的な overlap を残して次の chunk を生成する ROS2 streaming node である。
 
 この package は device I/O、resample、format conversion、padding を行わない。入力は `FLOAT32LE`、32 bit、interleaved、正規化済み float sample であることを要求する。
 

@@ -1,6 +1,6 @@
 # fa_overlap_add
 
-`fa_overlap_add` は、FluentAudio の overlapped `fa_interfaces/msg/AudioFrame` chunk を hop 単位の連続 stream へ復元する ROS2 processing node である。
+`fa_overlap_add` は、FluentAudio の overlapped `fa_interfaces/msg/AudioFrame` chunk を hop 単位の連続 stream へ復元する ROS2 streaming node である。
 
 入力は `FLOAT32LE`、32 bit、interleaved、正規化済み float sample の固定長 chunk に限定する。この package は device I/O、resample、format conversion、tail padding、clamp を行わない。
 

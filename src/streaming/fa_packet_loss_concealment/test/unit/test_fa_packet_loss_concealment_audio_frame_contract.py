@@ -215,7 +215,7 @@ def test_diagnostics_publish_config_and_required_counters() -> None:
         assert key in diagnostics
 
 
-def test_processing_node_has_no_device_io_resampling_padding_or_legacy_aliases() -> None:
+def test_streaming_node_has_no_device_io_resampling_padding_or_legacy_aliases() -> None:
     source = source_text()
     forbidden = (
         "SND_PCM",
@@ -232,7 +232,7 @@ def test_processing_node_has_no_device_io_resampling_padding_or_legacy_aliases()
         assert token not in source
 
 
-def test_package_layout_matches_required_processing_layout() -> None:
+def test_package_layout_matches_required_streaming_layout() -> None:
     required_paths = (
         "CMakeLists.txt",
         "package.xml",

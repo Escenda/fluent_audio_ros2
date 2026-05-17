@@ -229,6 +229,37 @@ def test_streaming_ros_packages_live_under_src_streaming() -> None:
     assert missing == []
 
 
+def test_streaming_docs_do_not_describe_packages_as_processing_nodes() -> None:
+    streaming_root = SRC_ROOT / "streaming"
+    checked_files = [
+        path
+        for path in streaming_root.rglob("*")
+        if path.is_file()
+        and path.suffix in (".md", ".hpp", ".py")
+        and "__pycache__" not in path.parts
+    ]
+    violations: list[str] = []
+
+    forbidden_phrases = (
+        "processing node",
+        "processing package",
+        "processing layout",
+        "processing contract",
+        "processing_node",
+        "required_processing_layout",
+        "standard_processing_layout",
+        "processing responsibilities",
+        "processing_responsibilities",
+    )
+    for path in sorted(checked_files):
+        source = path.read_text(encoding="utf-8")
+        for phrase in forbidden_phrases:
+            if phrase in source:
+                violations.append(f"{path.relative_to(REPO_ROOT)} contains {phrase}")
+
+    assert violations == []
+
+
 def test_network_stream_sink_utility_is_not_transport_streaming() -> None:
     package_path = SRC_ROOT / "io" / "utilities" / "fa_stream"
     streaming_path = SRC_ROOT / "streaming" / "fa_stream"

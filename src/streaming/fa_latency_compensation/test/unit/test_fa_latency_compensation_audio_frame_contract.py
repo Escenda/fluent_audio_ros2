@@ -147,7 +147,7 @@ def test_negative_timestamp_drop_and_diagnostics_counters_are_explicit() -> None
     assert "timestamp_overflow_drops" in diagnostics
 
 
-def test_package_layout_matches_required_processing_layout() -> None:
+def test_package_layout_matches_required_streaming_layout() -> None:
     package_root = Path(__file__).parents[2]
     required_paths = (
         "CMakeLists.txt",

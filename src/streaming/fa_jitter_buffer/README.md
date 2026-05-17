@@ -1,6 +1,6 @@
 # fa_jitter_buffer
 
-`fa_jitter_buffer` は `fa_interfaces::msg::AudioFrame` を epoch 順に並べ、指定した frame 深さを超えた時点で最古の frame から publish する streaming processing node である。
+`fa_jitter_buffer` は `fa_interfaces::msg::AudioFrame` を epoch 順に並べ、指定した frame 深さを超えた時点で最古の frame から publish する streaming node である。
 
 この package は network jitter の吸収だけを担当する。音声 payload の編集、resample、padding、欠損 frame の生成、device I/O は行わない。
 
