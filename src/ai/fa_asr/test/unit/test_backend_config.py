@@ -27,6 +27,11 @@ from fa_asr_py.backends.whisper_cpp import WhisperCppAsrBackend, load_whisper_cp
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
+PYTHON_SOURCES = tuple(
+    path
+    for path in sorted((PACKAGE_ROOT / "fa_asr_py").rglob("*.py"))
+    if "__pycache__" not in path.parts
+)
 
 
 class _FakeNode:
@@ -194,6 +199,38 @@ def test_default_config_requires_explicit_backend_name() -> None:
     assert params["backend.args"] == []
     assert "ParameterUninitializedException" not in source
     assert "return tuple()" not in source
+
+
+def test_asr_python_sources_keep_dependency_boundary_explicit() -> None:
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in PYTHON_SOURCES)
+
+    assert "ImportError" not in combined
+    assert "dict[str, Any]" not in combined
+    assert "Any" not in combined
+    assert "list[object]" not in combined
+    assert "dict[str, object]" not in combined
+    assert "typing import object" not in combined
+
+
+def test_openai_backends_are_external_worker_slots() -> None:
+    openai_realtime = (
+        PACKAGE_ROOT / "fa_asr_py" / "backends" / "openai_realtime.py"
+    ).read_text(encoding="utf-8")
+    openai_transcriptions = (
+        PACKAGE_ROOT / "fa_asr_py" / "backends" / "openai_transcriptions.py"
+    ).read_text(encoding="utf-8")
+    package_xml = (PACKAGE_ROOT / "package.xml").read_text(encoding="utf-8")
+
+    combined = "\n".join((openai_realtime, openai_transcriptions))
+
+    assert "_CommandProcessRunner" in openai_realtime
+    assert "_CommandProcessRunner" in openai_transcriptions
+    assert "import openai" not in combined
+    assert "from openai" not in combined
+    assert "websocket" not in combined.lower()
+    assert "aiohttp" not in combined
+    assert "requests" not in combined
+    assert "openai" not in package_xml.lower()
 
 
 def test_asr_node_rejects_non_canonical_audio_frames() -> None:
