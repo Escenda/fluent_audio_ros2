@@ -124,11 +124,15 @@ def test_pyopenjtalk_backend_has_no_hidden_scale_guessing_or_clipping() -> None:
     assert "np.clip" not in backend_text
     assert "32768.0" not in backend_text
     assert "waveform /=" not in backend_text
+    assert "astype(np.int16)" not in backend_text
+    assert 'encoding="FLOAT32LE"' in backend_text
+    assert "bit_depth=32" in backend_text
     assert "pyopenjtalk waveform must be normalized to [-1.0, 1.0]" in backend_text
     assert "encoding: str" in base_text
     assert "encoding_value" in node_text
     assert "frame.encoding = cached.encoding" in node_text
     assert "encoding:{cached.encoding}" in node_text
+    assert "cache metadata bit_depth must be 32 for FLOAT32LE" in node_text
 
 
 def test_colcon_runs_pytest_contracts() -> None:

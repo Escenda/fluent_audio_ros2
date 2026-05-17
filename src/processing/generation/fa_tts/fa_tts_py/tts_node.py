@@ -199,7 +199,7 @@ class FaTtsNode(Node):
             raise ValueError(f"cache metadata missing keys: {sorted(missing)}")
         if not encoding_value:
             raise ValueError("cache metadata missing encoding")
-        if encoding_value != "PCM16LE":
+        if encoding_value != "FLOAT32LE":
             raise ValueError(f"unsupported cache metadata encoding: {encoding_value}")
         if (
             numeric_values["sample_rate"] <= 0
@@ -207,8 +207,8 @@ class FaTtsNode(Node):
             or numeric_values["bit_depth"] <= 0
         ):
             raise ValueError("cache metadata numeric values must be > 0")
-        if numeric_values["bit_depth"] != 16:
-            raise ValueError("cache metadata bit_depth must be 16 for PCM16LE")
+        if numeric_values["bit_depth"] != 32:
+            raise ValueError("cache metadata bit_depth must be 32 for FLOAT32LE")
         return CacheMetadata(
             encoding_value,
             numeric_values["sample_rate"],

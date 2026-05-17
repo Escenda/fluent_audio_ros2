@@ -12,7 +12,8 @@
 ## 出力
 
 - sample rate
-- mono PCM16LE bytes
+- mono FLOAT32LE bytes
+- normalized waveform range `[-1.0, 1.0]`
 
 ## runtime dependency
 

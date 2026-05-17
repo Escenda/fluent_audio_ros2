@@ -36,11 +36,10 @@ class PyOpenJTalkBackend:
             raise RuntimeError("pyopenjtalk waveform contains non-finite samples")
         if np.any(waveform < -1.0) or np.any(waveform > 1.0):
             raise RuntimeError("pyopenjtalk waveform must be normalized to [-1.0, 1.0]")
-        pcm = (waveform * 32767.0).astype(np.int16)
         return SynthesizedAudio(
-            audio_bytes=pcm.tobytes(),
-            encoding="PCM16LE",
+            audio_bytes=waveform.astype(np.float32, copy=False).tobytes(),
+            encoding="FLOAT32LE",
             sample_rate=int(sample_rate),
             channels=1,
-            bit_depth=16,
+            bit_depth=32,
         )
