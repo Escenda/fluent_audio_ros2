@@ -1,4 +1,4 @@
-#include "fa_denoise/dtln_onnx_engine.hpp"
+#include "fa_denoise/backends/dtln_onnx_engine.hpp"
 
 #include <array>
 #include <algorithm>
@@ -15,7 +15,7 @@
 
 #include <onnxruntime/core/session/onnxruntime_cxx_api.h>
 
-namespace fa_denoise
+namespace fa_denoise::backends
 {
 
 namespace
@@ -420,4 +420,4 @@ std::vector<float> DtlnOnnxEngine::process(const float * samples, size_t sample_
   return out;
 }
 
-}  // namespace fa_denoise
+}  // namespace fa_denoise::backends

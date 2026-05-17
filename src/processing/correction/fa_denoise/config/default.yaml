@@ -1,7 +1,7 @@
 fa_denoise:
   ros__parameters:
     enabled: true
-    backend: "dtln_onnx"   # passthrough | dtln_onnx
+    backend.name: "dtln_onnx"   # passthrough | dtln_onnx
 
     input_topic: "audio/resample16k/mic"
     output_topic: "audio/denoise/frame"

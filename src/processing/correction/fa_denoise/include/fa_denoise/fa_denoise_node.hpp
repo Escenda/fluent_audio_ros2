@@ -17,7 +17,7 @@ namespace fa_denoise
 struct DenoiseConfig
 {
   bool enabled = false;
-  std::string backend;
+  std::string backend_name;
 
   std::string input_topic;
   std::string output_topic;
@@ -43,7 +43,10 @@ struct DenoiseConfig
   int diagnostics_publish_period_ms = -1;
 };
 
+namespace backends
+{
 class DtlnOnnxEngine;
+}
 
 class FaDenoiseNode : public rclcpp::Node
 {
@@ -77,7 +80,7 @@ private:
   std::atomic<uint64_t> process_count_{0};
 
 #ifdef FA_DENOISE_WITH_ONNXRUNTIME
-  std::unique_ptr<DtlnOnnxEngine> dtln_;
+  std::unique_ptr<backends::DtlnOnnxEngine> dtln_;
 #endif
 };
 

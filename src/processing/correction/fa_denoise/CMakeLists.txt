@@ -13,20 +13,6 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
-add_executable(fa_denoise_node
-  src/fa_denoise_node.cpp
-)
-
-target_include_directories(fa_denoise_node PRIVATE
-  include
-)
-
-ament_target_dependencies(fa_denoise_node
-  rclcpp
-  diagnostic_msgs
-  fa_interfaces
-)
-
 option(FA_DENOISE_ENABLE_ONNXRUNTIME "Enable ONNX Runtime backend" ON)
 
 if(NOT FA_DENOISE_ENABLE_ONNXRUNTIME)
@@ -57,21 +43,49 @@ if(NOT ONNXRUNTIME_INCLUDE_DIR OR NOT ONNXRUNTIME_LIBRARY)
 endif()
 
 message(STATUS "ONNX Runtime found: include=${ONNXRUNTIME_INCLUDE_DIR} lib=${ONNXRUNTIME_LIBRARY}")
-target_compile_definitions(fa_denoise_node PRIVATE FA_DENOISE_WITH_ONNXRUNTIME=1)
-target_include_directories(fa_denoise_node PRIVATE
+add_library(fa_denoise_backends STATIC
+  src/backends/dtln_onnx_engine.cpp
+  third_party/kissfft/kiss_fft.c
+  third_party/kissfft/kiss_fftr.c
+)
+
+target_include_directories(fa_denoise_backends PUBLIC
+  include
+)
+
+target_include_directories(fa_denoise_backends PRIVATE
   ${ONNXRUNTIME_INCLUDE_DIR}
   third_party/kissfft
 )
-target_link_libraries(fa_denoise_node ${ONNXRUNTIME_LIBRARY})
+
+target_link_libraries(fa_denoise_backends PUBLIC
+  ${ONNXRUNTIME_LIBRARY}
+)
+
+add_executable(fa_denoise_node
+  src/fa_denoise_node.cpp
+)
+
+target_include_directories(fa_denoise_node PRIVATE
+  include
+)
+
+target_compile_definitions(fa_denoise_node PRIVATE FA_DENOISE_WITH_ONNXRUNTIME=1)
+
+ament_target_dependencies(fa_denoise_node
+  rclcpp
+  diagnostic_msgs
+  fa_interfaces
+)
+
+target_link_libraries(fa_denoise_node
+  fa_denoise_backends
+)
+
 get_filename_component(ONNXRUNTIME_LIB_DIR "${ONNXRUNTIME_LIBRARY}" DIRECTORY)
 set_target_properties(fa_denoise_node PROPERTIES
   BUILD_RPATH "${ONNXRUNTIME_LIB_DIR}"
   INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}"
-)
-target_sources(fa_denoise_node PRIVATE
-  src/dtln_onnx_engine.cpp
-  third_party/kissfft/kiss_fft.c
-  third_party/kissfft/kiss_fftr.c
 )
 
 install(TARGETS fa_denoise_node
@@ -101,7 +115,16 @@ install(DIRECTORY include/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
+  ament_add_pytest_test(${PROJECT_NAME}_pytest test
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+    APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
+    TIMEOUT 30
+  )
+
   ament_lint_auto_find_test_dependencies()
 endif()
 

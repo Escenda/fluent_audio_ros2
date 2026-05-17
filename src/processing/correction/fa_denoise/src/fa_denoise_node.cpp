@@ -15,7 +15,7 @@
 #include "diagnostic_msgs/msg/key_value.hpp"
 
 #ifdef FA_DENOISE_WITH_ONNXRUNTIME
-#include "fa_denoise/dtln_onnx_engine.hpp"
+#include "fa_denoise/backends/dtln_onnx_engine.hpp"
 #endif
 
 namespace fa_denoise
@@ -67,7 +67,7 @@ FaDenoiseNode::~FaDenoiseNode() = default;
 void FaDenoiseNode::loadParameters()
 {
   this->declare_parameter<bool>("enabled", config_.enabled);
-  this->declare_parameter("backend", config_.backend);
+  this->declare_parameter("backend.name", config_.backend_name);
   this->declare_parameter("input_topic", config_.input_topic);
   this->declare_parameter("output_topic", config_.output_topic);
   this->declare_parameter<int>("expected_sample_rate", config_.expected_sample_rate);
@@ -91,7 +91,7 @@ void FaDenoiseNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 
   config_.enabled = this->get_parameter("enabled").as_bool();
-  config_.backend = this->get_parameter("backend").as_string();
+  config_.backend_name = this->get_parameter("backend.name").as_string();
   config_.input_topic = this->get_parameter("input_topic").as_string();
   config_.output_topic = this->get_parameter("output_topic").as_string();
   config_.expected_sample_rate = this->get_parameter("expected_sample_rate").as_int();
@@ -134,15 +134,15 @@ void FaDenoiseNode::loadParameters()
   if (config_.output_bit_depth != 16 && config_.output_bit_depth != 32) {
     throw std::runtime_error("output.bit_depth must be 16 or 32 (set via YAML)");
   }
-  if (config_.backend.empty()) {
-    throw std::runtime_error("backend is required (set via YAML)");
+  if (config_.backend_name.empty()) {
+    throw std::runtime_error("backend.name is required (set via YAML)");
   }
 
-  if (config_.backend != "passthrough" && config_.backend != "dtln_onnx") {
-    throw std::runtime_error("backend must be passthrough or dtln_onnx");
+  if (config_.backend_name != "passthrough" && config_.backend_name != "dtln_onnx") {
+    throw std::runtime_error("backend.name must be passthrough or dtln_onnx");
   }
 
-  if (config_.backend == "dtln_onnx") {
+  if (config_.backend_name == "dtln_onnx") {
     if (config_.expected_channels != 1) {
       throw std::runtime_error("fa_denoise dtln_onnx requires expected_channels=1");
     }
@@ -157,7 +157,7 @@ void FaDenoiseNode::loadParameters()
     }
 
 #ifdef FA_DENOISE_WITH_ONNXRUNTIME
-    DtlnOnnxConfig dtln_cfg;
+    backends::DtlnOnnxConfig dtln_cfg;
     dtln_cfg.block_len = config_.dtln_block_len;
     dtln_cfg.block_shift = config_.dtln_block_shift;
     dtln_cfg.model_1_path = resolveModelPathOrThrow(config_.dtln_model_1_path, "dtln.model_1_path");
@@ -165,17 +165,17 @@ void FaDenoiseNode::loadParameters()
     dtln_cfg.intra_op_num_threads = config_.dtln_intra_op_num_threads;
     dtln_cfg.inter_op_num_threads = config_.dtln_inter_op_num_threads;
     dtln_cfg.enable_ort_optimizations = config_.dtln_enable_ort_optimizations;
-    dtln_ = std::make_unique<DtlnOnnxEngine>(dtln_cfg);
+    dtln_ = std::make_unique<backends::DtlnOnnxEngine>(dtln_cfg);
 #else
     throw std::runtime_error("fa_denoise was built without ONNX Runtime support (FA_DENOISE_WITH_ONNXRUNTIME=0)");
 #endif
   }
 
   RCLCPP_INFO(this->get_logger(),
-    "NS config: enabled=%s backend=%s input=%s output=%s expected_sr=%d expected_ch=%d "
+    "NS config: enabled=%s backend.name=%s input=%s output=%s expected_sr=%d expected_ch=%d "
     "out_enc=%s out_bits=%d qos_depth=%d reliable=%s",
     config_.enabled ? "true" : "false",
-    config_.backend.c_str(),
+    config_.backend_name.c_str(),
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
     config_.expected_sample_rate,
@@ -327,7 +327,7 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     return;
   }
 
-  if (config_.backend == "passthrough") {
+  if (config_.backend_name == "passthrough") {
     auto out_msg = *msg;
     out_msg.stream_id = config_.output_topic;
     out_msg.layout = kInterleavedLayout;
@@ -340,7 +340,7 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     return;
   }
 
-  if (config_.backend != "dtln_onnx") {
+  if (config_.backend_name != "dtln_onnx") {
     drop_.fetch_add(1);
     return;
   }
@@ -432,7 +432,7 @@ void FaDenoiseNode::publishDiagnostics()
 
   status.values.reserve(10);
   push_kv("enabled", config_.enabled ? "true" : "false");
-  push_kv("backend", config_.backend);
+  push_kv("backend.name", config_.backend_name);
   push_kv("input_topic", config_.input_topic);
   push_kv("output_topic", config_.output_topic);
   push_kv("expected_sample_rate", std::to_string(config_.expected_sample_rate));

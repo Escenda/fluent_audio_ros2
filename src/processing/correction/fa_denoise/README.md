@@ -11,12 +11,12 @@ DeepFIR 設計メモ: `docs/deepfir_ns_design_memo.md`
 - Pub: `audio/denoise/frame`（`fa_interfaces/msg/AudioFrame`）
 
 ## Backend
-- `backend=dtln_onnx`（既定）:
+- `backend.name=dtln_onnx`（既定）:
   - 参照実装: https://github.com/breizhn/DTLN （MIT）
   - 同梱モデル: `models/model_1.onnx`, `models/model_2.onnx`
   - `dtln.model_1_path` / `dtln.model_2_path` は必須。空値から model path を推測しません。
   - 前提: 16kHz / mono / `block_len=512`, `block_shift=128`（モデルが固定）
-- `backend=passthrough`: 入力をそのまま出力する明示 debug / wiring validation 用 backend。default/system 経路では使いません。
+- `backend.name=passthrough`: 入力をそのまま出力する明示 debug / wiring validation 用 backend。default/system 経路では使いません。
 
 `enabled=false` は pass-through ではなく drop として扱います。pipeline から外す場合は system config で node 自体を disable してください。
 

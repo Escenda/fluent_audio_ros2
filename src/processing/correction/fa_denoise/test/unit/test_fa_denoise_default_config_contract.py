@@ -10,7 +10,8 @@ def test_default_config_requires_explicit_dtln_models() -> None:
     params = config["fa_denoise"]["ros__parameters"]
 
     assert params["enabled"] is True
-    assert params["backend"] == "dtln_onnx"
+    assert params["backend.name"] == "dtln_onnx"
+    assert "backend" not in params
     assert params["dtln"]["model_1_path"] == ""
     assert params["dtln"]["model_2_path"] == ""
 
@@ -27,3 +28,58 @@ def test_denoise_outputs_audio_frame_identity_without_analysis_metadata() -> Non
     assert ".rms" not in source
     assert ".peak" not in source
     assert ".vad" not in source
+
+
+def test_dtln_backend_lives_under_backend_boundary() -> None:
+    package_root = Path(__file__).parents[2]
+    backend_header = (
+        package_root / "include" / "fa_denoise" / "backends" / "dtln_onnx_engine.hpp"
+    )
+    backend_source = package_root / "src" / "backends" / "dtln_onnx_engine.cpp"
+    old_header = package_root / "include" / "fa_denoise" / "dtln_onnx_engine.hpp"
+    old_source = package_root / "src" / "dtln_onnx_engine.cpp"
+    node_source = package_root / "src" / "fa_denoise_node.cpp"
+
+    assert backend_header.is_file()
+    assert backend_source.is_file()
+    assert not old_header.exists()
+    assert not old_source.exists()
+    assert '#include "fa_denoise/backends/dtln_onnx_engine.hpp"' in node_source.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_backend_files_are_ros_free() -> None:
+    package_root = Path(__file__).parents[2]
+    backend_files = [
+        package_root / "include" / "fa_denoise" / "backends" / "dtln_onnx_engine.hpp",
+        package_root / "src" / "backends" / "dtln_onnx_engine.cpp",
+    ]
+    forbidden_tokens = (
+        "rclcpp",
+        "fa_interfaces",
+        "diagnostic_msgs",
+        "std_msgs/msg",
+    )
+
+    for backend_file in backend_files:
+        source = backend_file.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            assert token not in source
+
+
+def test_cmake_builds_backend_library_and_registers_pytest() -> None:
+    package_root = Path(__file__).parents[2]
+    cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
+    package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
+
+    assert "add_library(fa_denoise_backends STATIC" in cmake_text
+    assert "src/backends/dtln_onnx_engine.cpp" in cmake_text
+    assert "third_party/kissfft/kiss_fft.c" in cmake_text
+    assert "target_link_libraries(fa_denoise_node\n  fa_denoise_backends" in cmake_text
+    assert "target_sources(fa_denoise_node" not in cmake_text
+    assert "src/dtln_onnx_engine.cpp" not in cmake_text
+    assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>python3-pytest</test_depend>" in package_xml
