@@ -53,7 +53,7 @@ class DtlnOnnxEngine;
 class FaDenoiseNode : public rclcpp::Node
 {
 public:
-  FaDenoiseNode();
+  explicit FaDenoiseNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaDenoiseNode() override;
 
 private:

@@ -1,10 +1,10 @@
 #include "fa_denoise/fa_denoise_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -64,8 +64,8 @@ void updateMaxAtomic(std::atomic<uint64_t> & target, uint64_t value)
 }
 }
 
-FaDenoiseNode::FaDenoiseNode()
-: rclcpp::Node("fa_denoise")
+FaDenoiseNode::FaDenoiseNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_denoise", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Denoise node");
   loadParameters();
@@ -209,7 +209,7 @@ void FaDenoiseNode::loadParameters()
 
 void FaDenoiseNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -233,7 +233,7 @@ bool FaDenoiseNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) co
   if (msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)) {
     return false;
   }
-  if (config_.expected_channels > 0 && msg.channels != static_cast<uint32_t>(config_.expected_channels)) {
+  if (msg.channels != static_cast<uint32_t>(config_.expected_channels)) {
     return false;
   }
   if (msg.channels == 0 || msg.sample_rate == 0) {
@@ -246,6 +246,9 @@ bool FaDenoiseNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) co
     return false;
   }
   if (msg.source_id.empty() || msg.stream_id.empty()) {
+    return false;
+  }
+  if (msg.stream_id != config_.input_topic) {
     return false;
   }
   if (msg.layout != kInterleavedLayout) {
@@ -524,17 +527,3 @@ void FaDenoiseNode::publishDiagnostics()
 }
 
 }  // namespace fa_denoise
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_denoise::FaDenoiseNode>();
-    rclcpp::spin(node);
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_denoise"), "Exception: %s", e.what());
-    return EXIT_FAILURE;
-  }
-  rclcpp::shutdown();
-  return EXIT_SUCCESS;
-}

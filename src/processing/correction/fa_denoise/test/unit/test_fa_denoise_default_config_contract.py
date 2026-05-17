@@ -83,12 +83,18 @@ def test_cmake_builds_backend_library_and_registers_pytest() -> None:
     assert "add_library(fa_denoise_backends STATIC" in cmake_text
     assert "src/backends/dtln_onnx_engine.cpp" in cmake_text
     assert "third_party/kissfft/kiss_fft.c" in cmake_text
-    assert "target_link_libraries(fa_denoise_node" in cmake_text
+    assert "add_library(fa_denoise_node_core" in cmake_text
+    assert "target_link_libraries(fa_denoise_node_core" in cmake_text
     assert "fa_denoise_backends" in cmake_text
+    assert "target_link_libraries(fa_denoise_node" in cmake_text
+    assert "fa_denoise_node_core" in cmake_text
     assert "target_sources(fa_denoise_node" not in cmake_text
     assert "src/dtln_onnx_engine.cpp" not in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
 
@@ -123,6 +129,8 @@ def test_denoise_requires_explicit_format_pairs_and_no_hidden_clamp() -> None:
     assert "output.encoding/output.bit_depth must be PCM16LE/16 or FLOAT32LE/32" in source
     assert "msg.encoding != config_.expected_encoding" in source
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in source
+    assert "msg.stream_id != config_.input_topic" in source
+    assert "std::max<int>(1, config_.qos_depth)" not in source
     assert "msg.encoding != kEncodingFloat32 || msg.bit_depth != 32" in source
     assert "denoise output sample out of normalized range" in source
     assert "std::clamp" not in source

@@ -8,7 +8,7 @@ default config では選択しない。使用する場合は debug / wiring vali
 
 ## 入力
 
-- validated `AudioFrame`
+- `stream_id` が `input_topic` と一致する validated `AudioFrame`
 
 ## 出力
 
