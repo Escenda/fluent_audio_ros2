@@ -20,6 +20,28 @@ def _patch_fluent_audio_system_share(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config_schema, "_get_package_share_directory", package_share)
 
 
+def _patch_profile_package_shares(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for package_name in ("fa_in", "fa_out"):
+        config_dir = tmp_path / package_name / "config"
+        config_dir.mkdir(parents=True)
+        (config_dir / "default.yaml").write_text(
+            f"{package_name}:\n  ros__parameters: {{}}\n",
+            encoding="utf-8",
+        )
+
+    def package_share(package_name: str) -> str:
+        if package_name == "fluent_audio_system":
+            return str(PACKAGE_ROOT)
+        if package_name in ("fa_in", "fa_out"):
+            return str(tmp_path / package_name)
+        raise RuntimeError(f"unexpected package share lookup: {package_name}")
+
+    monkeypatch.setattr(config_schema, "_get_package_share_directory", package_share)
+
+
 def test_valid_fixture_expands_enabled_nodes_and_remappings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -42,6 +64,32 @@ def test_valid_fixture_expands_enabled_nodes_and_remappings(
     params = _load_fixture_params("fa_in.params.yaml", "fa_in_node")
     assert params["audio.stream_id"] == "audio/frame"
     assert params["audio.layout"] == "interleaved"
+
+
+def test_so101_profile_config_expands_default_site_bound_nodes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+
+    spec = load_system_config(
+        "${share:fluent_audio_system}/config/profiles/so101.yaml"
+    )
+
+    enabled_nodes = [
+        node
+        for group in spec.groups
+        for node in group.nodes
+    ]
+
+    assert [node.id for node in enabled_nodes] == ["fa_in", "fa_out"]
+    assert [node.package for node in enabled_nodes] == ["fa_in", "fa_out"]
+    assert enabled_nodes[0].params_file == str(
+        tmp_path / "fa_in" / "config" / "default.yaml"
+    )
+    assert enabled_nodes[1].params_file == str(
+        tmp_path / "fa_out" / "config" / "default.yaml"
+    )
 
 
 def test_missing_fixture_params_file_fails_closed(
