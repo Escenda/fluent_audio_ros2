@@ -12,4 +12,4 @@ Missing config や missing params file は起動失敗にします。暗黙の d
 
 - `config/profiles/so101.yaml`: SO101 の site-bound I/O profile。format pipeline は定義済みだが default では無効。
 - `config/profiles/so101_mic_frontend.yaml`: `fa_in -> fa_sample_format -> fa_resample` を明示した microphone frontend profile。`fa_resample` へ `PCM16LE` を直結せず、`fa_sample_format` で `FLOAT32LE/32/interleaved` に変換してから 16kHz 化する。
-- `config/profiles/so101_tts_output.yaml`: `fa_tts -> fa_resample -> fa_sample_format -> fa_mix -> fa_out` を明示した TTS playback profile。`fa_tts` の `FLOAT32LE/32` を 48kHz に揃えてから `PCM16LE/16` に変換し、`fa_out` に hidden resample / format conversion を持たせない。
+- `config/profiles/so101_tts_output.yaml`: `fa_tts -> fa_resample -> fa_sample_format -> fa_mix -> fa_out` を明示した TTS playback profile。`fa_tts` の `FLOAT32LE/32` を 48kHz に揃えてから `PCM16LE/16` に変換し、`fa_out` に hidden resample / format conversion を持たせない。OpenJTalk dictionary path は `FLUENT_AUDIO_OPENJTALK_DICT_DIR` で明示する。

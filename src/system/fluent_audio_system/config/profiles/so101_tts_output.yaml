@@ -38,6 +38,7 @@ groups:
         params_file: "${share:fa_tts}/config/default.yaml"
         remappings: {}
         parameters:
+          backend.openjtalk_dict_dir: "${env:FLUENT_AUDIO_OPENJTALK_DICT_DIR}"
           output_topic: "audio/tts/frame"
 
   - id: audio_format

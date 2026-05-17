@@ -669,6 +669,137 @@ def test_inline_parameter_share_path_expansion(
     }
 
 
+def test_environment_path_expansion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    params_dir = tmp_path / "params"
+    dictionary_dir = tmp_path / "open_jtalk_dic"
+    config_dir.mkdir()
+    params_dir.mkdir()
+    dictionary_dir.mkdir()
+
+    params_file = params_dir / "fa_tts.yaml"
+    params_file.write_text("fa_tts:\n  ros__parameters: {}\n", encoding="utf-8")
+    system_file = config_dir / "system.yaml"
+    system_file.write_text(
+        """
+system:
+  default_start_delay: 0.0
+  inter_group_delay: 0.0
+groups:
+  - id: generation
+    enable: true
+    nodes:
+      - id: fa_tts
+        enable: true
+        package: fa_tts
+        exec: fa_tts_node
+        params_file: "${env:FA_TEST_PARAMS_DIR}/fa_tts.yaml"
+        parameters:
+          backend.openjtalk_dict_dir: "${env:FA_TEST_OPENJTALK_DICT_DIR}"
+          model_paths:
+            - "${env:FA_TEST_OPENJTALK_DICT_DIR}/left"
+            - "${env:FA_TEST_OPENJTALK_DICT_DIR}/right"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FA_TEST_CONFIG_DIR", str(config_dir))
+    monkeypatch.setenv("FA_TEST_PARAMS_DIR", str(params_dir))
+    monkeypatch.setenv("FA_TEST_OPENJTALK_DICT_DIR", str(dictionary_dir))
+
+    spec = load_system_config("${env:FA_TEST_CONFIG_DIR}/system.yaml")
+
+    node = spec.groups[0].nodes[0]
+    assert node.params_file == str(params_file)
+    assert node.parameters == {
+        "backend.openjtalk_dict_dir": str(dictionary_dir),
+        "model_paths": [
+            str(dictionary_dir / "left"),
+            str(dictionary_dir / "right"),
+        ],
+    }
+
+
+def test_missing_environment_path_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    params_file = tmp_path / "fa_tts.yaml"
+    params_file.write_text("fa_tts:\n  ros__parameters: {}\n", encoding="utf-8")
+    monkeypatch.delenv("FA_TEST_OPENJTALK_DICT_DIR", raising=False)
+
+    with pytest.raises(
+        RuntimeError,
+        match="environment variable FA_TEST_OPENJTALK_DICT_DIR is required",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "generation",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_tts",
+                                "enable": True,
+                                "package": "fa_tts",
+                                "exec": "fa_tts_node",
+                                "params_file": str(params_file),
+                                "parameters": {
+                                    "backend.openjtalk_dict_dir": (
+                                        "${env:FA_TEST_OPENJTALK_DICT_DIR}"
+                                    ),
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_empty_environment_path_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    params_file = tmp_path / "fa_tts.yaml"
+    params_file.write_text("fa_tts:\n  ros__parameters: {}\n", encoding="utf-8")
+    monkeypatch.setenv("FA_TEST_OPENJTALK_DICT_DIR", "  ")
+
+    with pytest.raises(
+        RuntimeError,
+        match="environment variable FA_TEST_OPENJTALK_DICT_DIR is required",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "generation",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_tts",
+                                "enable": True,
+                                "package": "fa_tts",
+                                "exec": "fa_tts_node",
+                                "params_file": str(params_file),
+                                "parameters": {
+                                    "backend.openjtalk_dict_dir": (
+                                        "${env:FA_TEST_OPENJTALK_DICT_DIR}"
+                                    ),
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
 def test_missing_system_fails() -> None:
     with pytest.raises(RuntimeError, match="system is required"):
         parse_system_config({"groups": []})

@@ -17,6 +17,7 @@ ConfigMapping: TypeAlias = dict[str, "ConfigValue"]
 ConfigSequence: TypeAlias = list["ConfigValue"]
 ConfigValue: TypeAlias = ConfigScalar | ConfigMapping | ConfigSequence
 _INLINE_SHARE_RE = re.compile(r"\$\{share:([A-Za-z0-9_]+)\}")
+_INLINE_ENV_RE = re.compile(r"\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
 _AI_PACKAGE_NAMES = (
     "fa_asr",
     "fa_audio_embedding",
@@ -279,7 +280,7 @@ class AudioSystemSpec:
 def load_system_config(path: str) -> AudioSystemSpec:
     if not path:
         raise RuntimeError("config launch argument is required")
-    path = _resolve_share_refs(path)
+    path = _resolve_config_refs(path)
     if not os.path.isfile(path):
         raise RuntimeError(f"fluent_audio_system config not found: {path}")
     with open(path, "r", encoding="utf-8") as stream:
@@ -330,7 +331,7 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
     if namespace == "/":
         namespace = ""
     output = _optional_model_text(node.output, "screen")
-    params_file = _resolve_share_refs(
+    params_file = _resolve_config_refs(
         _required_model_text(node.params_file, f"node {node_id}.params_file")
     )
     if not os.path.isfile(params_file):
@@ -459,19 +460,26 @@ def _optional_remappings(
     return remappings
 
 
-def _resolve_share_refs(value: str) -> str:
-    def _replace(match_obj: re.Match[str]) -> str:
+def _resolve_config_refs(value: str) -> str:
+    def _replace_share(match_obj: re.Match[str]) -> str:
         return _get_package_share_directory(match_obj.group(1))
 
-    return _INLINE_SHARE_RE.sub(_replace, value)
+    def _replace_env(match_obj: re.Match[str]) -> str:
+        variable_name = match_obj.group(1)
+        variable_value = os.environ.get(variable_name)
+        if variable_value is None or not variable_value.strip():
+            raise RuntimeError(f"environment variable {variable_name} is required")
+        return variable_value.strip()
+
+    return _INLINE_ENV_RE.sub(_replace_env, _INLINE_SHARE_RE.sub(_replace_share, value))
 
 
 def _expand_param_value(value: ParamValue) -> ParamValue:
     if isinstance(value, str):
-        return _resolve_share_refs(value)
+        return _resolve_config_refs(value)
     if isinstance(value, list):
         if all(isinstance(item, str) for item in value):
-            return [_resolve_share_refs(item) for item in value]
+            return [_resolve_config_refs(item) for item in value]
         return value
     return value
 

@@ -158,6 +158,9 @@ def test_so101_tts_output_profile_expands_explicit_playback_pipeline(
     tmp_path: Path,
 ) -> None:
     _patch_profile_package_shares(monkeypatch, tmp_path)
+    dictionary_dir = tmp_path / "open_jtalk_dic"
+    dictionary_dir.mkdir()
+    monkeypatch.setenv("FLUENT_AUDIO_OPENJTALK_DICT_DIR", str(dictionary_dir))
 
     spec = load_system_config(
         "${share:fluent_audio_system}/config/profiles/so101_tts_output.yaml"
@@ -188,7 +191,10 @@ def test_so101_tts_output_profile_expands_explicit_playback_pipeline(
     assert tts.params_file == str(
         tmp_path / "fa_tts" / "config" / "default.yaml"
     )
-    assert tts.parameters == {"output_topic": "audio/tts/frame"}
+    assert tts.parameters == {
+        "backend.openjtalk_dict_dir": str(dictionary_dir),
+        "output_topic": "audio/tts/frame",
+    }
 
     resample = enabled_nodes[2]
     assert resample.params_file == str(
