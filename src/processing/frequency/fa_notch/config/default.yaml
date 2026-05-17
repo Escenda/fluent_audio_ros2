@@ -1,0 +1,22 @@
+fa_notch:
+  ros__parameters:
+    input_topic: "audio/high_pass/mic"
+    output_topic: "audio/notch/mic"
+
+    filter:
+      center_hz: 60.0
+      q: 30.0
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

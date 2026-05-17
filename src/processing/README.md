@@ -44,7 +44,7 @@ and must not be counted as implemented package coverage.
 | --- | --- | --- |
 | `format/` | `fa_resample` | implemented package |
 | `dynamics/` | `fa_gain`, `fa_limiter` | implemented packages |
-| `frequency/` | `fa_high_pass` | implemented package |
+| `frequency/` | `fa_high_pass`, `fa_notch` | implemented packages |
 | `temporal/` | none | taxonomy placeholder only |
 | `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise` | implemented packages |
 | `spatial/` | none | taxonomy placeholder only |

@@ -75,6 +75,16 @@ groups:
         remappings: {}
         parameters: {}
 
+      - id: fa_notch
+        enable: false
+        package: fa_notch
+        exec: fa_notch_node
+        node_name: fa_notch
+        namespace: ""
+        params_file: "${share:fa_notch}/config/default.yaml"
+        remappings: {}
+        parameters: {}
+
   - id: correction
     enable: true
     nodes:
