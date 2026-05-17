@@ -1,0 +1,14 @@
+fa_in_node:
+  ros__parameters:
+    audio:
+      device_selector:
+        mode: "name"        # index | name
+        identifier: "default"      # e.g., "default" or "USB Audio Device"
+        index: -1
+      sample_rate: 48000
+      channels: 1
+      bit_depth: 16         # 16 or 32
+      chunk_ms: 20
+      encoding: "PCM16LE"     # PCM16LE | PCM32LE | FLOAT32LE
+    diagnostics:
+      publish_period_ms: 1000

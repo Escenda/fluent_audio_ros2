@@ -1,0 +1,25 @@
+fa_asr:
+  ros__parameters:
+    audio_topic: "audio/frame"
+    vad_topic: "voice/vad_state"
+    turn_context_topic: "conversation/turn_context"
+    asr_result_topic: "voice/asr/result"
+
+    target_sample_rate: 16000
+    min_audio_sec: 0.3
+    silence_timeout_sec: 10.0
+    finalize_on_vad_end: true
+    finalize_on_context_inactive: true
+    workspace_dir: "/tmp/fa_asr"
+    cleanup_audio_files: true
+
+    # Local ASR backend. These values are required; fa_asr fails closed at
+    # startup if command/model_path are empty or invalid.
+    backend.name: "local_command"
+    backend.command: ""
+    backend.model_path: ""
+    backend.language: "ja"
+    backend.timeout_sec: 120.0
+    backend.working_directory: ""
+    backend.args: ["-m", "{model}", "-l", "{language}", "-f", "{audio}", "-nt"]
+    backend.output_text_path: ""

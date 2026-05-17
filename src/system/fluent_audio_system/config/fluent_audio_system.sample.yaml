@@ -1,0 +1,41 @@
+system:
+  default_start_delay: 0.2
+  inter_group_delay: 0.5
+
+groups:
+  - id: io
+    enable: true
+    nodes:
+      - id: fa_in
+        enable: true
+        package: fa_in
+        exec: fa_in_node
+        node_name: fa_in_node
+        namespace: ""
+        params_file: ""
+        parameters:
+          audio.device_selector.mode: name
+          audio.device_selector.identifier: default
+          audio.sample_rate: 48000
+          audio.channels: 1
+          audio.bit_depth: 16
+          audio.chunk_ms: 20
+          audio.encoding: PCM16LE
+          diagnostics.publish_period_ms: 1000
+
+      - id: fa_out
+        enable: false
+        package: fa_out
+        exec: fa_out_node
+        node_name: fa_out
+        namespace: ""
+        params_file: ""
+        parameters:
+          audio.device_id: default
+          audio.sample_rate: 48000
+          audio.channels: 1
+          audio.bit_depth: 16
+          audio.chunk_duration_ms: 30
+          audio.qos.depth: 10
+          audio.qos.reliable: true
+          queue.max_frames: 32

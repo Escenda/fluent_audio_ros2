@@ -2,7 +2,7 @@
 # All values here are treated as "parameters" (no magic numbers in code).
 
 gtcrn:
-  model_path: src/dsp/fa_ns/models/gtcrn.onnx
+  model_path: src/processing/correction/fa_denoise/models/gtcrn.onnx
   fft_size: 512
   hop_length: 256
   win_length: 512

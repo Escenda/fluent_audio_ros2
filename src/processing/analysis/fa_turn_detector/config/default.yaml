@@ -1,0 +1,9 @@
+fa_turn_detector:
+  ros__parameters:
+    audio_topic: "audio/frame"
+    vad_topic: "voice/vad_state"
+    turn_context_topic: "conversation/turn_context"
+    output_topic: "voice/turn_end"
+    backend.name: "smart_turn_onnx"
+    backend.model_path: ""
+    backend.threshold: 0.5

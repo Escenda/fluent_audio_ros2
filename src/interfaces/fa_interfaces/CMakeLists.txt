@@ -7,16 +7,19 @@ find_package(builtin_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 
 set(message_files
+  "msg/AsrResult.msg"
   "msg/AudioFrame.msg"
   "msg/PlaybackDone.msg"
+  "msg/TurnContext.msg"
+  "msg/TurnEnd.msg"
   "msg/VadState.msg"
+  "msg/WakeWordResult.msg"
 )
 
 set(service_files
   "srv/ListDevices.srv"
   "srv/SwitchDevice.srv"
   "srv/Record.srv"
-  "srv/PlayFile.srv"
   "srv/Speak.srv"
 )
 

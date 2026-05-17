@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fa_out</name>
+  <version>0.1.0</version>
+  <description>Audio playback node for FluentAudio, consuming fa_interfaces/msg/AudioFrame and writing to ALSA devices.</description>
+  <maintainer email="maintainer@example.com">FluentAudio</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>fa_interfaces</depend>
+  <depend>pkg-config</depend>
+  <depend>libasound2-dev</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fa_asr</name>
+  <version>0.1.0</version>
+  <description>Local ASR node for FluentAudio audio streams.</description>
+  <maintainer email="maintainer@example.com">FluentAudio</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>fa_interfaces</depend>
+
+  <exec_depend>python3-numpy</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

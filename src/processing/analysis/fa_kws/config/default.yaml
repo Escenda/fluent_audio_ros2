@@ -1,0 +1,29 @@
+fa_kws:
+  ros__parameters:
+    audio_topic: "audio/frame"
+    vad_topic: "voice/vad_state"
+    output_topic: "voice/wake_word"
+    backend.name: "sherpa_onnx_kws"
+
+    target_sample_rate: 16000
+    vad.probability_gate: 0.35
+    cooldown_ms: 1500
+
+    # Local sherpa-onnx KWS model files. These are required; fa_kws fails closed
+    # at startup if any path is empty or missing.
+    model.encoder: ""
+    model.decoder: ""
+    model.joiner: ""
+    model.tokens: ""
+    kws.keywords_file: ""
+
+    model.num_threads: 4
+    model.provider: "cpu"
+    kws.max_active_paths: 32
+    kws.num_trailing_blanks: 1
+    kws.keywords_score: 1.0
+    kws.keywords_threshold: 0.25
+
+    dump_audio.enable: false
+    dump_audio.path: "/tmp/fa_kws_capture.wav"
+    debug.status_period_sec: 0.0

@@ -27,7 +27,7 @@ printf "%q " "$0" "$@" > "${META_DIR}/command.txt"
 echo "" >> "${META_DIR}/command.txt"
 
 # Copy YAML params (as of run)
-cp -f "${ROOT_DIR}/src/dsp/"*/config/*.yaml "${PARAMS_DIR}/" 2>/dev/null || true
+cp -f "${ROOT_DIR}/src/processing/"*/*/config/*.yaml "${PARAMS_DIR}/" 2>/dev/null || true
 
 # Dataset manifest placeholder (fill in with actual dataset metadata / checksums as needed)
 cat > "${META_DIR}/dataset_manifest.json" <<EOF
@@ -40,4 +40,3 @@ EOF
 
 echo "Run directory: ${RUN_DIR}"
 echo "NOTE: This script is a scaffold. Plug in the official dataset layout + evaluation script here."
-

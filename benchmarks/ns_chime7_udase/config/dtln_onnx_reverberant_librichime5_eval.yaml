@@ -1,8 +1,8 @@
 # DTLN (ONNX) config for reverberant LibriCHiME-5 (eval/{1,2,3}) mixtures.
 
 dtln:
-  model_1_path: src/dsp/fa_ns/models/model_1.onnx
-  model_2_path: src/dsp/fa_ns/models/model_2.onnx
+  model_1_path: src/processing/correction/fa_denoise/models/model_1.onnx
+  model_2_path: src/processing/correction/fa_denoise/models/model_2.onnx
   block_len: 512
   block_shift: 128
   ort:

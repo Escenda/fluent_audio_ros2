@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import math
+from collections import deque
+from pathlib import Path
+from typing import Iterable
+
+import numpy as np
+import rclpy
+from ament_index_python.packages import get_package_share_directory
+from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+
+from fa_interfaces.msg import AudioFrame, TurnContext, TurnEnd, VadState
+from fa_turn_detector_py.backends.base import TurnDetectorBackend
+from fa_turn_detector_py.backends.smart_turn_onnx import SmartTurnOnnxBackend
+
+
+def _to_mono(samples: np.ndarray, channels: int) -> np.ndarray:
+    if channels <= 1 or samples.ndim == 1:
+        return samples.astype(np.float32)
+    if samples.size % channels != 0:
+        raise ValueError(
+            f"sample count {samples.size} is not divisible by channels={channels}"
+        )
+    return samples.reshape(-1, channels).mean(axis=1).astype(np.float32)
+
+
+def _resample_linear(samples: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
+    if src_rate <= 0 or dst_rate <= 0:
+        raise ValueError("sample rates must be positive")
+    if src_rate == dst_rate or samples.size == 0:
+        return samples.astype(np.float32)
+    ratio = dst_rate / float(src_rate)
+    dst_len = max(1, int(math.floor(samples.size * ratio)))
+    positions = np.linspace(0, samples.size, dst_len, endpoint=False)
+    return np.interp(positions, np.arange(samples.size), samples).astype(np.float32)
+
+
+class FaTurnDetectorNode(Node):
+    """Turn detection node using a local Smart Turn v3 ONNX model."""
+
+    def __init__(self) -> None:
+        super().__init__("fa_turn_detector")
+
+        self.declare_parameter("audio_topic", "audio/frame")
+        self.declare_parameter("vad_topic", "voice/vad_state")
+        self.declare_parameter("turn_context_topic", "conversation/turn_context")
+        self.declare_parameter("output_topic", "voice/turn_end")
+        self.declare_parameter("backend.name", "")
+        self.declare_parameter("backend.model_path", "")
+        self.declare_parameter("backend.threshold", 0.5)
+
+        self.audio_topic = str(self.get_parameter("audio_topic").value)
+        self.vad_topic = str(self.get_parameter("vad_topic").value)
+        self.turn_context_topic = str(self.get_parameter("turn_context_topic").value)
+        self.output_topic = str(self.get_parameter("output_topic").value)
+
+        self.backend = self._load_backend()
+        self.audio_buffer: deque[float] = deque(maxlen=self.backend.sample_rate * 10)
+        self.is_speech = False
+        self._active_session_id = ""
+        self._active_user_turn_id = 0
+        self._context_active = False
+
+        qos_sensor = QoSProfile(depth=10)
+        qos_sensor.reliability = ReliabilityPolicy.BEST_EFFORT
+        qos_sensor.history = HistoryPolicy.KEEP_LAST
+
+        qos_reliable = QoSProfile(depth=10)
+        qos_reliable.reliability = ReliabilityPolicy.RELIABLE
+        qos_reliable.history = HistoryPolicy.KEEP_LAST
+
+        self.turn_end_pub = self.create_publisher(TurnEnd, self.output_topic, qos_reliable)
+        self.audio_sub = self.create_subscription(
+            AudioFrame,
+            self.audio_topic,
+            self.on_audio,
+            qos_sensor,
+        )
+        self.vad_sub = self.create_subscription(
+            VadState,
+            self.vad_topic,
+            self.on_vad,
+            qos_sensor,
+        )
+        self.turn_context_sub = self.create_subscription(
+            TurnContext,
+            self.turn_context_topic,
+            self.on_turn_context,
+            qos_reliable,
+        )
+
+        self.get_logger().info(
+            "fa_turn_detector started: audio=%s vad=%s turn_context=%s output=%s backend=%s model=%s",
+            self.audio_topic,
+            self.vad_topic,
+            self.turn_context_topic,
+            self.output_topic,
+            self.backend.name,
+            self.backend.model_path,
+        )
+
+    def _load_backend(self) -> TurnDetectorBackend:
+        backend_name = str(self.get_parameter("backend.name").value).strip()
+        if not backend_name:
+            raise RuntimeError("backend.name is required")
+        if backend_name != SmartTurnOnnxBackend.name:
+            raise RuntimeError(f"unsupported turn detector backend.name: {backend_name}")
+        return SmartTurnOnnxBackend(
+            model_path=self._resolve_model_path(),
+            threshold=float(self.get_parameter("backend.threshold").value),
+        )
+
+    def _resolve_model_path(self) -> Path:
+        model_path_param = str(self.get_parameter("backend.model_path").value).strip()
+        if model_path_param:
+            return Path(model_path_param).expanduser()
+        pkg_share = Path(get_package_share_directory("fa_turn_detector"))
+        return pkg_share / "models" / "smart-turn-v3" / "smart-turn-v3.0.onnx"
+
+    def on_turn_context(self, msg: TurnContext) -> None:
+        self._active_session_id = str(msg.session_id)
+        self._active_user_turn_id = int(msg.user_turn_id)
+        self._context_active = bool(msg.active) and bool(msg.session_id)
+        if not self._context_active:
+            self.audio_buffer.clear()
+
+    def on_audio(self, msg: AudioFrame) -> None:
+        if not self._context_active:
+            return
+        try:
+            audio_data = self._frame_to_float(msg)
+            if int(msg.sample_rate) != self.backend.sample_rate:
+                audio_data = _resample_linear(
+                    audio_data,
+                    int(msg.sample_rate),
+                    self.backend.sample_rate,
+                )
+        except ValueError as exc:
+            self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
+            return
+        if audio_data.size == 0:
+            return
+        self.audio_buffer.extend(audio_data.tolist())
+
+    def on_vad(self, msg: VadState) -> None:
+        if not self._context_active:
+            self.is_speech = bool(msg.is_speech)
+            return
+        prev_is_speech = self.is_speech
+        self.is_speech = bool(msg.is_speech)
+        if msg.end or (prev_is_speech and not self.is_speech):
+            self._detect_turn_end()
+
+    def _detect_turn_end(self) -> None:
+        if len(self.audio_buffer) < self.backend.min_samples:
+            self.get_logger().debug(
+                "Not enough audio data for turn detection: %d samples",
+                len(self.audio_buffer),
+            )
+            return
+
+        available_samples = min(len(self.audio_buffer), self.backend.max_samples)
+        audio = np.asarray(list(self.audio_buffer)[-available_samples:], dtype=np.float32)
+        try:
+            result = self.backend.detect(audio)
+        except (RuntimeError, ValueError) as exc:
+            self.get_logger().error("Turn detection backend failed: %s", exc)
+            return
+
+        out = TurnEnd()
+        out.timestamp = self.get_clock().now().to_msg()
+        out.session_id = self._active_session_id
+        out.user_turn_id = int(self._active_user_turn_id)
+        out.probability = float(result.probability)
+        out.is_end = bool(result.is_end)
+        self.turn_end_pub.publish(out)
+
+        self.get_logger().info(
+            "Turn end probability: %.3f is_end=%s",
+            result.probability,
+            str(out.is_end).lower(),
+        )
+
+    @staticmethod
+    def _frame_to_float(msg: AudioFrame) -> np.ndarray:
+        if not msg.data:
+            return np.zeros(0, dtype=np.float32)
+        if msg.bit_depth == 16:
+            samples = np.frombuffer(bytes(msg.data), dtype=np.int16).astype(np.float32) / 32768.0
+        elif msg.bit_depth == 32:
+            samples = np.frombuffer(bytes(msg.data), dtype=np.float32)
+        else:
+            raise ValueError(f"unsupported bit_depth={msg.bit_depth}")
+        if msg.channels and msg.channels > 1:
+            samples = _to_mono(samples, int(msg.channels))
+        return samples.astype(np.float32)
+
+
+def main(args: Iterable[str] | None = None) -> None:
+    rclpy.init(args=args)
+    node = FaTurnDetectorNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

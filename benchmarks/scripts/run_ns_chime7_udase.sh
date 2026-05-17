@@ -47,7 +47,7 @@ PY
 } > "${META_DIR}/env.txt"
 
 # Copy all YAML params (as of run)
-cp -f "${ROOT_DIR}/src/dsp/"*/config/*.yaml "${PARAMS_DIR}/" 2>/dev/null || true
+cp -f "${ROOT_DIR}/src/processing/"*/*/config/*.yaml "${PARAMS_DIR}/" 2>/dev/null || true
 cp -f "${BENCH_DIR}/config/"*.yaml "${PARAMS_DIR}/" 2>/dev/null || true
 
 # Dataset manifest (fill paths/checksums as the local datasets are prepared)

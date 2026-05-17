@@ -11,5 +11,4 @@
 - `fa_interfaces/srv/ListDevices`
 - `fa_interfaces/srv/SwitchDevice`
 - `fa_interfaces/srv/Record`
-- `fa_interfaces/srv/PlayFile`
 - `fa_interfaces/srv/Speak`

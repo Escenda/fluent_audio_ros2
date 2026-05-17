@@ -1,6 +1,6 @@
 # FluentAudio オーディオシステム資料
 
-本資料は FluentAudio（本リポジトリ）の音声パッケージ群を、ROS2のトピック/サービス観点で俯瞰するためのメモです。未実装の将来構想（KWS/ASR/SED、アプリ層など）も含みます。
+本資料は FluentAudio（本リポジトリ）の音声パッケージ群を、ROS2のトピック/サービス観点で俯瞰するためのメモです。
 
 ## 1. 目的（制約込み）
 1. **入力/出力デバイスの分離**: マイクとスピーカーを別ノードにして、デバイス占有や遅延調整を独立管理する。
@@ -12,56 +12,67 @@
 
 | ノード | 役割 | 主な入出力 |
 | --- | --- | --- |
-| `fa_capture_node` | マイク/ライン入力を開きPCM配信 | Pub: `audio/frame`, `audio/levels` / Srv: `list_devices`, `switch_device` |
-| `fa_vad_node` | 軽量VAD（RMS/ヒステリシス） | Sub: `audio/frame` → Pub: `audio/vad` |
+| `fa_in_node` | マイク/ライン入力を開きPCM配信 | Pub: `audio/frame` / Srv: `list_devices`, `switch_device` |
+| `fa_vad_node` | Silero VAD | Sub: `audio/frame` → Pub: `audio/vad`, `voice/vad_state` |
+| `fa_kws` | ローカルKWS | Sub: `audio/frame`, `voice/vad_state` → Pub: `voice/wake_word` |
+| `fa_asr` | ローカルASR実行ファイルの呼び出し | Sub: `audio/frame`, `voice/vad_state`, `conversation/turn_context` → Pub: `voice/asr/result` |
+| `fa_turn_detector` | Smart Turn v3 ONNX によるターン終了推定 | Sub: `audio/frame`, `voice/vad_state`, `conversation/turn_context` → Pub: `voice/turn_end` |
 | `fa_record` | `audio/frame` をWAVへ録音 | Sub: `audio/frame` / Srv: `record` |
 | `fa_tts` | テキスト→音声合成 | Srv: `speak` →（任意）Pub: `audio/tts/frame` /（既定）Pub: `audio/output/frame` |
-| `fa_output` | スピーカーを開いてPCMを再生 | Sub: `audio/output/frame` / Srv: `audio/output/play_file` |
+| `fa_out` | スピーカーを開いてPCMを再生 | Sub: `audio/output/frame` |
 | `fa_radio_streamer` | 配信サンプル（Icecast等） | Sub: `audio/frame` → 外部へ送出（`ffmpeg`） |
 | `fa_voice_command_router` | 起動/停止/モード切替の状態管理 | Sub: `voice/command` → Pub: `voice/router/state` / Srv: `start`, `stop`, `status` |
 
 ## 3. 将来のノード（予定）
-- `src/ai/fa_kws`: ウェイクワード/キーワードスポッティング（オフライン）
-- `src/ai/fa_asr`: 音声認識（オフライン）
-- `src/ai/fa_sed`: 音イベント検出（オフライン）
-- `src/ai/fa_speaker`: 話者認識（オフライン）
+- `src/processing/analysis/fa_sed`: 音イベント検出（オフライン）
+- `src/processing/analysis/fa_speaker`: 話者認識（オフライン）
+- `src/apps/fa_dialogue`: Wakeword/ASR/TD を合流する会話オーケストレーション
 - `src/apps/fa_safety_policy`: 危険操作の拒否/確認要求など
-- `src/dsp/*`, `src/features/*`: ノイズ抑制/AEC/特徴量など
+- `src/processing/<category>/*`: ノイズ抑制/AEC/特徴量など
 
 ## 4. インターフェース
 
 ### 4.1 トピック
 | トピック | 型 | 送信元 | 用途 |
 | --- | --- | --- | --- |
-| `audio/frame` | `fa_interfaces/msg/AudioFrame` | `fa_capture_node` | PCM + メタ情報 |
-| `audio/levels` | `std_msgs/msg/Float32MultiArray` | `fa_capture_node` | UIメータ表示 |
+| `audio/frame` | `fa_interfaces/msg/AudioFrame` | `fa_in_node` | PCM + メタ情報 |
 | `audio/vad` | `std_msgs/msg/Bool` | `fa_vad_node` | 簡易VADフラグ |
 | `voice/vad_state` | `fa_interfaces/msg/VadState` | `fa_vad_node` | VAD確率/開始/終了（Silero） |
+| `voice/wake_word` | `fa_interfaces/msg/WakeWordResult` | `fa_kws` | ウェイクワード検出 |
+| `conversation/turn_context` | `fa_interfaces/msg/TurnContext` | 会話オーケストレータ | ASR/TDのID相関 |
+| `voice/asr/result` | `fa_interfaces/msg/AsrResult` | `fa_asr` | ASR結果/タイムアウト/エラー |
+| `voice/turn_end` | `fa_interfaces/msg/TurnEnd` | `fa_turn_detector` | ターン終了確率 |
 | `audio/output/frame` | `fa_interfaces/msg/AudioFrame` | `fa_tts` 等 | スピーカー再生用 |
 | `audio/tts/frame` | `fa_interfaces/msg/AudioFrame` | `fa_tts` | TTS結果のPCM配信（任意） |
 
 ### 4.2 サービス
 | サービス | 型 | サーバー | 内容 |
 | --- | --- | --- | --- |
-| `list_devices` | `fa_interfaces/srv/ListDevices` | `fa_capture_node` | マイク列挙 |
-| `switch_device` | `fa_interfaces/srv/SwitchDevice` | `fa_capture_node` | マイク切替 |
+| `list_devices` | `fa_interfaces/srv/ListDevices` | `fa_in_node` | マイク列挙 |
+| `switch_device` | `fa_interfaces/srv/SwitchDevice` | `fa_in_node` | マイク切替 |
 | `record` | `fa_interfaces/srv/Record` | `fa_record` | 録音開始/停止 |
-| `audio/output/play_file` | `fa_interfaces/srv/PlayFile` | `fa_output` | WAVファイル再生 |
 | `speak` | `fa_interfaces/srv/Speak` | `fa_tts` | テキスト→音声 |
 
 ## 5. 運用フロー例
 
 ### 5.1 TTS をスピーカーへ再生
-1. `fa_output`を起動
+1. `fa_out`を起動
 2. `fa_tts`を起動
 3. `/speak` を呼び出し（`play: true`）、`audio/output/frame`経由で再生
 
 ### 5.2 マイク入力 + VAD
-1. `fa_capture_node`を起動（`audio/frame`をPublish）
+1. `fa_in_node`を起動（`audio/frame`をPublish）
 2. `fa_vad_node`を起動（`audio/vad`をPublish）
 
-### 5.3 録音（WAV）
-1. `fa_capture_node`と`fa_record`を起動
+### 5.3 VAD/KWS/ASR/TD
+1. `fa_in_node`と`fa_vad_node`を起動
+2. `fa_kws`を起動し、`voice/wake_word`で起動語を受ける
+3. 会話オーケストレータが`conversation/turn_context`をPublishする
+4. `fa_asr`が`voice/asr/result`をPublishする
+5. `fa_turn_detector`が`voice/turn_end`をPublishする
+
+### 5.4 録音（WAV）
+1. `fa_in_node`と`fa_record`を起動
 2. `record`サービスで開始/停止し、WAVを保存
 
 ## 6. 配信サンプル（Icecast向け）

@@ -2,8 +2,8 @@
 # All values here are treated as "parameters" (no magic numbers in code).
 
 dtln:
-  model_1_path: src/dsp/fa_ns/models/model_1.onnx
-  model_2_path: src/dsp/fa_ns/models/model_2.onnx
+  model_1_path: src/processing/correction/fa_denoise/models/model_1.onnx
+  model_2_path: src/processing/correction/fa_denoise/models/model_2.onnx
   block_len: 512
   block_shift: 128
   ort:
