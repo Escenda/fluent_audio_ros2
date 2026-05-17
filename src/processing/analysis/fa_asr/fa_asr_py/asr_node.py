@@ -10,6 +10,7 @@ from typing import Iterable
 
 import numpy as np
 import rclpy
+from rclpy.exceptions import ParameterUninitializedException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -138,7 +139,6 @@ class FaAsrNode(Node):
         )
 
     def _load_backend(self) -> AsrBackend:
-        args_value = self.get_parameter("backend.args").get_parameter_value().string_array_value
         return build_asr_backend(
             AsrBackendSettings(
                 name=str(self.get_parameter("backend.name").value),
@@ -146,7 +146,7 @@ class FaAsrNode(Node):
                 model=str(self.get_parameter("backend.model").value),
                 model_path=str(self.get_parameter("backend.model_path").value),
                 language=str(self.get_parameter("backend.language").value),
-                args=tuple(str(part) for part in args_value),
+                args=self._backend_args(),
                 timeout_sec=float(self.get_parameter("backend.timeout_sec").value),
                 working_directory=str(self.get_parameter("backend.working_directory").value),
                 output_text_path=str(self.get_parameter("backend.output_text_path").value),
@@ -154,6 +154,15 @@ class FaAsrNode(Node):
                 cleanup_audio_files=self.cleanup_audio_files,
             )
         )
+
+    def _backend_args(self) -> tuple[str, ...]:
+        try:
+            args_value = self.get_parameter(
+                "backend.args"
+            ).get_parameter_value().string_array_value
+        except ParameterUninitializedException:
+            return tuple()
+        return tuple(str(part) for part in args_value)
 
     def on_turn_context(self, msg: TurnContext) -> None:
         if not msg.active or not msg.session_id:
