@@ -17,6 +17,7 @@
 #include "rclcpp/rclcpp.hpp"
 
 #include "fa_kws/audio_utils.hpp"
+#include "fa_kws/backends/kws_backend.hpp"
 #include "fa_kws/backends/sherpa_onnx_kws_backend.hpp"
 
 namespace fa_kws
@@ -467,7 +468,7 @@ private:
   std::atomic<float> current_vad_prob_;
   std::atomic<std::int64_t> last_vad_rx_ns_{0};
 
-  std::unique_ptr<SherpaOnnxKwsBackend> kws_backend_;
+  std::unique_ptr<KwsBackend> kws_backend_;
 
   double debug_status_period_sec_{0.0};
   rclcpp::TimerBase::SharedPtr debug_timer_;

@@ -26,10 +26,17 @@ def test_backend_config_has_no_provider_default() -> None:
         / "backends"
         / "sherpa_onnx_kws_backend.hpp"
     )
+    interface_path = (
+        PACKAGE_ROOT / "include" / "fa_kws" / "backends" / "kws_backend.hpp"
+    )
 
     header_text = header_path.read_text(encoding="utf-8")
+    interface_text = interface_path.read_text(encoding="utf-8")
 
     assert "std::string execution_provider{};" in header_text
+    assert "class KwsBackend" in interface_text
+    assert "struct KwsDetection" in interface_text
+    assert "class SherpaOnnxKwsBackend final : public KwsBackend" in header_text
     assert "model_provider" not in header_text
     assert '{"cpu"}' not in header_text
 
@@ -39,6 +46,18 @@ def test_cmake_accepts_sherpa_prefix_from_environment() -> None:
 
     assert 'DEFINED ENV{SHERPA_ONNX_PREFIX}' in cmake_text
     assert '$ENV{SHERPA_ONNX_PREFIX}' in cmake_text
+
+
+def test_cmake_has_explicit_test_only_mode_without_sherpa() -> None:
+    cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert "FA_KWS_ALLOW_TEST_ONLY_WITHOUT_SHERPA" in cmake_text
+    assert "Runtime targets fa_kws_node/fa_kws_wav_tool will not be built" in cmake_text
+    assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "message(FATAL_ERROR" in cmake_text
+    assert "if(FA_KWS_HAS_SHERPA_ONNX)" in cmake_text
+    assert "add_executable(fa_kws_node" in cmake_text
 
 
 def test_node_uses_backend_execution_provider_parameter() -> None:
@@ -73,19 +92,18 @@ def test_kws_node_rejects_non_canonical_audio_frames() -> None:
 
 
 def test_detection_score_is_owned_by_backend() -> None:
-    header_path = (
-        PACKAGE_ROOT
-        / "include"
-        / "fa_kws"
-        / "backends"
-        / "sherpa_onnx_kws_backend.hpp"
+    interface_path = (
+        PACKAGE_ROOT / "include" / "fa_kws" / "backends" / "kws_backend.hpp"
     )
     backend_path = PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
     node_path = PACKAGE_ROOT / "src" / "fa_kws_node.cpp"
 
-    assert "float score{1.0f};" in header_path.read_text(encoding="utf-8")
+    assert "float score{1.0f};" in interface_path.read_text(encoding="utf-8")
     assert "det.score = 1.0f;" in backend_path.read_text(encoding="utf-8")
     assert "out.score = detection->score;" in node_path.read_text(encoding="utf-8")
+    assert "std::unique_ptr<KwsBackend> kws_backend_;" in node_path.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_wav_tool_requires_explicit_provider() -> None:

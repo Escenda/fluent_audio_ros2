@@ -1,12 +1,11 @@
 #pragma once
 
-#include <chrono>
 #include <cstdint>
-#include <optional>
 #include <string>
-#include <vector>
 
 #include <sherpa-onnx/c-api/c-api.h>
+
+#include "fa_kws/backends/kws_backend.hpp"
 
 namespace fa_kws
 {
@@ -36,18 +35,11 @@ bool isSupportedSherpaOnnxExecutionProvider(const std::string &execution_provide
 
 std::string supportedSherpaOnnxExecutionProvidersForMessage();
 
-struct KwsDetection
-{
-  std::string keyword;
-  float score{1.0f};
-  double start_time_sec{0.0};
-};
-
-class SherpaOnnxKwsBackend
+class SherpaOnnxKwsBackend final : public KwsBackend
 {
 public:
   explicit SherpaOnnxKwsBackend(const SherpaOnnxKwsBackendConfig &config);
-  ~SherpaOnnxKwsBackend();
+  ~SherpaOnnxKwsBackend() override;
 
   SherpaOnnxKwsBackend(const SherpaOnnxKwsBackend &) = delete;
   SherpaOnnxKwsBackend &operator=(const SherpaOnnxKwsBackend &) = delete;
@@ -55,13 +47,13 @@ public:
   std::optional<KwsDetection> process(const std::vector<float> &samples,
                                       std::int32_t sample_rate,
                                       float vad_prob,
-                                      std::chrono::steady_clock::time_point now);
+                                      std::chrono::steady_clock::time_point now) override;
 
   // Soft reset: clear stream state (may not fully reset internal buffers)
-  void reset();
+  void reset() override;
 
   // Hard reset: destroy and recreate stream (guarantees clean state)
-  void resetHard();
+  void resetHard() override;
 
 private:
   SherpaOnnxKwsBackendConfig config_;
