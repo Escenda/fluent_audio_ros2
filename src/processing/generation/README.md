@@ -1,7 +1,7 @@
 # Generation Processing
 
-This category contains nodes that produce or transform audio into a new audio
-representation.
+This category contains data-plane nodes that produce or transform audio into a
+new audio representation.
 
 Examples:
 
@@ -16,3 +16,8 @@ Examples:
 
 Generation backends may use external workers, separate Python environments, or
 cloud APIs, but the selected backend and required artifacts must be explicit.
+The backend code stays ROS-free under each package's `backends/` directory.
+
+This category is not the home for recognition, classification, dialogue policy,
+LLM/MCP/VLM orchestration, or application behavior. AI recognition nodes belong
+under `src/ai`; application orchestration belongs under `src/apps`.

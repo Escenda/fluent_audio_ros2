@@ -248,6 +248,31 @@ def test_processing_does_not_contain_ai_or_streaming_packages() -> None:
     assert present == []
 
 
+def test_generation_category_is_audio_data_plane_not_dialogue_ai() -> None:
+    required_docs = [
+        REPO_ROOT / "docs" / "仕様書.md",
+        REPO_ROOT / "docs" / "アルゴリズム詳細説明書.md",
+        SRC_ROOT / "processing" / "generation" / "README.md",
+        SRC_ROOT / "processing" / "generation" / "fa_tts" / "docs" / "仕様書.md",
+    ]
+    missing_terms: list[str] = []
+
+    for doc_path in required_docs:
+        source = doc_path.read_text(encoding="utf-8")
+        for term in (
+            "data-plane",
+            "dialogue policy",
+            "LLM",
+            "VLM",
+            "src/ai",
+            "src/apps",
+        ):
+            if term not in source:
+                missing_terms.append(f"{doc_path.relative_to(REPO_ROOT)} lacks {term}")
+
+    assert missing_terms == []
+
+
 def test_all_ros_packages_have_backend_documentation_file() -> None:
     missing: list[str] = []
 
