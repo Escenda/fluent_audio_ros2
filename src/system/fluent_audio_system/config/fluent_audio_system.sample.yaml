@@ -446,6 +446,19 @@ groups:
   - id: analysis
     enable: true
     nodes:
+      - id: fa_cqt
+        enable: false
+        package: fa_cqt
+        exec: fa_cqt_node
+        node_name: fa_cqt
+        namespace: ""
+        params_file: "${share:fa_cqt}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/frame_buffer/cqt"
+          feature.frame_length: 4096
+          feature.hop_length: 512
+
       - id: fa_log_mel
         enable: false
         package: fa_log_mel

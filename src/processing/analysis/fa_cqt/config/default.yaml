@@ -1,0 +1,19 @@
+fa_cqt:
+  ros__parameters:
+    input_topic: "audio/features/input"
+    output_topic: "audio/features/cqt"
+    backend.name: "internal_cqt"
+    expected.sample_rate: 16000
+    expected.channels: 1
+    expected.encoding: "FLOAT32LE"
+    expected.bit_depth: 32
+    expected.layout: "interleaved"
+    feature.frame_length: 4096
+    feature.hop_length: 512
+    feature.bin_count: 48
+    feature.bins_per_octave: 12
+    feature.f_min_hz: 130.8128
+    feature.window: "hann"
+    feature.normalization: "l2"
+    qos.depth: 10
+    qos.reliable: false

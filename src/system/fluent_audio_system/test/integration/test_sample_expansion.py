@@ -385,6 +385,7 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
     analysis_nodes = {node["id"]: node for node in groups["analysis"]["nodes"]}
 
     assert set(analysis_nodes) == {
+        "fa_cqt",
         "fa_log_mel",
         "fa_loudness",
         "fa_mfcc",
@@ -392,6 +393,16 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
         "fa_pitch",
         "fa_stft",
         "fa_tempo",
+    }
+    assert analysis_nodes["fa_cqt"]["enable"] is False
+    assert analysis_nodes["fa_cqt"]["package"] == "fa_cqt"
+    assert analysis_nodes["fa_cqt"]["params_file"] == (
+        "${share:fa_cqt}/config/default.yaml"
+    )
+    assert analysis_nodes["fa_cqt"]["parameters"] == {
+        "input_topic": "audio/frame_buffer/cqt",
+        "feature.frame_length": 4096,
+        "feature.hop_length": 512,
     }
     assert analysis_nodes["fa_loudness"]["enable"] is False
     assert analysis_nodes["fa_loudness"]["package"] == "fa_loudness"

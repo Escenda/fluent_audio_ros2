@@ -4,6 +4,7 @@
 
 ## Messages
 - `fa_interfaces/msg/AudioFrame`
+- `fa_interfaces/msg/CqtFrame`
 - `fa_interfaces/msg/LoudnessFrame`
 - `fa_interfaces/msg/StftFrame`
 - `fa_interfaces/msg/LogMelFrame`

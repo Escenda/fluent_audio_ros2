@@ -21,6 +21,7 @@ Only directories with `package.xml` are ROS 2 packages.
 
 | Directory | Status |
 | --- | --- |
+| `fa_cqt/` | ROS 2 package |
 | `fa_log_mel/` | ROS 2 package |
 | `fa_loudness/` | ROS 2 package |
 | `fa_mfcc/` | ROS 2 package |
