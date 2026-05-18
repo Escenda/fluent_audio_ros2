@@ -15,6 +15,8 @@ namespace
 {
 
 using namespace std::chrono_literals;
+constexpr const char * kInputStreamId = "fa_dc_offset_test/input_stream";
+constexpr const char * kOutputStreamId = "fa_dc_offset_test/output_stream";
 
 std::vector<uint8_t> float32LeBytes(const std::vector<float> & samples)
 {
@@ -41,7 +43,7 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(const rclcpp::Node & node)
   fa_interfaces::msg::AudioFrame frame;
   frame.header.stamp = node.now();
   frame.source_id = "test-mic";
-  frame.stream_id = "/fa_dc_offset_test/input";
+  frame.stream_id = kInputStreamId;
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = 16000;
   frame.channels = 2;
@@ -61,6 +63,8 @@ rclcpp::NodeOptions validNodeOptions(
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", input_topic),
     rclcpp::Parameter("output_topic", output_topic),
+    rclcpp::Parameter("input_stream_id", kInputStreamId),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("expected.sample_rate", 16000),
     rclcpp::Parameter("expected.channels", 2),
     rclcpp::Parameter("expected.encoding", "FLOAT32LE"),
@@ -69,6 +73,8 @@ rclcpp::NodeOptions validNodeOptions(
     rclcpp::Parameter("qos.depth", qos_depth),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
   return options;
 }
@@ -132,7 +138,7 @@ TEST_F(RclcppFixture, PublishesDcOffsetRemovedFloat32Frame)
 
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "test-mic");
-  EXPECT_EQ(received->stream_id, "/fa_dc_offset_test/output");
+  EXPECT_EQ(received->stream_id, kOutputStreamId);
   EXPECT_EQ(received->encoding, "FLOAT32LE");
   EXPECT_EQ(received->sample_rate, 16000U);
   EXPECT_EQ(received->channels, 2U);
@@ -167,5 +173,30 @@ TEST_F(RclcppFixture, RejectsInvalidQosDepthAtStartup)
   EXPECT_THROW(
     fa_dc_offset_removal::FaDcOffsetRemovalNode(
       validNodeOptions("/fa_dc_offset_test/input", "/fa_dc_offset_test/output", 0)),
+    std::runtime_error);
+}
+
+TEST_F(RclcppFixture, RejectsInputStreamThatMatchesTopicAtStartup)
+{
+  auto options = validNodeOptions();
+  options.parameter_overrides({
+    rclcpp::Parameter("input_topic", "/fa_dc_offset_test/input"),
+    rclcpp::Parameter("output_topic", "/fa_dc_offset_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_dc_offset_test/input"),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
+    rclcpp::Parameter("expected.sample_rate", 16000),
+    rclcpp::Parameter("expected.channels", 2),
+    rclcpp::Parameter("expected.encoding", "FLOAT32LE"),
+    rclcpp::Parameter("expected.bit_depth", 32),
+    rclcpp::Parameter("expected.layout", "interleaved"),
+    rclcpp::Parameter("qos.depth", 10),
+    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
+  });
+
+  EXPECT_THROW(
+    fa_dc_offset_removal::FaDcOffsetRemovalNode(options),
     std::runtime_error);
 }

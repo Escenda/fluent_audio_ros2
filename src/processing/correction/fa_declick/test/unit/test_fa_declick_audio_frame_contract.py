@@ -21,8 +21,10 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_declick"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/noise_gated/mic"
-    assert params["output_topic"] == "audio/declicked/mic"
+    assert params["input_topic"] == "fa_declick/input"
+    assert params["output_topic"] == "fa_declick/output"
+    assert params["input_stream_id"] == "audio/noise_gated/mic"
+    assert params["output"]["stream_id"] == "audio/declicked/mic"
     assert params["threshold"]["delta"] == 0.25
     assert 0.0 < params["threshold"]["delta"] <= 2.0
     assert params["window"]["max_samples"] == 1
@@ -70,9 +72,16 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
 
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "config_.input_stream_id.empty()" in load_parameters
+    assert "config_.output_stream_id.empty()" in load_parameters
     assert "resolve_topic_name(config_.input_topic)" in load_parameters
     assert "resolve_topic_name(config_.output_topic)" in load_parameters
     assert "config_.resolved_input_topic == config_.resolved_output_topic" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.resolved_output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.output_stream_id)" in load_parameters
     assert "!isFinite(config_.threshold_delta)" in load_parameters
     assert "config_.threshold_delta <= 0.0" in load_parameters
     assert "config_.threshold_delta > 2.0" in load_parameters
@@ -97,6 +106,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     required_reads = (
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredDouble(*this, "threshold.delta")',
         'readRequiredInt(*this, "window.max_samples")',
         'readRequiredInt(*this, "expected.sample_rate")',
@@ -159,7 +170,7 @@ def test_declick_validates_frame_contract_before_backend_processing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -191,7 +202,7 @@ def test_declick_preserves_metadata_and_updates_stream_identity() -> None:
     )[0]
 
     assert "out = in;" in apply_declick
-    assert "out.stream_id = config_.output_topic;" in apply_declick
+    assert "out.stream_id = config_.output_stream_id;" in apply_declick
     assert "out.data = std::move(processed_data);" in apply_declick
     assert "out.encoding =" not in apply_declick
     assert "out.bit_depth =" not in apply_declick
@@ -209,6 +220,8 @@ def test_diagnostics_publish_config_counters_backend_and_resolved_topics() -> No
     assert 'status.name = "fa_declick";' in diagnostics
     assert '"threshold_delta"' in diagnostics
     assert '"window_max_samples"' in diagnostics
+    assert '"input_stream_id"' in diagnostics
+    assert '"output_stream_id"' in diagnostics
     assert '"resolved_input_topic"' in diagnostics
     assert '"resolved_output_topic"' in diagnostics
     assert '"expected_encoding"' in diagnostics

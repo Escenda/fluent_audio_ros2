@@ -8,8 +8,15 @@ def test_default_config_requires_explicit_float32le_layout_conversion_contract()
     config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_interleave"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/frame"
-    assert params["output_topic"] == "audio/layout/mic"
+    assert params["input_topic"] == "fa_interleave/input"
+    assert params["output_topic"] == "fa_interleave/output"
+    assert params["input_stream_id"] == "audio/sample_format/mic"
+    assert params["output"]["stream_id"] == "audio/layout_reordered/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["input_stream_id"] != params["output_topic"]
+    assert params["output"]["stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["input"]["layout"] == "interleaved"
     assert params["output"]["layout"] == "planar"
     assert params["expected"]["sample_rate"] == 16000
@@ -76,6 +83,9 @@ def test_startup_rejects_unsupported_or_implicit_layout_conversion_config() -> N
     assert "FindPackageShare" not in launch_text
     assert "PathJoinSubstitution" not in launch_text
     assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "output_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredString(*this, "input.layout")' in load_parameters
     assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
@@ -86,6 +96,37 @@ def test_startup_rejects_unsupported_or_implicit_layout_conversion_config() -> N
             assert ", config_." not in line
 
 
+def test_startup_rejects_stream_identity_topic_collisions() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (package_root / "src" / "fa_interleave_node.cpp").read_text(encoding="utf-8")
+    header = (package_root / "include" / "fa_interleave" / "fa_interleave_node.hpp").read_text(
+        encoding="utf-8"
+    )
+    load_parameters = source.split("void FaInterleaveNode::loadParameters")[1].split(
+        "void FaInterleaveNode::setupInterfaces"
+    )[0]
+
+    assert "std::string input_stream_id{};" in header
+    assert "std::string output_stream_id{};" in header
+    assert 'declare_parameter<std::string>("input_stream_id");' in load_parameters
+    assert 'declare_parameter<std::string>("output.stream_id");' in load_parameters
+    assert "input_stream_id is required" in load_parameters
+    assert "output.stream_id is required" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_output_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
+
+
 def test_interleave_validates_frame_contract_before_processing() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_interleave_node.cpp").read_text(encoding="utf-8")
@@ -94,7 +135,8 @@ def test_interleave_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
+    assert "msg.stream_id != config_.input_topic" not in validate_frame
     assert "backend_->validateContract(frameContractFrom(msg))" in validate_frame
     assert "FrameContractStatus::kOk" in validate_frame
     assert "frameContractStatusName(contract_status)" in validate_frame
@@ -124,7 +166,8 @@ def test_interleave_preserves_metadata_and_updates_stream_layout_data_only() -> 
 
     assert "backend_->process(in.data, frameContractFrom(in), output_data)" in convert_frame
     assert "out = in;" in convert_frame
-    assert "out.stream_id = config_.output_topic;" in convert_frame
+    assert "out.stream_id = config_.output_stream_id;" in convert_frame
+    assert "out.stream_id = config_.output_topic;" not in convert_frame
     assert "out.layout = backend_->outputLayout();" in convert_frame
     assert "out.data = output_data;" in convert_frame
     assert "out.encoding =" not in convert_frame

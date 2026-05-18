@@ -86,6 +86,19 @@ bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
   }
   return parameter.as_bool();
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaInterleaveNode::FaInterleaveNode()
@@ -100,6 +113,8 @@ void FaInterleaveNode::loadParameters()
 {
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<std::string>("input.layout");
   this->declare_parameter<std::string>("output.layout");
   this->declare_parameter<int>("expected.sample_rate");
@@ -114,6 +129,8 @@ void FaInterleaveNode::loadParameters()
 
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.input_layout = readRequiredString(*this, "input.layout");
   config_.output_layout = readRequiredString(*this, "output.layout");
   config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
@@ -132,6 +149,31 @@ void FaInterleaveNode::loadParameters()
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0");
@@ -154,10 +196,12 @@ void FaInterleaveNode::loadParameters()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Interleave config: input=%s output=%s layout=%s->%s expected=%dHz/%d/%s/%d qos_depth=%d "
+    "Interleave config: input=%s/%s output=%s/%s layout=%s->%s expected=%dHz/%d/%s/%d qos_depth=%d "
     "reliable=%s diag=%dms",
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.input_layout.c_str(),
     config_.output_layout.c_str(),
     config_.expected_sample_rate,
@@ -236,12 +280,12 @@ bool FaInterleaveNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   const backends::FrameContractStatus contract_status =
@@ -274,7 +318,7 @@ bool FaInterleaveNode::convertFrame(
   }
 
   out = in;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   out.layout = backend_->outputLayout();
   out.data = output_data;
   return true;
@@ -291,9 +335,11 @@ void FaInterleaveNode::publishDiagnostics()
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
 
-  status.values.reserve(13);
+  status.values.reserve(15);
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "input.layout", config_.input_layout);
   pushKeyValue(status, "output.layout", config_.output_layout);
   pushKeyValue(status, "expected.sample_rate", std::to_string(config_.expected_sample_rate));

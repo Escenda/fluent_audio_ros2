@@ -47,7 +47,7 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(const std::vector<float> & sampl
   frame.header.stamp.sec = 10;
   frame.header.stamp.nanosec = 0U;
   frame.source_id = "mic-a";
-  frame.stream_id = "/fa_declick_test/input";
+  frame.stream_id = "fa_declick_test_input_stream";
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = 16000;
   frame.channels = 1;
@@ -60,12 +60,16 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(const std::vector<float> & sampl
 
 rclcpp::NodeOptions validNodeOptions(
   const std::string & input_topic = "/fa_declick_test/input",
-  const std::string & output_topic = "/fa_declick_test/output")
+  const std::string & output_topic = "/fa_declick_test/output",
+  const std::string & input_stream_id = "fa_declick_test_input_stream",
+  const std::string & output_stream_id = "fa_declick_test_output_stream")
 {
   rclcpp::NodeOptions options;
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", input_topic),
     rclcpp::Parameter("output_topic", output_topic),
+    rclcpp::Parameter("input_stream_id", input_stream_id),
+    rclcpp::Parameter("output.stream_id", output_stream_id),
     rclcpp::Parameter("threshold.delta", 0.25),
     rclcpp::Parameter("window.max_samples", 1),
     rclcpp::Parameter("expected.sample_rate", 16000),
@@ -138,7 +142,7 @@ TEST_F(RclcppFixture, PublishesDeclickedFloat32Frame)
 
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "mic-a");
-  EXPECT_EQ(received->stream_id, "/fa_declick_test/output");
+  EXPECT_EQ(received->stream_id, "fa_declick_test_output_stream");
   EXPECT_EQ(received->encoding, "FLOAT32LE");
   EXPECT_EQ(received->sample_rate, 16000U);
   EXPECT_EQ(received->channels, 1U);
@@ -189,5 +193,24 @@ TEST_F(RclcppFixture, RejectsSameResolvedInputAndOutputTopicAtStartup)
 {
   EXPECT_THROW(
     fa_declick::FaDeclickNode(validNodeOptions("fa_declick_test/same", "/fa_declick_test/same")),
+    std::runtime_error);
+}
+
+TEST_F(RclcppFixture, RejectsInputStreamIdentityCollidingWithTopicAtStartup)
+{
+  EXPECT_THROW(
+    fa_declick::FaDeclickNode(
+      validNodeOptions(
+        "/fa_declick_test/input", "/fa_declick_test/output", "/fa_declick_test/input",
+        "fa_declick_test_output_stream")),
+    std::runtime_error);
+}
+
+TEST_F(RclcppFixture, RejectsInputAndOutputStreamIdentityCollisionAtStartup)
+{
+  EXPECT_THROW(
+    fa_declick::FaDeclickNode(
+      validNodeOptions(
+        "/fa_declick_test/input", "/fa_declick_test/output", "same_stream", "same_stream")),
     std::runtime_error);
 }

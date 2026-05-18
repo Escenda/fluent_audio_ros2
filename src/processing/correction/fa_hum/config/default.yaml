@@ -1,7 +1,10 @@
 fa_hum:
   ros__parameters:
-    input_topic: "audio/dc_offset_removed/mic"
-    output_topic: "audio/hum_removed/mic"
+    input_topic: "fa_hum/input"
+    output_topic: "fa_hum/output"
+    input_stream_id: "audio/dc_offset_removed/mic"
+    output:
+      stream_id: "audio/hum_removed/mic"
 
     hum:
       frequency_hz: 60.0

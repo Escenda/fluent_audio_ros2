@@ -39,8 +39,10 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     )
     params = config["fa_hum"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/dc_offset_removed/mic"
-    assert params["output_topic"] == "audio/hum_removed/mic"
+    assert params["input_topic"] == "fa_hum/input"
+    assert params["output_topic"] == "fa_hum/output"
+    assert params["input_stream_id"] == "audio/dc_offset_removed/mic"
+    assert params["output"]["stream_id"] == "audio/hum_removed/mic"
     assert params["hum"]["frequency_hz"] == 60.0
     assert params["hum"]["harmonics"] == 4
     assert params["hum"]["q"] == 30.0
@@ -84,9 +86,15 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
 
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "config_.input_stream_id.empty()" in load_parameters
+    assert "config_.output_stream_id.empty()" in load_parameters
+    assert "config_.input_topic == config_.output_topic" in load_parameters
     assert "resolve_topic_name(config_.input_topic)" in load_parameters
     assert "resolve_topic_name(config_.output_topic)" in load_parameters
     assert "config_.resolved_input_topic == config_.resolved_output_topic" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "config_.expected_sample_rate <= 0" in load_parameters
     assert "!isFinite(config_.frequency_hz)" in load_parameters
     assert "config_.frequency_hz <= 0.0" in load_parameters
@@ -114,6 +122,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     required_reads = (
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredDouble(*this, "hum.frequency_hz")',
         'readRequiredInt(*this, "hum.harmonics")',
         'readRequiredDouble(*this, "hum.q")',
@@ -146,7 +156,7 @@ def test_hum_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -185,7 +195,7 @@ def test_hum_preserves_metadata_and_updates_stream_identity_only() -> None:
     )[0]
 
     assert "out = in;" in apply_hum
-    assert "out.stream_id = config_.output_topic;" in apply_hum
+    assert "out.stream_id = config_.output_stream_id;" in apply_hum
     assert "out.data = std::move(processed_data);" in apply_hum
     assert "out.encoding =" not in apply_hum
     assert "out.bit_depth =" not in apply_hum

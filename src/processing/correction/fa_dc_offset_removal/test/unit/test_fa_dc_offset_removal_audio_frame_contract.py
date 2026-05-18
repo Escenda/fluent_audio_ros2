@@ -33,8 +33,13 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_dc_offset_removal"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/sample_format/mic"
-    assert params["output_topic"] == "audio/dc_offset_removed/mic"
+    assert params["input_topic"] == "fa_dc_offset_removal/input"
+    assert params["output_topic"] == "fa_dc_offset_removal/output"
+    assert params["input_stream_id"] == "audio/sample_format/mic"
+    assert params["output"]["stream_id"] == "audio/dc_offset_removed/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "FLOAT32LE"
@@ -79,10 +84,21 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
 
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "config_.input_stream_id.empty()" in load_parameters
+    assert "config_.output_stream_id.empty()" in load_parameters
     assert "config_.resolved_input_topic =" in load_parameters
     assert "resolve_topic_name(config_.input_topic)" in load_parameters
     assert "resolve_topic_name(config_.output_topic)" in load_parameters
     assert "config_.resolved_input_topic == config_.resolved_output_topic" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.resolved_output_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.resolved_output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.output_stream_id)" in load_parameters
     assert "config_.expected_sample_rate <= 0" in load_parameters
     assert "config_.expected_channels <= 0" in load_parameters
     assert "config_.expected_encoding != kEncodingFloat32" in load_parameters
@@ -104,6 +120,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     required_reads = (
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredInt(*this, "expected.sample_rate")',
         'readRequiredInt(*this, "expected.channels")',
         'readRequiredString(*this, "expected.encoding")',
@@ -150,7 +168,7 @@ def test_dc_offset_removal_validates_frame_contract_before_processing() -> None:
     assert 'throw std::logic_error("received null AudioFrame pointer")' in handle_frame
     assert "frames_dropped_.fetch_add(1);" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -167,7 +185,8 @@ def test_dc_offset_removal_preserves_identity_and_updates_stream_identity() -> N
     )[0]
 
     assert "out = in;" in remove_dc_offset
-    assert "out.stream_id = config_.output_topic;" in remove_dc_offset
+    assert "out.stream_id = config_.output_stream_id;" in remove_dc_offset
+    assert "out.stream_id = config_.output_topic;" not in remove_dc_offset
     assert "backend_->process(in.data, out.data)" in remove_dc_offset
     assert "out.encoding =" not in remove_dc_offset
     assert "out.bit_depth =" not in remove_dc_offset
@@ -318,6 +337,11 @@ def test_diagnostics_publish_resolved_topic_identity() -> None:
 
     assert 'pushKeyValue(status, "input_topic", config_.input_topic);' in publish_diagnostics
     assert 'pushKeyValue(status, "output_topic", config_.output_topic);' in publish_diagnostics
+    assert 'pushKeyValue(status, "input_stream_id", config_.input_stream_id);' in publish_diagnostics
+    assert (
+        'pushKeyValue(status, "output_stream_id", config_.output_stream_id);'
+        in publish_diagnostics
+    )
     assert (
         'pushKeyValue(status, "resolved_input_topic", config_.resolved_input_topic);'
         in publish_diagnostics

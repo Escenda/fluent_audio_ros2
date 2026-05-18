@@ -57,8 +57,13 @@ def test_default_launch_config_keeps_dc_offset_as_correction_node() -> None:
     )
     params = config["fa_dc_offset_removal"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/sample_format/mic"
-    assert params["output_topic"] == "audio/dc_offset_removed/mic"
+    assert params["input_topic"] == "fa_dc_offset_removal/input"
+    assert params["output_topic"] == "fa_dc_offset_removal/output"
+    assert params["input_stream_id"] == "audio/sample_format/mic"
+    assert params["output"]["stream_id"] == "audio/dc_offset_removed/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "FLOAT32LE"
@@ -128,3 +133,48 @@ def test_launch_fails_closed_when_encoding_contract_is_wrong(tmp_path: Path) -> 
 
     assert "process has died" in result.stdout
     assert "fa_dc_offset_removal requires expected.encoding=FLOAT32LE" in result.stdout
+
+
+def test_launch_fails_closed_when_input_stream_id_matches_topic(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_dc_offset_removal"]["ros__parameters"]
+    params["input_stream_id"] = params["input_topic"]
+    config_path = tmp_path / "input_stream_matches_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_dc_offset_removal_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "input_stream_id must be distinct from ROS topics" in result.stdout
+
+
+def test_launch_fails_closed_when_output_stream_id_matches_topic(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_dc_offset_removal"]["ros__parameters"]
+    params["output"]["stream_id"] = params["output_topic"]
+    config_path = tmp_path / "output_stream_matches_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_dc_offset_removal_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "output.stream_id must be distinct from ROS topics" in result.stdout
+
+
+def test_launch_fails_closed_when_input_and_output_stream_ids_match(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_dc_offset_removal"]["ros__parameters"]
+    params["output"]["stream_id"] = params["input_stream_id"]
+    config_path = tmp_path / "same_stream_identity.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_dc_offset_removal_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "input_stream_id and output.stream_id must be distinct" in result.stdout

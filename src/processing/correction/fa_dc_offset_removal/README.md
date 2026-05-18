@@ -18,8 +18,9 @@
 - `bit_depth == 32`
 - `layout == interleaved`
 - `source_id` と `stream_id` は空でない
-- 入力 `stream_id` は `input_topic` と一致する
-- 出力 `stream_id` は `output_topic` に更新する
+- 入力 `stream_id` は `input_stream_id` と一致する
+- 出力 `stream_id` は `output.stream_id` に更新する
+- `input_topic` / `output_topic` は ROS 搬送路であり、`AudioFrame.stream_id` として扱わない
 - `data` は空でなく、`channels * sizeof(float)` で割り切れる
 
 ## 処理

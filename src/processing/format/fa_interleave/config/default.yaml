@@ -1,12 +1,14 @@
 fa_interleave:
   ros__parameters:
-    input_topic: "audio/frame"
-    output_topic: "audio/layout/mic"
+    input_topic: "fa_interleave/input"
+    output_topic: "fa_interleave/output"
+    input_stream_id: "audio/sample_format/mic"
 
     input:
       layout: "interleaved"
 
     output:
+      stream_id: "audio/layout_reordered/mic"
       layout: "planar"
 
     expected:

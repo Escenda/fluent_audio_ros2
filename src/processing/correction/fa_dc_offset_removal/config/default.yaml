@@ -1,7 +1,8 @@
 fa_dc_offset_removal:
   ros__parameters:
-    input_topic: "audio/sample_format/mic"
-    output_topic: "audio/dc_offset_removed/mic"
+    input_topic: "fa_dc_offset_removal/input"
+    output_topic: "fa_dc_offset_removal/output"
+    input_stream_id: "audio/sample_format/mic"
 
     expected:
       sample_rate: 16000
@@ -9,6 +10,9 @@ fa_dc_offset_removal:
       encoding: "FLOAT32LE"
       bit_depth: 32
       layout: "interleaved"
+
+    output:
+      stream_id: "audio/dc_offset_removed/mic"
 
     qos:
       depth: 10

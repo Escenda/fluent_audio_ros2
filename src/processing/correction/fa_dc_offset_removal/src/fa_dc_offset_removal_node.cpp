@@ -78,6 +78,19 @@ void pushKeyValue(
   kv.value = value;
   status.values.push_back(kv);
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaDcOffsetRemovalNode::FaDcOffsetRemovalNode(const rclcpp::NodeOptions & options)
@@ -95,6 +108,8 @@ void FaDcOffsetRemovalNode::loadParameters()
 {
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<int>("expected.sample_rate");
   this->declare_parameter<int>("expected.channels");
   this->declare_parameter<std::string>("expected.encoding");
@@ -108,6 +123,8 @@ void FaDcOffsetRemovalNode::loadParameters()
 
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
   config_.expected_channels = readRequiredInt(*this, "expected.channels");
   config_.expected_encoding = readRequiredString(*this, "expected.encoding");
@@ -127,12 +144,35 @@ void FaDcOffsetRemovalNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
   config_.resolved_input_topic =
     this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
   config_.resolved_output_topic =
     this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
   if (config_.resolved_input_topic == config_.resolved_output_topic) {
     throw std::runtime_error("resolved input_topic and output_topic must be distinct");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.resolved_output_topic))
+  {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.resolved_output_topic))
+  {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (config_.expected_sample_rate <= 0) {
     throw std::runtime_error("expected.sample_rate must be > 0");
@@ -161,9 +201,11 @@ void FaDcOffsetRemovalNode::loadParameters()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "DC offset removal config: input=%s output=%s expected=%dHz/%d/%s/%d/%s qos_depth=%d reliable=%s diag=%dms",
+    "DC offset removal config: input=%s/%s output=%s/%s expected=%dHz/%d/%s/%d/%s qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -244,12 +286,12 @@ bool FaDcOffsetRemovalNode::validateFrame(const fa_interfaces::msg::AudioFrame &
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -300,7 +342,7 @@ bool FaDcOffsetRemovalNode::removeDcOffset(
   fa_interfaces::msg::AudioFrame & out)
 {
   out = in;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   const backends::ProcessResult result = backend_->process(in.data, out.data);
   if (result.status != backends::ProcessStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
@@ -326,9 +368,11 @@ void FaDcOffsetRemovalNode::publishDiagnostics()
   status.name = "fa_dc_offset_removal";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(13);
+  status.values.reserve(15);
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "resolved_input_topic", config_.resolved_input_topic);
   pushKeyValue(status, "resolved_output_topic", config_.resolved_output_topic);
   pushKeyValue(status, "expected_sample_rate", std::to_string(config_.expected_sample_rate));
