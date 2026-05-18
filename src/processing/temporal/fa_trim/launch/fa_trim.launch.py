@@ -11,8 +11,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "node_name",
-            default_value="fa_trim",
-            description="ノード名",
+            description="ノード名。config_file の top-level key と一致させる。必ず明示する。",
         ),
         DeclareLaunchArgument(
             "config_file",

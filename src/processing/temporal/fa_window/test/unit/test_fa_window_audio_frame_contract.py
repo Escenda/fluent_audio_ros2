@@ -55,7 +55,7 @@ def test_launch_requires_explicit_config_file_without_package_default() -> None:
         1,
     )[0]
 
-    assert "default_value" not in config_argument
+    assert "default_value" not in launch_source
     assert "FindPackageShare" not in launch_source
     assert "PathJoinSubstitution" not in launch_source
     assert "config/default.yaml" not in launch_source
