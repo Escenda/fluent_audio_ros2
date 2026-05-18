@@ -49,6 +49,12 @@ std::string displayName(const fa_in::backends::DeviceInfo & device)
   return device.name;
 }
 
+std::string openedDevice(const std::shared_ptr<FakeSourceState> & state)
+{
+  std::lock_guard<std::mutex> lock(state->opened_device_mutex);
+  return state->opened_device;
+}
+
 class FakeSourceBackend final : public fa_in::backends::SourceBackend
 {
 public:
@@ -393,13 +399,45 @@ TEST_F(RclcppContractTest, SwitchReopenFailureFailsClosed)
   auto request = std::make_shared<fa_interfaces::srv::SwitchDevice::Request>();
   request->target_identifier = "hw:1,0";
   request->target_index = -1;
-  request->restart = true;
   client->async_send_request(request);
 
   EXPECT_TRUE(spinUntil(executor, [&node]() {
     return node->hasFatalError();
   }));
   EXPECT_TRUE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, SwitchDeviceReopensSelectedSource)
+{
+  const auto state = std::make_shared<FakeSourceState>();
+  auto node = std::make_shared<fa_in::FaInNode>(
+    optionsWith(validParameters()),
+    factoryFor(state));
+  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_success_client");
+  auto client = client_node->create_client<fa_interfaces::srv::SwitchDevice>("switch_device");
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(client_node);
+
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  auto request = std::make_shared<fa_interfaces::srv::SwitchDevice::Request>();
+  request->target_identifier = "hw:1,0";
+  request->target_index = -1;
+  auto future = client->async_send_request(request);
+
+  ASSERT_TRUE(spinUntil(executor, [&future]() {
+    return future.wait_for(0ms) == std::future_status::ready;
+  }));
+  const auto response = future.get();
+  ASSERT_TRUE(response->success);
+  EXPECT_EQ(response->message, "switched");
+  EXPECT_TRUE(spinUntil(executor, [&state]() {
+    return openedDevice(state) == "hw:1,0";
+  }));
+  EXPECT_FALSE(node->hasFatalError());
 }
 
 }  // namespace

@@ -140,6 +140,8 @@ def test_device_services_surface_enumeration_failure() -> None:
     assert "validation::requireExactlyOneSwitchDeviceSelector" in switch_device
     assert "device index not found" in switch_device
     assert "device name is ambiguous" in switch_device
+    assert "restart=false" not in switch_device
+    assert "request->restart" not in switch_device
     assert "else if (!request->target_identifier.empty())" not in switch_device
 
 

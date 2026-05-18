@@ -493,12 +493,6 @@ void FaInNode::handleSwitchDevice(
     return;
   }
 
-  if (!request->restart) {
-    response->success = true;
-    response->message = "device selected (restart=false)";
-    return;
-  }
-
   if (!reopenStream(device_id)) {
     response->success = false;
     response->message = "failed to open device; fa_in shutting down";
