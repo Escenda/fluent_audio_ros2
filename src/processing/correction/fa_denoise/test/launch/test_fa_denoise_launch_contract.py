@@ -37,20 +37,24 @@ def _run_fa_denoise_launch(config_path: Path) -> subprocess.CompletedProcess[str
         return subprocess.CompletedProcess(command, LAUNCH_TIMEOUT_CODE, stdout, None)
 
 
-def test_launch_uses_explicit_debug_model_path_arguments() -> None:
+def test_launch_requires_only_node_name_and_config_file_arguments() -> None:
     launch_text = (PACKAGE_ROOT / "launch" / "fa_denoise.launch.py").read_text(
         encoding="utf-8"
     )
 
     assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
     assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert 'FindPackageShare("fa_denoise"), "config", "default.yaml"' in launch_text
-    assert 'DeclareLaunchArgument(\n            "model_1_path"' in launch_text
-    assert 'DeclareLaunchArgument(\n            "model_2_path"' in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
+    assert "config/default.yaml" not in launch_text
+    assert 'DeclareLaunchArgument(\n            "model_1_path"' not in launch_text
+    assert 'DeclareLaunchArgument(\n            "model_2_path"' not in launch_text
     assert 'package="fa_denoise"' in launch_text
     assert 'executable="fa_denoise_node"' in launch_text
-    assert "dtln.model_1_path" in launch_text
-    assert "dtln.model_2_path" in launch_text
+    assert "parameters=[config_file]" in launch_text
+    assert "dtln.model_1_path" not in launch_text
+    assert "dtln.model_2_path" not in launch_text
     assert "backend.name" not in launch_text
     assert "expected_sample_rate" not in launch_text
 
