@@ -166,6 +166,28 @@ def test_so101_profile_config_expands_default_site_bound_nodes(
     )
 
 
+def test_required_packages_for_so101_profile_excludes_disabled_pipelines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_fluent_audio_system_share(monkeypatch)
+
+    packages = load_required_packages(
+        "${share:fluent_audio_system}/config/profiles/so101.yaml"
+    )
+
+    assert packages == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_in",
+        "fa_out",
+    ]
+    assert "fa_vad" not in packages
+    assert "fa_kws" not in packages
+    assert "fa_asr" not in packages
+    assert "fa_turn_detector" not in packages
+    assert "fa_denoise" not in packages
+
+
 def test_so101_profile_does_not_embed_turn_detector_model_artifact_path() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "profiles" / "so101.yaml").read_text(encoding="utf-8")
@@ -412,6 +434,29 @@ def test_so101_tts_output_profile_expands_explicit_playback_pipeline(
         "expected.bit_depth": 16,
         "expected.encoding": "PCM16LE",
     }
+
+
+def test_required_packages_for_so101_tts_output_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_fluent_audio_system_share(monkeypatch)
+
+    packages = load_required_packages(
+        "${share:fluent_audio_system}/config/profiles/so101_tts_output.yaml"
+    )
+
+    assert packages == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_out",
+        "fa_tts",
+        "fa_resample",
+        "fa_sample_format",
+        "fa_mix",
+    ]
+    assert "fa_in" not in packages
+    assert "fa_vad" not in packages
+    assert "fa_asr" not in packages
 
 
 def test_so101_tts_output_profile_requires_openjtalk_dictionary_env(
