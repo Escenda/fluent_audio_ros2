@@ -3,15 +3,14 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_notch/backends/internal_notch.hpp"
 
 namespace fa_notch
 {
@@ -20,7 +19,6 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr double kPi = 3.14159265358979323846;
 
 bool isFinite(double value)
 {
@@ -44,9 +42,11 @@ FaNotchNode::FaNotchNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Notch node");
   loadParameters();
-  configureFilter();
+  configureBackend();
   setupInterfaces();
 }
+
+FaNotchNode::~FaNotchNode() = default;
 
 void FaNotchNode::loadParameters()
 {
@@ -130,29 +130,14 @@ void FaNotchNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
-void FaNotchNode::configureFilter()
+void FaNotchNode::configureBackend()
 {
-  const double omega = 2.0 * kPi * config_.center_hz / static_cast<double>(config_.expected_sample_rate);
-  const double alpha = std::sin(omega) / (2.0 * config_.q);
-  const double cos_omega = std::cos(omega);
-  const double a0 = 1.0 + alpha;
-  if (!isFinite(a0) || a0 == 0.0) {
-    throw std::runtime_error("notch coefficient normalization failed because a0 is invalid");
-  }
-
-  coefficients_.b0 = 1.0 / a0;
-  coefficients_.b1 = (-2.0 * cos_omega) / a0;
-  coefficients_.b2 = 1.0 / a0;
-  coefficients_.a1 = (-2.0 * cos_omega) / a0;
-  coefficients_.a2 = (1.0 - alpha) / a0;
-
-  if (!isFinite(coefficients_.b0) || !isFinite(coefficients_.b1) || !isFinite(coefficients_.b2) ||
-      !isFinite(coefficients_.a1) || !isFinite(coefficients_.a2))
-  {
-    throw std::runtime_error("notch coefficient normalization produced non-finite coefficients");
-  }
-
-  channel_states_.assign(static_cast<size_t>(config_.expected_channels), ChannelFilterState{});
+  backend_ = std::make_unique<backends::InternalNotchBackend>(
+    backends::InternalNotchConfig{
+      config_.expected_sample_rate,
+      config_.expected_channels,
+      config_.center_hz,
+      config_.q});
 }
 
 void FaNotchNode::setupInterfaces()
@@ -265,58 +250,20 @@ bool FaNotchNode::applyNotch(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
-  std::vector<ChannelFilterState> next_states = channel_states_;
-
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const size_t channel_count = static_cast<size_t>(config_.expected_channels);
-  const size_t sample_count = in.data.size() / sizeof(float);
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!std::isfinite(sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is not finite");
-      return false;
-    }
-
-    ChannelFilterState & state = next_states.at(i % channel_count);
-    const double input = static_cast<double>(sample);
-    const double filtered =
-      coefficients_.b0 * input +
-      coefficients_.b1 * state.previous_input_1 +
-      coefficients_.b2 * state.previous_input_2 -
-      coefficients_.a1 * state.previous_output_1 -
-      coefficients_.a2 * state.previous_output_2;
-    if (!isFinite(filtered)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because notch output is not finite");
-      return false;
-    }
-
-    const float out_sample = static_cast<float>(filtered);
-    if (!std::isfinite(out_sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because notch output cannot be represented as FLOAT32LE");
-      return false;
-    }
-
-    state.previous_input_2 = state.previous_input_1;
-    state.previous_input_1 = input;
-    state.previous_output_2 = state.previous_output_1;
-    state.previous_output_1 = filtered;
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
+  const backends::ProcessStatus status = backend_->process(in.data, out.data);
+  if (status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because notch backend rejected input or output: %s",
+      backends::processStatusMessage(status));
+    return false;
   }
 
   if (active_source_id_.empty()) {
     active_source_id_ = in.source_id;
   }
-  channel_states_ = next_states;
   return true;
 }
 
@@ -332,11 +279,12 @@ void FaNotchNode::publishDiagnostics()
   status.values.reserve(11);
   pushKeyValue(status, "filter_center_hz", std::to_string(config_.center_hz));
   pushKeyValue(status, "filter_q", std::to_string(config_.q));
-  pushKeyValue(status, "coefficient_b0", std::to_string(coefficients_.b0));
-  pushKeyValue(status, "coefficient_b1", std::to_string(coefficients_.b1));
-  pushKeyValue(status, "coefficient_b2", std::to_string(coefficients_.b2));
-  pushKeyValue(status, "coefficient_a1", std::to_string(coefficients_.a1));
-  pushKeyValue(status, "coefficient_a2", std::to_string(coefficients_.a2));
+  const backends::BiquadCoefficients & coefficients = backend_->coefficients();
+  pushKeyValue(status, "coefficient_b0", std::to_string(coefficients.b0));
+  pushKeyValue(status, "coefficient_b1", std::to_string(coefficients.b1));
+  pushKeyValue(status, "coefficient_b2", std::to_string(coefficients.b2));
+  pushKeyValue(status, "coefficient_a1", std::to_string(coefficients.a1));
+  pushKeyValue(status, "coefficient_a2", std::to_string(coefficients.a2));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));

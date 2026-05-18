@@ -2,8 +2,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -12,6 +12,11 @@
 
 namespace fa_notch
 {
+
+namespace backends
+{
+class InternalNotchBackend;
+}  // namespace backends
 
 struct NotchConfig
 {
@@ -29,23 +34,6 @@ struct NotchConfig
   int diagnostics_publish_period_ms{-1};
 };
 
-struct BiquadCoefficients
-{
-  double b0{0.0};
-  double b1{0.0};
-  double b2{0.0};
-  double a1{0.0};
-  double a2{0.0};
-};
-
-struct ChannelFilterState
-{
-  double previous_input_1{0.0};
-  double previous_input_2{0.0};
-  double previous_output_1{0.0};
-  double previous_output_2{0.0};
-};
-
 /**
  * @brief FLOAT32LE AudioFrame に二次 notch filter を適用する processing node。
  */
@@ -53,22 +41,21 @@ class FaNotchNode : public rclcpp::Node
 {
 public:
   FaNotchNode();
-  ~FaNotchNode() override = default;
+  ~FaNotchNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
-  void configureFilter();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyNotch(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   NotchConfig config_;
-  BiquadCoefficients coefficients_{};
   std::string active_source_id_{};
-  std::vector<ChannelFilterState> channel_states_{};
+  std::unique_ptr<backends::InternalNotchBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;

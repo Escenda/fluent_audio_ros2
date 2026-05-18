@@ -1,13 +1,22 @@
 # internal_notch backend
 
-`fa_notch` の初期 backend は node 内 C++ 実装である。
+`fa_notch` の初期 backend は ROS2 非依存の C++ 実装 `fa_notch::backends::InternalNotchBackend` である。
 
 ## Scope
 
-- `AudioFrame.data` を FLOAT32LE interleaved sample として処理する。
+- FLOAT32LE interleaved sample bytes を処理する。
 - channel ごとに二次 biquad filter state を保持する。
 - `filter.center_hz` と `filter.q` から notch 係数を計算する。
 - 係数は処理前に `a0` で正規化する。
+- backend は ROS2 topic、ROS message、`rclcpp` を参照しない。
+
+## Failure Contract
+
+- 空入力は `kEmptyInput` として拒否する。
+- `channels * sizeof(float)` に揃わない byte 長は `kMisalignedInput` として拒否する。
+- non-finite input sample は `kNonFiniteInput` として拒否する。
+- FLOAT32LE として表現できない output sample は `kNonFiniteOutput` として拒否する。
+- 拒否時は channel filter state を更新しない。
 
 ## Non-Scope
 

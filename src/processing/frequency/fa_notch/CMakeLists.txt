@@ -13,6 +13,14 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
+add_library(fa_notch_internal_notch STATIC
+  src/backends/internal_notch.cpp
+)
+
+target_include_directories(fa_notch_internal_notch PUBLIC
+  include
+)
+
 add_executable(fa_notch_node
   src/fa_notch_node.cpp
 )
@@ -25,6 +33,10 @@ ament_target_dependencies(fa_notch_node
   rclcpp
   diagnostic_msgs
   fa_interfaces
+)
+
+target_link_libraries(fa_notch_node
+  fa_notch_internal_notch
 )
 
 install(TARGETS fa_notch_node
@@ -42,8 +54,21 @@ install(DIRECTORY include/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  ament_add_gtest(${PROJECT_NAME}_backend_test
+    test/cpp/test_internal_notch_backend.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_backend_test)
+    target_include_directories(${PROJECT_NAME}_backend_test PRIVATE
+      include
+    )
+    target_link_libraries(${PROJECT_NAME}_backend_test
+      fa_notch_internal_notch
+    )
+  endif()
 
   set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
   ament_add_pytest_test(${PROJECT_NAME}_pytest test
