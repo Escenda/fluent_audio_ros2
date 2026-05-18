@@ -94,10 +94,11 @@ std::vector<uint8_t> pcm16LeBytes(const std::vector<int16_t> & samples)
 fa_interfaces::msg::AudioFrame frameWith(
   const std::string & stream_id,
   const std::vector<int16_t> & samples,
-  const uint32_t epoch)
+  const uint32_t epoch,
+  const int64_t stamp_nanoseconds)
 {
   fa_interfaces::msg::AudioFrame frame;
-  frame.header.stamp = stampFromNanoseconds(1000000000LL + static_cast<int64_t>(epoch));
+  frame.header.stamp = stampFromNanoseconds(stamp_nanoseconds);
   frame.header.frame_id = stream_id;
   frame.source_id = "test-source";
   frame.stream_id = stream_id;
@@ -109,6 +110,14 @@ fa_interfaces::msg::AudioFrame frameWith(
   frame.data = pcm16LeBytes(samples);
   frame.epoch = epoch;
   return frame;
+}
+
+fa_interfaces::msg::AudioFrame frameWith(
+  const std::string & stream_id,
+  const std::vector<int16_t> & samples,
+  const uint32_t epoch)
+{
+  return frameWith(stream_id, samples, epoch, 1000000000LL + static_cast<int64_t>(epoch));
 }
 
 bool spinUntil(
@@ -307,6 +316,72 @@ TEST_F(RclcppContractTest, DoesNotCacheReferenceWithMismatchedStreamId)
   ref_pub->publish(frameWith("audio/test/wrong_ref_stream", {4096}, 2U));
   spinFor(executor, 100ms);
   mic_pub->publish(frameWith(kMicTopic, {8192}, 3U));
+  spinFor(executor, 250ms);
+
+  EXPECT_TRUE(received.empty());
+}
+
+TEST_F(RclcppContractTest, DropsMicFrameWhenReferenceTimestampIsNewerThanMic)
+{
+  auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(validParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_negative_skew_contract_io");
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto mic_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kMicTopic, rclcpp::QoS(10).reliable());
+  auto ref_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kRefTopic, rclcpp::QoS(10).reliable());
+  auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    kOutputTopic, rclcpp::QoS(10).reliable(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+  ASSERT_NE(output_sub, nullptr);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&mic_pub, &ref_pub, &output_sub]() {
+    return mic_pub->get_subscription_count() > 0 &&
+      ref_pub->get_subscription_count() > 0 &&
+      output_sub->get_publisher_count() > 0;
+  }));
+
+  ref_pub->publish(frameWith(kRefTopic, {4096}, 2U, 2000000000LL));
+  spinFor(executor, 100ms);
+  mic_pub->publish(frameWith(kMicTopic, {8192}, 3U, 1500000000LL));
+  spinFor(executor, 250ms);
+
+  EXPECT_TRUE(received.empty());
+}
+
+TEST_F(RclcppContractTest, DropsMicFrameWhenReferenceTimestampIsTooOld)
+{
+  auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(validParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_stale_ref_contract_io");
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto mic_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kMicTopic, rclcpp::QoS(10).reliable());
+  auto ref_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kRefTopic, rclcpp::QoS(10).reliable());
+  auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    kOutputTopic, rclcpp::QoS(10).reliable(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+  ASSERT_NE(output_sub, nullptr);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&mic_pub, &ref_pub, &output_sub]() {
+    return mic_pub->get_subscription_count() > 0 &&
+      ref_pub->get_subscription_count() > 0 &&
+      output_sub->get_publisher_count() > 0;
+  }));
+
+  ref_pub->publish(frameWith(kRefTopic, {4096}, 2U, 1000000000LL));
+  spinFor(executor, 100ms);
+  mic_pub->publish(frameWith(kMicTopic, {8192}, 3U, 1700000000LL));
   spinFor(executor, 250ms);
 
   EXPECT_TRUE(received.empty());

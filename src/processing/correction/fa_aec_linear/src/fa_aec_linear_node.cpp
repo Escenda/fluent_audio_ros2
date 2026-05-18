@@ -1,16 +1,17 @@
 #include "fa_aec_linear/fa_aec_linear_node.hpp"
 
 #include <chrono>
-#include <cmath>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "builtin_interfaces/msg/time.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_aec_linear/backends/baseline_linear.hpp"
 
 namespace fa_aec_linear
 {
@@ -18,14 +19,45 @@ namespace fa_aec_linear
 namespace
 {
 constexpr int kRequiredSampleRate = 16000;
-constexpr const char * kEncodingPcm16 = "PCM16LE";
-constexpr const char * kEncodingFloat32 = "FLOAT32LE";
+constexpr uint32_t kNanosecondsPerSecond = 1000000000U;
 constexpr const char * kInterleavedLayout = "interleaved";
 
-bool isSupportedAudioFormatPair(const std::string & encoding, uint32_t bit_depth)
+bool hasValidStamp(const builtin_interfaces::msg::Time & stamp)
 {
-  return (encoding == kEncodingPcm16 && bit_depth == 16) ||
-         (encoding == kEncodingFloat32 && bit_depth == 32);
+  if (stamp.sec < 0) {
+    return false;
+  }
+  if (stamp.nanosec >= kNanosecondsPerSecond) {
+    return false;
+  }
+  return stamp.sec != 0 || stamp.nanosec != 0U;
+}
+
+const char * frameValidationStatusMessage(const FrameValidationStatus status)
+{
+  switch (status) {
+    case FrameValidationStatus::kOk:
+      return "ok";
+    case FrameValidationStatus::kMissingSourceId:
+      return "source_id is empty";
+    case FrameValidationStatus::kStreamIdMismatch:
+      return "stream_id does not match expected topic";
+    case FrameValidationStatus::kInvalidTimestamp:
+      return "header.stamp is missing or invalid";
+    case FrameValidationStatus::kSampleRateMismatch:
+      return "sample_rate does not match expected_sample_rate";
+    case FrameValidationStatus::kChannelsMismatch:
+      return "channels does not match expected_channels";
+    case FrameValidationStatus::kFormatMismatch:
+      return "encoding/bit_depth does not match expected format";
+    case FrameValidationStatus::kLayoutMismatch:
+      return "layout is not interleaved";
+    case FrameValidationStatus::kEmptyData:
+      return "data is empty";
+    case FrameValidationStatus::kMisalignedData:
+      return "data byte length is not aligned to frame size";
+  }
+  return "unknown frame validation status";
 }
 }  // namespace
 
@@ -34,8 +66,11 @@ FaAecLinearNode::FaAecLinearNode(const rclcpp::NodeOptions & options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA AEC Linear node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaAecLinearNode::~FaAecLinearNode() = default;
 
 void FaAecLinearNode::loadParameters()
 {
@@ -81,6 +116,21 @@ void FaAecLinearNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required (set via YAML)");
   }
+  config_.resolved_mic_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.mic_topic);
+  config_.resolved_ref_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.ref_topic);
+  config_.resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (config_.resolved_mic_topic == config_.resolved_ref_topic) {
+    throw std::runtime_error("resolved mic_topic and ref_topic must be distinct");
+  }
+  if (config_.resolved_mic_topic == config_.resolved_output_topic) {
+    throw std::runtime_error("resolved mic_topic and output_topic must be distinct");
+  }
+  if (config_.resolved_ref_topic == config_.resolved_output_topic) {
+    throw std::runtime_error("resolved ref_topic and output_topic must be distinct");
+  }
   if (config_.expected_sample_rate != kRequiredSampleRate) {
     throw std::runtime_error(
             "fa_aec_linear requires expected_sample_rate=16000 by design (got " +
@@ -89,9 +139,9 @@ void FaAecLinearNode::loadParameters()
   if (config_.expected_channels <= 0) {
     throw std::runtime_error("expected_channels must be > 0");
   }
-  if (!isSupportedAudioFormatPair(
+  if (!backends::isSupportedAudioFormatPair(
         config_.expected_encoding,
-        static_cast<uint32_t>(config_.expected_bit_depth)))
+        config_.expected_bit_depth))
   {
     throw std::runtime_error("expected encoding/bit_depth must be PCM16LE/16 or FLOAT32LE/32");
   }
@@ -126,7 +176,17 @@ void FaAecLinearNode::loadParameters()
     config_.reference_failure_policy.c_str(),
     config_.cancel_gain,
     config_.qos_depth,
-    config_.qos_reliable ? "true" : "false");
+	    config_.qos_reliable ? "true" : "false");
+}
+
+void FaAecLinearNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::BaselineLinearBackend>(
+    backends::BaselineLinearConfig{
+      config_.expected_channels,
+      config_.expected_encoding,
+      config_.expected_bit_depth,
+      config_.cancel_gain});
 }
 
 void FaAecLinearNode::setupInterfaces()
@@ -153,138 +213,48 @@ void FaAecLinearNode::setupInterfaces()
     std::bind(&FaAecLinearNode::publishDiagnostics, this));
 }
 
-bool FaAecLinearNode::validateFrame(
+FrameValidationStatus FaAecLinearNode::validateFrame(
   const fa_interfaces::msg::AudioFrame & msg,
   const std::string & expected_stream_id) const
 {
   if (msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)) {
-    return false;
+    return FrameValidationStatus::kSampleRateMismatch;
   }
   if (msg.channels != static_cast<uint32_t>(config_.expected_channels)) {
-    return false;
+    return FrameValidationStatus::kChannelsMismatch;
   }
   if (msg.channels == 0 || msg.sample_rate == 0) {
-    return false;
+    return FrameValidationStatus::kSampleRateMismatch;
   }
   if (msg.encoding != config_.expected_encoding ||
       msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth))
   {
-    return false;
+    return FrameValidationStatus::kFormatMismatch;
   }
   if (msg.source_id.empty()) {
-    return false;
+    return FrameValidationStatus::kMissingSourceId;
   }
   if (msg.stream_id != expected_stream_id) {
-    return false;
+    return FrameValidationStatus::kStreamIdMismatch;
+  }
+  if (!hasValidStamp(msg.header.stamp)) {
+    return FrameValidationStatus::kInvalidTimestamp;
   }
   if (msg.layout != kInterleavedLayout) {
-    return false;
+    return FrameValidationStatus::kLayoutMismatch;
   }
   if (msg.data.empty()) {
-    return false;
+    return FrameValidationStatus::kEmptyData;
+  }
+  if (!backends::isSupportedAudioFormatPair(msg.encoding, static_cast<int>(msg.bit_depth))) {
+    return FrameValidationStatus::kFormatMismatch;
   }
   const size_t bytes_per_sample = static_cast<size_t>(msg.bit_depth / 8);
   const size_t bytes_per_frame = static_cast<size_t>(msg.channels) * bytes_per_sample;
   if (bytes_per_frame == 0 || (msg.data.size() % bytes_per_frame) != 0) {
-    return false;
+    return FrameValidationStatus::kMisalignedData;
   }
-  return true;
-}
-
-bool FaAecLinearNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out_samples)
-{
-  out_samples.clear();
-  if (msg.channels == 0) {
-    return false;
-  }
-  if (!isSupportedAudioFormatPair(msg.encoding, msg.bit_depth)) {
-    return false;
-  }
-  const size_t bytes_per_sample = static_cast<size_t>(msg.bit_depth / 8);
-  const size_t bytes_per_frame = static_cast<size_t>(msg.channels) * bytes_per_sample;
-  if (bytes_per_frame == 0 || (msg.data.size() % bytes_per_frame) != 0) {
-    return false;
-  }
-
-  const size_t frames = msg.data.size() / bytes_per_frame;
-  const size_t sample_count = frames * msg.channels;
-  if (sample_count == 0) {
-    return false;
-  }
-  out_samples.resize(sample_count);
-
-  if (msg.encoding == kEncodingPcm16 && msg.bit_depth == 16) {
-    std::vector<int16_t> tmp(sample_count);
-    std::memcpy(tmp.data(), msg.data.data(), msg.data.size());
-    for (size_t i = 0; i < sample_count; ++i) {
-      out_samples[i] = static_cast<float>(tmp[i]) / 32768.0f;
-    }
-    return true;
-  }
-
-  if (msg.encoding != kEncodingFloat32 || msg.bit_depth != 32) {
-    return false;
-  }
-  std::memcpy(out_samples.data(), msg.data.data(), msg.data.size());
-  for (const float sample : out_samples) {
-    if (!std::isfinite(sample) || sample < -1.0f || sample > 1.0f) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool FaAecLinearNode::encodeFromFloat(
-  const std::vector<float> & samples,
-  const std::string & encoding,
-  uint32_t bit_depth,
-  std::vector<uint8_t> & out_bytes,
-  std::string & error_message)
-{
-  out_bytes.clear();
-  error_message.clear();
-  if (samples.empty()) {
-    error_message = "AEC linear output sample buffer is empty";
-    return false;
-  }
-  if (!isSupportedAudioFormatPair(encoding, bit_depth)) {
-    error_message = "AEC linear output format must be PCM16LE/16 or FLOAT32LE/32";
-    return false;
-  }
-  for (const float sample : samples) {
-    if (!std::isfinite(sample)) {
-      error_message = "AEC linear output sample is not finite";
-      return false;
-    }
-    if (sample < -1.0f || sample > 1.0f) {
-      error_message = "AEC linear output sample out of normalized range";
-      return false;
-    }
-  }
-  if (encoding == kEncodingPcm16 && bit_depth == 16) {
-    std::vector<int16_t> pcm(samples.size());
-    for (size_t i = 0; i < samples.size(); ++i) {
-      const double scaled = samples[i] < 0.0f ?
-        static_cast<double>(samples[i]) * 32768.0 :
-        static_cast<double>(samples[i]) * 32767.0;
-      const int32_t rounded = static_cast<int32_t>(std::lround(scaled));
-      if (rounded < -32768 || rounded > 32767) {
-        error_message = "AEC linear output sample does not fit PCM16 after scaling";
-        return false;
-      }
-      pcm[i] = static_cast<int16_t>(rounded);
-    }
-    out_bytes.resize(pcm.size() * sizeof(int16_t));
-    std::memcpy(out_bytes.data(), pcm.data(), out_bytes.size());
-    return true;
-  }
-  if (encoding == kEncodingFloat32 && bit_depth == 32) {
-    out_bytes.resize(samples.size() * sizeof(float));
-    std::memcpy(out_bytes.data(), samples.data(), out_bytes.size());
-    return true;
-  }
-  error_message = "AEC linear output format must be PCM16LE/16 or FLOAT32LE/32";
-  return false;
+  return FrameValidationStatus::kOk;
 }
 
 void FaAecLinearNode::onRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
@@ -293,14 +263,19 @@ void FaAecLinearNode::onRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   if (!msg) {
     throw std::logic_error("fa_aec_linear received a null reference AudioFrame pointer");
   }
-  if (!validateFrame(*msg, config_.ref_topic)) {
+  const FrameValidationStatus validation_status = validateFrame(*msg, config_.ref_topic);
+  if (validation_status != FrameValidationStatus::kOk) {
     ref_drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping invalid reference frame: %s",
+      frameValidationStatusMessage(validation_status));
     return;
   }
 
   std::lock_guard<std::mutex> lock(ref_mutex_);
   last_ref_ = msg;
-  last_ref_stamp_ = this->now();
+  last_ref_stamp_ = rclcpp::Time(msg->header.stamp, RCL_ROS_TIME);
 }
 
 void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
@@ -321,11 +296,13 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     return;
   }
 
-  if (!validateFrame(*msg, config_.mic_topic)) {
+  const FrameValidationStatus validation_status = validateFrame(*msg, config_.mic_topic);
+  if (validation_status != FrameValidationStatus::kOk) {
     mic_drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Dropping invalid mic frame: sr=%u ch=%u bits=%u bytes=%zu (expected sr=%d ch=%d)",
+      "Dropping invalid mic frame: %s sr=%u ch=%u bits=%u bytes=%zu (expected sr=%d ch=%d)",
+      frameValidationStatusMessage(validation_status),
       msg->sample_rate, msg->channels, msg->bit_depth, msg->data.size(),
       config_.expected_sample_rate, config_.expected_channels);
     return;
@@ -339,16 +316,17 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     ref_stamp = last_ref_stamp_;
   }
 
-  const rclcpp::Time now = this->now();
-  const int64_t ref_age_ms = (now - ref_stamp).nanoseconds() / 1000000;
-  const bool has_ref = ref && (ref_age_ms >= 0) && (ref_age_ms <= config_.ref_timeout_ms);
+  const rclcpp::Time mic_stamp(msg->header.stamp, RCL_ROS_TIME);
+  const int64_t ref_skew_ms = (mic_stamp - ref_stamp).nanoseconds() / 1000000;
+  const bool has_ref = ref && (ref_skew_ms >= 0) && (ref_skew_ms <= config_.ref_timeout_ms);
 
   if (!has_ref) {
     mic_drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Dropping mic frame because reference is missing or stale: ref_age_ms=%ld timeout_ms=%d",
-      static_cast<long>(ref_age_ms), config_.ref_timeout_ms);
+      "Dropping mic frame because reference is missing or outside timestamp contract: "
+      "mic_ref_skew_ms=%ld timeout_ms=%d",
+      static_cast<long>(ref_skew_ms), config_.ref_timeout_ms);
     return;
   }
 
@@ -365,46 +343,19 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     return;
   }
 
-  std::vector<float> mic_f32;
-  std::vector<float> ref_f32;
-  if (!decodeToFloat(*msg, mic_f32) || !decodeToFloat(*ref, ref_f32)) {
-    mic_drop_.fetch_add(1);
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping mic frame because mic/reference decode failed");
-    return;
-  }
-
-  if (mic_f32.empty() || ref_f32.empty()) {
-    mic_drop_.fetch_add(1);
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping mic frame because no aligned mic/reference samples are available");
-    return;
-  }
-  if (mic_f32.size() != ref_f32.size()) {
-    mic_drop_.fetch_add(1);
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping mic frame because mic/reference sample counts differ: mic=%zu ref=%zu",
-      mic_f32.size(), ref_f32.size());
-    return;
-  }
-
-  std::vector<float> out_f32 = mic_f32;
-  const float gain = static_cast<float>(config_.cancel_gain);
-  for (size_t i = 0; i < mic_f32.size(); ++i) {
-    out_f32[i] = mic_f32[i] - gain * ref_f32[i];
-  }
-
   std::vector<uint8_t> out_bytes;
-  std::string encode_error;
-  if (!encodeFromFloat(out_f32, msg->encoding, msg->bit_depth, out_bytes, encode_error)) {
+  if (!backend_) {
+    throw std::logic_error("fa_aec_linear backend is not initialized");
+  }
+  const backends::ProcessResult process_result =
+    backend_->process(msg->data, ref->data, out_bytes);
+  if (process_result.status != backends::ProcessStatus::kOk) {
     mic_drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Dropping AEC linear output frame: %s. Add an explicit dynamics/limiter node if range control is required.",
-      encode_error.c_str());
+      "Dropping AEC linear output frame because baseline_linear backend rejected input or output: %s. "
+      "Add an explicit dynamics/limiter node if range control is required.",
+      backends::processStatusMessage(process_result.status));
     return;
   }
 
@@ -426,6 +377,13 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
 
 void FaAecLinearNode::publishDiagnostics()
 {
+  if (!diag_pub_) {
+    throw std::logic_error("fa_aec_linear diagnostics publisher is not initialized");
+  }
+  if (!backend_) {
+    throw std::logic_error("fa_aec_linear backend is not initialized");
+  }
+
   diagnostic_msgs::msg::DiagnosticArray array_msg;
   array_msg.header.stamp = this->now();
 
@@ -449,11 +407,14 @@ void FaAecLinearNode::publishDiagnostics()
       status.values.push_back(kv);
     };
 
-  status.values.reserve(16);
+  status.values.reserve(20);
   push_kv("enabled", config_.enabled ? "true" : "false");
   push_kv("mic_topic", config_.mic_topic);
   push_kv("ref_topic", config_.ref_topic);
   push_kv("output_topic", config_.output_topic);
+  push_kv("resolved_mic_topic", config_.resolved_mic_topic);
+  push_kv("resolved_ref_topic", config_.resolved_ref_topic);
+  push_kv("resolved_output_topic", config_.resolved_output_topic);
   push_kv("expected_sample_rate", std::to_string(config_.expected_sample_rate));
   push_kv("expected_channels", std::to_string(config_.expected_channels));
   push_kv("expected.encoding", config_.expected_encoding);
@@ -467,6 +428,7 @@ void FaAecLinearNode::publishDiagnostics()
   push_kv("mic.drop", std::to_string(mic_drop_.load()));
   push_kv("ref.in", std::to_string(ref_in_.load()));
   push_kv("ref.drop", std::to_string(ref_drop_.load()));
+  push_kv("backend.name", backends::BaselineLinearBackend::kName);
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);

@@ -2,9 +2,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -14,6 +14,11 @@
 namespace fa_aec_linear
 {
 
+namespace backends
+{
+class BaselineLinearBackend;
+}  // namespace backends
+
 struct AecLinearConfig
 {
   bool enabled = false;
@@ -21,6 +26,9 @@ struct AecLinearConfig
   std::string mic_topic;
   std::string ref_topic;
   std::string output_topic;
+  std::string resolved_mic_topic;
+  std::string resolved_ref_topic;
+  std::string resolved_output_topic;
 
   int expected_sample_rate = -1;
   int expected_channels = -1;
@@ -37,31 +45,40 @@ struct AecLinearConfig
   int diagnostics_publish_period_ms = -1;
 };
 
+enum class FrameValidationStatus
+{
+  kOk,
+  kMissingSourceId,
+  kStreamIdMismatch,
+  kInvalidTimestamp,
+  kSampleRateMismatch,
+  kChannelsMismatch,
+  kFormatMismatch,
+  kLayoutMismatch,
+  kEmptyData,
+  kMisalignedData,
+};
+
 class FaAecLinearNode : public rclcpp::Node
 {
 public:
   explicit FaAecLinearNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
-  ~FaAecLinearNode() override = default;
+  ~FaAecLinearNode() override;
 
 private:
   void loadParameters();
+  void configureBackend();
   void setupInterfaces();
   void onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void onRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
 
-  bool validateFrame(
+  [[nodiscard]] FrameValidationStatus validateFrame(
     const fa_interfaces::msg::AudioFrame & msg,
     const std::string & expected_stream_id) const;
-  static bool decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out_samples);
-  static bool encodeFromFloat(
-    const std::vector<float> & samples,
-    const std::string & encoding,
-    uint32_t bit_depth,
-    std::vector<uint8_t> & out_bytes,
-    std::string & error_message);
 
   AecLinearConfig config_;
+  std::unique_ptr<backends::BaselineLinearBackend> backend_;
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr mic_sub_;
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr ref_sub_;

@@ -90,6 +90,23 @@ def test_launch_fails_closed_when_expected_encoding_contract_is_wrong(
     assert "expected encoding/bit_depth must be PCM16LE/16 or FLOAT32LE/32" in result.stdout
 
 
+def test_launch_fails_closed_when_resolved_topics_match(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_aec_linear"]["ros__parameters"]
+    params["mic_topic"] = "audio/aec_same"
+    params["output_topic"] = "/audio/aec_same"
+    config_path = tmp_path / "same_resolved_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_aec_linear_launch(config_path)
+
+    assert result.returncode != LAUNCH_TIMEOUT_CODE
+    assert "process has died" in result.stdout
+    assert "resolved mic_topic and output_topic must be distinct" in result.stdout
+
+
 def test_launch_accepts_default_config(tmp_path: Path) -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
