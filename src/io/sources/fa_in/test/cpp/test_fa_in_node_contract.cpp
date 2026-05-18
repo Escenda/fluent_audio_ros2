@@ -36,7 +36,13 @@ struct FakeSourceState
     fa_in::backends::DeviceInfo{"hw:0,0", "Primary Mic", 2, 44100},
     fa_in::backends::DeviceInfo{"hw:1,0", "Backup Mic", 4, 96000},
   };
-  std::vector<uint8_t> payload{0, 0, 1, 0, 2, 0, 3, 0};
+  std::vector<uint8_t> payload = []() {
+    std::vector<uint8_t> bytes(96);
+    for (size_t i = 0; i < bytes.size(); ++i) {
+      bytes[i] = static_cast<uint8_t>((i * 7u + 3u) % 251u);
+    }
+    return bytes;
+  }();
   std::mutex opened_device_mutex;
   std::string opened_device;
 };
@@ -117,6 +123,8 @@ public:
       std::lock_guard<std::mutex> lock(state_->opened_device_mutex);
       state_->opened_device = device_id;
     }
+    bytes_per_frame_ =
+      static_cast<size_t>(format.channels) * static_cast<size_t>(format.bit_depth / 8u);
     open_.store(true);
     return requested_frames;
   }
@@ -149,7 +157,13 @@ public:
         "fake read failure"};
     }
 
-    std::fill(data, data + state_->payload.size(), uint8_t{0});
+    const size_t bytes_to_copy = frames * bytes_per_frame_;
+    if (bytes_to_copy != state_->payload.size()) {
+      return fa_in::backends::ReadResult{
+        fa_in::backends::ReadStatus::kError,
+        0,
+        "fake source payload size does not match requested frame count"};
+    }
     std::copy(state_->payload.begin(), state_->payload.end(), data);
     std::this_thread::sleep_for(2ms);
     return fa_in::backends::ReadResult{fa_in::backends::ReadStatus::kOk, frames, ""};
@@ -158,6 +172,7 @@ public:
 private:
   std::shared_ptr<FakeSourceState> state_;
   std::atomic<bool> open_{false};
+  size_t bytes_per_frame_{2};
 };
 
 std::vector<rclcpp::Parameter> validParameters()
@@ -321,8 +336,7 @@ TEST_F(RclcppContractTest, PublishesConfiguredMetadataAndRawSourcePayload)
   EXPECT_EQ(received->channels, 1u);
   EXPECT_EQ(received->bit_depth, 16u);
   EXPECT_EQ(received->layout, "interleaved");
-  ASSERT_GE(received->data.size(), state->payload.size());
-  EXPECT_TRUE(std::equal(state->payload.begin(), state->payload.end(), received->data.begin()));
+  EXPECT_EQ(received->data, state->payload);
   EXPECT_GE(state->read_calls.load(), 1u);
   EXPECT_FALSE(node->hasFatalError());
 }

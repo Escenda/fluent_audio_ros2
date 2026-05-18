@@ -29,6 +29,9 @@ struct FakeSinkState
   std::atomic<bool> fail_on_write{false};
   std::atomic<bool> saw_backend_config{false};
   fa_out::backends::AlsaPlaybackConfig backend_config;
+  size_t bytes_per_frame{0};
+  std::mutex written_bytes_mutex;
+  std::vector<uint8_t> written_bytes;
 };
 
 class FakeSinkBackend final : public fa_out::backends::SinkBackend
@@ -64,7 +67,7 @@ public:
     return false;
   }
 
-  size_t writeFrames(const uint8_t * /*data*/, const size_t frame_count) override
+  size_t writeFrames(const uint8_t * data, const size_t frame_count) override
   {
     if (!open_) {
       throw fa_out::backends::SinkBackendError("fake sink is closed");
@@ -74,6 +77,11 @@ public:
     }
     state_->write_calls.fetch_add(1);
     state_->frames_written.fetch_add(frame_count);
+    const size_t bytes_to_write = frame_count * state_->bytes_per_frame;
+    {
+      std::lock_guard<std::mutex> lock(state_->written_bytes_mutex);
+      state_->written_bytes.insert(state_->written_bytes.end(), data, data + bytes_to_write);
+    }
     return frame_count;
   }
 
@@ -130,6 +138,7 @@ fa_out::FaOutNode::BackendFactory factoryFor(const std::shared_ptr<FakeSinkState
 {
   return [state](const fa_out::backends::AlsaPlaybackConfig & config) {
     state->backend_config = config;
+    state->bytes_per_frame = config.channels * (config.bit_depth / 8u);
     state->saw_backend_config.store(true);
     return std::make_unique<FakeSinkBackend>(state);
   };
@@ -300,11 +309,16 @@ TEST_F(RclcppContractTest, WritesOnlyFramesMatchingTheConfiguredSinkContract)
   EXPECT_EQ(state->write_calls.load(), 0u);
   EXPECT_FALSE(node->hasFatalError());
 
-  publisher->publish(validFrame());
+  const auto valid = validFrame();
+  publisher->publish(valid);
   EXPECT_TRUE(spinUntil(executor, [&state]() {
     return state->frames_written.load() == 2u;
   }));
   EXPECT_EQ(state->write_calls.load(), 1u);
+  {
+    std::lock_guard<std::mutex> lock(state->written_bytes_mutex);
+    EXPECT_EQ(state->written_bytes, valid.data);
+  }
   EXPECT_TRUE(spinUntil(executor, [&done_mutex, &done_messages]() {
     std::lock_guard<std::mutex> lock(done_mutex);
     return done_messages.size() == 1u;

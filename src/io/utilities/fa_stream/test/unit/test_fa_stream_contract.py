@@ -97,7 +97,7 @@ def test_streamer_rejects_frame_contract_mismatch_without_conversion() -> None:
 def test_network_streamer_backend_rejects_non_pcm16le_encoding() -> None:
     with pytest.raises(
         RuntimeError,
-        match="Only PCM16LE AudioFrame encoding is supported: PCM16BE",
+        match="Only PCM16LE audio stream encoding is supported: PCM16BE",
     ):
         _validate_audio_format(
             AudioStreamFormat(
@@ -154,6 +154,7 @@ def test_network_streamer_backend_is_ros_free() -> None:
 
     assert "import rclpy" not in backend_source
     assert "fa_interfaces" not in backend_source
+    assert "AudioFrame" not in backend_source
     assert "from fa_stream_py.backends.network_streamer import" in node_source
     assert "subprocess.Popen" not in node_source
     assert "signal.SIGINT" not in node_source

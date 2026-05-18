@@ -339,6 +339,9 @@ def test_sink_adapter_exposes_only_playback_lifecycle_control_surface() -> None:
         "limiter",
         "resample",
         "volume",
+        "sample_format",
+        "channel_convert",
+        "bit_depth_convert",
     ]
     for token in forbidden_tokens:
         assert token not in combined
