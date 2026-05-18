@@ -8,6 +8,7 @@ from fluent_audio_system.config_schema import load_required_packages, load_syste
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
+SRC_ROOT = PACKAGE_ROOT.parents[1]
 FIXTURE_DIR = PACKAGE_ROOT / "test" / "fixtures"
 
 
@@ -56,13 +57,16 @@ def _patch_profile_package_shares(
     monkeypatch.setattr(config_schema, "_get_package_share_directory", package_share)
 
 
-def test_system_configs_do_not_enable_unmaterialized_fa_format_wrapper() -> None:
+def test_system_configs_enable_only_declared_ros_packages() -> None:
+    declared_package_names = {
+        package_xml.parent.name for package_xml in SRC_ROOT.rglob("package.xml")
+    }
     violations: list[str] = []
     for config_path in sorted((PACKAGE_ROOT / "config").rglob("*.yaml")):
         config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         for group in config["groups"]:
             for node in group["nodes"]:
-                if node["enable"] and node["package"] == "fa_format":
+                if node["enable"] and node["package"] not in declared_package_names:
                     relative_path = config_path.relative_to(PACKAGE_ROOT)
                     violations.append(f"{relative_path}: {group['id']}/{node['id']}")
 
