@@ -23,7 +23,7 @@ def read_backend_source() -> str:
     ).read_text(encoding="utf-8")
 
 
-def test_default_config_requires_float32_interleaved_contract() -> None:
+def test_example_config_requires_float32_interleaved_contract() -> None:
     config = yaml.safe_load(
         (package_root() / "config" / "default.yaml").read_text(encoding="utf-8")
     )
@@ -49,6 +49,22 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is False
     assert params["diagnostics"]["publish_period_ms"] == 1000
+
+
+def test_launch_requires_explicit_config_file_without_package_default() -> None:
+    launch_source = (package_root() / "launch" / "fa_reverb.launch.py").read_text(
+        encoding="utf-8"
+    )
+    config_argument = launch_source.split('DeclareLaunchArgument(\n            "config_file"')[1].split(
+        "        ),",
+        1,
+    )[0]
+
+    assert "default_value" not in config_argument
+    assert "FindPackageShare" not in launch_source
+    assert "PathJoinSubstitution" not in launch_source
+    assert "config/default.yaml" not in launch_source
+    assert "parameters=[config_file]" in launch_source
 
 
 def test_reverb_does_not_hide_other_processing_or_io_responsibilities() -> None:

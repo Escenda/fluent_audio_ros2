@@ -35,7 +35,9 @@
 ## Launch
 
 ```bash
-ros2 launch fa_reverb fa_reverb.launch.py
+ros2 launch fa_reverb fa_reverb.launch.py config_file:=/path/to/fa_reverb.yaml
 ```
+
+package launch の `config_file` は必須です。`config/default.yaml` は設定例であり、package launch から暗黙には読み込みません。
 
 詳細な外部契約は [docs/仕様書.md](docs/仕様書.md)、処理内容は [docs/アルゴリズム詳細説明書.md](docs/アルゴリズム詳細説明書.md)、検証方針は [docs/テスト設計.md](docs/テスト設計.md) を参照してください。
