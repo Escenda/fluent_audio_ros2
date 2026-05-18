@@ -12,8 +12,8 @@
 
 | ノード | 役割 | 主な入出力 |
 | --- | --- | --- |
-| `fa_in_node` | マイク/ライン入力を開きPCM配信 | Pub: `audio/frame` / Srv: `list_devices`, `switch_device` |
-| `fa_vad_node` | Silero VAD | Sub: `audio/frame` → Pub: `audio/vad`, `voice/vad_state` |
+| `fa_in` | マイク/ライン入力を開きPCM配信 | Pub: `audio/frame` / Srv: `list_devices`, `switch_device` |
+| `fa_vad` | Silero VAD | Sub: `audio/frame` → Pub: `audio/vad`, `voice/vad_state` |
 | `fa_kws` | ローカルKWS | Sub: `audio/frame`, `voice/vad_state` → Pub: `voice/wake_word` |
 | `fa_asr` | ローカルASR実行ファイルの呼び出し | Sub: `audio/frame`, `voice/vad_state`, `conversation/turn_context` → Pub: `voice/asr/result` |
 | `fa_turn_detector` | Smart Turn v3 ONNX によるターン終了推定 | Sub: `audio/frame`, `voice/vad_state`, `conversation/turn_context` → Pub: `voice/turn_end` |
@@ -37,9 +37,9 @@
 ### 4.1 トピック
 | トピック | 型 | 送信元 | 用途 |
 | --- | --- | --- | --- |
-| `audio/frame` | `fa_interfaces/msg/AudioFrame` | `fa_in_node` | PCM + メタ情報 |
-| `audio/vad` | `std_msgs/msg/Bool` | `fa_vad_node` | 簡易VADフラグ |
-| `voice/vad_state` | `fa_interfaces/msg/VadState` | `fa_vad_node` | VAD確率/開始/終了と判定元 source / stream identity |
+| `audio/frame` | `fa_interfaces/msg/AudioFrame` | `fa_in` | PCM + メタ情報 |
+| `audio/vad` | `std_msgs/msg/Bool` | `fa_vad` | 簡易VADフラグ |
+| `voice/vad_state` | `fa_interfaces/msg/VadState` | `fa_vad` | VAD確率/開始/終了と判定元 source / stream identity |
 | `voice/wake_word` | `fa_interfaces/msg/WakeWordResult` | `fa_kws` | ウェイクワード検出 |
 | `conversation/turn_context` | `fa_interfaces/msg/TurnContext` | 会話オーケストレータ | ASR/TDのID相関 |
 | `voice/asr/result` | `fa_interfaces/msg/AsrResult` | `fa_asr` | ASR結果/タイムアウト/エラー |
@@ -50,8 +50,8 @@
 ### 4.2 サービス
 | サービス | 型 | サーバー | 内容 |
 | --- | --- | --- | --- |
-| `list_devices` | `fa_interfaces/srv/ListDevices` | `fa_in_node` | マイク列挙 |
-| `switch_device` | `fa_interfaces/srv/SwitchDevice` | `fa_in_node` | マイク切替 |
+| `list_devices` | `fa_interfaces/srv/ListDevices` | `fa_in` | マイク列挙 |
+| `switch_device` | `fa_interfaces/srv/SwitchDevice` | `fa_in` | マイク切替 |
 | `record` | `fa_interfaces/srv/Record` | `fa_record` | 録音開始/停止 |
 | `speak` | `fa_interfaces/srv/Speak` | `fa_tts` | テキスト→音声 |
 
@@ -64,11 +64,11 @@
 4. `/speak` を呼び出し（`play: false`）、`audio/tts/frame -> fa_mix -> audio/output/frame`経由で再生
 
 ### 5.2 マイク入力 + VAD
-1. `fa_in_node`を起動（`audio/frame`をPublish）
-2. `fa_vad_node`を起動（`audio/vad`をPublish）
+1. `fa_in`を起動（`audio/frame`をPublish）
+2. `fa_vad`を起動（`audio/vad`をPublish）
 
 ### 5.3 VAD/KWS/ASR/TD
-1. `fa_in_node`と`fa_vad_node`を起動
+1. `fa_in`と`fa_vad`を起動
 2. `fa_kws`を起動し、`voice/wake_word`で起動語を受ける
 3. 会話オーケストレータが`conversation/turn_context`をPublishする
 4. `fa_asr`が`voice/asr/result`をPublishする
@@ -77,7 +77,7 @@
 この経路では `fa_vad` の入力 stream と、`fa_kws` / `fa_asr` / `fa_turn_detector` が処理する audio stream を一致させる必要があります。`VadState.source_id` / `stream_id` が一致しない場合、後段 node はその VAD state を gate / finalize / turn-end trigger として使いません。
 
 ### 5.4 録音（WAV）
-1. `fa_in_node`と`fa_record`を起動
+1. `fa_in`と`fa_record`を起動
 2. `record`サービスで開始/停止し、WAVを保存
 
 ## 6. 配信 sink（Icecast向け）
