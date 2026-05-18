@@ -1,6 +1,7 @@
 # FA Record
 
 `fa_record`は`audio/frame`（`fa_interfaces/msg/AudioFrame`）を購読し、`record`サービスでWAVファイルに保存するノードです。
+subscription QoS は `input.qos.depth` / `input.qos.reliable` で明示し、node 内の hidden QoS へ切り替えません。
 
 ## 起動
 ```bash

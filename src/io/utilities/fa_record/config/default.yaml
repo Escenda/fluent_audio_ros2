@@ -1,4 +1,5 @@
 fa_record:
   ros__parameters:
     input_topic: "audio/frame"
-
+    input.qos.depth: 10
+    input.qos.reliable: true

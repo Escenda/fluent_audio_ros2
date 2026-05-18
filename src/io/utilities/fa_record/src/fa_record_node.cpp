@@ -1,5 +1,6 @@
 #include <chrono>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -39,6 +40,44 @@ std::string readRequiredString(const rclcpp::Node & node, const std::string & na
     throw std::runtime_error(name + " must be a string parameter");
   }
   return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer parameter");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool parameter");
+  }
+  return parameter.as_bool();
+}
+
+rclcpp::QoS makeExplicitQos(int depth, bool reliable)
+{
+  if (depth <= 0) {
+    throw std::runtime_error("input.qos.depth must be greater than zero");
+  }
+  rclcpp::QoS qos(rclcpp::KeepLast(static_cast<size_t>(depth)));
+  if (reliable) {
+    qos.reliable();
+  } else {
+    qos.best_effort();
+  }
+  return qos;
 }
 
 backends::AudioFormat formatFromFrame(const fa_interfaces::msg::AudioFrame &msg)
@@ -87,13 +126,17 @@ public:
     writer_(std::make_unique<backends::WavFileWriterBackend>())
   {
     this->declare_parameter<std::string>("input_topic");
+    this->declare_parameter<int>("input.qos.depth");
+    this->declare_parameter<bool>("input.qos.reliable");
     input_topic_ = readRequiredString(*this, "input_topic");
+    input_qos_depth_ = readRequiredInt(*this, "input.qos.depth");
+    input_qos_reliable_ = readRequiredBool(*this, "input.qos.reliable");
     if (input_topic_.empty()) {
       throw std::runtime_error("input_topic is required");
     }
 
     audio_sub_ = this->create_subscription<fa_interfaces::msg::AudioFrame>(
-      input_topic_, rclcpp::SensorDataQoS(),
+      input_topic_, makeExplicitQos(input_qos_depth_, input_qos_reliable_),
       std::bind(&FaRecordNode::handleFrame, this, std::placeholders::_1));
 
     record_srv_ = this->create_service<fa_interfaces::srv::Record>(
@@ -245,6 +288,8 @@ private:
   }
 
   std::string input_topic_{};
+  int input_qos_depth_{};
+  bool input_qos_reliable_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Service<fa_interfaces::srv::Record>::SharedPtr record_srv_;

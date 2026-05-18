@@ -13,6 +13,8 @@ def test_default_config_defines_explicit_input_topic() -> None:
     params = config["fa_record"]["ros__parameters"]
 
     assert params["input_topic"] == "audio/frame"
+    assert params["input.qos.depth"] == 10
+    assert params["input.qos.reliable"] is True
 
 
 def test_launch_requires_explicit_node_name_and_config_file() -> None:
@@ -36,13 +38,22 @@ def test_input_topic_has_no_runtime_default() -> None:
     )
 
     assert 'declare_parameter<std::string>("input_topic")' in source
+    assert 'declare_parameter<int>("input.qos.depth")' in source
+    assert 'declare_parameter<bool>("input.qos.reliable")' in source
     assert 'readRequiredString(*this, "input_topic")' in source
+    assert 'readRequiredInt(*this, "input.qos.depth")' in source
+    assert 'readRequiredBool(*this, "input.qos.reliable")' in source
+    assert "makeExplicitQos(input_qos_depth_, input_qos_reliable_)" in source
+    assert "rclcpp::SensorDataQoS()" not in source
     assert 'this->get_parameter("input_topic").as_string()' not in source
     assert 'declare_parameter<std::string>("input_topic", input_topic_)' not in source
     assert "std::string input_topic_{};" in source
+    assert "int input_qos_depth_{};" in source
+    assert "bool input_qos_reliable_{};" in source
     assert 'std::string input_topic_{"audio/frame"};' not in source
     assert '"input_topic is required"' in source
     assert '" must be a string parameter"' in source
+    assert '"input.qos.depth must be greater than zero"' in source
 
 
 def test_recorder_drops_invalid_frames_without_format_conversion() -> None:
