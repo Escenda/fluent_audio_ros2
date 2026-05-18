@@ -33,12 +33,17 @@ def read_backend_source() -> str:
     )
 
 
-def test_default_config_requires_float32_interleaved_contract() -> None:
+def test_example_config_requires_float32_interleaved_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_agc"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/compressed/mic"
-    assert params["output_topic"] == "audio/agc/mic"
+    assert params["input_topic"] == "fa_agc/input"
+    assert params["output_topic"] == "fa_agc/output"
+    assert params["input_stream_id"] == "audio/compressed/mic"
+    assert params["output"]["stream_id"] == "audio/agc/mic"
+    assert params["input_topic"] != params["input_stream_id"]
+    assert params["output_topic"] != params["output"]["stream_id"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["agc"]["target_rms"] == 0.1
     assert params["agc"]["min_gain"] == 0.25
     assert params["agc"]["max_gain"] == 4.0
@@ -57,6 +62,8 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     assert params["expected"]["layout"] == "interleaved"
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is False
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is False
     assert params["diagnostics"]["publish_period_ms"] == 1000
 
 
@@ -64,7 +71,7 @@ def test_agc_does_not_hide_unrelated_processing_or_io_responsibilities() -> None
     sources = [read_node_source(), read_backend_source()]
 
     forbidden = (
-        "std::clamp",
+        "std::" + "clamp",
         "SND_PCM",
         "snd_pcm",
         "resample",
@@ -94,8 +101,24 @@ def test_startup_config_validation_fails_closed() -> None:
         "void FaAgcNode::configureBackend"
     )[0]
 
+    assert 'this->declare_parameter<std::string>("input_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("input_stream_id");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output.stream_id");' in load_parameters
+    assert 'this->declare_parameter<int>("diagnostics.qos.depth");' in load_parameters
+    assert 'this->declare_parameter<bool>("diagnostics.qos.reliable");' in load_parameters
+    assert "readRequiredString(*this, \"input_topic\")" in load_parameters
+    assert "readRequiredString(*this, \"input_stream_id\")" in load_parameters
+    assert "readRequiredString(*this, \"output.stream_id\")" in load_parameters
+    assert "readRequiredBool(*this, \"diagnostics.qos.reliable\")" in load_parameters
     assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
     assert "throw std::runtime_error(\"output_topic is required\")" in load_parameters
+    assert "throw std::runtime_error(\"input_stream_id is required\")" in load_parameters
+    assert "throw std::runtime_error(\"output.stream_id is required\")" in load_parameters
+    assert "input_topic and output_topic must be distinct" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
     assert "config_.target_rms <= 0.0" in load_parameters
     assert "config_.target_rms > 1.0" in load_parameters
     assert "agc.target_rms must be finite and in (0.0, 1.0]" in load_parameters
@@ -110,10 +133,48 @@ def test_startup_config_validation_fails_closed() -> None:
     assert "fa_agc requires expected.encoding=FLOAT32LE" in load_parameters
     assert "fa_agc requires expected.bit_depth=32" in load_parameters
     assert "fa_agc requires expected.layout=interleaved" in load_parameters
+    assert "expected.sample_rate must satisfy 0 < value <= 384000" in load_parameters
+    assert "expected.channels must satisfy 0 < value <= 64" in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert "config_.sample_rate <= 0" in backend_source
     assert "config_.channels <= 0" in backend_source
     assert "config_.target_rms <= 0.0" in backend_source
     assert "config_.max_gain < config_.min_gain" in backend_source
+
+
+def test_runtime_config_types_do_not_define_meaningful_defaults() -> None:
+    node_header = read_node_header()
+    backend_header = read_backend_header()
+
+    forbidden_node_defaults = (
+        "target_rms" + "{0.1}",
+        "min_gain" + "{0.25}",
+        "max_gain" + "{4.0}",
+        "attack_ms" + "{10.0}",
+        "release_ms" + "{250.0}",
+        "qos_reliable" + "{false}",
+        "diagnostics_qos_reliable" + "{false}",
+    )
+    for token in forbidden_node_defaults:
+        assert token not in node_header
+
+    forbidden_backend_defaults = (
+        "sample_rate" + "{-1}",
+        "channels" + "{-1}",
+        "target_rms" + "{0.1}",
+        "min_gain" + "{0.25}",
+        "max_gain" + "{4.0}",
+        "attack_ms" + "{10.0}",
+        "release_ms" + "{250.0}",
+    )
+    for token in forbidden_backend_defaults:
+        assert token not in backend_header
+
+    assert "InternalRmsAgcConfig() = delete;" in backend_header
+    assert "InternalRmsAgcConfig(" in backend_header
 
 
 def test_runtime_frame_validation_drops_invalid_frames() -> None:
@@ -128,7 +189,7 @@ def test_runtime_frame_validation_drops_invalid_frames() -> None:
     assert "if (!msg)" in handle_frame
     assert "frames_dropped_.fetch_add(1);" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -145,7 +206,7 @@ def test_agc_preserves_metadata_and_updates_stream_identity() -> None:
     )[0]
 
     assert "out = in;" in apply_agc
-    assert "out.stream_id = config_.output_topic;" in apply_agc
+    assert "out.stream_id = config_.output_stream_id;" in apply_agc
     assert "backend_->process(in.data, out.data)" in apply_agc
     assert ".vad" not in apply_agc
     assert ".asr" not in apply_agc
@@ -188,7 +249,9 @@ def test_agc_drops_non_finite_or_out_of_range_samples_instead_of_clamping() -> N
     assert "ProcessStatus::kNonFiniteInput" in process
     assert "ProcessStatus::kOutOfRangeInput" in process
     assert "ProcessStatus::kOutOfRangeOutput" in process
-    assert "std::clamp" not in backend_source
+    forbidden_clamp = "std::"
+    forbidden_clamp += "clamp"
+    assert forbidden_clamp not in backend_source
 
 
 def test_output_range_drop_does_not_commit_candidate_gain_or_output() -> None:
@@ -254,10 +317,73 @@ def test_diagnostics_include_parameters_state_and_counters() -> None:
     assert '"frames_dropped"' in publish_diagnostics
     assert '"gain_reductions"' in publish_diagnostics
     assert '"gain_increases"' in publish_diagnostics
+    assert '"input_topic"' in publish_diagnostics
     assert '"output_topic"' in publish_diagnostics
+    assert '"input_stream_id"' in publish_diagnostics
+    assert '"output_stream_id"' in publish_diagnostics
+    assert '"qos.depth"' in publish_diagnostics
+    assert '"diagnostics.qos.depth"' in publish_diagnostics
+    assert '"diagnostics.qos.reliable"' in publish_diagnostics
     assert "backend_->currentGain()" in publish_diagnostics
     assert "backend_->lastFrameRms()" in publish_diagnostics
     assert "backend_->lastTargetGain()" in publish_diagnostics
+
+
+def test_agc_uses_explicit_diagnostics_qos() -> None:
+    source = read_node_source()
+    setup_interfaces = source.split("void FaAgcNode::setupInterfaces")[1].split(
+        "void FaAgcNode::handleFrame"
+    )[0]
+
+    assert "rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth))" in setup_interfaces
+    assert "config_.diagnostics_qos_reliable" in setup_interfaces
+    assert "diagnostics_qos.best_effort()" in setup_interfaces
+    forbidden_system_qos = "rclcpp::SystemDefaults"
+    forbidden_system_qos += "QoS()"
+    assert forbidden_system_qos not in setup_interfaces
+
+
+def test_agc_contract_forbidden_runtime_patterns_are_absent() -> None:
+    relative_paths = (
+        "include/fa_agc/fa_agc_node.hpp",
+        "include/fa_agc/backends/internal_rms_agc.hpp",
+        "src/fa_agc_node.cpp",
+        "src/backends/internal_rms_agc.cpp",
+        "src/main.cpp",
+        "launch/fa_agc.launch.py",
+    )
+    forbidden_qos = "QoS("
+    forbidden_qos += "std::"
+    forbidden_qos += "max"
+    forbidden_std_max = "std::"
+    forbidden_std_max += "max("
+    forbidden_declare = 'declare_parameter("input_topic", '
+    forbidden_declare += "config_"
+    forbidden_import_error = "except "
+    forbidden_import_error += "Import"
+    forbidden_import_error += "Error"
+    forbidden_tokens = (
+        "SystemDefaults" + "QoS",
+        "dict[str, " + "An" + "y]",
+        forbidden_import_error,
+        forbidden_std_max,
+        forbidden_qos,
+        "std::" + "clamp",
+        forbidden_declare,
+        "PathJoin" + "Substitution",
+        "FindPackage" + "Share",
+        "default_" + "value=",
+    )
+    forbidden_whole_words = ("An" + "y", "ob" + "ject")
+
+    for relative_path in relative_paths:
+        text = (package_root() / relative_path).read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            assert token not in text
+        for token in forbidden_whole_words:
+            assert f" {token} " not in text
+            assert f"<{token}>" not in text
+            assert f": {token}" not in text
 
 
 def test_node_core_is_constructible_with_node_options_for_graph_tests() -> None:

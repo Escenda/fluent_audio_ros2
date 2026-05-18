@@ -9,13 +9,23 @@ namespace fa_agc::backends
 
 struct InternalRmsAgcConfig
 {
-  int sample_rate{-1};
-  int channels{-1};
-  double target_rms{0.1};
-  double min_gain{0.25};
-  double max_gain{4.0};
-  double attack_ms{10.0};
-  double release_ms{250.0};
+  InternalRmsAgcConfig() = delete;
+  InternalRmsAgcConfig(
+    int sample_rate_value,
+    int channels_value,
+    double target_rms_value,
+    double min_gain_value,
+    double max_gain_value,
+    double attack_ms_value,
+    double release_ms_value);
+
+  int sample_rate;
+  int channels;
+  double target_rms;
+  double min_gain;
+  double max_gain;
+  double attack_ms;
+  double release_ms;
 };
 
 enum class ProcessStatus

@@ -22,19 +22,23 @@ struct AgcConfig
 {
   std::string input_topic{};
   std::string output_topic{};
-  double target_rms{0.1};
-  double min_gain{0.25};
-  double max_gain{4.0};
-  double attack_ms{10.0};
-  double release_ms{250.0};
-  int expected_sample_rate{-1};
-  int expected_channels{-1};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
+  double target_rms;
+  double min_gain;
+  double max_gain;
+  double attack_ms;
+  double release_ms;
+  int expected_sample_rate;
+  int expected_channels;
   std::string expected_encoding{};
-  int expected_bit_depth{-1};
+  int expected_bit_depth;
   std::string expected_layout{};
-  int qos_depth{-1};
-  bool qos_reliable{false};
-  int diagnostics_publish_period_ms{-1};
+  int qos_depth;
+  bool qos_reliable;
+  int diagnostics_qos_depth;
+  bool diagnostics_qos_reliable;
+  int diagnostics_publish_period_ms;
 };
 
 /**

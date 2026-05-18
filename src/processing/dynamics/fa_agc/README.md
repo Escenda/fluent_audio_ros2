@@ -4,16 +4,20 @@
 
 この package は device gain、`fa_in`、resampling、format conversion、limiter、compressor、normalize、noise reduction を扱わない。入力 frame と sample の契約違反、または変換後 sample の正規化範囲超過は frame drop として扱い、補正して publish しない。
 
-## 入出力
+## 入出力例
 
-| 種別 | Default | Message |
+`config/default.yaml` は単体デバッグ用の明示例であり、node の runtime default ではない。
+
+| 種別 | Example | Message |
 | --- | --- | --- |
-| subscribe | `audio/compressed/mic` | `fa_interfaces/msg/AudioFrame` |
-| publish | `audio/agc/mic` | `fa_interfaces/msg/AudioFrame` |
+| subscribe topic | `fa_agc/input` | `fa_interfaces/msg/AudioFrame` |
+| publish topic | `fa_agc/output` | `fa_interfaces/msg/AudioFrame` |
+| input stream | `audio/compressed/mic` | `AudioFrame.stream_id` |
+| output stream | `audio/agc/mic` | `AudioFrame.stream_id` |
 
-## 主な parameter
+## 主な parameter 例
 
-| Parameter | Default | 説明 |
+| Parameter | Example | 説明 |
 | --- | ---: | --- |
 | `agc.target_rms` | `0.1` | 目標 RMS |
 | `agc.min_gain` | `0.25` | gain 下限 |
@@ -24,7 +28,7 @@
 ## 起動
 
 ```bash
-ros2 launch fa_agc fa_agc.launch.py
+ros2 launch fa_agc fa_agc.launch.py node_name:=fa_agc config_file:=/path/to/fa_agc.yaml
 ```
 
 ## 検証

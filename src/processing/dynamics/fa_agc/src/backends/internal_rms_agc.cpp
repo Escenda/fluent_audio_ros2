@@ -25,6 +25,24 @@ bool isNormalizedSample(float value)
 }
 }  // namespace
 
+InternalRmsAgcConfig::InternalRmsAgcConfig(
+  int sample_rate_value,
+  int channels_value,
+  double target_rms_value,
+  double min_gain_value,
+  double max_gain_value,
+  double attack_ms_value,
+  double release_ms_value)
+: sample_rate(sample_rate_value),
+  channels(channels_value),
+  target_rms(target_rms_value),
+  min_gain(min_gain_value),
+  max_gain(max_gain_value),
+  attack_ms(attack_ms_value),
+  release_ms(release_ms_value)
+{
+}
+
 InternalRmsAgcBackend::InternalRmsAgcBackend(const InternalRmsAgcConfig & config)
 : config_(config)
 {

@@ -1,7 +1,11 @@
 fa_agc:
   ros__parameters:
-    input_topic: "audio/compressed/mic"
-    output_topic: "audio/agc/mic"
+    input_topic: "fa_agc/input"
+    output_topic: "fa_agc/output"
+    input_stream_id: "audio/compressed/mic"
+
+    output:
+      stream_id: "audio/agc/mic"
 
     agc:
       target_rms: 0.1
@@ -22,4 +26,7 @@ fa_agc:
       reliable: false
 
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000
