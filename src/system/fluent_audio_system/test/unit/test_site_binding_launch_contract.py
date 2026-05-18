@@ -37,8 +37,11 @@ def test_system_launch_declares_site_binding_arguments() -> None:
     assert '"fa_kws"' in launch_text
     assert '"fa_turn_detector"' in launch_text
     assert '"fa_vad"' in launch_text
+    assert 'node.backend_name == "alsa_capture"' in launch_text
+    assert 'node.backend_name == "alsa_playback"' in launch_text
     assert 'override_params["audio.device_selector.mode"] = "id"' in launch_text
     assert 'override_params["expected_source_id"] = overrides.fa_in_source_id' in launch_text
+    assert 'override_params["audio.device_id"] = overrides.fa_out_sink_id' in launch_text
     assert 'node.id == "fa_in"' not in launch_text
     assert 'node.id == "fa_out"' not in launch_text
 

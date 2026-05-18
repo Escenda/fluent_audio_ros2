@@ -261,6 +261,7 @@ class AudioNodeSpec:
     params_file: str
     parameters: dict[str, ParamValue]
     remappings: list[RemappingSpec]
+    backend_name: str | None
 
     def launch_parameters(self) -> list[str | dict[str, ParamValue]]:
         sources = []
@@ -570,6 +571,7 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
     parameters = _optional_parameters(node.parameters, node_id)
     _validate_parameter_identity_contract(package, node_id, parameters)
     remappings = _optional_remappings(node.remappings, node_id)
+    backend_name = _effective_backend_name(params_file_parameters, parameters, node_id)
     return AudioNodeSpec(
         id=node_id,
         package=package,
@@ -580,6 +582,7 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
         params_file=params_file,
         parameters=parameters,
         remappings=remappings,
+        backend_name=backend_name,
     )
 
 
@@ -670,6 +673,19 @@ def _optional_parameters(
             raise RuntimeError(f"node {node_id} parameter '{key}' has unsupported value type")
         params[key.strip()] = expanded_value
     return params
+
+
+def _effective_backend_name(
+    params_file_parameters: dict[str, ParamValue],
+    inline_parameters: dict[str, ParamValue],
+    node_id: str,
+) -> str | None:
+    value = inline_parameters.get("backend.name", params_file_parameters.get("backend.name"))
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError(f"node {node_id}.backend.name must be a non-empty string")
+    return value.strip()
 
 
 def _params_file_parameters(

@@ -44,12 +44,20 @@ def _node_launch_parameters(
 ) -> list[str | dict[str, ParamValue]]:
     parameters = node.launch_parameters()
     override_params: dict[str, ParamValue] = {}
-    if node.package == "fa_in" and overrides.fa_in_source_id:
+    if (
+        node.package == "fa_in"
+        and node.backend_name == "alsa_capture"
+        and overrides.fa_in_source_id
+    ):
         override_params["audio.device_selector.mode"] = "id"
         override_params["audio.device_selector.identifier"] = overrides.fa_in_source_id
     if node.package in _SOURCE_BOUND_AUDIO_AI_PACKAGES and overrides.fa_in_source_id:
         override_params["expected_source_id"] = overrides.fa_in_source_id
-    if node.package == "fa_out" and overrides.fa_out_sink_id:
+    if (
+        node.package == "fa_out"
+        and node.backend_name == "alsa_playback"
+        and overrides.fa_out_sink_id
+    ):
         override_params["audio.device_id"] = overrides.fa_out_sink_id
     if override_params:
         parameters.append(override_params)

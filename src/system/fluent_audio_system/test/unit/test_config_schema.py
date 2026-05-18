@@ -66,6 +66,44 @@ def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
             "audio.qos.reliable": True,
         }
     ]
+    assert spec.groups[0].nodes[0].backend_name is None
+
+
+def test_node_backend_name_uses_effective_inline_override(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text(
+        """
+fa_in:
+  ros__parameters:
+    backend.name: alsa_capture
+""",
+        encoding="utf-8",
+    )
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "io",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_in",
+                            "enable": True,
+                            "package": "fa_in",
+                            "exec": "fa_in_node",
+                            "node_name": "fa_in",
+                            "params_file": str(params_file),
+                            "parameters": {"backend.name": "pcm_file_reader"},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert spec.groups[0].nodes[0].backend_name == "pcm_file_reader"
 
 
 def test_disabled_nodes_are_not_expanded() -> None:
