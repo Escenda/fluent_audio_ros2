@@ -24,6 +24,7 @@ def test_smart_turn_backend_uses_external_worker_payload_contract(tmp_path: Path
         command=sys.executable,
         args=(
             str(worker_path),
+            "detect",
             "--audio",
             "{audio}",
             "--model",
@@ -33,11 +34,11 @@ def test_smart_turn_backend_uses_external_worker_payload_contract(tmp_path: Path
         ),
         health_args=(
             str(worker_path),
+            "health",
             "--model",
             "{model}",
             "--provider",
             "{provider}",
-            "--health-check",
         ),
         timeout_sec=1.0,
         workspace_dir=str(tmp_path / "workspace"),
@@ -71,6 +72,11 @@ def test_smart_turn_ros_adapter_does_not_import_onnxruntime_or_ros_messages() ->
     assert "onnxruntime" not in adapter_text
     assert "onnxruntime" not in worker_text
     assert "onnxruntime" in runtime_text
+    assert "Path | None" not in adapter_text
+    assert "Path | None" not in worker_text
+    assert "default=\"\"" not in worker_text
+    assert "subparsers.add_parser(\"health\"" in worker_text
+    assert "subparsers.add_parser(\"detect\"" in worker_text
     assert "CPUExecutionProvider" in adapter_text
     assert "CUDAExecutionProvider" in adapter_text
     assert "TensorrtExecutionProvider" in adapter_text

@@ -19,6 +19,10 @@ class _BackendError(Exception):
     pass
 
 
+class _FakeParameterUninitializedException(Exception):
+    pass
+
+
 class _FakeLogger:
     def __init__(self) -> None:
         self.fatal_records: list[str] = []
@@ -140,6 +144,9 @@ def _install_turn_detector_import_fakes(
     parameter_module = ModuleType("rclpy.parameter")
     parameter_module.Parameter = _FakeParameter
 
+    exceptions_module = ModuleType("rclpy.exceptions")
+    exceptions_module.ParameterUninitializedException = _FakeParameterUninitializedException
+
     qos_module = ModuleType("rclpy.qos")
     qos_module.HistoryPolicy = _FakeHistoryPolicy
     qos_module.QoSProfile = _FakeQoSProfile
@@ -153,6 +160,7 @@ def _install_turn_detector_import_fakes(
     fa_interfaces_msg_module.VadState = _FakeVadState
 
     monkeypatch.setitem(sys.modules, "rclpy", rclpy_module)
+    monkeypatch.setitem(sys.modules, "rclpy.exceptions", exceptions_module)
     monkeypatch.setitem(sys.modules, "rclpy.node", node_module)
     monkeypatch.setitem(sys.modules, "rclpy.parameter", parameter_module)
     monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
@@ -175,6 +183,7 @@ def _smart_turn_backend(tmp_path: Path, *, probability: str = "0.75") -> SmartTu
         command=sys.executable,
         args=(
             str(worker),
+            "detect",
             "--audio",
             "{audio}",
             "--model",
@@ -184,11 +193,11 @@ def _smart_turn_backend(tmp_path: Path, *, probability: str = "0.75") -> SmartTu
         ),
         health_args=(
             str(worker),
+            "health",
             "--model",
             "{model}",
             "--provider",
             "{provider}",
-            "--health-check",
         ),
         timeout_sec=1.0,
         workspace_dir=str(tmp_path / "workspace"),
@@ -259,13 +268,20 @@ def test_default_config_requires_explicit_model_and_provider() -> None:
     params = config["fa_turn_detector"]["ros__parameters"]
 
     assert params["backend.name"] == "smart_turn_onnx"
+    assert params["audio_topic"] == "audio/frame"
+    assert params["expected_stream_id"] == "audio/raw/mic"
+    assert params["audio_topic"] != params["expected_stream_id"]
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""
     assert params["backend.command"] == ""
     assert params["backend.args"] == []
     assert params["backend.health_args"] == []
     assert params["expected_source_id"] == ""
-    assert 'declare_parameter("expected_source_id", "")' in source
+    assert 'declare_parameter("expected_source_id", Parameter.Type.STRING)' in source
+    assert 'declare_parameter("expected_stream_id", Parameter.Type.STRING)' in source
+    assert 'declare_parameter("expected_source_id", "")' not in source
+    assert 'declare_parameter("backend.threshold", 0.5)' not in source
+    assert 'declare_parameter("backend.timeout_sec", 5.0)' not in source
     assert 'declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)' in source
     assert 'declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)' in source
     assert "parameter_overrides: Iterable[Parameter] | None = None" in source
@@ -326,8 +342,16 @@ def test_smart_turn_backend_rejects_unsupported_execution_provider_before_worker
             threshold=0.5,
             execution_provider="BogusProvider",
             command=sys.executable,
-            args=("--audio", "{audio}", "--model", "{model}", "--provider", "{provider}"),
-            health_args=("--model", "{model}", "--provider", "{provider}"),
+            args=(
+                "detect",
+                "--audio",
+                "{audio}",
+                "--model",
+                "{model}",
+                "--provider",
+                "{provider}",
+            ),
+            health_args=("health", "--model", "{model}", "--provider", "{provider}"),
             timeout_sec=1.0,
             workspace_dir=str(tmp_path / "workspace"),
             cleanup_audio_files=True,
@@ -480,8 +504,8 @@ def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame channels must be 1" in source
     assert "AudioFrame source_id and stream_id are required" in source
     assert "AudioFrame source_id must match expected_source_id" in source
-    assert "AudioFrame stream_id must match audio_topic" in source
-    assert "expected_stream_id=self.audio_topic" in source
+    assert "AudioFrame stream_id must match expected_stream_id" in source
+    assert "expected_stream_id=self.expected_stream_id" in source
     assert "AudioFrame layout must be interleaved" in source
     assert "AudioFrame encoding must be FLOAT32LE" in source
     assert "AudioFrame bit_depth must be 32" in source
@@ -490,7 +514,9 @@ def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
     assert "VadState source_id and stream_id are required" in source
     assert "VadState source_id must match expected_source_id" in source
-    assert "VadState stream_id must match audio_topic" in source
+    assert "VadState stream_id must match expected_stream_id" in source
+    assert "expected_stream_id must be distinct from ROS" in source
+    assert '("audio_topic", self.audio_topic)' in source
 
 
 def test_turn_detector_rejects_unbound_vad_identity(
@@ -506,22 +532,22 @@ def test_turn_detector_rejects_unbound_vad_identity(
         module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
         msg = _FakeVadState()
         msg.source_id = "mic-a"
-        msg.stream_id = "audio/frame"
+        msg.stream_id = "audio/raw/mic"
 
         module.FaTurnDetectorNode._validate_vad_identity(
             msg,
             expected_source_id="mic-a",
-            expected_stream_id="audio/frame",
+            expected_stream_id="audio/raw/mic",
         )
 
         with pytest.raises(ValueError, match="VadState source_id must match expected_source_id"):
             module.FaTurnDetectorNode._validate_vad_identity(
                 msg,
                 expected_source_id="mic-b",
-                expected_stream_id="audio/frame",
+                expected_stream_id="audio/raw/mic",
             )
 
-        with pytest.raises(ValueError, match="VadState stream_id must match audio_topic"):
+        with pytest.raises(ValueError, match="VadState stream_id must match expected_stream_id"):
             module.FaTurnDetectorNode._validate_vad_identity(
                 msg,
                 expected_source_id="mic-a",
@@ -556,7 +582,7 @@ def test_frame_to_float_rejects_pcm32_payload_before_float_interpretation(
     module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
     msg = _FakeAudioFrame()
     msg.source_id = "mic"
-    msg.stream_id = "audio/frame"
+    msg.stream_id = "audio/raw/mic"
     msg.layout = "interleaved"
     msg.channels = 1
     msg.encoding = "PCM32LE"
@@ -567,7 +593,7 @@ def test_frame_to_float_rejects_pcm32_payload_before_float_interpretation(
         module.FaTurnDetectorNode._frame_to_float(
             msg,
             expected_source_id="mic",
-            expected_stream_id="audio/frame",
+            expected_stream_id="audio/raw/mic",
         )
 
 
@@ -583,7 +609,7 @@ def test_frame_to_float_rejects_unbound_source_or_stream_identity(
     module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
     msg = _FakeAudioFrame()
     msg.source_id = "mic-a"
-    msg.stream_id = "audio/frame"
+    msg.stream_id = "audio/raw/mic"
     msg.layout = "interleaved"
     msg.channels = 1
     msg.encoding = "FLOAT32LE"
@@ -594,10 +620,10 @@ def test_frame_to_float_rejects_unbound_source_or_stream_identity(
         module.FaTurnDetectorNode._frame_to_float(
             msg,
             expected_source_id="mic-b",
-            expected_stream_id="audio/frame",
+            expected_stream_id="audio/raw/mic",
         )
 
-    with pytest.raises(ValueError, match="AudioFrame stream_id must match audio_topic"):
+    with pytest.raises(ValueError, match="AudioFrame stream_id must match expected_stream_id"):
         module.FaTurnDetectorNode._frame_to_float(
             msg,
             expected_source_id="mic-a",
@@ -711,11 +737,11 @@ def test_smart_turn_backend_rejects_missing_command_args(tmp_path: Path) -> None
             args=(str(worker), "--model", "{model}", "--provider", "{provider}"),
             health_args=(
                 str(worker),
+                "health",
                 "--model",
                 "{model}",
                 "--provider",
                 "{provider}",
-                "--health-check",
             ),
             timeout_sec=1.0,
             workspace_dir=str(tmp_path / "workspace"),
@@ -736,6 +762,7 @@ def test_smart_turn_backend_rejects_unknown_arg_placeholder(tmp_path: Path) -> N
             command=sys.executable,
             args=(
                 str(worker),
+                "detect",
                 "--audio",
                 "{audio}",
                 "--model",
@@ -746,11 +773,11 @@ def test_smart_turn_backend_rejects_unknown_arg_placeholder(tmp_path: Path) -> N
             ),
             health_args=(
                 str(worker),
+                "health",
                 "--model",
                 "{model}",
                 "--provider",
                 "{provider}",
-                "--health-check",
             ),
             timeout_sec=1.0,
             workspace_dir=str(tmp_path / "workspace"),
@@ -771,6 +798,7 @@ def test_smart_turn_backend_health_check_failure_is_startup_failure(tmp_path: Pa
             command=sys.executable,
             args=(
                 str(worker),
+                "detect",
                 "--audio",
                 "{audio}",
                 "--model",
@@ -780,11 +808,11 @@ def test_smart_turn_backend_health_check_failure_is_startup_failure(tmp_path: Pa
             ),
             health_args=(
                 str(worker),
+                "health",
                 "--model",
                 "{model}",
                 "--provider",
                 "{provider}",
-                "--health-check",
             ),
             timeout_sec=1.0,
             workspace_dir=str(tmp_path / "workspace"),

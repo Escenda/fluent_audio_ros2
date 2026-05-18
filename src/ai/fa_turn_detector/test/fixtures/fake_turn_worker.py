@@ -7,16 +7,20 @@ from pathlib import Path
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--audio", default="")
-    parser.add_argument("--model", required=True)
-    parser.add_argument("--provider", required=True)
-    parser.add_argument("--health-check", action="store_true")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    health_parser = subparsers.add_parser("health")
+    health_parser.add_argument("--model", required=True)
+    health_parser.add_argument("--provider", required=True)
+    detect_parser = subparsers.add_parser("detect")
+    detect_parser.add_argument("--audio", required=True)
+    detect_parser.add_argument("--model", required=True)
+    detect_parser.add_argument("--provider", required=True)
     args = parser.parse_args()
 
     model_path = Path(args.model)
     model_text = model_path.read_text(encoding="utf-8", errors="ignore")
     first_line = model_text.splitlines()[0].strip()
-    if args.health_check:
+    if args.command == "health":
         if first_line == "healthfail":
             return 2
         print("ok")

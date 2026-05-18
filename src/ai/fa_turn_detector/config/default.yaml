@@ -1,6 +1,7 @@
 fa_turn_detector:
   ros__parameters:
     audio_topic: "audio/frame"
+    expected_stream_id: "audio/raw/mic"
     vad_topic: "voice/vad_state"
     turn_context_topic: "conversation/turn_context"
     output_topic: "voice/turn_end"
@@ -14,8 +15,10 @@ fa_turn_detector:
     # Required. External worker command. Example: smart_turn_onnx_worker.
     backend.command: ""
     # Required worker args for inference. Must include {audio}, {model}, {provider}.
+    # Example: ["detect", "--model", "{model}", "--provider", "{provider}", "--audio", "{audio}"]
     backend.args: []
     # Required startup health-check args. Must include {model}, {provider}.
+    # Example: ["health", "--model", "{model}", "--provider", "{provider}"]
     backend.health_args: []
     backend.timeout_sec: 5.0
     backend.workspace_dir: "/tmp/fluent_audio_fa_turn_detector"

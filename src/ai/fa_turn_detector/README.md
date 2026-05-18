@@ -4,12 +4,12 @@
 
 ## 入出力
 
-- Sub: `audio/frame` (`fa_interfaces/msg/AudioFrame`)
+- Sub: configured `audio_topic` (`fa_interfaces/msg/AudioFrame`)
 - Sub: `voice/vad_state` (`fa_interfaces/msg/VadState`)
 - Sub: `conversation/turn_context` (`fa_interfaces/msg/TurnContext`)
 - Pub: `voice/turn_end` (`fa_interfaces/msg/TurnEnd`)
 
-`TurnContext.active=true` の間だけ音声をバッファします。`AudioFrame.source_id` と `VadState.source_id` は `expected_source_id`、`AudioFrame.stream_id` と `VadState.stream_id` は `audio_topic` に一致する必要があります。モデルファイルが無い場合は起動時に失敗します。
+`TurnContext.active=true` の間だけ音声をバッファします。`AudioFrame.source_id` と `VadState.source_id` は `expected_source_id`、`AudioFrame.stream_id` と `VadState.stream_id` は `expected_stream_id` に一致する必要があります。`audio_topic` は ROS transport の接続点であり、frame identity ではありません。モデルファイルが無い場合は起動時に失敗します。
 
 ## Runtime
 

@@ -51,11 +51,11 @@ def _spin_until(
     return predicate()
 
 
-def _audio_frame(topic: str, samples: np.ndarray) -> AudioFrame:
+def _audio_frame(stream_id: str, samples: np.ndarray) -> AudioFrame:
     frame = AudioFrame()
     frame.header.frame_id = "mic-a-frame"
     frame.source_id = "mic-a"
-    frame.stream_id = topic
+    frame.stream_id = stream_id
     frame.encoding = "FLOAT32LE"
     frame.sample_rate = 16000
     frame.channels = 1
@@ -90,6 +90,7 @@ def _parameter_overrides(
     tmp_path: Path,
     model_path: Path,
     audio_topic: str,
+    expected_stream_id: str,
     vad_topic: str,
     turn_context_topic: str,
     output_topic: str,
@@ -97,6 +98,7 @@ def _parameter_overrides(
     worker_path = PACKAGE_ROOT / "test" / "fixtures" / "fake_turn_worker.py"
     return [
         Parameter("audio_topic", Parameter.Type.STRING, audio_topic),
+        Parameter("expected_stream_id", Parameter.Type.STRING, expected_stream_id),
         Parameter("vad_topic", Parameter.Type.STRING, vad_topic),
         Parameter("turn_context_topic", Parameter.Type.STRING, turn_context_topic),
         Parameter("output_topic", Parameter.Type.STRING, output_topic),
@@ -111,6 +113,7 @@ def _parameter_overrides(
             Parameter.Type.STRING_ARRAY,
             [
                 str(worker_path),
+                "detect",
                 "--audio",
                 "{audio}",
                 "--model",
@@ -124,11 +127,11 @@ def _parameter_overrides(
             Parameter.Type.STRING_ARRAY,
             [
                 str(worker_path),
+                "health",
                 "--model",
                 "{model}",
                 "--provider",
                 "{provider}",
-                "--health-check",
             ],
         ),
         Parameter("backend.timeout_sec", Parameter.Type.DOUBLE, 1.0),
@@ -143,6 +146,7 @@ def test_turn_detector_publishes_turn_end_from_ros_graph_fixture(tmp_path: Path)
 
     suffix = str(time.time_ns())
     audio_topic = f"audio/test/turn_detector_audio_{suffix}"
+    expected_stream_id = f"audio/raw/turn_detector_{suffix}"
     vad_topic = f"voice/test/turn_detector_vad_{suffix}"
     turn_context_topic = f"conversation/test/turn_context_{suffix}"
     output_topic = f"voice/test/turn_end_{suffix}"
@@ -154,6 +158,7 @@ def test_turn_detector_publishes_turn_end_from_ros_graph_fixture(tmp_path: Path)
             tmp_path=tmp_path,
             model_path=model_path,
             audio_topic=audio_topic,
+            expected_stream_id=expected_stream_id,
             vad_topic=vad_topic,
             turn_context_topic=turn_context_topic,
             output_topic=output_topic,
@@ -189,13 +194,15 @@ def test_turn_detector_publishes_turn_end_from_ros_graph_fixture(tmp_path: Path)
         context_pub.publish(_active_context("session-a", 42))
         assert _spin_until(executor, lambda: node._context_active)
 
-        audio_pub.publish(_audio_frame(audio_topic, np.full(16000, 0.1, dtype=np.float32)))
+        audio_pub.publish(
+            _audio_frame(expected_stream_id, np.full(16000, 0.1, dtype=np.float32))
+        )
         assert _spin_until(executor, lambda: len(node.audio_buffer) >= 16000)
 
-        vad_pub.publish(_vad_end("mic-b", audio_topic))
+        vad_pub.publish(_vad_end("mic-b", expected_stream_id))
         assert not _spin_until(executor, lambda: len(received) == 1, timeout_sec=0.3)
 
-        vad_pub.publish(_vad_end("mic-a", audio_topic))
+        vad_pub.publish(_vad_end("mic-a", expected_stream_id))
         assert _spin_until(executor, lambda: len(received) == 1)
 
         assert received[0].session_id == "session-a"

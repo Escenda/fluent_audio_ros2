@@ -80,7 +80,7 @@ class SmartTurnOnnxBackend:
         try:
             self._write_audio_payload(audio_path, audio)
             command = [self._command]
-            command.extend(self._format_args(self._args, audio_path=audio_path))
+            command.extend(self._format_inference_args(self._args, audio_path=audio_path))
             try:
                 completed = subprocess.run(
                     command,
@@ -108,7 +108,7 @@ class SmartTurnOnnxBackend:
 
     def _run_health_check(self) -> None:
         command = [self._command]
-        command.extend(self._format_args(self._health_args, audio_path=None))
+        command.extend(self._format_health_args(self._health_args))
         try:
             completed = subprocess.run(
                 command,
@@ -126,11 +126,24 @@ class SmartTurnOnnxBackend:
                 f"code={completed.returncode} stderr={stderr}"
             )
 
-    def _format_args(self, args: tuple[str, ...], *, audio_path: Path | None) -> list[str]:
-        audio_value = "" if audio_path is None else str(audio_path)
+    def _format_inference_args(
+        self,
+        args: tuple[str, ...],
+        *,
+        audio_path: Path,
+    ) -> list[str]:
         return [
             item.format(
-                audio=audio_value,
+                audio=str(audio_path),
+                model=str(self.model_path),
+                provider=self._execution_provider,
+            )
+            for item in args
+        ]
+
+    def _format_health_args(self, args: tuple[str, ...]) -> list[str]:
+        return [
+            item.format(
                 model=str(self.model_path),
                 provider=self._execution_provider,
             )

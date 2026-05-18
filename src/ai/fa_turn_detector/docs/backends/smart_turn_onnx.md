@@ -16,7 +16,7 @@ External Python / ONNX Runtime worker。
 - sample rate
 - explicit ONNX Runtime execution provider。adapter 境界で `CPUExecutionProvider`、`CUDAExecutionProvider`、`TensorrtExecutionProvider` だけを受け付ける
 - model path passed as `{model}`
-- audio payload path passed as `{audio}`
+- audio payload path passed as `{audio}` on the inference command only
 - execution provider passed as `{provider}`
 
 ## Output
@@ -40,3 +40,4 @@ External Python / ONNX Runtime worker。
 
 Missing model は fallback せず起動失敗です。
 startup health check は worker を起動し、ONNX Runtime provider と model IO contract を検証します。health check が失敗した場合も fallback せず起動失敗です。
+health command は `{audio}` を受け取らず、inference command と分離します。空 audio path を sentinel として扱いません。
