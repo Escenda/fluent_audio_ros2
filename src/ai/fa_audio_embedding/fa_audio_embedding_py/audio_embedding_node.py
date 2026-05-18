@@ -6,6 +6,7 @@ from typing import Iterable
 
 import numpy as np
 import rclpy
+from rclpy.exceptions import ParameterUninitializedException
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -45,27 +46,27 @@ class FaAudioEmbeddingNode(Node):
         )
 
     def _declare_parameters(self) -> None:
-        self.declare_parameter("input_topic", "audio/embedding/input")
-        self.declare_parameter("output_topic", "audio/embedding/frame")
-        self.declare_parameter("expected_source_id", "")
-        self.declare_parameter("expected_stream_id", "")
-        self.declare_parameter("expected.sample_rate", 16000)
-        self.declare_parameter("expected.channels", 1)
-        self.declare_parameter("expected.encoding", "FLOAT32LE")
-        self.declare_parameter("expected.bit_depth", 32)
-        self.declare_parameter("expected.layout", "interleaved")
-        self.declare_parameter("embedding.dimension", 0)
-        self.declare_parameter("backend.name", "")
-        self.declare_parameter("backend.command", "")
-        self.declare_parameter("backend.model_id", "")
-        self.declare_parameter("backend.model_path", "")
+        self.declare_parameter("input_topic", Parameter.Type.STRING)
+        self.declare_parameter("output_topic", Parameter.Type.STRING)
+        self.declare_parameter("expected_source_id", Parameter.Type.STRING)
+        self.declare_parameter("expected_stream_id", Parameter.Type.STRING)
+        self.declare_parameter("expected.sample_rate", Parameter.Type.INTEGER)
+        self.declare_parameter("expected.channels", Parameter.Type.INTEGER)
+        self.declare_parameter("expected.encoding", Parameter.Type.STRING)
+        self.declare_parameter("expected.bit_depth", Parameter.Type.INTEGER)
+        self.declare_parameter("expected.layout", Parameter.Type.STRING)
+        self.declare_parameter("embedding.dimension", Parameter.Type.INTEGER)
+        self.declare_parameter("backend.name", Parameter.Type.STRING)
+        self.declare_parameter("backend.command", Parameter.Type.STRING)
+        self.declare_parameter("backend.model_id", Parameter.Type.STRING)
+        self.declare_parameter("backend.model_path", Parameter.Type.STRING)
         self.declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)
-        self.declare_parameter("backend.payload_encoding", "float32le_raw")
-        self.declare_parameter("backend.timeout_sec", 30.0)
-        self.declare_parameter("backend.workspace_dir", "/tmp/fa_audio_embedding")
-        self.declare_parameter("backend.cleanup_audio_files", True)
-        self.declare_parameter("qos.depth", 10)
-        self.declare_parameter("qos.reliable", False)
+        self.declare_parameter("backend.payload_encoding", Parameter.Type.STRING)
+        self.declare_parameter("backend.timeout_sec", Parameter.Type.DOUBLE)
+        self.declare_parameter("backend.workspace_dir", Parameter.Type.STRING)
+        self.declare_parameter("backend.cleanup_audio_files", Parameter.Type.BOOL)
+        self.declare_parameter("qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("qos.reliable", Parameter.Type.BOOL)
 
     def _load_parameters(self) -> None:
         self.input_topic = self._string_parameter("input_topic").strip()
@@ -123,34 +124,57 @@ class FaAudioEmbeddingNode(Node):
         )
 
     def _string_parameter(self, name: str) -> str:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+            value = parameter.value
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.STRING:
             raise RuntimeError(f"{name} must be a string")
-        return parameter.value
+        return value
 
     def _bool_parameter(self, name: str) -> bool:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+            value = parameter.value
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.BOOL:
             raise RuntimeError(f"{name} must be a bool")
-        return parameter.value
+        return value
 
     def _integer_parameter(self, name: str) -> int:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+            value = parameter.value
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.INTEGER:
             raise RuntimeError(f"{name} must be an integer")
-        return parameter.value
+        return value
 
     def _double_parameter(self, name: str) -> float:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+            value = parameter.value
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.DOUBLE:
             raise RuntimeError(f"{name} must be a double")
-        return parameter.value
+        return value
 
     def _string_array_parameter(self, name: str) -> tuple[str, ...]:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.STRING_ARRAY:
             raise RuntimeError(f"{name} must be a string array")
-        return tuple(str(item) for item in parameter.value)
+        try:
+            array_value = parameter.get_parameter_value().string_array_value
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
+        return tuple(array_value)
 
     def on_audio(self, msg: AudioFrame) -> None:
         try:

@@ -95,10 +95,11 @@ def test_default_config_requires_explicit_backend_identity_and_dimension() -> No
     assert params["embedding.dimension"] == 0
     assert params["expected_source_id"] == ""
     assert params["expected_stream_id"] == ""
-    assert 'declare_parameter("expected_source_id", "")' in source
-    assert 'declare_parameter("expected_stream_id", "")' in source
+    assert 'declare_parameter("expected_source_id", Parameter.Type.STRING)' in source
+    assert 'declare_parameter("expected_stream_id", Parameter.Type.STRING)' in source
     assert 'declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)' in source
-    assert 'declare_parameter("backend.payload_encoding", "float32le_raw")' in source
+    assert 'declare_parameter("backend.payload_encoding", Parameter.Type.STRING)' in source
+    assert "ParameterUninitializedException" in source
 
 
 def test_build_backend_rejects_missing_backend_name(tmp_path: Path) -> None:

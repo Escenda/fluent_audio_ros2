@@ -11,8 +11,12 @@ def test_launch_uses_explicit_config_file_contract() -> None:
         encoding="utf-8"
     )
 
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
+    assert 'DeclareLaunchArgument(\n                "node_name"' in launch_text
     assert 'DeclareLaunchArgument(\n                "config_file"' in launch_text
-    assert 'FindPackageShare("fa_audio_embedding"), "config", "default.yaml"' in launch_text
+    assert 'LaunchConfiguration("node_name")' in launch_text
     assert "parameters=[config_file]" in launch_text
 
 
