@@ -3,6 +3,7 @@
 `fa_interleave` は `fa_interfaces/msg/AudioFrame` の memory layout だけを変換する FluentAudio processing package です。
 
 この package は IO node ではありません。device、file、network、codec decode/encode、resample、sample format conversion、bit-depth conversion、channel count conversion、gain、loudness normalize、limit、filter は扱いません。
+layout reorder engine は ROS2 topic/message を知らない `internal_layout_reorder` backend に分離し、node は parameter、QoS、AudioFrame metadata、publish/drop、diagnostics だけを扱います。
 
 ## 対応変換
 

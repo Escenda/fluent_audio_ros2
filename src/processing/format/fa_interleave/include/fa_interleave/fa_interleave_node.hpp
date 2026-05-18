@@ -1,14 +1,14 @@
 #pragma once
 
 #include <atomic>
-#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "fa_interleave/backends/internal_layout_reorder.hpp"
 #include "fa_interfaces/msg/audio_frame.hpp"
 
 namespace fa_interleave
@@ -51,27 +51,8 @@ private:
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool convertFrame(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
-  static bool isSupportedLayout(const std::string & layout);
-  static bool isSupportedLayoutConversion(const std::string & input_layout, const std::string & output_layout);
-  static bool isSupportedFormat(const std::string & encoding, int bit_depth);
-  static size_t bytesPerSample(const std::string & encoding, int bit_depth);
-  static std::vector<uint8_t> reorderInterleavedToPlanar(
-    const std::vector<uint8_t> & input_bytes,
-    size_t frame_count,
-    size_t channel_count,
-    size_t bytes_per_sample);
-  static std::vector<uint8_t> reorderPlanarToInterleaved(
-    const std::vector<uint8_t> & input_bytes,
-    size_t frame_count,
-    size_t channel_count,
-    size_t bytes_per_sample);
-  static void appendSampleBytes(
-    const std::vector<uint8_t> & input_bytes,
-    size_t sample_index,
-    size_t bytes_per_sample,
-    std::vector<uint8_t> & output_bytes);
-
   InterleaveConfig config_;
+  std::unique_ptr<backends::InternalLayoutReorderBackend> backend_;
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
