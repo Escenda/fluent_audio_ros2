@@ -160,7 +160,13 @@ void FaResampleNode::handleMicFrame(const fa_interfaces::msg::AudioFrame::Shared
     mic_drop_.fetch_add(1);
     return;
   }
-  processAndPublish(*msg, mic_pub_, config_.mic_output_topic, mic_out_, mic_drop_);
+  processAndPublish(
+    *msg,
+    mic_pub_,
+    config_.mic_input_topic,
+    config_.mic_output_topic,
+    mic_out_,
+    mic_drop_);
 }
 
 void FaResampleNode::handleRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
@@ -170,12 +176,19 @@ void FaResampleNode::handleRefFrame(const fa_interfaces::msg::AudioFrame::Shared
     ref_drop_.fetch_add(1);
     return;
   }
-  processAndPublish(*msg, ref_pub_, config_.ref_output_topic, ref_out_, ref_drop_);
+  processAndPublish(
+    *msg,
+    ref_pub_,
+    config_.ref_input_topic,
+    config_.ref_output_topic,
+    ref_out_,
+    ref_drop_);
 }
 
 bool FaResampleNode::processAndPublish(
   const fa_interfaces::msg::AudioFrame & in,
   const rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr & pub,
+  const std::string & expected_input_stream_id,
   const std::string & output_stream_id,
   std::atomic<uint64_t> & out_counter,
   std::atomic<uint64_t> & drop_counter)
@@ -189,6 +202,16 @@ bool FaResampleNode::processAndPublish(
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "Invalid frame (%s): source_id and stream_id are required", output_stream_id.c_str());
+    drop_counter.fetch_add(1);
+    return false;
+  }
+  if (in.stream_id != expected_input_stream_id) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Invalid frame (%s): stream_id mismatch %s != %s",
+      output_stream_id.c_str(),
+      in.stream_id.c_str(),
+      expected_input_stream_id.c_str());
     drop_counter.fetch_add(1);
     return false;
   }

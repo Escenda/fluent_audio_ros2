@@ -101,6 +101,15 @@ TEST_F(RclcppFixture, PublishesResampledFloat32Frame)
   executor.add_node(resample_node);
   executor.add_node(test_node);
 
+  auto wrong_stream = makeFloat32Frame(*test_node);
+  wrong_stream.stream_id = "/fa_resample_test/other_input";
+  for (int i = 0; i < 4; ++i) {
+    publisher->publish(wrong_stream);
+    executor.spin_some(20ms);
+    std::this_thread::sleep_for(10ms);
+  }
+  EXPECT_FALSE(received.has_value());
+
   const auto deadline = std::chrono::steady_clock::now() + 3s;
   while (!received.has_value() && std::chrono::steady_clock::now() < deadline) {
     publisher->publish(makeFloat32Frame(*test_node));

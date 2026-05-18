@@ -52,6 +52,7 @@ private:
   bool processAndPublish(
     const fa_interfaces::msg::AudioFrame & in,
     const rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr & pub,
+    const std::string & expected_input_stream_id,
     const std::string & output_stream_id,
     std::atomic<uint64_t> & out_counter,
     std::atomic<uint64_t> & drop_counter);
