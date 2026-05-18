@@ -39,16 +39,16 @@ parameters fail closed at the package boundary.
 
 The taxonomy directories are stable even when a category has no concrete ROS 2
 package yet. A directory without `package.xml` is a roadmap/category placeholder
-and must not be counted as implemented package coverage.
+and must not be counted as functional implementation coverage.
 
 | Category | Current ROS 2 packages | Status |
 | --- | --- | --- |
-| `format/` | `fa_resample`, `fa_sample_format`, `fa_bit_depth`, `fa_channel_convert`, `fa_interleave` | implemented packages |
-| `dynamics/` | `fa_gain`, `fa_normalize`, `fa_compressor`, `fa_limiter`, `fa_expander`, `fa_noise_gate`, `fa_agc` | implemented packages |
-| `frequency/` | `fa_eq`, `fa_high_pass`, `fa_low_pass`, `fa_band_pass`, `fa_notch`, `fa_deesser` | implemented packages |
-| `temporal/` | `fa_delay`, `fa_echo`, `fa_reverb`, `fa_trim`, `fa_silence_removal`, `fa_fade`, `fa_window` | implemented packages |
-| `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise`, `fa_declick`, `fa_hum`, `fa_dc_offset_removal` | implemented packages |
-| `spatial/` | `fa_pan`, `fa_stereo_widening`, `fa_downmix`, `fa_upmix`, `fa_beamforming` | implemented packages |
-| `analysis/` | `fa_cqt`, `fa_log_mel`, `fa_loudness`, `fa_mfcc`, `fa_onset`, `fa_pitch`, `fa_stft`, `fa_tempo` | implemented packages |
-| `generation/` | `fa_tts` | implemented package |
-| `routing/` | `fa_mix`, `fa_bus_router`, `fa_sidechain`, `fa_ducking`, `fa_monitor_mix`, `fa_loopback`, `fa_patchbay` | implemented packages |
+| `format/` | `fa_resample`, `fa_sample_format`, `fa_bit_depth`, `fa_channel_convert`, `fa_interleave` | declared ROS 2 packages with package-local contracts |
+| `dynamics/` | `fa_gain`, `fa_normalize`, `fa_compressor`, `fa_limiter`, `fa_expander`, `fa_noise_gate`, `fa_agc` | declared ROS 2 packages with package-local contracts |
+| `frequency/` | `fa_eq`, `fa_high_pass`, `fa_low_pass`, `fa_band_pass`, `fa_notch`, `fa_deesser` | declared ROS 2 packages with package-local contracts |
+| `temporal/` | `fa_delay`, `fa_echo`, `fa_reverb`, `fa_trim`, `fa_silence_removal`, `fa_fade`, `fa_window` | declared ROS 2 packages with package-local contracts |
+| `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise`, `fa_declick`, `fa_hum`, `fa_dc_offset_removal` | declared ROS 2 packages with package-local contracts |
+| `spatial/` | `fa_pan`, `fa_stereo_widening`, `fa_downmix`, `fa_upmix`, `fa_beamforming` | declared ROS 2 packages with package-local contracts |
+| `analysis/` | `fa_cqt`, `fa_log_mel`, `fa_loudness`, `fa_mfcc`, `fa_onset`, `fa_pitch`, `fa_stft`, `fa_tempo` | declared ROS 2 packages with package-local contracts |
+| `generation/` | `fa_tts` | declared ROS 2 package with package-local contract |
+| `routing/` | `fa_mix`, `fa_bus_router`, `fa_sidechain`, `fa_ducking`, `fa_monitor_mix`, `fa_loopback`, `fa_patchbay` | declared ROS 2 packages with package-local contracts |

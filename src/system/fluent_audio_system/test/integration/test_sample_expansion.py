@@ -236,6 +236,10 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
         "fa_resample",
     ]
     assert enabled_nodes[0].node_name == "fa_in"
+    assert enabled_nodes[0].parameters == {
+        "output_topic": "audio/frame",
+        "audio.stream_id": "audio/raw/mic",
+    }
 
     sample_format = enabled_nodes[1]
     assert sample_format.params_file == str(
@@ -248,6 +252,14 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
         "output.stream_id": "audio/float32/mic",
         "expected.sample_rate": 48000,
     }
+    assert (
+        sample_format.parameters["input_topic"]
+        == enabled_nodes[0].parameters["output_topic"]
+    )
+    assert (
+        sample_format.parameters["input_stream_id"]
+        == enabled_nodes[0].parameters["audio.stream_id"]
+    )
 
     resample = enabled_nodes[2]
     assert resample.params_file == str(

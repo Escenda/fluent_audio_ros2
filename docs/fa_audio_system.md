@@ -8,11 +8,14 @@
 3. **オフライン前提**: クラウドを使わず、音声入力で「起動/停止/モード切替」を実現できる土台を作る。
 4. **再利用可能なインターフェース**: 音声フレームは `fa_interfaces/msg/AudioFrame` に統一する。
 
-## 2. ノード構成（実装済み）
+## 2. ノード構成（現在のROS 2 package）
+
+この表は package / topic contract の俯瞰であり、全 package の DSP / backend 実装完了を意味しない。
+passthrough contract や skeleton 実装の package は、各 package の `docs/仕様書.md` と `docs/backends/` を正とする。
 
 | ノード | 役割 | 主な入出力 |
 | --- | --- | --- |
-| `fa_in` | マイク/ライン入力を開きPCM配信 | Pub: `audio/frame` / Srv: `list_devices`, `switch_device` |
+| `fa_in` | 明示 source からPCMを配信 | Pub: `audio/frame` など / Srv: `list_devices`, `switch_device` |
 | `fa_vad` | Silero VAD | Sub: `audio/frame` → Pub: `audio/vad`, `voice/vad_state` |
 | `fa_kws` | ローカルKWS | Sub: `audio/frame`, `voice/vad_state` → Pub: `voice/wake_word` |
 | `fa_asr` | ローカルASR実行ファイルの呼び出し | Sub: `audio/frame`, `voice/vad_state`, `conversation/turn_context` → Pub: `voice/asr/result` |

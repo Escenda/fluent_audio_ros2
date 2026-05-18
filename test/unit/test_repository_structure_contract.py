@@ -387,6 +387,27 @@ def test_declared_ros_package_readmes_do_not_claim_roadmap_only_status() -> None
     assert violations == []
 
 
+def test_repository_docs_do_not_overclaim_skeleton_packages_as_complete() -> None:
+    forbidden_phrases_by_path = {
+        REPO_ROOT / "docs" / "fa_audio_system.md": (
+            "ノード構成（実装済み）",
+        ),
+        SRC_ROOT / "processing" / "README.md": (
+            "implemented packages",
+            "implemented package",
+        ),
+    }
+    violations: list[str] = []
+
+    for doc_path, forbidden_phrases in forbidden_phrases_by_path.items():
+        source = doc_path.read_text(encoding="utf-8")
+        for phrase in forbidden_phrases:
+            if phrase in source:
+                violations.append(f"{doc_path.relative_to(REPO_ROOT)} contains {phrase}")
+
+    assert violations == []
+
+
 def test_io_taxonomy_exposes_design_source_sink_utility_directories() -> None:
     missing: list[str] = []
 
