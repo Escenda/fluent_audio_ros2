@@ -241,6 +241,12 @@ class _AudioSystemConfig(BaseModel):
 
 
 @dataclass(frozen=True)
+class ParameterIdentityContract:
+    topic_keys: frozenset[str]
+    stream_identity_keys: frozenset[str]
+
+
+@dataclass(frozen=True)
 class RemappingSpec:
     source: str
     target: str
@@ -281,6 +287,184 @@ class AudioSystemSpec:
     default_start_delay: float
     inter_group_delay: float
     groups: list[AudioGroupSpec]
+
+
+_SOURCE_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("output_topic",)),
+    stream_identity_keys=frozenset(("audio.stream_id", "output.stream_id")),
+)
+_SINK_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("input_topic",)),
+    stream_identity_keys=frozenset(("input_stream_id",)),
+)
+_FA_OUT_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("input_topic", "playback_done_topic")),
+    stream_identity_keys=frozenset(("input_stream_id",)),
+)
+_SIMPLE_PROCESSING_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("input_topic", "output_topic")),
+    stream_identity_keys=frozenset(("input_stream_id", "output.stream_id")),
+)
+_FEATURE_ANALYSIS_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("input_topic", "output_topic")),
+    stream_identity_keys=frozenset(("expected.stream_id", "output.stream_id")),
+)
+_RESAMPLE_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset((
+        "mic.input_topic",
+        "mic.output_topic",
+        "ref.input_topic",
+        "ref.output_topic",
+    )),
+    stream_identity_keys=frozenset((
+        "mic.input_stream_id",
+        "mic.output.stream_id",
+        "ref.input_stream_id",
+        "ref.output.stream_id",
+    )),
+)
+_AI_AUDIO_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset((
+        "audio_topic",
+        "input_topic",
+        "output_topic",
+        "vad_topic",
+        "turn_context_topic",
+        "asr_result_topic",
+    )),
+    stream_identity_keys=frozenset(("expected_stream_id", "input_stream_id")),
+)
+_VAD_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("input_topic", "output_topic", "vad_state_topic", "probability_topic")),
+    stream_identity_keys=frozenset(("input_stream_id",)),
+)
+_MIX_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("input_topics", "output_topic")),
+    stream_identity_keys=frozenset(("input_stream_ids", "output.stream_id")),
+)
+_BUS_ROUTER_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("input_topic", "output_topics")),
+    stream_identity_keys=frozenset(("input_stream_id", "output.stream_ids")),
+)
+_PATCHBAY_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("input_topics", "output_topics")),
+    stream_identity_keys=frozenset(("input_stream_ids", "output_stream_ids")),
+)
+_AEC_LINEAR_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("mic_topic", "ref_topic", "output_topic")),
+    stream_identity_keys=frozenset(("mic_stream_id", "ref_stream_id", "output.stream_id")),
+)
+_CROSSFADE_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("input_a_topic", "input_b_topic", "output_topic")),
+    stream_identity_keys=frozenset((
+        "input_a_stream_id",
+        "input_b_stream_id",
+        "output.stream_id",
+    )),
+)
+_DUCKING_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("program_topic", "sidechain_topic", "output_topic")),
+    stream_identity_keys=frozenset((
+        "program_stream_id",
+        "sidechain_stream_id",
+        "output.stream_id",
+    )),
+)
+_SIDECHAIN_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("sidechain_topic", "control_topic")),
+    stream_identity_keys=frozenset(("sidechain_stream_id", "output.stream_id")),
+)
+_TTS_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("output_topic",)),
+    stream_identity_keys=frozenset(("output.stream_id",)),
+)
+_SIMPLE_PROCESSING_PACKAGES = (
+    "fa_agc",
+    "fa_band_pass",
+    "fa_beamforming",
+    "fa_bit_depth",
+    "fa_channel_convert",
+    "fa_chunk_overlap",
+    "fa_clock_drift",
+    "fa_compressor",
+    "fa_dc_offset_removal",
+    "fa_declick",
+    "fa_deesser",
+    "fa_delay",
+    "fa_denoise",
+    "fa_downmix",
+    "fa_echo",
+    "fa_eq",
+    "fa_expander",
+    "fa_fade",
+    "fa_gain",
+    "fa_high_pass",
+    "fa_hum",
+    "fa_interleave",
+    "fa_jitter_buffer",
+    "fa_latency_compensation",
+    "fa_limiter",
+    "fa_loopback",
+    "fa_low_pass",
+    "fa_noise_gate",
+    "fa_normalize",
+    "fa_notch",
+    "fa_overlap_add",
+    "fa_packet_loss_concealment",
+    "fa_pan",
+    "fa_reverb",
+    "fa_sample_format",
+    "fa_silence_removal",
+    "fa_stereo_widening",
+    "fa_time_alignment",
+    "fa_trim",
+    "fa_upmix",
+    "fa_window",
+)
+_FEATURE_ANALYSIS_PACKAGES = (
+    "fa_cqt",
+    "fa_log_mel",
+    "fa_loudness",
+    "fa_mfcc",
+    "fa_onset",
+    "fa_pitch",
+    "fa_stft",
+    "fa_tempo",
+)
+_PARAMETER_IDENTITY_CONTRACTS: dict[str, ParameterIdentityContract] = {
+    "fa_in": _SOURCE_CONTRACT,
+    "fa_file_in": _SOURCE_CONTRACT,
+    "fa_network_in": _SOURCE_CONTRACT,
+    "fa_out": _FA_OUT_CONTRACT,
+    "fa_file_out": _SINK_CONTRACT,
+    "fa_network_out": _SINK_CONTRACT,
+    "fa_resample": _RESAMPLE_CONTRACT,
+    "fa_encode": _SIMPLE_PROCESSING_CONTRACT,
+    "fa_decode": _SIMPLE_PROCESSING_CONTRACT,
+    "fa_aec_linear": _AEC_LINEAR_CONTRACT,
+    "fa_aec_nn": _SIMPLE_PROCESSING_CONTRACT,
+    "fa_crossfade": _CROSSFADE_CONTRACT,
+    "fa_ducking": _DUCKING_CONTRACT,
+    "fa_sidechain": _SIDECHAIN_CONTRACT,
+    "fa_mix": _MIX_CONTRACT,
+    "fa_monitor_mix": _MIX_CONTRACT,
+    "fa_bus_router": _BUS_ROUTER_CONTRACT,
+    "fa_patchbay": _PATCHBAY_CONTRACT,
+    "fa_vad": _VAD_CONTRACT,
+    "fa_kws": _AI_AUDIO_CONTRACT,
+    "fa_asr": _AI_AUDIO_CONTRACT,
+    "fa_turn_detector": _AI_AUDIO_CONTRACT,
+    "fa_audio_embedding": _AI_AUDIO_CONTRACT,
+    "fa_tts": _TTS_CONTRACT,
+    **{
+        package_name: _SIMPLE_PROCESSING_CONTRACT
+        for package_name in _SIMPLE_PROCESSING_PACKAGES
+    },
+    **{
+        package_name: _FEATURE_ANALYSIS_CONTRACT
+        for package_name in _FEATURE_ANALYSIS_PACKAGES
+    },
+}
 
 
 def load_system_config(path: str) -> AudioSystemSpec:
@@ -386,6 +570,7 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
     if not os.path.isfile(params_file):
         raise RuntimeError(f"params_file not found: {params_file}")
     parameters = _optional_parameters(node.parameters, node_id)
+    _validate_parameter_identity_contract(package, node_id, parameters)
     remappings = _optional_remappings(node.remappings, node_id)
     return AudioNodeSpec(
         id=node_id,
@@ -485,6 +670,66 @@ def _optional_parameters(
             raise RuntimeError(f"node {node_id} parameter '{key}' has unsupported value type")
         params[key.strip()] = expanded_value
     return params
+
+
+def _validate_parameter_identity_contract(
+    package: str,
+    node_id: str,
+    parameters: dict[str, ParamValue],
+) -> None:
+    contract = _PARAMETER_IDENTITY_CONTRACTS.get(package)
+    if contract is None or not parameters:
+        return
+
+    topic_values = _contract_values(parameters, contract.topic_keys, node_id)
+    if not topic_values:
+        return
+
+    topic_identities = {
+        _identity_value(value)
+        for values in topic_values.values()
+        for value in values
+        if _identity_value(value)
+    }
+    if not topic_identities:
+        return
+
+    stream_values = _contract_values(parameters, contract.stream_identity_keys, node_id)
+    for stream_key, values in stream_values.items():
+        for value in values:
+            identity = _identity_value(value)
+            if identity and identity in topic_identities:
+                raise RuntimeError(
+                    f"node {node_id} parameter '{stream_key}' must not reuse ROS topic "
+                    f"value '{value}'"
+                )
+
+
+def _contract_values(
+    parameters: dict[str, ParamValue],
+    keys: frozenset[str],
+    node_id: str,
+) -> dict[str, list[str]]:
+    values_by_key: dict[str, list[str]] = {}
+    for key in keys:
+        if key not in parameters:
+            continue
+        values_by_key[key] = _string_values_for_contract_key(
+            parameters[key], f"node {node_id} parameter '{key}'"
+        )
+    return values_by_key
+
+
+def _string_values_for_contract_key(value: ParamValue, label: str) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return value
+    raise RuntimeError(f"{label} must be a string or a list of strings")
+
+
+def _identity_value(value: str) -> str:
+    return value.strip().lstrip("/")
 
 
 def _optional_remappings(

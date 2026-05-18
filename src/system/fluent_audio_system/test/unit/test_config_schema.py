@@ -439,7 +439,7 @@ def test_ai_group_accepts_audio_embedding_package(tmp_path: Path) -> None:
                             "params_file": str(params_file),
                             "parameters": {
                                 "input_topic": "audio/resample16k/mic",
-                                "expected_stream_id": "audio/resample16k/mic",
+                                "expected_stream_id": "audio/embedding/input_stream",
                             },
                         }
                     ],
@@ -453,13 +453,133 @@ def test_ai_group_accepts_audio_embedding_package(tmp_path: Path) -> None:
     assert node.executable == "fa_audio_embedding_node"
     assert node.parameters == {
         "input_topic": "audio/resample16k/mic",
-        "expected_stream_id": "audio/resample16k/mic",
+        "expected_stream_id": "audio/embedding/input_stream",
     }
     assert required_packages_for_system(spec) == [
         "fa_interfaces",
         "fluent_audio_system",
         "fa_audio_embedding",
     ]
+
+
+@pytest.mark.parametrize(
+    ("group_id", "package_name", "executable_name", "parameters"),
+    [
+        (
+            "format",
+            "fa_sample_format",
+            "fa_sample_format_node",
+            {
+                "input_topic": "audio/sample_format/input",
+                "input_stream_id": "audio/sample_format/input",
+            },
+        ),
+        (
+            "format",
+            "fa_resample",
+            "fa_resample_node",
+            {
+                "mic.input_topic": "/audio/resample/input",
+                "mic.input_stream_id": "audio/resample/input",
+            },
+        ),
+        (
+            "ai",
+            "fa_audio_embedding",
+            "fa_audio_embedding_node",
+            {
+                "input_topic": "audio/embedding/input",
+                "expected_stream_id": "audio/embedding/input",
+            },
+        ),
+        (
+            "routing",
+            "fa_mix",
+            "fa_mix_node",
+            {
+                "input_topics": ["audio/mix/input"],
+                "input_stream_ids": ["/audio/mix/input"],
+            },
+        ),
+        (
+            "io",
+            "fa_out",
+            "fa_out_node",
+            {
+                "input_topic": "audio/output/frame",
+                "input_stream_id": "audio/output/frame",
+            },
+        ),
+    ],
+)
+def test_inline_parameters_reject_topic_values_used_as_stream_identities(
+    tmp_path: Path,
+    group_id: str,
+    package_name: str,
+    executable_name: str,
+    parameters: dict[str, config_schema.ParamValue],
+) -> None:
+    params_file = tmp_path / f"{package_name}.yaml"
+    params_file.write_text(f"{package_name}:\n  ros__parameters: {{}}\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="must not reuse ROS topic value"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": group_id,
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": package_name,
+                                "enable": True,
+                                "package": package_name,
+                                "exec": executable_name,
+                                "node_name": package_name,
+                                "params_file": str(params_file),
+                                "parameters": parameters,
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_stream_identity_contract_rejects_non_string_role_values(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_mix.yaml"
+    params_file.write_text("fa_mix:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeError,
+        match="node fa_mix parameter 'input_stream_ids' must be a string or a list of strings",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "routing",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_mix",
+                                "enable": True,
+                                "package": "fa_mix",
+                                "exec": "fa_mix_node",
+                                "node_name": "fa_mix",
+                                "params_file": str(params_file),
+                                "parameters": {
+                                    "input_topics": ["audio/mix/input"],
+                                    "input_stream_ids": [1],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
 
 
 @pytest.mark.parametrize(
