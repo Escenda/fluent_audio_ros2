@@ -5,6 +5,10 @@ fa_aec_linear:
     mic_topic: "audio/resample16k/mic"
     ref_topic: "audio/resample16k/ref"
     output_topic: "audio/aec_linear/frame"
+    mic_stream_id: "audio/mic/resample16k"
+    ref_stream_id: "audio/ref/resample16k"
+    output:
+      stream_id: "audio/aec_linear/output"
 
     expected_sample_rate: 16000
     expected_channels: 1

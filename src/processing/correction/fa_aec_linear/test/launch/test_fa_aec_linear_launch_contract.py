@@ -65,6 +65,9 @@ def test_default_launch_config_keeps_aec_linear_as_correction_node() -> None:
     assert params["mic_topic"] == "audio/resample16k/mic"
     assert params["ref_topic"] == "audio/resample16k/ref"
     assert params["output_topic"] == "audio/aec_linear/frame"
+    assert params["mic_stream_id"] == "audio/mic/resample16k"
+    assert params["ref_stream_id"] == "audio/ref/resample16k"
+    assert params["output"]["stream_id"] == "audio/aec_linear/output"
     assert params["expected_sample_rate"] == 16000
     assert params["expected_channels"] == 1
     assert params["expected"]["encoding"] == "PCM16LE"
@@ -108,6 +111,22 @@ def test_launch_fails_closed_when_resolved_topics_match(tmp_path: Path) -> None:
     assert result.returncode != LAUNCH_TIMEOUT_CODE
     assert "process has died" in result.stdout
     assert "resolved mic_topic and output_topic must be distinct" in result.stdout
+
+
+def test_launch_fails_closed_when_stream_id_matches_topic(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_aec_linear"]["ros__parameters"]
+    params["mic_stream_id"] = "audio/resample16k/mic"
+    config_path = tmp_path / "stream_id_matches_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_aec_linear_launch(config_path)
+
+    assert result.returncode != LAUNCH_TIMEOUT_CODE
+    assert "process has died" in result.stdout
+    assert "must be distinct from ROS topics" in result.stdout
 
 
 def test_launch_accepts_default_config(tmp_path: Path) -> None:

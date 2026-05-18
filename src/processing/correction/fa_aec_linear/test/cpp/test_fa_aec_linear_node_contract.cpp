@@ -21,6 +21,9 @@ using namespace std::chrono_literals;
 constexpr const char * kMicTopic = "audio/test/aec_mic";
 constexpr const char * kRefTopic = "audio/test/aec_ref";
 constexpr const char * kOutputTopic = "audio/test/aec_output";
+constexpr const char * kMicStreamId = "audio/test/aec_mic_stream";
+constexpr const char * kRefStreamId = "audio/test/aec_ref_stream";
+constexpr const char * kOutputStreamId = "audio/test/aec_output_stream";
 constexpr uint32_t kSampleRate = 16000;
 constexpr uint32_t kChannels = 1;
 constexpr uint32_t kBitDepth = 16;
@@ -33,6 +36,9 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("mic_topic", kMicTopic),
     rclcpp::Parameter("ref_topic", kRefTopic),
     rclcpp::Parameter("output_topic", kOutputTopic),
+    rclcpp::Parameter("mic_stream_id", kMicStreamId),
+    rclcpp::Parameter("ref_stream_id", kRefStreamId),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("expected_sample_rate", static_cast<int>(kSampleRate)),
     rclcpp::Parameter("expected_channels", static_cast<int>(kChannels)),
     rclcpp::Parameter("expected.encoding", "PCM16LE"),
@@ -43,6 +49,8 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   };
 }
 
@@ -202,14 +210,14 @@ TEST_F(RclcppContractTest, PublishesSubtractedPcm16WhenMicAndReferenceAreBound)
       output_sub->get_publisher_count() > 0;
   }));
 
-  ref_pub->publish(frameWith(kRefTopic, {8192, 4096}, 2U));
+  ref_pub->publish(frameWith(kRefStreamId, {8192, 4096}, 2U));
   spinFor(executor, 100ms);
-  mic_pub->publish(frameWith(kMicTopic, {16384, 8192}, 3U));
+  mic_pub->publish(frameWith(kMicStreamId, {16384, 8192}, 3U));
   ASSERT_TRUE(spinUntil(executor, [&received]() {
     return received.size() == 1U;
   }));
 
-  EXPECT_EQ(received[0].stream_id, kOutputTopic);
+  EXPECT_EQ(received[0].stream_id, kOutputStreamId);
   EXPECT_EQ(received[0].source_id, "test-source");
   EXPECT_EQ(received[0].sample_rate, kSampleRate);
   EXPECT_EQ(received[0].channels, kChannels);
@@ -247,9 +255,9 @@ TEST_F(RclcppContractTest, DropsMicFrameWhenDisabled)
       output_sub->get_publisher_count() > 0;
   }));
 
-  ref_pub->publish(frameWith(kRefTopic, {4096}, 2U));
+  ref_pub->publish(frameWith(kRefStreamId, {4096}, 2U));
   spinFor(executor, 100ms);
-  mic_pub->publish(frameWith(kMicTopic, {8192}, 3U));
+  mic_pub->publish(frameWith(kMicStreamId, {8192}, 3U));
   spinFor(executor, 250ms);
 
   EXPECT_TRUE(received.empty());
@@ -280,7 +288,7 @@ TEST_F(RclcppContractTest, DropsMicFrameWithMismatchedStreamId)
       output_sub->get_publisher_count() > 0;
   }));
 
-  ref_pub->publish(frameWith(kRefTopic, {4096}, 2U));
+  ref_pub->publish(frameWith(kRefStreamId, {4096}, 2U));
   spinFor(executor, 100ms);
   mic_pub->publish(frameWith("audio/test/wrong_mic_stream", {8192}, 3U));
   spinFor(executor, 250ms);
@@ -315,7 +323,7 @@ TEST_F(RclcppContractTest, DoesNotCacheReferenceWithMismatchedStreamId)
 
   ref_pub->publish(frameWith("audio/test/wrong_ref_stream", {4096}, 2U));
   spinFor(executor, 100ms);
-  mic_pub->publish(frameWith(kMicTopic, {8192}, 3U));
+  mic_pub->publish(frameWith(kMicStreamId, {8192}, 3U));
   spinFor(executor, 250ms);
 
   EXPECT_TRUE(received.empty());
@@ -346,9 +354,9 @@ TEST_F(RclcppContractTest, DropsMicFrameWhenReferenceTimestampIsNewerThanMic)
       output_sub->get_publisher_count() > 0;
   }));
 
-  ref_pub->publish(frameWith(kRefTopic, {4096}, 2U, 2000000000LL));
+  ref_pub->publish(frameWith(kRefStreamId, {4096}, 2U, 2000000000LL));
   spinFor(executor, 100ms);
-  mic_pub->publish(frameWith(kMicTopic, {8192}, 3U, 1500000000LL));
+  mic_pub->publish(frameWith(kMicStreamId, {8192}, 3U, 1500000000LL));
   spinFor(executor, 250ms);
 
   EXPECT_TRUE(received.empty());
@@ -379,9 +387,9 @@ TEST_F(RclcppContractTest, DropsMicFrameWhenReferenceTimestampIsTooOld)
       output_sub->get_publisher_count() > 0;
   }));
 
-  ref_pub->publish(frameWith(kRefTopic, {4096}, 2U, 1000000000LL));
+  ref_pub->publish(frameWith(kRefStreamId, {4096}, 2U, 1000000000LL));
   spinFor(executor, 100ms);
-  mic_pub->publish(frameWith(kMicTopic, {8192}, 3U, 1700000000LL));
+  mic_pub->publish(frameWith(kMicStreamId, {8192}, 3U, 1700000000LL));
   spinFor(executor, 250ms);
 
   EXPECT_TRUE(received.empty());
@@ -391,6 +399,26 @@ TEST_F(RclcppContractTest, RejectsDisabledChannelValidationAtStartup)
 {
   auto parameters = validParameters();
   replaceParameter(parameters, rclcpp::Parameter("expected_channels", -1));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsStreamIdentityThatMatchesRosTopicAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("mic_stream_id", kMicTopic));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsDuplicateStreamIdentitiesAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("ref_stream_id", kMicStreamId));
 
   EXPECT_THROW(
     (std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(std::move(parameters)))),

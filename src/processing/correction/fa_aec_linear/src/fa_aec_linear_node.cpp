@@ -5,6 +5,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -91,6 +92,19 @@ bool hasValidStamp(const builtin_interfaces::msg::Time & stamp)
   return stamp.sec != 0 || stamp.nanosec != 0U;
 }
 
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
+
 const char * frameValidationStatusMessage(const FrameValidationStatus status)
 {
   switch (status) {
@@ -99,7 +113,7 @@ const char * frameValidationStatusMessage(const FrameValidationStatus status)
     case FrameValidationStatus::kMissingSourceId:
       return "source_id is empty";
     case FrameValidationStatus::kStreamIdMismatch:
-      return "stream_id does not match expected topic";
+      return "stream_id does not match expected stream identity";
     case FrameValidationStatus::kInvalidTimestamp:
       return "header.stamp is missing or invalid";
     case FrameValidationStatus::kSampleRateMismatch:
@@ -136,6 +150,9 @@ void FaAecLinearNode::loadParameters()
   this->declare_parameter<std::string>("mic_topic");
   this->declare_parameter<std::string>("ref_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("mic_stream_id");
+  this->declare_parameter<std::string>("ref_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<int>("expected_sample_rate");
   this->declare_parameter<int>("expected_channels");
   this->declare_parameter<std::string>("expected.encoding");
@@ -153,6 +170,9 @@ void FaAecLinearNode::loadParameters()
   config_.mic_topic = readRequiredString(*this, "mic_topic");
   config_.ref_topic = readRequiredString(*this, "ref_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.mic_stream_id = readRequiredString(*this, "mic_stream_id");
+  config_.ref_stream_id = readRequiredString(*this, "ref_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.expected_sample_rate = readRequiredInt(*this, "expected_sample_rate");
   config_.expected_channels = readRequiredInt(*this, "expected_channels");
   config_.expected_encoding = readRequiredString(*this, "expected.encoding");
@@ -177,6 +197,15 @@ void FaAecLinearNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required (set via YAML)");
   }
+  if (config_.mic_stream_id.empty()) {
+    throw std::runtime_error("mic_stream_id is required (set via YAML)");
+  }
+  if (config_.ref_stream_id.empty()) {
+    throw std::runtime_error("ref_stream_id is required (set via YAML)");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required (set via YAML)");
+  }
   config_.resolved_mic_topic =
     this->get_node_topics_interface()->resolve_topic_name(config_.mic_topic);
   config_.resolved_ref_topic =
@@ -191,6 +220,37 @@ void FaAecLinearNode::loadParameters()
   }
   if (config_.resolved_ref_topic == config_.resolved_output_topic) {
     throw std::runtime_error("resolved ref_topic and output_topic must be distinct");
+  }
+  if (sameIdentityString(config_.mic_topic, config_.ref_topic) ||
+      sameIdentityString(config_.mic_topic, config_.output_topic) ||
+      sameIdentityString(config_.ref_topic, config_.output_topic))
+  {
+    throw std::runtime_error("mic_topic, ref_topic, and output_topic must be distinct");
+  }
+
+  const std::vector<std::string> topic_identities = {
+    config_.mic_topic,
+    config_.ref_topic,
+    config_.output_topic,
+    config_.resolved_mic_topic,
+    config_.resolved_ref_topic,
+    config_.resolved_output_topic};
+  const std::vector<std::string> stream_identities = {
+    config_.mic_stream_id,
+    config_.ref_stream_id,
+    config_.output_stream_id};
+  std::set<std::string> unique_stream_identities;
+  for (const std::string & stream_id : stream_identities) {
+    if (!unique_stream_identities.insert(identityWithoutLeadingSlash(stream_id)).second) {
+      throw std::runtime_error(
+              "mic_stream_id, ref_stream_id, and output.stream_id must be distinct");
+    }
+    for (const std::string & topic_identity : topic_identities) {
+      if (sameIdentityString(stream_id, topic_identity)) {
+        throw std::runtime_error(
+                "mic_stream_id, ref_stream_id, and output.stream_id must be distinct from ROS topics");
+      }
+    }
   }
   if (config_.expected_sample_rate != kRequiredSampleRate) {
     throw std::runtime_error(
@@ -226,12 +286,16 @@ void FaAecLinearNode::loadParameters()
   }
 
   RCLCPP_INFO(this->get_logger(),
-    "AEC Linear config: enabled=%s mic=%s ref=%s output=%s expected_sr=%d expected_ch=%d "
+    "AEC Linear config: enabled=%s mic=%s mic_stream=%s ref=%s ref_stream=%s output=%s "
+    "output_stream=%s expected_sr=%d expected_ch=%d "
     "expected=%s/%d ref_timeout=%dms reference_failure_policy=%s cancel_gain=%.3f qos_depth=%d reliable=%s",
     config_.enabled ? "true" : "false",
     config_.mic_topic.c_str(),
+    config_.mic_stream_id.c_str(),
     config_.ref_topic.c_str(),
+    config_.ref_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -240,7 +304,7 @@ void FaAecLinearNode::loadParameters()
     config_.reference_failure_policy.c_str(),
     config_.cancel_gain,
     config_.qos_depth,
-	    config_.qos_reliable ? "true" : "false");
+    config_.qos_reliable ? "true" : "false");
 }
 
 void FaAecLinearNode::configureBackend()
@@ -334,7 +398,7 @@ void FaAecLinearNode::onRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   if (!msg) {
     throw std::logic_error("fa_aec_linear received a null reference AudioFrame pointer");
   }
-  const FrameValidationStatus validation_status = validateFrame(*msg, config_.ref_topic);
+  const FrameValidationStatus validation_status = validateFrame(*msg, config_.ref_stream_id);
   if (validation_status != FrameValidationStatus::kOk) {
     ref_drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
@@ -367,7 +431,7 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     return;
   }
 
-  const FrameValidationStatus validation_status = validateFrame(*msg, config_.mic_topic);
+  const FrameValidationStatus validation_status = validateFrame(*msg, config_.mic_stream_id);
   if (validation_status != FrameValidationStatus::kOk) {
     mic_drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
@@ -433,7 +497,7 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   fa_interfaces::msg::AudioFrame out_msg;
   out_msg.header = msg->header;
   out_msg.source_id = msg->source_id;
-  out_msg.stream_id = config_.output_topic;
+  out_msg.stream_id = config_.output_stream_id;
   out_msg.encoding = msg->encoding;
   out_msg.sample_rate = msg->sample_rate;
   out_msg.channels = msg->channels;
@@ -483,6 +547,9 @@ void FaAecLinearNode::publishDiagnostics()
   push_kv("mic_topic", config_.mic_topic);
   push_kv("ref_topic", config_.ref_topic);
   push_kv("output_topic", config_.output_topic);
+  push_kv("mic_stream_id", config_.mic_stream_id);
+  push_kv("ref_stream_id", config_.ref_stream_id);
+  push_kv("output_stream_id", config_.output_stream_id);
   push_kv("resolved_mic_topic", config_.resolved_mic_topic);
   push_kv("resolved_ref_topic", config_.resolved_ref_topic);
   push_kv("resolved_output_topic", config_.resolved_output_topic);

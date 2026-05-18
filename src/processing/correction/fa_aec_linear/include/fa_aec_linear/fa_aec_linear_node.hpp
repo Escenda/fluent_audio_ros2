@@ -26,6 +26,9 @@ struct AecLinearConfig
   std::string mic_topic;
   std::string ref_topic;
   std::string output_topic;
+  std::string mic_stream_id;
+  std::string ref_stream_id;
+  std::string output_stream_id;
   std::string resolved_mic_topic;
   std::string resolved_ref_topic;
   std::string resolved_output_topic;

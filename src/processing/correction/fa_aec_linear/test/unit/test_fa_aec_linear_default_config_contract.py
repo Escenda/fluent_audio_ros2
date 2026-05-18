@@ -30,6 +30,9 @@ def test_default_config_drops_reference_failures() -> None:
     assert params["expected_channels"] == 1
     assert params["expected"]["encoding"] == "PCM16LE"
     assert params["expected"]["bit_depth"] == 16
+    assert params["mic_stream_id"] == "audio/mic/resample16k"
+    assert params["ref_stream_id"] == "audio/ref/resample16k"
+    assert params["output"]["stream_id"] == "audio/aec_linear/output"
     assert "-1" not in config_text
 
 
@@ -42,11 +45,11 @@ def test_aec_linear_outputs_audio_frame_without_analysis_metadata() -> None:
     assert "fa_aec_linear received a null reference AudioFrame pointer" in source
     assert "fa_aec_linear received a null mic AudioFrame pointer" in source
     assert "fa_aec_linear publisher is not initialized" in source
-    assert "validateFrame(*msg, config_.ref_topic)" in source
-    assert "validateFrame(*msg, config_.mic_topic)" in source
+    assert "validateFrame(*msg, config_.ref_stream_id)" in source
+    assert "validateFrame(*msg, config_.mic_stream_id)" in source
     assert "msg.layout != kInterleavedLayout" in source
     assert "out_msg.source_id = msg->source_id;" in source
-    assert "out_msg.stream_id = config_.output_topic;" in source
+    assert "out_msg.stream_id = config_.output_stream_id;" in source
     assert "out_msg.layout = kInterleavedLayout;" in source
     assert "computeRmsPeak" not in source
     assert ".rms" not in source
@@ -65,6 +68,9 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
         'readRequiredString(*this, "mic_topic")',
         'readRequiredString(*this, "ref_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "mic_stream_id")',
+        'readRequiredString(*this, "ref_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredInt(*this, "expected_sample_rate")',
         'readRequiredInt(*this, "expected_channels")',
         'readRequiredString(*this, "expected.encoding")',
@@ -151,11 +157,11 @@ def test_aec_linear_rejects_channel_wildcards_and_documents_stream_binding() -> 
     assert "config_.expected_channels > 0" not in source
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in source
     assert "channel 検査の無効化は禁止" in spec
-    assert "mic frame の `stream_id` は `mic_topic`" in spec
-    assert "reference frame の `stream_id` は `ref_topic`" in spec
+    assert "mic frame の `stream_id` は `mic_stream_id`" in spec
+    assert "reference frame の `stream_id` は `ref_stream_id`" in spec
     assert "channel 検査の wildcard はない" in algorithm
-    assert "stream_id` が `mic_topic`" in test_plan
-    assert "stream_id` が `ref_topic`" in test_plan
+    assert "stream_id` が `mic_stream_id`" in test_plan
+    assert "stream_id` が `ref_stream_id`" in test_plan
 
 
 def test_aec_linear_uses_header_stamp_reference_contract() -> None:
@@ -184,6 +190,12 @@ def test_aec_linear_rejects_resolved_topic_feedback_loops() -> None:
     assert "config_.resolved_mic_topic == config_.resolved_ref_topic" in source
     assert "config_.resolved_mic_topic == config_.resolved_output_topic" in source
     assert "config_.resolved_ref_topic == config_.resolved_output_topic" in source
+    assert "sameIdentityString(config_.mic_topic, config_.ref_topic)" in source
+    assert "mic_stream_id, ref_stream_id, and output.stream_id must be distinct" in source
+    assert (
+        "mic_stream_id, ref_stream_id, and output.stream_id must be distinct from ROS topics"
+        in source
+    )
 
 
 def test_main_shutdown_is_guarded_by_rclcpp_ok_and_manifest_declares_launch_deps() -> None:
