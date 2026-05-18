@@ -1,0 +1,13 @@
+std_msgs/Header header
+string source_id
+string stream_id
+string codec
+string container
+string payload_format
+uint32 sample_rate
+uint32 channels
+uint64 sequence
+uint64 media_time_ns
+uint64 duration_ns
+uint32 epoch
+uint8[] data

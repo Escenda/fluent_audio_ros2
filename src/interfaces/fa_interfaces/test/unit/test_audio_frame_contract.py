@@ -26,6 +26,43 @@ def test_audio_frame_is_waveform_payload_only() -> None:
     assert all("vad" not in field for field in fields)
 
 
+def test_encoded_audio_chunk_is_codec_payload_only() -> None:
+    msg_path = Path(__file__).parents[2] / "msg" / "EncodedAudioChunk.msg"
+    fields = [
+        line.strip()
+        for line in msg_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+    assert fields == [
+        "std_msgs/Header header",
+        "string source_id",
+        "string stream_id",
+        "string codec",
+        "string container",
+        "string payload_format",
+        "uint32 sample_rate",
+        "uint32 channels",
+        "uint64 sequence",
+        "uint64 media_time_ns",
+        "uint64 duration_ns",
+        "uint32 epoch",
+        "uint8[] data",
+    ]
+    assert all("encoding" not in field for field in fields)
+    assert all("bit_depth" not in field for field in fields)
+    assert all("layout" not in field for field in fields)
+    assert all("rms" not in field for field in fields)
+    assert all("vad" not in field for field in fields)
+
+
+def test_encoded_audio_chunk_is_registered_for_rosidl_generation() -> None:
+    cmake_path = Path(__file__).parents[2] / "CMakeLists.txt"
+    cmake_text = cmake_path.read_text(encoding="utf-8")
+
+    assert '"msg/EncodedAudioChunk.msg"' in cmake_text
+
+
 def test_log_mel_frame_is_feature_payload_only() -> None:
     msg_path = Path(__file__).parents[2] / "msg" / "LogMelFrame.msg"
     fields = [

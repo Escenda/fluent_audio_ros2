@@ -10,6 +10,7 @@ set(message_files
   "msg/AsrResult.msg"
   "msg/AudioFrame.msg"
   "msg/CqtFrame.msg"
+  "msg/EncodedAudioChunk.msg"
   "msg/LoudnessFrame.msg"
   "msg/LogMelFrame.msg"
   "msg/MfccFrame.msg"
