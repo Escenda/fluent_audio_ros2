@@ -12,6 +12,9 @@ from fluent_audio_system.config_schema import (
 from fluent_audio_system.list_required_packages import main as list_required_packages_main
 
 
+PACKAGE_ROOT = Path(__file__).parents[2]
+
+
 def _valid_system() -> dict[str, float]:
     return {"default_start_delay": 0.0, "inter_group_delay": 0.0}
 
@@ -164,7 +167,7 @@ def test_required_packages_include_base_and_enabled_nodes_in_launch_order(
     ]
 
 
-def test_load_required_packages_fails_closed_on_missing_params_file(
+def test_load_required_packages_does_not_require_params_file_to_exist(
     tmp_path: Path,
 ) -> None:
     system_file = tmp_path / "system.yaml"
@@ -186,8 +189,55 @@ groups:
         encoding="utf-8",
     )
 
-    with pytest.raises(RuntimeError, match="params_file not found"):
+    assert load_required_packages(str(system_file)) == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_in",
+    ]
+
+
+def test_load_required_packages_requires_params_file_contract(tmp_path: Path) -> None:
+    system_file = tmp_path / "system.yaml"
+    system_file.write_text(
+        """
+system:
+  default_start_delay: 0.0
+  inter_group_delay: 0.0
+groups:
+  - id: io
+    enable: true
+    nodes:
+      - id: fa_in
+        enable: true
+        package: fa_in
+        exec: fa_in_node
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="node fa_in.params_file is required"):
         load_required_packages(str(system_file))
+
+
+def test_load_required_packages_works_before_node_packages_are_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def package_share(package_name: str) -> str:
+        raise RuntimeError(f"unexpected package share lookup: {package_name}")
+
+    monkeypatch.setattr(config_schema, "_get_package_share_directory", package_share)
+
+    packages = load_required_packages(
+        str(PACKAGE_ROOT / "config" / "profiles" / "so101_mic_frontend.yaml")
+    )
+
+    assert packages == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_in",
+        "fa_sample_format",
+        "fa_resample",
+    ]
 
 
 def test_list_required_packages_cli_prints_one_package_per_line(

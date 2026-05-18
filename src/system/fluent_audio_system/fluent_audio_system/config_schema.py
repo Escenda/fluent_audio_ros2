@@ -290,7 +290,15 @@ def load_system_config(path: str) -> AudioSystemSpec:
 
 
 def load_required_packages(path: str) -> list[str]:
-    return required_packages_for_system(load_system_config(path))
+    if not path:
+        raise RuntimeError("config launch argument is required")
+    path = _resolve_config_refs(path)
+    if not os.path.isfile(path):
+        raise RuntimeError(f"fluent_audio_system config not found: {path}")
+    with open(path, "r", encoding="utf-8") as stream:
+        raw = yaml.safe_load(stream)
+    root = _validate_system_config(raw)
+    return _required_packages_for_validated_config(root)
 
 
 def required_packages_for_system(spec: AudioSystemSpec) -> list[str]:
@@ -302,6 +310,25 @@ def required_packages_for_system(spec: AudioSystemSpec) -> list[str]:
                 continue
             packages.append(node.package)
             seen.add(node.package)
+    return packages
+
+
+def _required_packages_for_validated_config(root: _AudioSystemConfig) -> list[str]:
+    packages = list(_BASE_REQUIRED_PACKAGES)
+    seen = set(packages)
+    for group in root.groups:
+        group_id = _required_model_text(group.id, "group id")
+        _validate_group_taxonomy(group, group_id)
+        if not group.enable:
+            continue
+        for node in group.nodes or []:
+            if not node.enable:
+                continue
+            package = _required_model_text(node.package, f"node {node.id}.package")
+            if package in seen:
+                continue
+            packages.append(package)
+            seen.add(package)
     return packages
 
 
