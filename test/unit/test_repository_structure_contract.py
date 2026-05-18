@@ -260,6 +260,21 @@ FORBIDDEN_PYTHON_TYPE_ESCAPE_TOKENS = (
     "# type: ignore",
 )
 
+FORBIDDEN_CURRENT_DOC_VISION_CONTRACT_TOKENS = (
+    "fv_aspara",
+    "fv_realsense",
+    "fv_instance_seg",
+    "fv_pointcloud",
+    "sensor_msgs",
+    "vision_msgs",
+    "PointCloud2",
+    "RealSense",
+    "YOLO",
+    "pointcloud",
+    "camera_info",
+    "/fv/",
+)
+
 YamlScalar: TypeAlias = str | int | float | bool | None
 YamlMapping: TypeAlias = dict[str, "YamlValue"]
 YamlSequence: TypeAlias = list["YamlValue"]
@@ -345,6 +360,15 @@ def _production_python_files() -> list[Path]:
         path
         for path in SRC_ROOT.rglob("*.py")
         if "__pycache__" not in path.parts and "test" not in path.parts
+    )
+
+
+def _current_audio_doc_files() -> list[Path]:
+    docs_root = REPO_ROOT / "docs"
+    return sorted(
+        path
+        for path in docs_root.rglob("*.md")
+        if path.is_file() and "archive" not in path.parts
     )
 
 
@@ -494,6 +518,20 @@ def test_repository_docs_do_not_overclaim_skeleton_packages_as_complete() -> Non
         for phrase in forbidden_phrases:
             if phrase in source:
                 violations.append(f"{doc_path.relative_to(REPO_ROOT)} contains {phrase}")
+
+    assert violations == []
+
+
+def test_current_audio_docs_do_not_publish_vision_contracts() -> None:
+    violations: list[str] = []
+
+    for doc_path in _current_audio_doc_files():
+        source = doc_path.read_text(encoding="utf-8")
+        for forbidden_token in FORBIDDEN_CURRENT_DOC_VISION_CONTRACT_TOKENS:
+            if forbidden_token in source:
+                violations.append(
+                    f"{doc_path.relative_to(REPO_ROOT)} contains {forbidden_token}"
+                )
 
     assert violations == []
 
