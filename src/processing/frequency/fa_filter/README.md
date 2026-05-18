@@ -14,3 +14,5 @@ tests.
 - `docs/backends/explicit_filter_pipeline.md`
 
 この node は high-pass、low-pass、band-pass、notch、EQ、de-esser、spectral subtraction、Wiener filtering などを単一の hidden filter に畳み込まず、専用 stage として接続する境界です。
+ROS topic は搬送路として扱い、各 stage の `AudioFrame.stream_id` は
+`stage.input_stream_id` / `stage.output.stream_id` で明示します。
