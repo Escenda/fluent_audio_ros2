@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 import sys
 
@@ -42,6 +43,7 @@ def _settings(
     model_path: str = "",
     args: tuple[str, ...] | None = None,
     payload_encoding: str = "float32le_raw",
+    timeout_sec: float = 1.0,
     dimension: int = 4,
 ) -> AudioEmbeddingBackendSettings:
     backend_args = args
@@ -68,7 +70,7 @@ def _settings(
         model_path=model_path,
         args=backend_args,
         payload_encoding=payload_encoding,
-        timeout_sec=1.0,
+        timeout_sec=timeout_sec,
         workspace_dir=tmp_path / "workspace",
         cleanup_audio_files=True,
         dimension=dimension,
@@ -112,6 +114,65 @@ def test_build_backend_rejects_unknown_backend_name(tmp_path: Path) -> None:
 def test_external_worker_requires_model_id(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="backend.model_id is required"):
         build_audio_embedding_backend(_settings(tmp_path, model_id=""))
+
+
+def test_external_worker_requires_command(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.command is required"):
+        build_audio_embedding_backend(_settings(tmp_path, command=""))
+
+
+def test_external_worker_rejects_missing_command(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.command not found in PATH"):
+        build_audio_embedding_backend(_settings(tmp_path, command="fa-audio-embedding-missing-worker"))
+
+
+def test_external_worker_rejects_non_executable_command(tmp_path: Path) -> None:
+    worker_path = tmp_path / "worker.py"
+    worker_path.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    worker_path.chmod(0o644)
+
+    with pytest.raises(RuntimeError, match="backend.command is not executable"):
+        build_audio_embedding_backend(_settings(tmp_path, command=str(worker_path)))
+
+
+def test_external_worker_rejects_invalid_model_path(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.model_path does not exist"):
+        build_audio_embedding_backend(
+            _settings(tmp_path, model_path=str(tmp_path / "missing-model.bin"))
+        )
+
+
+def test_external_worker_requires_model_path_arg_when_model_path_is_set(tmp_path: Path) -> None:
+    model_path = tmp_path / "model.bin"
+    model_path.write_bytes(b"model")
+
+    with pytest.raises(RuntimeError, match=r"\{model_path\}"):
+        build_audio_embedding_backend(_settings(tmp_path, model_path=str(model_path)))
+
+
+def test_external_worker_rejects_empty_args(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.args must not be empty"):
+        build_audio_embedding_backend(_settings(tmp_path, args=()))
+
+
+def test_external_worker_rejects_malformed_args(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.args contains malformed format string"):
+        build_audio_embedding_backend(
+            _settings(
+                tmp_path,
+                args=(
+                    str(_worker_path()),
+                    "--audio",
+                    "{audio",
+                    "--model-id",
+                    "{model_id}",
+                    "--sample-rate",
+                    "{sample_rate}",
+                    "--dimension",
+                    "{dimension}",
+                ),
+            )
+        )
 
 
 def test_external_worker_requires_required_arg_placeholders(tmp_path: Path) -> None:
@@ -159,6 +220,13 @@ def test_external_worker_rejects_unsupported_payload_encoding(tmp_path: Path) ->
         build_audio_embedding_backend(
             _settings(tmp_path, payload_encoding="pcm16le_raw")
         )
+
+
+def test_external_worker_rejects_invalid_timeout_and_dimension(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.timeout_sec must be > 0"):
+        build_audio_embedding_backend(_settings(tmp_path, timeout_sec=0.0))
+    with pytest.raises(RuntimeError, match="embedding.dimension must be > 0"):
+        build_audio_embedding_backend(_settings(tmp_path, dimension=0))
 
 
 def test_audio_embedding_request_rejects_non_canonical_payloads() -> None:
@@ -251,3 +319,29 @@ def test_audio_embedding_node_rejects_non_canonical_audio_frames() -> None:
     assert "stream_id=msg.stream_id" in source
     assert "out.stream_id = msg.stream_id" in source
     assert "out.stream_id = self.output_topic" not in source
+
+
+def test_audio_embedding_node_drops_only_frame_contract_value_errors() -> None:
+    source = (PACKAGE_ROOT / "fa_audio_embedding_py" / "audio_embedding_node.py").read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(source)
+    node_class = next(
+        item
+        for item in tree.body
+        if isinstance(item, ast.ClassDef) and item.name == "FaAudioEmbeddingNode"
+    )
+    on_audio = next(
+        item
+        for item in node_class.body
+        if isinstance(item, ast.FunctionDef) and item.name == "on_audio"
+    )
+    try_blocks = [item for item in on_audio.body if isinstance(item, ast.Try)]
+
+    assert len(try_blocks) == 2
+    assert "_frame_to_float" in ast.dump(try_blocks[0])
+    assert "backend" not in ast.dump(try_blocks[0])
+    assert "embed" in ast.dump(try_blocks[1])
+    backend_try = ast.dump(try_blocks[1])
+    assert "ValueError" in backend_try
+    assert "RuntimeError" in backend_try

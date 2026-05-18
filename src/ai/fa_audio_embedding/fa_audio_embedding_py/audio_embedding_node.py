@@ -155,6 +155,11 @@ class FaAudioEmbeddingNode(Node):
     def on_audio(self, msg: AudioFrame) -> None:
         try:
             samples = self._frame_to_float(msg)
+        except ValueError as exc:
+            self.get_logger().warning(f"Dropping AudioFrame before embedding publish: {exc}")
+            return
+
+        try:
             result = self.backend.embed(
                 AudioEmbeddingRequest(
                     samples=samples,
@@ -168,13 +173,10 @@ class FaAudioEmbeddingNode(Node):
                     "audio embedding dimension mismatch: "
                     f"expected {self.embedding_dimension}, got {result.embedding.size}"
                 )
-        except ValueError as exc:
-            self.get_logger().warning(f"Dropping AudioFrame before embedding publish: {exc}")
-            return
         except TimeoutError as exc:
             self.get_logger().error(f"fa_audio_embedding backend timeout: {exc}")
             raise
-        except RuntimeError as exc:
+        except (ValueError, RuntimeError) as exc:
             self.get_logger().error(f"fa_audio_embedding backend failure: {exc}")
             raise
 

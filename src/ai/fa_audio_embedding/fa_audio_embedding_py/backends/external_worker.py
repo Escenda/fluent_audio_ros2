@@ -105,7 +105,7 @@ def _validate_config(
     if not model_id:
         raise RuntimeError("backend.model_id is required")
     model_path = _validate_model_path(config.model_path)
-    _validate_args(config.args)
+    _validate_args(config.args, require_model_path=bool(model_path))
     if config.timeout_sec <= 0.0:
         raise RuntimeError("backend.timeout_sec must be > 0")
     if int(config.dimension) <= 0:
@@ -161,7 +161,7 @@ def _resolve_executable(command: str) -> str:
     return str(Path(resolved).resolve(strict=True))
 
 
-def _validate_args(args: tuple[str, ...]) -> None:
+def _validate_args(args: tuple[str, ...], *, require_model_path: bool = False) -> None:
     if not args:
         raise RuntimeError("backend.args must not be empty")
     formatter = string.Formatter()
@@ -179,7 +179,10 @@ def _validate_args(args: tuple[str, ...]) -> None:
             if field_name not in _ALLOWED_ARG_FIELDS:
                 raise RuntimeError(f"unsupported backend.args placeholder: {field_name}")
             fields.add(field_name)
-    missing = sorted(_REQUIRED_ARG_FIELDS.difference(fields))
+    required_fields = set(_REQUIRED_ARG_FIELDS)
+    if require_model_path:
+        required_fields.add("model_path")
+    missing = sorted(required_fields.difference(fields))
     if missing:
         raise RuntimeError(
             "backend.args must include placeholders: "
