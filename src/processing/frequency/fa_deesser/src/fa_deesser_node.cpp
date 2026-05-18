@@ -4,7 +4,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -12,6 +11,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_deesser/backends/internal_split_band_deesser.hpp"
 
 namespace fa_deesser
 {
@@ -20,9 +20,6 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
-constexpr double kPi = 3.14159265358979323846;
 constexpr double kMinimumAttenuationDb = -120.0;
 
 bool isFinite(double value)
@@ -47,9 +44,11 @@ FaDeesserNode::FaDeesserNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA De-esser node");
   loadParameters();
-  low_band_state_.assign(static_cast<size_t>(config_.expected_channels), 0.0);
+  configureBackend();
   setupInterfaces();
 }
+
+FaDeesserNode::~FaDeesserNode() = default;
 
 void FaDeesserNode::loadParameters()
 {
@@ -149,6 +148,17 @@ void FaDeesserNode::loadParameters()
     config_.qos_depth,
     config_.qos_reliable ? "true" : "false",
     config_.diagnostics_publish_period_ms);
+}
+
+void FaDeesserNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalSplitBandDeesserBackend>(
+    backends::InternalSplitBandDeesserConfig{
+      config_.expected_sample_rate,
+      config_.expected_channels,
+      config_.cutoff_hz,
+      config_.threshold,
+      config_.attenuation_db});
 }
 
 void FaDeesserNode::setupInterfaces()
@@ -265,75 +275,21 @@ bool FaDeesserNode::applyDeesser(
 {
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const double alpha = 1.0 - std::exp((-2.0 * kPi * config_.cutoff_hz) / config_.expected_sample_rate);
-  if (!isFinite(alpha) || alpha <= 0.0 || alpha >= 1.0) {
+  const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;
+  const backends::ProcessResult result = backend_->process(in.data, out.data, source_changed);
+  if (result.status != backends::ProcessStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Dropping frame because de-esser filter coefficient is invalid");
+      "Dropping frame because de-esser backend rejected input or output: %s",
+      backends::processStatusMessage(result.status));
     return false;
   }
 
-  std::vector<double> next_low_band_state = low_band_state_;
-  const bool source_changed = in.source_id != active_source_id_;
+  active_source_id_ = in.source_id;
   if (source_changed) {
-    std::fill(next_low_band_state.begin(), next_low_band_state.end(), 0.0);
-  }
-
-  const size_t channels = static_cast<size_t>(config_.expected_channels);
-  const size_t sample_count = in.data.size() / sizeof(float);
-  uint64_t attenuated_in_frame = 0;
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!std::isfinite(sample) || sample < kMinNormalizedSample || sample > kMaxNormalizedSample) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    const size_t channel_index = i % channels;
-    const double input = static_cast<double>(sample);
-    const double low_band = next_low_band_state[channel_index] +
-      (alpha * (input - next_low_band_state[channel_index]));
-    const double high_band = input - low_band;
-    next_low_band_state[channel_index] = low_band;
-
-    double processed_high_band = high_band;
-    if (std::abs(high_band) >= config_.threshold) {
-      processed_high_band = high_band * config_.attenuation_gain;
-      ++attenuated_in_frame;
-    }
-
-    const double output = low_band + processed_high_band;
-    if (!isFinite(output) || output < kMinNormalizedSample || output > kMaxNormalizedSample) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because de-esser output is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    const float out_sample = static_cast<float>(output);
-    if (!std::isfinite(out_sample) ||
-        out_sample < kMinNormalizedSample ||
-        out_sample > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because de-esser output cannot be represented as normalized FLOAT32LE");
-      return false;
-    }
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
-  }
-
-  low_band_state_ = next_low_band_state;
-  if (source_changed) {
-    active_source_id_ = in.source_id;
     filter_resets_.fetch_add(1);
   }
-  samples_attenuated_.fetch_add(attenuated_in_frame);
+  samples_attenuated_.fetch_add(result.samples_attenuated);
   return true;
 }
 
@@ -346,11 +302,12 @@ void FaDeesserNode::publishDiagnostics()
   status.name = "fa_deesser";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(12);
+  status.values.reserve(13);
   pushKeyValue(status, "detector_cutoff_hz", std::to_string(config_.cutoff_hz));
+  pushKeyValue(status, "detector_alpha", std::to_string(backend_->alpha()));
   pushKeyValue(status, "detector_threshold", std::to_string(config_.threshold));
   pushKeyValue(status, "detector_attenuation_db", std::to_string(config_.attenuation_db));
-  pushKeyValue(status, "detector_attenuation_gain", std::to_string(config_.attenuation_gain));
+  pushKeyValue(status, "detector_attenuation_gain", std::to_string(backend_->attenuationGain()));
   pushKeyValue(status, "expected_sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected_channels", std::to_string(config_.expected_channels));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));

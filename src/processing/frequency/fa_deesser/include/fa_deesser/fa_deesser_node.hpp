@@ -2,8 +2,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -12,6 +12,11 @@
 
 namespace fa_deesser
 {
+
+namespace backends
+{
+class InternalSplitBandDeesserBackend;
+}  // namespace backends
 
 struct DeesserConfig
 {
@@ -38,25 +43,26 @@ class FaDeesserNode : public rclcpp::Node
 {
 public:
   FaDeesserNode();
-  ~FaDeesserNode() override = default;
+  ~FaDeesserNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyDeesser(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   DeesserConfig config_;
+  std::string active_source_id_{};
+  std::unique_ptr<backends::InternalSplitBandDeesserBackend> backend_{};
+
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
   rclcpp::TimerBase::SharedPtr diag_timer_;
-
-  std::vector<double> low_band_state_;
-  std::string active_source_id_{};
 
   std::atomic<uint64_t> frames_in_{0};
   std::atomic<uint64_t> frames_out_{0};
