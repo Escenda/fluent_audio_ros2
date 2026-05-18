@@ -55,6 +55,32 @@ def test_log_mel_frame_is_feature_payload_only() -> None:
     assert all("text" not in field for field in fields)
 
 
+def test_loudness_frame_is_measurement_payload_only() -> None:
+    msg_path = Path(__file__).parents[2] / "msg" / "LoudnessFrame.msg"
+    fields = [
+        line.strip()
+        for line in msg_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+    assert fields == [
+        "std_msgs/Header header",
+        "string source_id",
+        "string stream_id",
+        "uint32 sample_rate",
+        "uint32 input_sample_count",
+        "float32 rms",
+        "float32 peak",
+        "float32 rms_dbfs",
+        "float32 peak_dbfs",
+        "float32 crest_factor",
+        "float32 db_floor",
+    ]
+    assert all("vad" not in field for field in fields)
+    assert all("detected" not in field for field in fields)
+    assert all("text" not in field for field in fields)
+
+
 def test_stft_frame_is_feature_payload_only() -> None:
     msg_path = Path(__file__).parents[2] / "msg" / "StftFrame.msg"
     fields = [

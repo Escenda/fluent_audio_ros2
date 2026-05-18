@@ -1,0 +1,11 @@
+std_msgs/Header header
+string source_id
+string stream_id
+uint32 sample_rate
+uint32 input_sample_count
+float32 rms
+float32 peak
+float32 rms_dbfs
+float32 peak_dbfs
+float32 crest_factor
+float32 db_floor

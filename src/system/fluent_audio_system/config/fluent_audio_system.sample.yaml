@@ -459,6 +459,17 @@ groups:
           feature.n_fft: 320
           feature.hop_length: 160
 
+      - id: fa_loudness
+        enable: false
+        package: fa_loudness
+        exec: fa_loudness_node
+        node_name: fa_loudness
+        namespace: ""
+        params_file: "${share:fa_loudness}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/resample16k/mic"
+
       - id: fa_stft
         enable: false
         package: fa_stft

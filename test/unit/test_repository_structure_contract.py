@@ -170,6 +170,7 @@ PROCESSING_ROADMAP_PACKAGE_NAMES = (
 
 ANALYSIS_PACKAGE_NAMES = (
     "fa_log_mel",
+    "fa_loudness",
     "fa_stft",
 )
 

@@ -375,6 +375,26 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
     }
 
 
+def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
+    raw = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "fluent_audio_system.sample.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    groups = {group["id"]: group for group in raw["groups"]}
+    analysis_nodes = {node["id"]: node for node in groups["analysis"]["nodes"]}
+
+    assert set(analysis_nodes) == {"fa_log_mel", "fa_loudness", "fa_stft"}
+    assert analysis_nodes["fa_loudness"]["enable"] is False
+    assert analysis_nodes["fa_loudness"]["package"] == "fa_loudness"
+    assert analysis_nodes["fa_loudness"]["params_file"] == (
+        "${share:fa_loudness}/config/default.yaml"
+    )
+    assert analysis_nodes["fa_loudness"]["parameters"] == {
+        "input_topic": "audio/resample16k/mic",
+    }
+
+
 def test_missing_fixture_params_file_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

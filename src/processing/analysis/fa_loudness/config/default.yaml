@@ -1,0 +1,13 @@
+fa_loudness:
+  ros__parameters:
+    input_topic: "audio/features/input"
+    output_topic: "audio/features/loudness"
+    backend.name: "internal_frame_meter"
+    expected.sample_rate: 16000
+    expected.channels: 1
+    expected.encoding: "FLOAT32LE"
+    expected.bit_depth: 32
+    expected.layout: "interleaved"
+    meter.db_floor: -120.0
+    qos.depth: 10
+    qos.reliable: false
