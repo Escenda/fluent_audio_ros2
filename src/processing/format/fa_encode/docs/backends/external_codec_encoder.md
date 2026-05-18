@@ -5,7 +5,10 @@
 ## Required Config
 
 - `backend.name`
-- `backend.command` または `backend.library`
+- `backend.command.executable`
+- `backend.command.arguments`
+- `backend.command.timeout_ms`
+- `backend.command.max_output_bytes`
 - `codec`
 - `input.sample_rate`
 - `input.channels`
@@ -19,6 +22,7 @@
 
 backend は PCM samples と input format metadata を受け取り、encoded payload と actual codec metadata を返す。
 actual codec metadata が config と一致しない場合、node は publish しない。
+command は shell 経由では実行せず、executable と arguments を分離して起動する。
 
 ## Forbidden
 
@@ -27,4 +31,5 @@ actual codec metadata が config と一致しない場合、node は publish し
 - encoder 内での hidden gain / normalize
 - encode failure 時の silence payload
 - stale packet reuse
-
+- shell string の暗黙解釈
+- command timeout 時の処理継続

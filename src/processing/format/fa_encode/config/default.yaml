@@ -1,0 +1,29 @@
+fa_encode:
+  ros__parameters:
+    backend.name: "external_codec_encoder"
+    backend.command.executable: ""
+    backend.command.arguments: []
+    backend.command.timeout_ms: 3000
+    backend.command.max_output_bytes: 1048576
+
+    input_topic: "audio/pcm16/mic"
+    output_topic: "audio/encoded/mic"
+
+    input:
+      sample_rate: 16000
+      channels: 1
+      encoding: "PCM16LE"
+      bit_depth: 16
+      layout: "interleaved"
+
+    output:
+      codec: "opus"
+      container: "ogg"
+      payload_format: "ogg_page"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      publish_period_ms: 1000

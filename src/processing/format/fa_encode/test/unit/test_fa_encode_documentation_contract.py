@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 
 PACKAGE_ROOT = Path(__file__).parents[2]
 
@@ -12,7 +14,61 @@ def test_fa_encode_has_standard_design_documents() -> None:
     assert (PACKAGE_ROOT / "docs" / "backends" / "external_codec_encoder.md").is_file()
 
 
-def test_fa_encode_is_not_declared_as_ros_package_before_contract_completion() -> None:
-    assert not (PACKAGE_ROOT / "package.xml").exists()
-    assert not (PACKAGE_ROOT / "CMakeLists.txt").exists()
+def test_fa_encode_is_declared_as_ros_package_after_contract_completion() -> None:
+    assert (PACKAGE_ROOT / "package.xml").is_file()
+    assert (PACKAGE_ROOT / "CMakeLists.txt").is_file()
 
+
+def test_fa_encode_default_config_requires_explicit_external_backend() -> None:
+    config = yaml.safe_load((PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8"))
+    params = config["fa_encode"]["ros__parameters"]
+
+    assert params["backend.name"] == "external_codec_encoder"
+    assert params["backend.command.executable"] == ""
+    assert params["backend.command.timeout_ms"] > 0
+    assert params["backend.command.max_output_bytes"] > 0
+    assert params["input_topic"] == "audio/pcm16/mic"
+    assert params["output_topic"] == "audio/encoded/mic"
+    assert params["input"]["encoding"] == "PCM16LE"
+    assert params["input"]["bit_depth"] == 16
+    assert params["input"]["layout"] == "interleaved"
+    assert params["output"]["codec"] == "opus"
+    assert params["output"]["container"] == "ogg"
+    assert params["output"]["payload_format"] == "ogg_page"
+
+
+def test_backend_is_ros_free_and_node_owns_message_conversion() -> None:
+    backend_header = (
+        PACKAGE_ROOT / "include" / "fa_encode" / "backends" / "external_codec_encoder.hpp"
+    ).read_text(encoding="utf-8")
+    backend_source = (
+        PACKAGE_ROOT / "src" / "backends" / "external_codec_encoder.cpp"
+    ).read_text(encoding="utf-8")
+    node_source = (PACKAGE_ROOT / "src" / "fa_encode_node.cpp").read_text(encoding="utf-8")
+
+    for token in ("rclcpp", "fa_interfaces", "AudioFrame", "EncodedAudioChunk"):
+        assert token not in backend_header
+        assert token not in backend_source
+
+    assert "fa_interfaces::msg::AudioFrame" in node_source
+    assert "fa_interfaces::msg::EncodedAudioChunk" in node_source
+    assert "out.stream_id = config_.output_topic;" in node_source
+    assert "out.codec = result.codec;" in node_source
+    assert "out.media_time_ns = next_media_time_ns_;" in node_source
+
+
+def test_colcon_runs_pytest_gtest_and_graph_contracts() -> None:
+    cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    package_xml = (PACKAGE_ROOT / "package.xml").read_text(encoding="utf-8")
+
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_graph_smoke_test" in cmake_text
+    assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
+    assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
+    assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
+    assert "<test_depend>python3-pytest</test_depend>" in package_xml
+    assert "<test_depend>python3-yaml</test_depend>" in package_xml
