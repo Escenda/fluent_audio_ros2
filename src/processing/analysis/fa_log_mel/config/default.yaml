@@ -2,6 +2,8 @@ fa_log_mel:
   ros__parameters:
     input_topic: "audio/features/input"
     output_topic: "audio/features/log_mel"
+    expected.stream_id: "audio/preprocessed/mono16k"
+    output.stream_id: "audio/features/log_mel/frames"
     backend.name: "internal_log_mel"
     expected.sample_rate: 16000
     expected.channels: 1

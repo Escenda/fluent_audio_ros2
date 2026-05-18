@@ -47,6 +47,8 @@ class FaLoudnessNode(Node):
     def _load_parameters(self) -> None:
         self.input_topic = self._required_string("input_topic")
         self.output_topic = self._required_string("output_topic")
+        self.expected_stream_id = self._required_string("expected.stream_id")
+        self.output_stream_id = self._required_string("output.stream_id")
         self.backend_name = self._required_string("backend.name")
         self.expected_sample_rate = self._required_integer("expected.sample_rate")
         self.expected_channels = self._required_integer("expected.channels")
@@ -61,6 +63,14 @@ class FaLoudnessNode(Node):
             raise RuntimeError("input_topic is required")
         if not self.output_topic:
             raise RuntimeError("output_topic is required")
+        if not self.expected_stream_id:
+            raise RuntimeError("expected.stream_id is required")
+        if not self.output_stream_id:
+            raise RuntimeError("output.stream_id is required")
+        if self._same_identity(self.expected_stream_id, self.input_topic):
+            raise RuntimeError("expected.stream_id must be distinct from ROS input_topic")
+        if self._same_identity(self.output_stream_id, self.output_topic):
+            raise RuntimeError("output.stream_id must be distinct from ROS output_topic")
         if self.backend_name != InternalFrameMeterBackend.name:
             raise RuntimeError("backend.name must be internal_frame_meter")
         if self.expected_sample_rate <= 0:
@@ -75,6 +85,11 @@ class FaLoudnessNode(Node):
             raise RuntimeError("fa_loudness requires expected.layout=interleaved")
         if self.qos_depth <= 0:
             raise RuntimeError("qos.depth must be > 0")
+
+
+    @staticmethod
+    def _same_identity(left: str, right: str) -> bool:
+        return left.lstrip("/") == right.lstrip("/")
 
     def _required_string(self, name: str) -> str:
         self.declare_parameter(name, Parameter.Type.STRING)
@@ -124,7 +139,7 @@ class FaLoudnessNode(Node):
         out = LoudnessFrame()
         out.header = msg.header
         out.source_id = msg.source_id
-        out.stream_id = self.output_topic
+        out.stream_id = self.output_stream_id
         out.sample_rate = int(msg.sample_rate)
         out.input_sample_count = int(result.sample_count)
         out.rms = float(result.rms)
@@ -140,8 +155,8 @@ class FaLoudnessNode(Node):
             raise ValueError("AudioFrame data is required")
         if not msg.source_id or not msg.stream_id:
             raise ValueError("AudioFrame source_id and stream_id are required")
-        if msg.stream_id != self.input_topic:
-            raise ValueError("AudioFrame stream_id must match input_topic")
+        if msg.stream_id != self.expected_stream_id:
+            raise ValueError("AudioFrame stream_id must match expected.stream_id")
         if msg.layout != self.expected_layout:
             raise ValueError(f"AudioFrame layout must be {self.expected_layout}")
         if msg.encoding != self.expected_encoding:

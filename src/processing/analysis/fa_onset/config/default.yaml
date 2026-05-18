@@ -2,6 +2,8 @@ fa_onset:
   ros__parameters:
     input_topic: "audio/features/input"
     output_topic: "audio/features/onset"
+    expected.stream_id: "audio/preprocessed/mono16k"
+    output.stream_id: "audio/features/onset/frames"
     backend.name: "internal_spectral_flux"
     expected.sample_rate: 16000
     expected.channels: 1

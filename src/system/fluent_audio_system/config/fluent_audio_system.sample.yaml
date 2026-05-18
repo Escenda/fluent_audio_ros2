@@ -482,6 +482,8 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/frame_buffer/cqt"
+          expected.stream_id: "audio/preprocessed/mono16k"
+          output.stream_id: "audio/features/cqt/frames"
           feature.frame_length: 4096
           feature.hop_length: 512
 
@@ -495,6 +497,8 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
+          expected.stream_id: "audio/preprocessed/mono16k"
+          output.stream_id: "audio/features/log_mel/frames"
           feature.n_fft: 320
           feature.hop_length: 160
 
@@ -508,6 +512,8 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
+          expected.stream_id: "audio/preprocessed/mono16k"
+          output.stream_id: "audio/features/loudness/frames"
 
       - id: fa_mfcc
         enable: false
@@ -519,6 +525,8 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
+          expected.stream_id: "audio/preprocessed/mono16k"
+          output.stream_id: "audio/features/mfcc/frames"
           feature.n_fft: 320
           feature.hop_length: 160
           feature.n_mfcc: 13
@@ -533,6 +541,8 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
+          expected.stream_id: "audio/preprocessed/mono16k"
+          output.stream_id: "audio/features/onset/frames"
           feature.n_fft: 320
           feature.hop_length: 160
           detector.threshold: 0.1
@@ -547,6 +557,8 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
+          expected.stream_id: "audio/preprocessed/mono16k"
+          output.stream_id: "audio/features/pitch/frames"
           feature.n_fft: 320
           feature.hop_length: 160
           feature.f_min_hz: 80.0
@@ -561,6 +573,8 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
+          expected.stream_id: "audio/preprocessed/mono16k"
+          output.stream_id: "audio/features/stft/frames"
           feature.n_fft: 320
           feature.hop_length: 160
 
@@ -574,6 +588,8 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
+          expected.stream_id: "audio/preprocessed/mono16k"
+          output.stream_id: "audio/features/tempo/frames"
           feature.n_fft: 320
           feature.hop_length: 160
           tempo.bpm_min: 60.0

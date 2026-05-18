@@ -2,6 +2,8 @@ fa_cqt:
   ros__parameters:
     input_topic: "audio/features/input"
     output_topic: "audio/features/cqt"
+    expected.stream_id: "audio/preprocessed/mono16k"
+    output.stream_id: "audio/features/cqt/frames"
     backend.name: "internal_cqt"
     expected.sample_rate: 16000
     expected.channels: 1

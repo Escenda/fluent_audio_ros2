@@ -26,6 +26,10 @@ def test_default_config_uses_internal_backend_and_canonical_audio() -> None:
     assert params["expected.encoding"] == "FLOAT32LE"
     assert params["expected.bit_depth"] == 32
     assert params["expected.layout"] == "interleaved"
+    assert params["expected.stream_id"]
+    assert params["output.stream_id"]
+    assert params["expected.stream_id"] != params["input_topic"]
+    assert params["output.stream_id"] != params["output_topic"]
     assert params["feature.n_fft"] == 400
     assert params["feature.hop_length"] == 160
     assert params["feature.window"] == "hann"
@@ -105,9 +109,14 @@ def test_node_requires_explicit_ros_parameters_and_binds_stream_identity() -> No
     assert "Parameter.Type.STRING" in node_text
     assert "must be a string parameter" in node_text
     assert "get_parameter(name).get_parameter_value().string_value" not in node_text
+    assert "expected.stream_id" in node_text
+    assert "output.stream_id" in node_text
+    assert "out.stream_id = self.output_stream_id" in node_text
+    assert "@staticmethod" in node_text
+    assert "def _same_identity(left: str, right: str) -> bool:" in node_text
     assert 'declare_parameter("input_topic", "audio/features/input")' not in node_text
     assert 'declare_parameter("feature.n_fft", 400)' not in node_text
-    assert "msg.stream_id != self.input_topic" in node_text
+    assert "msg.stream_id != self.expected_stream_id" in node_text
     assert "except ValueError as exc:" in node_text
     assert "except RuntimeError as exc:" in node_text
     assert "raise" in node_text

@@ -519,6 +519,22 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
         "fa_stft",
         "fa_tempo",
     }
+    for node_id, output_stream_id in (
+        ("fa_cqt", "audio/features/cqt/frames"),
+        ("fa_log_mel", "audio/features/log_mel/frames"),
+        ("fa_loudness", "audio/features/loudness/frames"),
+        ("fa_mfcc", "audio/features/mfcc/frames"),
+        ("fa_onset", "audio/features/onset/frames"),
+        ("fa_pitch", "audio/features/pitch/frames"),
+        ("fa_stft", "audio/features/stft/frames"),
+        ("fa_tempo", "audio/features/tempo/frames"),
+    ):
+        params = analysis_nodes[node_id]["parameters"]
+        assert params["expected.stream_id"] == "audio/preprocessed/mono16k"
+        assert params["output.stream_id"] == output_stream_id
+        assert params["expected.stream_id"] != params["input_topic"]
+        assert params["output.stream_id"] != params["input_topic"]
+
     assert analysis_nodes["fa_cqt"]["enable"] is False
     assert analysis_nodes["fa_cqt"]["package"] == "fa_cqt"
     assert analysis_nodes["fa_cqt"]["params_file"] == (
@@ -526,6 +542,8 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
     )
     assert analysis_nodes["fa_cqt"]["parameters"] == {
         "input_topic": "audio/frame_buffer/cqt",
+        "expected.stream_id": "audio/preprocessed/mono16k",
+        "output.stream_id": "audio/features/cqt/frames",
         "feature.frame_length": 4096,
         "feature.hop_length": 512,
     }
@@ -536,6 +554,8 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
     )
     assert analysis_nodes["fa_loudness"]["parameters"] == {
         "input_topic": "audio/resample16k/mic",
+        "expected.stream_id": "audio/preprocessed/mono16k",
+        "output.stream_id": "audio/features/loudness/frames",
     }
     assert analysis_nodes["fa_mfcc"]["enable"] is False
     assert analysis_nodes["fa_mfcc"]["package"] == "fa_mfcc"
@@ -544,6 +564,8 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
     )
     assert analysis_nodes["fa_mfcc"]["parameters"] == {
         "input_topic": "audio/resample16k/mic",
+        "expected.stream_id": "audio/preprocessed/mono16k",
+        "output.stream_id": "audio/features/mfcc/frames",
         "feature.n_fft": 320,
         "feature.hop_length": 160,
         "feature.n_mfcc": 13,
@@ -555,6 +577,8 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
     )
     assert analysis_nodes["fa_onset"]["parameters"] == {
         "input_topic": "audio/resample16k/mic",
+        "expected.stream_id": "audio/preprocessed/mono16k",
+        "output.stream_id": "audio/features/onset/frames",
         "feature.n_fft": 320,
         "feature.hop_length": 160,
         "detector.threshold": 0.1,
@@ -566,6 +590,8 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
     )
     assert analysis_nodes["fa_pitch"]["parameters"] == {
         "input_topic": "audio/resample16k/mic",
+        "expected.stream_id": "audio/preprocessed/mono16k",
+        "output.stream_id": "audio/features/pitch/frames",
         "feature.n_fft": 320,
         "feature.hop_length": 160,
         "feature.f_min_hz": 80.0,
@@ -577,6 +603,8 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
     )
     assert analysis_nodes["fa_tempo"]["parameters"] == {
         "input_topic": "audio/resample16k/mic",
+        "expected.stream_id": "audio/preprocessed/mono16k",
+        "output.stream_id": "audio/features/tempo/frames",
         "feature.n_fft": 320,
         "feature.hop_length": 160,
         "tempo.bpm_min": 60.0,
