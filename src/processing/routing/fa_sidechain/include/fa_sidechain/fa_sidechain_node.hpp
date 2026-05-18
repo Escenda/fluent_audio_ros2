@@ -56,11 +56,11 @@ private:
   void handleSidechainFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
 
-  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
+  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool buildControlFrame(
     const fa_interfaces::msg::AudioFrame & input,
     const std::vector<uint8_t> & control_data,
-    fa_interfaces::msg::AudioFrame & output) const;
+    fa_interfaces::msg::AudioFrame & output);
   size_t bytesPerFrame() const;
 
   SidechainConfig config_;

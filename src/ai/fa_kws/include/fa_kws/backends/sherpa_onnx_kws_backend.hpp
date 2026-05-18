@@ -1,14 +1,16 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
+#include <memory>
 #include <string>
-
-#include <sherpa-onnx/c-api/c-api.h>
 
 #include "fa_kws/backends/kws_backend.hpp"
 
 namespace fa_kws
 {
+
+struct SherpaOnnxKwsBackendState;
 
 struct SherpaOnnxKwsBackendConfig
 {
@@ -60,8 +62,7 @@ private:
   void requireReady(const char *operation) const;
 
   SherpaOnnxKwsBackendConfig config_;
-  const SherpaOnnxKeywordSpotter *spotter_{nullptr};
-  SherpaOnnxOnlineStream *stream_{nullptr};  // non-const for resetHard()
+  std::unique_ptr<SherpaOnnxKwsBackendState> state_;
 
   std::chrono::steady_clock::time_point last_detect_time_;
   bool has_detect_time_{false};

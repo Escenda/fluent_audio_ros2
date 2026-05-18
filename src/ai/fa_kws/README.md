@@ -16,6 +16,6 @@
 
 audio / VAD / result topic QoS は `audio.qos.*`、`vad.qos.*`、`result.qos.*` で明示します。depth が 0 以下の場合は起動失敗し、node code 内の hidden depth / reliability へ切り替えません。
 
-ビルド時には sherpa-onnx C API が必要です。標準パスに無い場合は `SHERPA_ONNX_PREFIX` 環境変数または CMake cache で install prefix を指定してください。
+通常の workspace build では `fa_kws_node` と `fa_kws_wav_tool` を build します。既定の `-DFA_KWS_SHERPA_ONNX=OFF` では sherpa-onnx C API にリンクせず、`backend.name=sherpa_onnx_kws` を選択した起動時に fail closed します。
 
-Contract test だけを実行する環境では、`-DFA_KWS_SHERPA_ONNX=OFF` を明示できます。この場合は `fa_kws_node` / `fa_kws_wav_tool` runtime target 自体を build しません。runtime build では既定の `-DFA_KWS_SHERPA_ONNX=ON` を使い、sherpa-onnx C API が無い場合は configure で失敗します。別 backend や dummy backend へ暗黙に切り替えることはありません。
+sherpa-onnx runtime を有効にする場合は `-DFA_KWS_SHERPA_ONNX=ON` を明示し、標準パスに無い場合は `SHERPA_ONNX_PREFIX` 環境変数または CMake cache で install prefix を指定してください。`ON` を指定して C API が見つからない場合は configure で失敗します。別 backend や dummy backend へ暗黙に切り替えることはありません。

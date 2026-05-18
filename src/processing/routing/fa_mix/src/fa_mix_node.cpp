@@ -243,7 +243,7 @@ void FaMixNode::loadParameters()
     if (topic.empty()) {
       throw std::runtime_error("input_topics and output_topic must not be empty");
     }
-    resolved_topics.push_back(this->resolve_topic_name(topic));
+    resolved_topics.push_back(this->get_node_topics_interface()->resolve_topic_name(topic));
   }
   ensureUniqueIdentities(raw_topics, "raw topics");
   ensureUniqueIdentities(resolved_topics, "resolved topics");

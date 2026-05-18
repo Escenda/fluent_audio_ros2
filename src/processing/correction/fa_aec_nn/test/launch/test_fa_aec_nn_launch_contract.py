@@ -20,6 +20,7 @@ def _run_fa_aec_nn_launch(config_path: Path) -> subprocess.CompletedProcess[str]
         "launch",
         "fa_aec_nn",
         "fa_aec_nn.launch.py",
+        "node_name:=fa_aec_nn",
         f"config_file:={config_path}",
     ]
     process = subprocess.Popen(

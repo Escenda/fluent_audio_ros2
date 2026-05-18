@@ -146,8 +146,10 @@ void FaLoopbackNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
-  const std::string resolved_input = this->resolve_topic_name(config_.input_topic);
-  const std::string resolved_output = this->resolve_topic_name(config_.output_topic);
+  const std::string resolved_input =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
   if (sameIdentityString(resolved_input, resolved_output)) {
     throw std::runtime_error("input_topic and output_topic must differ after resolution");
   }
@@ -254,7 +256,7 @@ void FaLoopbackNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   publishLoopback(*msg);
 }
 
-bool FaLoopbackNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
+bool FaLoopbackNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
 {
   if (msg.source_id.empty() || msg.stream_id.empty()) {
     RCLCPP_WARN_THROTTLE(

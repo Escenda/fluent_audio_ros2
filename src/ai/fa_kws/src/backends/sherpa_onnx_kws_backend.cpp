@@ -1,5 +1,7 @@
 #include "fa_kws/backends/sherpa_onnx_kws_backend.hpp"
 
+#include <sherpa-onnx/c-api/c-api.h>
+
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -9,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 
 #include "fa_kws/vad_gate.hpp"
@@ -61,6 +64,12 @@ void requireReadableRegularFile(const char *config_name, const std::string &path
 namespace fa_kws
 {
 
+struct SherpaOnnxKwsBackendState
+{
+  const SherpaOnnxKeywordSpotter *spotter{nullptr};
+  SherpaOnnxOnlineStream *stream{nullptr};
+};
+
 bool isSupportedSherpaOnnxExecutionProvider(const std::string &execution_provider)
 {
   return execution_provider == "cpu" ||
@@ -75,6 +84,7 @@ std::string supportedSherpaOnnxExecutionProvidersForMessage()
 
 SherpaOnnxKwsBackend::SherpaOnnxKwsBackend(const SherpaOnnxKwsBackendConfig &config)
 : config_(config),
+  state_(std::make_unique<SherpaOnnxKwsBackendState>()),
   last_detect_time_(std::chrono::steady_clock::now()),
   has_detect_time_(false)
 {
@@ -116,28 +126,32 @@ SherpaOnnxKwsBackend::SherpaOnnxKwsBackend(const SherpaOnnxKwsBackendConfig &con
   kws_config.keywords_buf = nullptr;
   kws_config.keywords_buf_size = 0;
 
-  spotter_ = SherpaOnnxCreateKeywordSpotter(&kws_config);
-  if (!spotter_) {
+  state_->spotter = SherpaOnnxCreateKeywordSpotter(&kws_config);
+  if (!state_->spotter) {
     throw std::runtime_error("SherpaOnnxKwsBackend: SherpaOnnxCreateKeywordSpotter() failed");
   }
 
-  stream_ = const_cast<SherpaOnnxOnlineStream*>(SherpaOnnxCreateKeywordStream(spotter_));
-  if (!stream_) {
-    SherpaOnnxDestroyKeywordSpotter(spotter_);
-    spotter_ = nullptr;
+  state_->stream = const_cast<SherpaOnnxOnlineStream*>(
+    SherpaOnnxCreateKeywordStream(state_->spotter));
+  if (!state_->stream) {
+    SherpaOnnxDestroyKeywordSpotter(state_->spotter);
+    state_->spotter = nullptr;
     throw std::runtime_error("SherpaOnnxKwsBackend: SherpaOnnxCreateKeywordStream() failed");
   }
 }
 
 SherpaOnnxKwsBackend::~SherpaOnnxKwsBackend()
 {
-  if (stream_ != nullptr) {
-    SherpaOnnxDestroyOnlineStream(stream_);
-    stream_ = nullptr;
+  if (!state_) {
+    return;
   }
-  if (spotter_ != nullptr) {
-    SherpaOnnxDestroyKeywordSpotter(spotter_);
-    spotter_ = nullptr;
+  if (state_->stream != nullptr) {
+    SherpaOnnxDestroyOnlineStream(state_->stream);
+    state_->stream = nullptr;
+  }
+  if (state_->spotter != nullptr) {
+    SherpaOnnxDestroyKeywordSpotter(state_->spotter);
+    state_->spotter = nullptr;
   }
 }
 
@@ -163,7 +177,7 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
     tracef("fa_kws: VAD gate dropped (vad_prob=%.4f threshold=%.4f)\n",
            static_cast<double>(vad_prob),
            static_cast<double>(config_.vad_threshold));
-    SherpaOnnxResetKeywordStream(spotter_, stream_);
+    SherpaOnnxResetKeywordStream(state_->spotter, state_->stream);
     return std::nullopt;
   }
 
@@ -175,19 +189,20 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
 
   tracef("fa_kws: calling SherpaOnnxOnlineStreamAcceptWaveform()\n");
   SherpaOnnxOnlineStreamAcceptWaveform(
-    stream_,
+    state_->stream,
     sample_rate,
     samples.data(),
     static_cast<int32_t>(samples.size()));
   tracef("fa_kws: returned SherpaOnnxOnlineStreamAcceptWaveform()\n");
 
-  while (SherpaOnnxIsKeywordStreamReady(spotter_, stream_)) {
+  while (SherpaOnnxIsKeywordStreamReady(state_->spotter, state_->stream)) {
     tracef("fa_kws: SherpaOnnxDecodeKeywordStream()\n");
-    SherpaOnnxDecodeKeywordStream(spotter_, stream_);
+    SherpaOnnxDecodeKeywordStream(state_->spotter, state_->stream);
   }
 
   tracef("fa_kws: SherpaOnnxGetKeywordResult()\n");
-  const SherpaOnnxKeywordResult *result = SherpaOnnxGetKeywordResult(spotter_, stream_);
+  const SherpaOnnxKeywordResult *result =
+    SherpaOnnxGetKeywordResult(state_->spotter, state_->stream);
   if (!result) {
     tracef("fa_kws: result=null\n");
     return std::nullopt;
@@ -230,7 +245,7 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
   SherpaOnnxDestroyKeywordResult(result);
 
   // Reset stream state after a detection, as recommended by the sherpa-onnx API.
-  SherpaOnnxResetKeywordStream(spotter_, stream_);
+  SherpaOnnxResetKeywordStream(state_->spotter, state_->stream);
 
   return det;
 }
@@ -238,21 +253,22 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
 void SherpaOnnxKwsBackend::reset()
 {
   requireReady("reset");
-  SherpaOnnxResetKeywordStream(spotter_, stream_);
+  SherpaOnnxResetKeywordStream(state_->spotter, state_->stream);
   has_detect_time_ = false;
 }
 
 void SherpaOnnxKwsBackend::resetHard()
 {
-  if (!spotter_) {
+  if (!state_ || !state_->spotter) {
     throw std::runtime_error("SherpaOnnxKwsBackend resetHard requested without keyword spotter");
   }
-  if (stream_) {
-    SherpaOnnxDestroyOnlineStream(stream_);
-    stream_ = nullptr;
+  if (state_->stream) {
+    SherpaOnnxDestroyOnlineStream(state_->stream);
+    state_->stream = nullptr;
   }
-  stream_ = const_cast<SherpaOnnxOnlineStream*>(SherpaOnnxCreateKeywordStream(spotter_));
-  if (!stream_) {
+  state_->stream = const_cast<SherpaOnnxOnlineStream*>(
+    SherpaOnnxCreateKeywordStream(state_->spotter));
+  if (!state_->stream) {
     throw std::runtime_error(
       "SherpaOnnxKwsBackend: SherpaOnnxCreateKeywordStream() failed during resetHard");
   }
@@ -301,11 +317,11 @@ void SherpaOnnxKwsBackend::validateConfig() const
 
 void SherpaOnnxKwsBackend::requireReady(const char *operation) const
 {
-  if (!spotter_) {
+  if (!state_ || !state_->spotter) {
     throw std::runtime_error(std::string("SherpaOnnxKwsBackend ") + operation +
                              " requested without keyword spotter");
   }
-  if (!stream_) {
+  if (!state_->stream) {
     throw std::runtime_error(std::string("SherpaOnnxKwsBackend ") + operation +
                              " requested without keyword stream");
   }

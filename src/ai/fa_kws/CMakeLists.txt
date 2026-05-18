@@ -14,7 +14,7 @@ find_package(fa_interfaces REQUIRED)
 
 include_directories(include)
 
-set(FA_KWS_SHERPA_ONNX "ON" CACHE STRING "sherpa-onnx backend build mode: ON or OFF")
+set(FA_KWS_SHERPA_ONNX "OFF" CACHE STRING "sherpa-onnx backend build mode: ON or OFF")
 set_property(CACHE FA_KWS_SHERPA_ONNX PROPERTY STRINGS ON OFF)
 
 if(NOT FA_KWS_SHERPA_ONNX MATCHES "^(ON|OFF)$")
@@ -27,6 +27,7 @@ if(NOT SHERPA_ONNX_PREFIX AND DEFINED ENV{SHERPA_ONNX_PREFIX})
 endif()
 
 set(FA_KWS_WITH_SHERPA_ONNX OFF)
+set(FA_KWS_BACKEND_SOURCE src/backends/sherpa_onnx_kws_backend_unavailable.cpp)
 
 if(FA_KWS_SHERPA_ONNX STREQUAL "ON")
   find_path(SHERPA_ONNX_INCLUDE_DIR
@@ -47,6 +48,7 @@ if(FA_KWS_SHERPA_ONNX STREQUAL "ON")
 
   if(SHERPA_ONNX_INCLUDE_DIR AND SHERPA_ONNX_C_API_LIBRARY)
     set(FA_KWS_WITH_SHERPA_ONNX ON)
+    set(FA_KWS_BACKEND_SOURCE src/backends/sherpa_onnx_kws_backend.cpp)
   else()
     message(FATAL_ERROR
       "sherpa-onnx C API is required when FA_KWS_SHERPA_ONNX=ON. "
@@ -54,62 +56,67 @@ if(FA_KWS_SHERPA_ONNX STREQUAL "ON")
   endif()
 else()
   message(STATUS
-    "FA_KWS_SHERPA_ONNX=OFF explicitly disables fa_kws runtime targets; "
-    "fa_kws_node and fa_kws_wav_tool will not be built.")
+    "FA_KWS_SHERPA_ONNX=OFF builds fa_kws runtime targets with a fail-closed "
+    "unavailable sherpa_onnx_kws backend.")
 endif()
 
-if(FA_KWS_WITH_SHERPA_ONNX)
-  add_library(fa_kws_backends STATIC
-    src/backends/sherpa_onnx_kws_backend.cpp
-  )
+add_library(fa_kws_backends STATIC
+  ${FA_KWS_BACKEND_SOURCE}
+)
 
+target_include_directories(fa_kws_backends PUBLIC
+  include
+)
+
+if(FA_KWS_WITH_SHERPA_ONNX)
   target_include_directories(fa_kws_backends PUBLIC
-    include
     ${SHERPA_ONNX_INCLUDE_DIR}
   )
 
   target_link_libraries(fa_kws_backends PUBLIC
     ${SHERPA_ONNX_C_API_LIBRARY}
   )
+endif()
 
-  add_executable(fa_kws_wav_tool
-    src/kws_wav_tool.cpp
-  )
+add_executable(fa_kws_wav_tool
+  src/kws_wav_tool.cpp
+)
 
-  add_executable(fa_kws_node
-    src/fa_kws_node.cpp
-    src/audio_utils.cpp
-    src/vad_state_identity.cpp
-  )
+add_executable(fa_kws_node
+  src/fa_kws_node.cpp
+  src/audio_utils.cpp
+  src/vad_state_identity.cpp
+)
 
-  ament_target_dependencies(fa_kws_node
-    rclcpp
-    fa_interfaces
-  )
+ament_target_dependencies(fa_kws_node
+  rclcpp
+  fa_interfaces
+)
 
-  target_link_libraries(fa_kws_node
-    fa_kws_backends
-  )
+target_link_libraries(fa_kws_node
+  fa_kws_backends
+)
 
+target_link_libraries(fa_kws_wav_tool
+  fa_kws_backends
+)
+
+if(FA_KWS_WITH_SHERPA_ONNX)
   get_filename_component(SHERPA_ONNX_LIB_DIR "${SHERPA_ONNX_C_API_LIBRARY}" DIRECTORY)
   set_target_properties(fa_kws_node PROPERTIES
     BUILD_RPATH "${SHERPA_ONNX_LIB_DIR}"
     INSTALL_RPATH "${SHERPA_ONNX_LIB_DIR}"
   )
 
-  target_link_libraries(fa_kws_wav_tool
-    fa_kws_backends
-  )
-
   set_target_properties(fa_kws_wav_tool PROPERTIES
     BUILD_RPATH "${SHERPA_ONNX_LIB_DIR}"
     INSTALL_RPATH "${SHERPA_ONNX_LIB_DIR}"
   )
-
-  install(TARGETS fa_kws_node fa_kws_wav_tool
-    DESTINATION lib/${PROJECT_NAME}
-  )
 endif()
+
+install(TARGETS fa_kws_node fa_kws_wav_tool
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 install(DIRECTORY
   launch
@@ -155,6 +162,20 @@ if(BUILD_TESTING)
     ament_target_dependencies(${PROJECT_NAME}_vad_state_identity_test
       fa_interfaces
     )
+  endif()
+
+  if(NOT FA_KWS_WITH_SHERPA_ONNX)
+    ament_add_gtest(${PROJECT_NAME}_sherpa_unavailable_backend_test
+      test/unit/sherpa_unavailable_backend_contract.cpp
+    )
+    if(TARGET ${PROJECT_NAME}_sherpa_unavailable_backend_test)
+      target_include_directories(${PROJECT_NAME}_sherpa_unavailable_backend_test PRIVATE
+        include
+      )
+      target_link_libraries(${PROJECT_NAME}_sherpa_unavailable_backend_test
+        fa_kws_backends
+      )
+    endif()
   endif()
 
   # Keep package tests isolated from ambient pytest plugins in ROS images.

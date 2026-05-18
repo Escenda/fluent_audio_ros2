@@ -177,8 +177,10 @@ void FaSidechainNode::loadParameters()
   if (config_.control_topic.empty()) {
     throw std::runtime_error("control_topic is required");
   }
-  const std::string resolved_sidechain = this->resolve_topic_name(config_.sidechain_topic);
-  const std::string resolved_control = this->resolve_topic_name(config_.control_topic);
+  const std::string resolved_sidechain =
+    this->get_node_topics_interface()->resolve_topic_name(config_.sidechain_topic);
+  const std::string resolved_control =
+    this->get_node_topics_interface()->resolve_topic_name(config_.control_topic);
   if (resolved_sidechain == resolved_control) {
     throw std::runtime_error("control_topic must differ from sidechain_topic after resolution");
   }
@@ -353,7 +355,7 @@ void FaSidechainNode::handleSidechainFrame(const fa_interfaces::msg::AudioFrame:
   }
 }
 
-bool FaSidechainNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
+bool FaSidechainNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
 {
   if (msg.source_id.empty() || msg.stream_id.empty()) {
     RCLCPP_WARN_THROTTLE(
@@ -413,7 +415,7 @@ bool FaSidechainNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) 
 bool FaSidechainNode::buildControlFrame(
   const fa_interfaces::msg::AudioFrame & input,
   const std::vector<uint8_t> & control_data,
-  fa_interfaces::msg::AudioFrame & output) const
+  fa_interfaces::msg::AudioFrame & output)
 {
   if (control_data.size() != sizeof(float)) {
     RCLCPP_WARN_THROTTLE(

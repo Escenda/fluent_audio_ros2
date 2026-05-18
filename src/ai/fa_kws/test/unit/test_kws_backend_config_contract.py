@@ -79,21 +79,27 @@ def test_cmake_accepts_sherpa_prefix_from_environment() -> None:
     assert '$ENV{SHERPA_ONNX_PREFIX}' in cmake_text
 
 
-def test_cmake_requires_sherpa_for_runtime_targets() -> None:
+def test_cmake_builds_runtime_targets_with_fail_closed_unavailable_backend() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-    node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
+    unavailable_text = (
+        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend_unavailable.cpp"
+    ).read_text(encoding="utf-8")
 
-    assert 'set(FA_KWS_SHERPA_ONNX "ON"' in cmake_text
+    assert 'set(FA_KWS_SHERPA_ONNX "OFF"' in cmake_text
     assert 'FA_KWS_SHERPA_ONNX MATCHES "^(ON|OFF)$"' in cmake_text
     assert 'FA_KWS_SHERPA_ONNX STREQUAL "ON"' in cmake_text
     assert "FA_KWS_WITH_SHERPA_ONNX" in cmake_text
-    assert "FA_KWS_SHERPA_ONNX=OFF explicitly disables fa_kws runtime targets" in cmake_text
+    assert "FA_KWS_SHERPA_ONNX=OFF builds fa_kws runtime targets" in cmake_text
+    assert "src/backends/sherpa_onnx_kws_backend_unavailable.cpp" in cmake_text
     assert "add_executable(fa_kws_node" in cmake_text
-    assert "fa_kws was built without sherpa-onnx support" not in node_text
+    assert "add_executable(fa_kws_wav_tool" in cmake_text
+    assert "fa_kws was built without sherpa-onnx support" in unavailable_text
+    assert "backend.name=sherpa_onnx_kws" in unavailable_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "${PROJECT_NAME}_sherpa_unavailable_backend_test" in cmake_text
+    assert "test/unit/sherpa_unavailable_backend_contract.cpp" in cmake_text
     assert "message(FATAL_ERROR" in cmake_text
-    assert "if(FA_KWS_WITH_SHERPA_ONNX)" in cmake_text
     assert "install(TARGETS fa_kws_node fa_kws_wav_tool" in cmake_text
 
 
@@ -102,9 +108,10 @@ def test_backend_builds_as_shared_runtime_boundary() -> None:
 
     assert "add_library(fa_kws_backends STATIC" in cmake_text
     assert "src/backends/sherpa_onnx_kws_backend.cpp" in cmake_text
+    assert "src/backends/sherpa_onnx_kws_backend_unavailable.cpp" in cmake_text
     assert "target_link_libraries(fa_kws_node" in cmake_text
     assert "fa_kws_backends" in cmake_text
-    assert "target_link_libraries(fa_kws_wav_tool\n    fa_kws_backends" in cmake_text
+    assert "target_link_libraries(fa_kws_wav_tool\n  fa_kws_backends" in cmake_text
     assert "src/backends/sherpa_onnx_kws_backend.cpp" not in cmake_text.split(
         "add_executable(fa_kws_node"
     )[1].split(")")[0]
@@ -209,21 +216,26 @@ def test_backend_keeps_vad_gate_mandatory() -> None:
     backend_text = (
         PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
     ).read_text(encoding="utf-8")
+    unavailable_text = (
+        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend_unavailable.cpp"
+    ).read_text(encoding="utf-8")
     tool_text = (PACKAGE_ROOT / "src" / "kws_wav_tool.cpp").read_text(
         encoding="utf-8"
     )
 
     assert "float vad_threshold;" in header_text
     assert "float vad_threshold{0.35f};" not in header_text
+    assert "<sherpa-onnx/c-api/c-api.h>" not in header_text
     assert "isValidVadGateThreshold" in backend_text
     assert "isValidVadProbability" in backend_text
     assert "vad_threshold must be finite and in (0.0, 1.0]" in backend_text
     assert "vad_prob must be finite and in [0.0, 1.0]" in backend_text
     assert "passesVadGate(vad_prob, config_.vad_threshold)" in backend_text
-    assert "SherpaOnnxResetKeywordStream(spotter_, stream_);" in backend_text
+    assert "SherpaOnnxResetKeywordStream(state_->spotter, state_->stream);" in backend_text
     assert "config_.vad_threshold > 0.0f &&" not in backend_text
     assert 'treat it as "no VAD gating"' not in backend_text
     assert "disable gating" not in tool_text
+    assert "disable gating" not in unavailable_text
     assert "cfg.vad_threshold = 1.0f;" in tool_text
     assert "/*vad_prob=*/1.0f" in tool_text
     assert "--assume-vad-speech" in tool_text
@@ -420,6 +432,8 @@ def test_backend_boundary_fails_closed_for_invalid_runtime_state() -> None:
     assert "SherpaOnnxKwsBackend resetHard requested without keyword spotter" in backend_text
     assert "failed during resetHard" in backend_text
     assert "if (!spotter_ || !stream_ || samples.empty())" not in backend_text
+    assert "spotter_" not in backend_text
+    assert "stream_" not in backend_text
     assert "return std::nullopt;" in backend_text
 
 

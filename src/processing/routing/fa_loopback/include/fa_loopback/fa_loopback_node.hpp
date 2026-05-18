@@ -47,7 +47,7 @@ private:
   void publishLoopback(const fa_interfaces::msg::AudioFrame & msg);
   void publishDiagnostics();
 
-  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
+  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   size_t bytesPerFrame() const;
 
   LoopbackConfig config_;
