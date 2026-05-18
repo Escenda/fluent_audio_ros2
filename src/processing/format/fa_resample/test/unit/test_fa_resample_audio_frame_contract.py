@@ -3,9 +3,32 @@ from pathlib import Path
 import yaml
 
 
+def package_root() -> Path:
+    return Path(__file__).parents[2]
+
+
+def read_node_source() -> str:
+    return (package_root() / "src" / "fa_resample_node.cpp").read_text(encoding="utf-8")
+
+
+def read_backend_header() -> str:
+    return (
+        package_root()
+        / "include"
+        / "fa_resample"
+        / "backends"
+        / "internal_linear_resampler.hpp"
+    ).read_text(encoding="utf-8")
+
+
+def read_backend_source() -> str:
+    return (package_root() / "src" / "backends" / "internal_linear_resampler.cpp").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_default_config_requires_float32le_output_contract() -> None:
-    package_root = Path(__file__).parents[2]
-    config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
+    config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_resample"]["ros__parameters"]
 
     assert params["target_sample_rate"] == 16000
@@ -19,12 +42,11 @@ def test_default_config_requires_float32le_output_contract() -> None:
 
 
 def test_resample_preserves_source_and_publishes_stream_identity() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_resample_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
 
     assert "out.source_id = in.source_id;" in source
     assert "out.stream_id = output_stream_id;" in source
-    assert "out.layout = kInterleavedLayout;" in source
+    assert "out.layout = backends::kInterleavedLayout;" in source
     assert "computeRmsPeak" not in source
     assert ".rms" not in source
     assert ".peak" not in source
@@ -32,11 +54,8 @@ def test_resample_preserves_source_and_publishes_stream_identity() -> None:
 
 
 def test_resample_rejects_non_float32le_or_unidentified_frames() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_resample_node.cpp").read_text(encoding="utf-8")
-    core = (
-        package_root / "include" / "fa_resample" / "resample_core.hpp"
-    ).read_text(encoding="utf-8")
+    source = read_node_source()
+    backend_source = read_backend_source()
 
     assert "in.source_id.empty() || in.stream_id.empty()" in source
     assert "in.stream_id != expected_input_stream_id" in source
@@ -46,22 +65,37 @@ def test_resample_rejects_non_float32le_or_unidentified_frames() -> None:
     assert "fa_resample input.encoding must be FLOAT32LE" in source
     assert "fa_resample input.bit_depth must be 32" in source
     assert "fa_resample input.layout must be interleaved" in source
-    assert "validateFloat32InterleavedContract(frame_contract)" in source
-    assert "contract.encoding != kEncodingFloat32Le" in core
-    assert "contract.bit_depth != 32" in core
-    assert "contract.layout != kInterleavedLayout" in core
-    assert "contract.data_size == 0" in core
-    assert "contract.data_size % bytes_per_frame" in core
+    assert "validateFloat32InterleavedContract(contract)" in backend_source
+    assert "contract.encoding != kEncodingFloat32Le" in backend_source
+    assert "contract.bit_depth != 32" in backend_source
+    assert "contract.layout != kInterleavedLayout" in backend_source
+    assert "contract.data_size == 0" in backend_source
+    assert "contract.data_size % bytes_per_frame" in backend_source
+
+
+def test_resample_backend_owns_decode_validate_resample_and_encode() -> None:
+    header = read_backend_header()
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+
+    assert "class InternalLinearResamplerBackend" in header
+    assert "enum class ProcessStatus" in header
+    assert "struct ProcessResult" in header
+    assert "std::vector<float> decodeFloat32Le" in backend_source
+    assert "std::vector<uint8_t> encodeFloat32Le" in backend_source
+    assert "std::vector<float> resampleLinear" in backend_source
+    assert "const double ratio = static_cast<double>(out_rate) / static_cast<double>(in_rate);" in backend_source
+    assert "std::lround(out_frames_f)" in backend_source
+    assert "backend_->process(in.data, frame_contract, out_bytes)" in node_source
+    assert "decodeFloat32Le" not in node_source
+    assert "resampleLinear" not in node_source
+    assert "encodeFloat32Le" not in node_source
 
 
 def test_resample_does_not_hide_sample_format_conversion_or_clamping() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_resample_node.cpp").read_text(encoding="utf-8")
-    core = (
-        package_root / "include" / "fa_resample" / "resample_core.hpp"
-    ).read_text(encoding="utf-8")
-
-    combined = source + core
+    source = read_node_source()
+    backend_source = read_backend_source()
+    combined = source + backend_source
     forbidden = (
         "PCM16LE",
         "PCM32LE",
@@ -74,18 +108,44 @@ def test_resample_does_not_hide_sample_format_conversion_or_clamping() -> None:
     for token in forbidden:
         assert token not in combined
 
-    assert "containsOnlyFiniteNormalizedSamples" in source
-    assert "encodeFloat32Le(out_f32)" in source
+    assert "containsOnlyFiniteNormalizedSamples" in backend_source
+    assert "ProcessStatus::kInvalidInputSamples" in backend_source
+    assert "ProcessStatus::kEncodeFailed" in backend_source
+
+
+def test_resample_backend_reports_typed_status_and_keeps_ros_boundary() -> None:
+    header = read_backend_header()
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+
+    assert "kInvalidFrameContract" in header
+    assert "kInvalidInputSamples" in header
+    assert "kResampleFailed" in header
+    assert "kEncodeFailed" in header
+    assert "processStatusMessage(ProcessStatus status)" in header
+    assert "frameContractStatusName(FrameContractStatus status)" in header
+    assert "ProcessStatus::kInvalidFrameContract" in backend_source
+    assert "ProcessStatus::kInvalidInputSamples" in backend_source
+    assert "ProcessStatus::kResampleFailed" in backend_source
+    assert "ProcessStatus::kEncodeFailed" in backend_source
+    assert "backends::processStatusMessage(result.status)" in node_source
+    assert "backends::frameContractStatusName(result.frame_contract_status)" in node_source
+
+    forbidden_backend_tokens = ("rclcpp", "fa_interfaces", "AudioFrame")
+    for token in forbidden_backend_tokens:
+        assert token not in header
+        assert token not in backend_source
 
 
 def test_colcon_runs_cpp_and_pytest_contracts() -> None:
-    package_root = Path(__file__).parents[2]
-    cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
-    package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
+    cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
+    package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
+    assert "add_library(fa_resample_internal_linear_resampler STATIC" in cmake_text
     assert "add_library(fa_resample_node_core" in cmake_text
-    assert "ament_add_gtest(test_resample_core" in cmake_text
-    assert "ament_add_gtest(test_resample_graph" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_graph_test" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
+    assert "<test_depend>ament_lint_auto</test_depend>" in package_xml

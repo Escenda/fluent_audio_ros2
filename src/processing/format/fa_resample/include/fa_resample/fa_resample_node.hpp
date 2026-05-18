@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
@@ -11,6 +12,11 @@
 
 namespace fa_resample
 {
+
+namespace backends
+{
+class InternalLinearResamplerBackend;
+}  // namespace backends
 
 struct ResampleConfig
 {
@@ -39,12 +45,13 @@ class FaResampleNode : public rclcpp::Node
 {
 public:
   explicit FaResampleNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
-  ~FaResampleNode() override = default;
+  ~FaResampleNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void publishDiagnostics();
+  void configureBackend();
 
   void handleMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void handleRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
@@ -58,6 +65,7 @@ private:
     std::atomic<uint64_t> & drop_counter);
 
   ResampleConfig config_;
+  std::unique_ptr<backends::InternalLinearResamplerBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr mic_sub_;
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr ref_sub_;

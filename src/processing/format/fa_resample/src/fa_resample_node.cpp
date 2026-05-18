@@ -1,6 +1,6 @@
 #include "fa_resample/fa_resample_node.hpp"
 
-#include "fa_resample/resample_core.hpp"
+#include "fa_resample/backends/internal_linear_resampler.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -21,8 +21,11 @@ FaResampleNode::FaResampleNode(const rclcpp::NodeOptions & options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Resample node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaResampleNode::~FaResampleNode() = default;
 
 void FaResampleNode::loadParameters()
 {
@@ -72,16 +75,16 @@ void FaResampleNode::loadParameters()
   if (config_.target_sample_rate <= 0) {
     throw std::runtime_error("target_sample_rate must be > 0 (set via YAML)");
   }
-  if (config_.input_encoding != kEncodingFloat32Le) {
+  if (config_.input_encoding != backends::kEncodingFloat32Le) {
     throw std::runtime_error("fa_resample input.encoding must be FLOAT32LE");
   }
   if (config_.input_bit_depth != 32) {
     throw std::runtime_error("fa_resample input.bit_depth must be 32");
   }
-  if (config_.input_layout != kInterleavedLayout) {
+  if (config_.input_layout != backends::kInterleavedLayout) {
     throw std::runtime_error("fa_resample input.layout must be interleaved");
   }
-  if (config_.output_encoding != kEncodingFloat32Le) {
+  if (config_.output_encoding != backends::kEncodingFloat32Le) {
     throw std::runtime_error("fa_resample output.encoding must be FLOAT32LE");
   }
   if (config_.output_bit_depth != 32) {
@@ -122,6 +125,12 @@ void FaResampleNode::loadParameters()
     config_.ref_enabled ? "on" : "off",
     config_.ref_input_topic.c_str(), config_.ref_output_topic.c_str(),
     config_.diagnostics_publish_period_ms);
+}
+
+void FaResampleNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalLinearResamplerBackend>(
+    backends::InternalLinearResamplerConfig{config_.target_sample_rate});
 }
 
 void FaResampleNode::setupInterfaces()
@@ -216,52 +225,22 @@ bool FaResampleNode::processAndPublish(
     return false;
   }
 
-  const FrameContract frame_contract{
+  const backends::FrameContract frame_contract{
     in.encoding,
     in.sample_rate,
     in.channels,
     in.bit_depth,
     in.layout,
     in.data.size()};
-  const FrameContractStatus contract_status = validateFloat32InterleavedContract(frame_contract);
-  if (contract_status != FrameContractStatus::kOk) {
+  std::vector<uint8_t> out_bytes;
+  const backends::ProcessResult result = backend_->process(in.data, frame_contract, out_bytes);
+  if (result.status != backends::ProcessStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Invalid FLOAT32LE frame contract (%s): %s",
+      "Resample backend rejected frame (%s): %s (%s)",
       output_stream_id.c_str(),
-      frameContractStatusName(contract_status));
-    drop_counter.fetch_add(1);
-    return false;
-  }
-
-  const std::vector<float> in_f32 = decodeFloat32Le(in.data);
-  if (!containsOnlyFiniteNormalizedSamples(in_f32)) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Invalid FLOAT32LE frame samples (%s): samples must be finite normalized [-1.0, 1.0]",
-      output_stream_id.c_str());
-    drop_counter.fetch_add(1);
-    return false;
-  }
-
-  const uint32_t in_frames = static_cast<uint32_t>(
-    in.data.size() / (static_cast<size_t>(in.channels) * sizeof(float)));
-  uint32_t out_frames = 0;
-  const std::vector<float> out_f32 = resampleLinear(
-    in_f32,
-    in.sample_rate,
-    static_cast<uint32_t>(config_.target_sample_rate),
-    in.channels,
-    in_frames,
-    out_frames);
-
-  if (out_f32.empty() || out_frames == 0) {
-    drop_counter.fetch_add(1);
-    return false;
-  }
-
-  const std::vector<uint8_t> out_bytes = encodeFloat32Le(out_f32);
-  if (out_bytes.empty()) {
+      backends::processStatusMessage(result.status),
+      backends::frameContractStatusName(result.frame_contract_status));
     drop_counter.fetch_add(1);
     return false;
   }
@@ -271,10 +250,10 @@ bool FaResampleNode::processAndPublish(
   out.source_id = in.source_id;
   out.stream_id = output_stream_id;
   out.encoding = config_.output_encoding;
-  out.sample_rate = static_cast<uint32_t>(config_.target_sample_rate);
+  out.sample_rate = static_cast<uint32_t>(backend_->targetSampleRate());
   out.channels = in.channels;
   out.bit_depth = static_cast<uint32_t>(config_.output_bit_depth);
-  out.layout = kInterleavedLayout;
+  out.layout = backends::kInterleavedLayout;
   out.data = out_bytes;
   out.epoch = in.epoch;
 
@@ -302,7 +281,7 @@ void FaResampleNode::publishDiagnostics()
     };
 
   status.values.reserve(12);
-  push_kv("target_sample_rate", std::to_string(config_.target_sample_rate));
+  push_kv("target_sample_rate", std::to_string(backend_->targetSampleRate()));
   push_kv("output.encoding", config_.output_encoding);
   push_kv("output.bit_depth", std::to_string(config_.output_bit_depth));
   push_kv("mic.in", std::to_string(mic_in_.load()));

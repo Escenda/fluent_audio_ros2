@@ -1,5 +1,5 @@
 #include "fa_resample/fa_resample_node.hpp"
-#include "fa_resample/resample_core.hpp"
+#include "fa_resample/backends/internal_linear_resampler.hpp"
 
 #include <chrono>
 #include <memory>
@@ -33,7 +33,7 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(const rclcpp::Node & node)
   frame.channels = 1;
   frame.bit_depth = 32;
   frame.layout = "interleaved";
-  frame.data = fa_resample::encodeFloat32Le(samples);
+  frame.data = fa_resample::backends::encodeFloat32Le(samples);
   frame.epoch = 11;
   return frame;
 }

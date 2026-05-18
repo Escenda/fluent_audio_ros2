@@ -13,6 +13,14 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
+add_library(fa_resample_internal_linear_resampler STATIC
+  src/backends/internal_linear_resampler.cpp
+)
+
+target_include_directories(fa_resample_internal_linear_resampler PUBLIC
+  include
+)
+
 add_library(fa_resample_node_core
   src/fa_resample_node.cpp
 )
@@ -25,6 +33,10 @@ ament_target_dependencies(fa_resample_node_core
   rclcpp
   diagnostic_msgs
   fa_interfaces
+)
+
+target_link_libraries(fa_resample_node_core
+  fa_resample_internal_linear_resampler
 )
 
 add_executable(fa_resample_node
@@ -54,26 +66,30 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
 
-  ament_add_gtest(test_resample_core
-    test/cpp/test_resample_core.cpp
+  ament_add_gtest(${PROJECT_NAME}_backend_test
+    test/cpp/test_internal_linear_resampler_backend.cpp
   )
-  if(TARGET test_resample_core)
-    target_include_directories(test_resample_core PRIVATE
+  if(TARGET ${PROJECT_NAME}_backend_test)
+    target_include_directories(${PROJECT_NAME}_backend_test PRIVATE
       include
+    )
+    target_link_libraries(${PROJECT_NAME}_backend_test
+      fa_resample_internal_linear_resampler
     )
   endif()
 
-  ament_add_gtest(test_resample_graph
+  ament_add_gtest(${PROJECT_NAME}_graph_test
     test/cpp/test_resample_graph.cpp
   )
-  if(TARGET test_resample_graph)
-    target_include_directories(test_resample_graph PRIVATE
+  if(TARGET ${PROJECT_NAME}_graph_test)
+    target_include_directories(${PROJECT_NAME}_graph_test PRIVATE
       include
     )
-    target_link_libraries(test_resample_graph
+    target_link_libraries(${PROJECT_NAME}_graph_test
       fa_resample_node_core
+      fa_resample_internal_linear_resampler
     )
-    ament_target_dependencies(test_resample_graph
+    ament_target_dependencies(${PROJECT_NAME}_graph_test
       rclcpp
       fa_interfaces
     )
