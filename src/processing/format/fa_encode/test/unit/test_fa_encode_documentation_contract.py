@@ -57,6 +57,21 @@ def test_backend_is_ros_free_and_node_owns_message_conversion() -> None:
     assert "out.media_time_ns = next_media_time_ns_;" in node_source
 
 
+def test_external_encoder_docs_do_not_claim_runtime_metadata_probe() -> None:
+    algorithm_doc = (PACKAGE_ROOT / "docs" / "アルゴリズム詳細説明書.md").read_text(
+        encoding="utf-8"
+    )
+    backend_doc = (
+        PACKAGE_ROOT / "docs" / "backends" / "external_codec_encoder.md"
+    ).read_text(encoding="utf-8")
+    combined_doc = algorithm_doc + "\n" + backend_doc
+
+    assert "actual codec metadata" not in combined_doc
+    assert "stdout は byte payload のみ" in combined_doc
+    assert "stdout から推定しない" in combined_doc
+    assert "output contract" in combined_doc
+
+
 def test_colcon_runs_pytest_gtest_and_graph_contracts() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
     package_xml = (PACKAGE_ROOT / "package.xml").read_text(encoding="utf-8")

@@ -263,7 +263,7 @@ bool FaEncodeNode::buildChunk(
   {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Encoded metadata mismatch: %s/%s/%s != %s/%s/%s",
+      "Encoded output contract mismatch: %s/%s/%s != %s/%s/%s",
       result.codec.c_str(),
       result.container.c_str(),
       result.payload_format.c_str(),
