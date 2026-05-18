@@ -3,8 +3,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -14,10 +14,17 @@
 namespace fa_reverb
 {
 
+namespace backends
+{
+class InternalFeedbackDelayBackend;
+}  // namespace backends
+
 struct ReverbConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   double room_size{-1.0};
   double damping{-1.0};
   double wet_gain{-1.0};
@@ -32,43 +39,31 @@ struct ReverbConfig
   int diagnostics_publish_period_ms{0};
 };
 
-struct DelayLineState
-{
-  std::vector<float> buffer{};
-  size_t position{0U};
-  float filter_state{0.0F};
-};
-
 /**
  * @brief FLOAT32LE interleaved AudioFrame に deterministic feedback-delay reverb を適用する node。
  */
 class FaReverbNode : public rclcpp::Node
 {
 public:
-  FaReverbNode();
-  ~FaReverbNode() override = default;
+  explicit FaReverbNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~FaReverbNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
-  bool validateSamples(const fa_interfaces::msg::AudioFrame & msg);
   bool applyReverb(
     const fa_interfaces::msg::AudioFrame & in,
     fa_interfaces::msg::AudioFrame & out);
 
-  void resetReverbState(std::vector<std::vector<DelayLineState>> & state) const;
-  bool validateReverbState(const std::vector<std::vector<DelayLineState>> & state) const;
   size_t bytesPerFrame() const;
 
   ReverbConfig config_;
-  std::vector<size_t> delay_samples_{};
-  double effective_feedback_gain_{0.0};
-  std::string current_source_id_{};
-  std::vector<std::vector<DelayLineState>> delay_lines_{};
+  std::unique_ptr<backends::InternalFeedbackDelayBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;

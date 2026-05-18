@@ -1,7 +1,11 @@
 fa_reverb:
   ros__parameters:
-    input_topic: "audio/echo/mic"
-    output_topic: "audio/reverb/mic"
+    input_topic: "fa_reverb/input"
+    output_topic: "fa_reverb/output"
+    input_stream_id: "audio/echo/mic"
+
+    output:
+      stream_id: "audio/reverb/mic"
 
     reverb:
       room_size: 0.72

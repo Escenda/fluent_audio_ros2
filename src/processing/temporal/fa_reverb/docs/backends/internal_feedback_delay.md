@@ -2,14 +2,15 @@
 
 ## 1. 目的
 
-`internal_feedback_delay` は `fa_reverb` node 内部で完結する deterministic reverb backend である。
+`internal_feedback_delay` は `fa_reverb` package 内部で完結する deterministic reverb backend である。
 外部 DSP library、model runtime、Python worker、network service には依存しない。
+ROS topic、`AudioFrame` message、diagnostics は知らない。
 
 ## 2. Runtime / 依存
 
 - C++17
 - ROS2 は node layer のみ
-- backend 処理自体は `std::vector<float>` delay buffer と scalar floating point 演算のみ
+- backend 処理自体は `std::vector<float>` delay buffer、byte列、scalar floating point 演算のみ
 
 ## 3. Input format
 
@@ -20,8 +21,8 @@
 
 ## 4. Output format
 
-入力 `AudioFrame` の format contract を保持し、`stream_id` のみ output topic 名へ更新する。
-sample は finite かつ `[-1.0, 1.0]` を保証できる場合だけ publish する。
+出力は `FLOAT32LE` byte列で返す。`stream_id` 更新、publish、drop counter は ROS node 側の責務である。
+sample は finite かつ `[-1.0, 1.0]` を保証できる場合だけ `ProcessStatus::kOk` として返す。
 
 ## 5. Failure policy
 

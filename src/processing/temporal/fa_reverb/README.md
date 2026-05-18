@@ -1,7 +1,7 @@
 # fa_reverb
 
 `fa_reverb` は FluentAudio の `processing/temporal` に属する ROS2 package です。
-`FLOAT32LE` / `interleaved` の `fa_interfaces/msg/AudioFrame` を購読し、内部 multi-tap feedback delay network による残響を適用して publish します。
+`FLOAT32LE` / `interleaved` の `fa_interfaces/msg/AudioFrame` を購読し、内部 multi-tap feedback delay network による残響を適用して publish します。sample loop と delay state は ROS 非依存 backend が持ちます。
 
 ## Topics
 
@@ -17,6 +17,8 @@
 
 - `input_topic`
 - `output_topic`
+- `input_stream_id`
+- `output.stream_id`
 - `reverb.room_size`
 - `reverb.damping`
 - `reverb.wet_gain`

@@ -1,11 +1,7 @@
 #include "fa_reverb/fa_reverb_node.hpp"
 
-#include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -14,6 +10,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_reverb/backends/internal_feedback_delay.hpp"
 
 namespace fa_reverb
 {
@@ -22,23 +19,12 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr float kSilenceSample = 0.0F;
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
 constexpr int kMaxExpectedSampleRate = 384000;
 constexpr int kMaxExpectedChannels = 64;
-constexpr double kMinFeedbackGain = 0.20;
-constexpr double kFeedbackGainRange = 0.65;
-constexpr std::array<double, 4> kBaseDelayMs = {29.7, 37.1, 41.1, 43.7};
 
 bool isFinite(double value)
 {
   return std::isfinite(value);
-}
-
-bool isNormalizedSample(float value)
-{
-  return std::isfinite(value) && value >= kMinNormalizedSample && value <= kMaxNormalizedSample;
 }
 
 bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
@@ -108,31 +94,25 @@ void pushKeyValue(
   status.values.push_back(kv);
 }
 
-float readFloatSample(const std::vector<uint8_t> & data, size_t sample_index)
-{
-  float sample = 0.0F;
-  std::memcpy(&sample, data.data() + (sample_index * sizeof(float)), sizeof(float));
-  return sample;
-}
-
-void writeFloatSample(std::vector<uint8_t> & data, size_t sample_index, float sample)
-{
-  std::memcpy(data.data() + (sample_index * sizeof(float)), &sample, sizeof(float));
-}
 }  // namespace
 
-FaReverbNode::FaReverbNode()
-: rclcpp::Node("fa_reverb")
+FaReverbNode::FaReverbNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_reverb", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Reverb node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaReverbNode::~FaReverbNode() = default;
 
 void FaReverbNode::loadParameters()
 {
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<double>("reverb.room_size");
   this->declare_parameter<double>("reverb.damping");
   this->declare_parameter<double>("reverb.wet_gain");
@@ -148,6 +128,8 @@ void FaReverbNode::loadParameters()
 
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.room_size = readRequiredDouble(*this, "reverb.room_size");
   config_.damping = readRequiredDouble(*this, "reverb.damping");
   config_.wet_gain = readRequiredDouble(*this, "reverb.wet_gain");
@@ -167,6 +149,24 @@ void FaReverbNode::loadParameters()
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
+  }
+  if (config_.input_topic == config_.output_topic) {
+    throw std::runtime_error("input_topic and output_topic must be distinct");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  if (config_.input_stream_id == config_.input_topic) {
+    throw std::runtime_error("input_stream_id must be distinct from input_topic");
+  }
+  if (config_.output_stream_id == config_.output_topic) {
+    throw std::runtime_error("output.stream_id must be distinct from output_topic");
+  }
+  if (config_.input_stream_id == config_.output_stream_id) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (!isFinite(config_.room_size) || config_.room_size < 0.0 || config_.room_size > 1.0) {
     throw std::runtime_error("reverb.room_size must be finite and satisfy 0.0 <= value <= 1.0");
@@ -207,36 +207,19 @@ void FaReverbNode::loadParameters()
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
 
-  effective_feedback_gain_ = kMinFeedbackGain + (kFeedbackGainRange * config_.room_size);
-  delay_samples_.clear();
-  delay_samples_.reserve(kBaseDelayMs.size());
-  for (const double delay_ms : kBaseDelayMs) {
-    const double raw_delay_samples =
-      delay_ms * static_cast<double>(config_.expected_sample_rate) / 1000.0;
-    if (!isFinite(raw_delay_samples) ||
-        raw_delay_samples > static_cast<double>(std::numeric_limits<long long>::max()))
-    {
-      throw std::runtime_error("reverb delay line converts to an unsupported sample count");
-    }
-    const size_t delay_samples = static_cast<size_t>(std::llround(raw_delay_samples));
-    if (delay_samples == 0) {
-      throw std::runtime_error("reverb delay line must convert to at least 1 sample");
-    }
-    delay_samples_.push_back(delay_samples);
-  }
-
   RCLCPP_INFO(
     this->get_logger(),
-    "Reverb config: input=%s output=%s room_size=%.6f damping=%.6f "
-    "wet=%.6f dry=%.6f feedback=%.6f expected=%dHz/%d/%s/%d/%s qos_depth=%d "
+    "Reverb config: input_topic=%s output_topic=%s input_stream_id=%s output_stream_id=%s room_size=%.6f damping=%.6f "
+    "wet=%.6f dry=%.6f expected=%dHz/%d/%s/%d/%s qos_depth=%d "
     "reliable=%s diag=%dms",
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
+    config_.input_stream_id.c_str(),
+    config_.output_stream_id.c_str(),
     config_.room_size,
     config_.damping,
     config_.wet_gain,
     config_.dry_gain,
-    effective_feedback_gain_,
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -247,9 +230,21 @@ void FaReverbNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
+void FaReverbNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalFeedbackDelayBackend>(
+    backends::InternalFeedbackDelayConfig{
+      config_.expected_sample_rate,
+      config_.expected_channels,
+      config_.room_size,
+      config_.damping,
+      config_.wet_gain,
+      config_.dry_gain});
+}
+
 void FaReverbNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -275,17 +270,9 @@ void FaReverbNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr m
   messages_in_.fetch_add(1);
 
   if (!msg) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Received null AudioFrame pointer");
-    messages_dropped_.fetch_add(1);
-    return;
+    throw std::logic_error("FaReverbNode received null AudioFrame pointer");
   }
   if (!validateFrame(*msg)) {
-    messages_dropped_.fetch_add(1);
-    return;
-  }
-  if (!validateSamples(*msg)) {
     messages_dropped_.fetch_add(1);
     return;
   }
@@ -296,6 +283,9 @@ void FaReverbNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr m
     return;
   }
 
+  if (!audio_pub_) {
+    throw std::logic_error("FaReverbNode publisher is not initialized");
+  }
   audio_pub_->publish(out);
   messages_out_.fetch_add(1);
 }
@@ -308,12 +298,12 @@ bool FaReverbNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -357,161 +347,31 @@ bool FaReverbNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
   return true;
 }
 
-bool FaReverbNode::validateSamples(const fa_interfaces::msg::AudioFrame & msg)
-{
-  const size_t sample_count = msg.data.size() / sizeof(float);
-  for (size_t sample_index = 0; sample_index < sample_count; ++sample_index) {
-    const float sample = readFloatSample(msg.data, sample_index);
-    if (!isNormalizedSample(sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is outside normalized FLOAT32LE range");
-      return false;
-    }
-  }
-  return true;
-}
-
-void FaReverbNode::resetReverbState(std::vector<std::vector<DelayLineState>> & state) const
-{
-  state.assign(
-    static_cast<size_t>(config_.expected_channels),
-    std::vector<DelayLineState>(delay_samples_.size()));
-
-  for (auto & channel_state : state) {
-    for (size_t line_index = 0; line_index < delay_samples_.size(); ++line_index) {
-      channel_state[line_index].buffer.assign(delay_samples_[line_index], kSilenceSample);
-      channel_state[line_index].position = 0U;
-      channel_state[line_index].filter_state = kSilenceSample;
-    }
-  }
-}
-
-bool FaReverbNode::validateReverbState(
-  const std::vector<std::vector<DelayLineState>> & state) const
-{
-  if (state.size() != static_cast<size_t>(config_.expected_channels)) {
-    RCLCPP_WARN(
-      this->get_logger(),
-      "Dropping frame because reverb state does not match expected channel count");
-    return false;
-  }
-  for (const auto & channel_state : state) {
-    if (channel_state.size() != delay_samples_.size()) {
-      RCLCPP_WARN(
-        this->get_logger(),
-        "Dropping frame because reverb delay line count is invalid");
-      return false;
-    }
-    for (size_t line_index = 0; line_index < channel_state.size(); ++line_index) {
-      const DelayLineState & line = channel_state[line_index];
-      if (line.buffer.size() != delay_samples_[line_index] ||
-          line.position >= line.buffer.size() ||
-          !isNormalizedSample(line.filter_state))
-      {
-        RCLCPP_WARN(
-          this->get_logger(),
-          "Dropping frame because reverb delay line state is invalid");
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
 bool FaReverbNode::applyReverb(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
-  std::vector<std::vector<DelayLineState>> next_state = delay_lines_;
-  const bool needs_initialization = current_source_id_.empty();
-  const bool source_changed = !current_source_id_.empty() && in.source_id != current_source_id_;
-  if (needs_initialization || source_changed) {
-    resetReverbState(next_state);
+  if (!backend_) {
+    throw std::logic_error("FaReverbNode backend is not initialized");
   }
-  if (!validateReverbState(next_state)) {
+  out = in;
+  out.stream_id = config_.output_stream_id;
+  const backends::ProcessResult result = backend_->process(in.source_id, in.data, out.data);
+  if (result.status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because reverb backend rejected input or output: %s",
+      backends::processStatusMessage(result.status));
     return false;
   }
 
-  out = in;
-  out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const size_t channels = static_cast<size_t>(config_.expected_channels);
-  const size_t frame_count = in.data.size() / bytesPerFrame();
-  const double input_gain = 1.0 - effective_feedback_gain_;
-  for (size_t frame_index = 0; frame_index < frame_count; ++frame_index) {
-    for (size_t channel_index = 0; channel_index < channels; ++channel_index) {
-      const size_t sample_index = (frame_index * channels) + channel_index;
-      const float input_sample = readFloatSample(in.data, sample_index);
-      double wet_sum = 0.0;
-
-      for (DelayLineState & line : next_state[channel_index]) {
-        const size_t delay_index = line.position;
-        const float delayed_sample = line.buffer[delay_index];
-        wet_sum += static_cast<double>(delayed_sample);
-
-        const double filtered_sample =
-          ((1.0 - config_.damping) * static_cast<double>(delayed_sample)) +
-          (config_.damping * static_cast<double>(line.filter_state));
-        const double next_feedback_state =
-          (input_gain * static_cast<double>(input_sample)) +
-          (effective_feedback_gain_ * filtered_sample);
-
-        if (!isFinite(filtered_sample) || !isFinite(next_feedback_state)) {
-          RCLCPP_WARN_THROTTLE(
-            this->get_logger(), *this->get_clock(), 3000,
-            "Dropping frame because reverb feedback state is not finite");
-          return false;
-        }
-
-        const float filtered_float = static_cast<float>(filtered_sample);
-        const float next_state_float = static_cast<float>(next_feedback_state);
-        if (!isNormalizedSample(filtered_float) || !isNormalizedSample(next_state_float)) {
-          RCLCPP_WARN_THROTTLE(
-            this->get_logger(), *this->get_clock(), 3000,
-            "Dropping frame because reverb feedback state is outside normalized FLOAT32LE range");
-          return false;
-        }
-
-        line.buffer[delay_index] = next_state_float;
-        line.filter_state = filtered_float;
-        line.position = (delay_index + 1U) % line.buffer.size();
-      }
-
-      const double wet_sample = wet_sum / static_cast<double>(delay_samples_.size());
-      const double output_sample =
-        (config_.dry_gain * static_cast<double>(input_sample)) +
-        (config_.wet_gain * wet_sample);
-
-      if (!isFinite(output_sample)) {
-        RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 3000,
-          "Dropping frame because reverb output sample is not finite");
-        return false;
-      }
-
-      const float output_float = static_cast<float>(output_sample);
-      if (!isNormalizedSample(output_float)) {
-        RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 3000,
-          "Dropping frame because reverb output sample is outside normalized FLOAT32LE range");
-        return false;
-      }
-      writeFloatSample(out.data, sample_index, output_float);
-    }
-  }
-
-  if (source_changed) {
+  if (result.source_reset) {
     source_resets_.fetch_add(1);
     RCLCPP_WARN(
       this->get_logger(),
-      "AudioFrame source_id changed: %s -> %s; resetting reverb delay state",
-      current_source_id_.c_str(),
+      "AudioFrame source_id changed; resetting reverb delay state for source %s",
       in.source_id.c_str());
   }
-  current_source_id_ = in.source_id;
-  delay_lines_ = next_state;
   return true;
 }
 
@@ -529,16 +389,21 @@ void FaReverbNode::publishDiagnostics()
   status.name = "fa_reverb";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(15);
+  status.values.reserve(16);
   pushKeyValue(status, "room_size", std::to_string(config_.room_size));
   pushKeyValue(status, "damping", std::to_string(config_.damping));
-  pushKeyValue(status, "wet_gain", std::to_string(config_.wet_gain));
-  pushKeyValue(status, "dry_gain", std::to_string(config_.dry_gain));
-  pushKeyValue(status, "effective_feedback_gain", std::to_string(effective_feedback_gain_));
-  pushKeyValue(status, "delay_lines", std::to_string(delay_samples_.size()));
-  pushKeyValue(status, "current_source_id", current_source_id_);
+  pushKeyValue(status, "wet_gain", std::to_string(backend_->wetGain()));
+  pushKeyValue(status, "dry_gain", std::to_string(backend_->dryGain()));
+  pushKeyValue(
+    status,
+    "effective_feedback_gain",
+    std::to_string(backend_->effectiveFeedbackGain()));
+  pushKeyValue(status, "delay_lines", std::to_string(backend_->delayLineCount()));
+  pushKeyValue(status, "current_source_id", backend_->currentSourceId());
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "messages_in", std::to_string(messages_in_.load()));
   pushKeyValue(status, "messages_out", std::to_string(messages_out_.load()));
   pushKeyValue(status, "messages_dropped", std::to_string(messages_dropped_.load()));
@@ -550,18 +415,3 @@ void FaReverbNode::publishDiagnostics()
 }
 
 }  // namespace fa_reverb
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_reverb::FaReverbNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_reverb"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

@@ -7,16 +7,34 @@ def package_root() -> Path:
     return Path(__file__).parents[2]
 
 
-def read_source() -> str:
+def read_node_source() -> str:
     return (package_root() / "src" / "fa_reverb_node.cpp").read_text(encoding="utf-8")
 
 
+def read_backend_header() -> str:
+    return (
+        package_root() / "include" / "fa_reverb" / "backends" / "internal_feedback_delay.hpp"
+    ).read_text(encoding="utf-8")
+
+
+def read_backend_source() -> str:
+    return (
+        package_root() / "src" / "backends" / "internal_feedback_delay.cpp"
+    ).read_text(encoding="utf-8")
+
+
 def test_default_config_requires_float32_interleaved_contract() -> None:
-    config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
+    config = yaml.safe_load(
+        (package_root() / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
     params = config["fa_reverb"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/echo/mic"
-    assert params["output_topic"] == "audio/reverb/mic"
+    assert params["input_topic"] == "fa_reverb/input"
+    assert params["output_topic"] == "fa_reverb/output"
+    assert params["input_stream_id"] == "audio/echo/mic"
+    assert params["output"]["stream_id"] == "audio/reverb/mic"
+    assert params["input_topic"] != params["input_stream_id"]
+    assert params["output_topic"] != params["output"]["stream_id"]
     assert params["reverb"]["room_size"] == 0.72
     assert params["reverb"]["damping"] == 0.35
     assert params["reverb"]["wet_gain"] == 0.32
@@ -32,7 +50,7 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
 
 
 def test_reverb_does_not_hide_other_processing_or_io_responsibilities() -> None:
-    source = read_source()
+    sources = [read_node_source(), read_backend_source()]
 
     forbidden = (
         "std::clamp",
@@ -47,18 +65,21 @@ def test_reverb_does_not_hide_other_processing_or_io_responsibilities() -> None:
         "denoise",
         "alsa",
     )
-    for token in forbidden:
-        assert token not in source
+    for source in sources:
+        for token in forbidden:
+            assert token not in source
 
 
 def test_reverb_parameters_are_declared_without_runtime_defaults() -> None:
-    source = read_source()
+    source = read_node_source()
     load_parameters = source.split("void FaReverbNode::loadParameters")[1].split(
-        "void FaReverbNode::setupInterfaces"
+        "void FaReverbNode::configureBackend"
     )[0]
 
     assert 'this->declare_parameter<std::string>("input_topic");' in load_parameters
     assert 'this->declare_parameter<std::string>("output_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("input_stream_id");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output.stream_id");' in load_parameters
     assert 'this->declare_parameter<double>("reverb.room_size");' in load_parameters
     assert 'this->declare_parameter<double>("reverb.damping");' in load_parameters
     assert 'this->declare_parameter<double>("reverb.wet_gain");' in load_parameters
@@ -72,6 +93,8 @@ def test_reverb_parameters_are_declared_without_runtime_defaults() -> None:
     assert 'this->declare_parameter<bool>("qos.reliable");' in load_parameters
     assert 'this->declare_parameter<int>("diagnostics.publish_period_ms");' in load_parameters
     assert "readRequiredString(*this, \"input_topic\")" in load_parameters
+    assert "readRequiredString(*this, \"input_stream_id\")" in load_parameters
+    assert "readRequiredString(*this, \"output.stream_id\")" in load_parameters
     assert "readRequiredDouble(*this, \"reverb.room_size\")" in load_parameters
     assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
     for line in load_parameters.splitlines():
@@ -80,11 +103,17 @@ def test_reverb_parameters_are_declared_without_runtime_defaults() -> None:
 
 
 def test_reverb_parameters_are_range_checked() -> None:
-    source = read_source()
+    source = read_node_source()
     load_parameters = source.split("void FaReverbNode::loadParameters")[1].split(
-        "void FaReverbNode::setupInterfaces"
+        "void FaReverbNode::configureBackend"
     )[0]
 
+    assert "config_.input_topic == config_.output_topic" in load_parameters
+    assert "config_.input_stream_id.empty()" in load_parameters
+    assert "config_.output_stream_id.empty()" in load_parameters
+    assert "config_.input_stream_id == config_.input_topic" in load_parameters
+    assert "config_.output_stream_id == config_.output_topic" in load_parameters
+    assert "config_.input_stream_id == config_.output_stream_id" in load_parameters
     assert "!isFinite(config_.room_size) || config_.room_size < 0.0 || config_.room_size > 1.0" in load_parameters
     assert "!isFinite(config_.damping) || config_.damping < 0.0 || config_.damping > 1.0" in load_parameters
     assert "!isFinite(config_.wet_gain) || config_.wet_gain < 0.0 || config_.wet_gain > 1.0" in load_parameters
@@ -99,16 +128,17 @@ def test_reverb_parameters_are_range_checked() -> None:
     assert "config_.expected_layout != kInterleavedLayout" in load_parameters
     assert "config_.qos_depth <= 0" in load_parameters
     assert "config_.diagnostics_publish_period_ms <= 0" in load_parameters
+    assert "std::max<int>(1, config_.qos_depth)" not in source
 
 
 def test_reverb_validates_float32_interleaved_frame_contract() -> None:
-    source = read_source()
+    source = read_node_source()
     validate_frame = source.split("bool FaReverbNode::validateFrame")[1].split(
-        "bool FaReverbNode::validateSamples"
+        "bool FaReverbNode::applyReverb"
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -117,81 +147,89 @@ def test_reverb_validates_float32_interleaved_frame_contract() -> None:
     assert "msg.data.empty() || (msg.data.size() % bytesPerFrame()) != 0" in validate_frame
 
 
-def test_reverb_drops_invalid_samples_before_state_mutation() -> None:
-    source = read_source()
+def test_reverb_delegates_sample_validation_and_state_mutation_to_backend() -> None:
+    source = read_node_source()
+    backend_header = read_backend_header()
+    backend_source = read_backend_source()
     handle_frame = source.split("void FaReverbNode::handleFrame")[1].split(
         "bool FaReverbNode::validateFrame"
     )[0]
-    validate_samples = source.split("bool FaReverbNode::validateSamples")[1].split(
-        "void FaReverbNode::resetReverbState"
+    apply_reverb = source.split("bool FaReverbNode::applyReverb")[1].split(
+        "size_t FaReverbNode::bytesPerFrame"
+    )[0]
+    process = backend_source.split("ProcessResult InternalFeedbackDelayBackend::process")[1].split(
+        "const char * processStatusMessage"
     )[0]
 
-    assert "if (!validateSamples(*msg))" in handle_frame
+    assert "validateSamples" not in source
     assert "if (!applyReverb(*msg, out))" in handle_frame
-    assert handle_frame.index("if (!validateSamples(*msg))") < handle_frame.index(
-        "if (!applyReverb(*msg, out))"
-    )
-    assert "!isNormalizedSample(sample)" in validate_samples
-    assert "return false;" in validate_samples
-    assert "std::clamp" not in validate_samples
+    assert "backend_->process(in.source_id, in.data, out.data)" in apply_reverb
+    assert "enum class ProcessStatus" in backend_header
+    assert "ProcessResult" in backend_header
+    assert "!isNormalizedSample(input_sample)" in process
+    assert "return ProcessResult{ProcessStatus::kOutOfRangeInput, false};" in process
+    assert "std::clamp" not in process
 
 
 def test_reverb_preserves_metadata_and_updates_stream_identity() -> None:
-    source = read_source()
+    source = read_node_source()
     apply_reverb = source.split("bool FaReverbNode::applyReverb")[1].split(
         "size_t FaReverbNode::bytesPerFrame"
     )[0]
 
     assert "out = in;" in apply_reverb
-    assert "out.stream_id = config_.output_topic;" in apply_reverb
+    assert "out.stream_id = config_.output_stream_id;" in apply_reverb
     assert ".rms" not in apply_reverb
     assert ".peak" not in apply_reverb
     assert ".vad" not in apply_reverb
 
 
-def test_reverb_uses_per_channel_multi_tap_feedback_delay_state() -> None:
-    header = (package_root() / "include" / "fa_reverb" / "fa_reverb_node.hpp").read_text(
-        encoding="utf-8"
-    )
-    source = read_source()
-    apply_reverb = source.split("bool FaReverbNode::applyReverb")[1].split(
-        "size_t FaReverbNode::bytesPerFrame"
+def test_reverb_uses_per_channel_multi_tap_feedback_delay_backend() -> None:
+    header = read_backend_header()
+    backend_source = read_backend_source()
+    process = backend_source.split("ProcessResult InternalFeedbackDelayBackend::process")[1].split(
+        "const char * processStatusMessage"
     )[0]
 
     assert "std::vector<std::vector<DelayLineState>> delay_lines_{};" in header
     assert "std::vector<size_t> delay_samples_{};" in header
-    assert "std::vector<std::vector<DelayLineState>> next_state = delay_lines_;" in apply_reverb
-    assert "resetReverbState(next_state);" in apply_reverb
-    assert "for (DelayLineState & line : next_state[channel_index])" in apply_reverb
-    assert "const float delayed_sample = line.buffer[delay_index];" in apply_reverb
-    assert "wet_sum += static_cast<double>(delayed_sample);" in apply_reverb
-    assert "effective_feedback_gain_ * filtered_sample" in apply_reverb
-    assert "line.buffer[delay_index] = next_state_float;" in apply_reverb
-    assert "line.position = (delay_index + 1U) % line.buffer.size();" in apply_reverb
-    assert "const double wet_sample = wet_sum / static_cast<double>(delay_samples_.size());" in apply_reverb
+    assert "std::vector<std::vector<DelayLineState>> next_state = delay_lines_;" in process
+    assert "resetReverbState(next_state);" in process
+    assert "for (DelayLineState & line : next_state[channel_index])" in process
+    assert "const float delayed_sample = line.buffer[delay_index];" in process
+    assert "wet_sum += static_cast<double>(delayed_sample);" in process
+    assert "effective_feedback_gain_ * filtered_sample" in process
+    assert "line.buffer[delay_index] = next_state_float;" in process
+    assert "line.position = (delay_index + 1U) % line.buffer.size();" in process
+    assert "const double wet_sample = wet_sum / static_cast<double>(delay_samples_.size());" in process
 
 
 def test_reverb_rejects_invalid_output_or_state_without_clipping() -> None:
-    source = read_source()
-    apply_reverb = source.split("bool FaReverbNode::applyReverb")[1].split(
-        "size_t FaReverbNode::bytesPerFrame"
+    backend_source = read_backend_source()
+    process = backend_source.split("ProcessResult InternalFeedbackDelayBackend::process")[1].split(
+        "const char * processStatusMessage"
     )[0]
 
-    assert "bool isNormalizedSample(float value)" in source
-    assert "value >= kMinNormalizedSample && value <= kMaxNormalizedSample" in source
-    assert "!isFinite(filtered_sample) || !isFinite(next_feedback_state)" in apply_reverb
-    assert "!isNormalizedSample(filtered_float) || !isNormalizedSample(next_state_float)" in apply_reverb
-    assert "!isFinite(output_sample)" in apply_reverb
-    assert "!isNormalizedSample(output_float)" in apply_reverb
-    assert "return false;" in apply_reverb
-    assert "std::clamp" not in apply_reverb
-    assert "delay_lines_ = next_state;" in apply_reverb
+    assert "bool isNormalizedSample(float value)" in backend_source
+    assert "value >= kMinNormalizedSample && value <= kMaxNormalizedSample" in backend_source
+    assert "!isFinite(filtered_sample)" in process
+    assert "!isFinite(next_feedback_state)" in process
+    assert "!isNormalizedSample(filtered_float) || !isNormalizedSample(next_state_float)" in process
+    assert "!isFinite(output_sample)" in process
+    assert "!isNormalizedSample(output_float)" in process
+    assert "return ProcessResult{ProcessStatus::kOutOfRangeOutput, false};" in process
+    assert "std::clamp" not in process
+    assert "delay_lines_ = std::move(next_state);" in process
 
 
 def test_reverb_resets_state_when_source_id_changes() -> None:
-    source = read_source()
-    reset_state = source.split("void FaReverbNode::resetReverbState")[1].split(
-        "bool FaReverbNode::validateReverbState"
+    source = read_node_source()
+    backend_source = read_backend_source()
+    reset_state = backend_source.split("void InternalFeedbackDelayBackend::resetReverbState")[1].split(
+        "bool InternalFeedbackDelayBackend::validateReverbState"
+    )[0]
+    process = backend_source.split("ProcessResult InternalFeedbackDelayBackend::process")[1].split(
+        "const char * processStatusMessage"
     )[0]
     apply_reverb = source.split("bool FaReverbNode::applyReverb")[1].split(
         "size_t FaReverbNode::bytesPerFrame"
@@ -201,15 +239,15 @@ def test_reverb_resets_state_when_source_id_changes() -> None:
     assert "channel_state[line_index].buffer.assign(delay_samples_[line_index], kSilenceSample);" in reset_state
     assert "channel_state[line_index].position = 0U;" in reset_state
     assert "channel_state[line_index].filter_state = kSilenceSample;" in reset_state
-    assert "const bool needs_initialization = current_source_id_.empty();" in apply_reverb
-    assert "const bool source_changed = !current_source_id_.empty() && in.source_id != current_source_id_;" in apply_reverb
+    assert "const bool needs_initialization = current_source_id_.empty();" in process
+    assert "const bool source_changed = !current_source_id_.empty() && source_id != current_source_id_;" in process
     assert "source_resets_.fetch_add(1);" in apply_reverb
-    assert "current_source_id_ = in.source_id;" in apply_reverb
-    assert "delay_lines_ = next_state;" in apply_reverb
+    assert "current_source_id_ = source_id;" in process
+    assert "delay_lines_ = std::move(next_state);" in process
 
 
 def test_diagnostics_include_reverb_source_and_counters() -> None:
-    source = read_source()
+    source = read_node_source()
     diagnostics = source.split("void FaReverbNode::publishDiagnostics")[1].split(
         "}  // namespace fa_reverb"
     )[0]
@@ -217,11 +255,13 @@ def test_diagnostics_include_reverb_source_and_counters() -> None:
     assert 'status.name = "fa_reverb";' in diagnostics
     assert 'pushKeyValue(status, "room_size", std::to_string(config_.room_size));' in diagnostics
     assert 'pushKeyValue(status, "damping", std::to_string(config_.damping));' in diagnostics
-    assert 'pushKeyValue(status, "wet_gain", std::to_string(config_.wet_gain));' in diagnostics
-    assert 'pushKeyValue(status, "dry_gain", std::to_string(config_.dry_gain));' in diagnostics
-    assert 'pushKeyValue(status, "effective_feedback_gain", std::to_string(effective_feedback_gain_));' in diagnostics
-    assert 'pushKeyValue(status, "delay_lines", std::to_string(delay_samples_.size()));' in diagnostics
-    assert 'pushKeyValue(status, "current_source_id", current_source_id_);' in diagnostics
+    assert 'pushKeyValue(status, "wet_gain", std::to_string(backend_->wetGain()));' in diagnostics
+    assert 'pushKeyValue(status, "dry_gain", std::to_string(backend_->dryGain()));' in diagnostics
+    assert 'std::to_string(backend_->effectiveFeedbackGain())' in diagnostics
+    assert 'pushKeyValue(status, "delay_lines", std::to_string(backend_->delayLineCount()));' in diagnostics
+    assert 'pushKeyValue(status, "current_source_id", backend_->currentSourceId());' in diagnostics
+    assert 'pushKeyValue(status, "input_stream_id", config_.input_stream_id);' in diagnostics
+    assert 'pushKeyValue(status, "output_stream_id", config_.output_stream_id);' in diagnostics
     assert 'pushKeyValue(status, "messages_in", std::to_string(messages_in_.load()));' in diagnostics
     assert 'pushKeyValue(status, "messages_out", std::to_string(messages_out_.load()));' in diagnostics
     assert (
@@ -241,7 +281,11 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_reverb.launch.py",
         "include/fa_reverb/fa_reverb_node.hpp",
+        "include/fa_reverb/backends/internal_feedback_delay.hpp",
         "src/fa_reverb_node.cpp",
+        "src/backends/internal_feedback_delay.cpp",
+        "src/main.cpp",
+        "test/cpp/test_internal_feedback_delay_backend.cpp",
         "test/unit/test_fa_reverb_audio_frame_contract.py",
         "test/integration/.gitkeep",
         "test/launch/.gitkeep",
@@ -252,13 +296,16 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         assert (package_root() / relative_path).exists()
 
 
-def test_colcon_runs_pytest_contracts() -> None:
+def test_colcon_runs_pytest_and_backend_gtest_contracts() -> None:
     cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
