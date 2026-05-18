@@ -84,6 +84,12 @@ class FaStreamNode(Node):
                 msg.layout,
             )
             return
+        if msg.encoding != "PCM16LE":
+            self.get_logger().error(
+                "Only PCM16LE AudioFrame encoding is supported. Received %s",
+                msg.encoding,
+            )
+            return
         if msg.bit_depth != 16:
             self.get_logger().error(
                 "Only 16-bit PCM is supported. Received %d-bit frame", msg.bit_depth
@@ -101,6 +107,7 @@ class FaStreamNode(Node):
         audio_format = AudioStreamFormat(
             sample_rate=msg.sample_rate,
             channels=msg.channels,
+            encoding=msg.encoding,
             bit_depth=msg.bit_depth,
             layout=msg.layout,
         )

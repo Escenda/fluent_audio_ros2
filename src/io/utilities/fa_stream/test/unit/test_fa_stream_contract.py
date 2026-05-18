@@ -1,6 +1,12 @@
 from pathlib import Path
 
+import pytest
 import yaml
+
+from fa_stream_py.backends.network_streamer import (
+    AudioStreamFormat,
+    _validate_audio_format,
+)
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
@@ -52,6 +58,7 @@ def test_streamer_rejects_frame_contract_mismatch_without_conversion() -> None:
     )
 
     assert 'msg.layout != "interleaved"' in source
+    assert 'msg.encoding != "PCM16LE"' in source
     assert "msg.bit_depth != 16" in source
     backend_source = (
         PACKAGE_ROOT
@@ -61,10 +68,39 @@ def test_streamer_rejects_frame_contract_mismatch_without_conversion() -> None:
     ).read_text(encoding="utf-8")
 
     assert "Audio stream format changed during stream" in backend_source
+    assert 'audio_format.encoding != "PCM16LE"' in backend_source
     assert '"s16le"' in backend_source
     assert "resample" not in source
     assert "normalize" not in source
     assert "gain" not in source.lower()
+
+
+def test_network_streamer_backend_rejects_non_pcm16le_encoding() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="Only PCM16LE AudioFrame encoding is supported: PCM16BE",
+    ):
+        _validate_audio_format(
+            AudioStreamFormat(
+                sample_rate=48000,
+                channels=1,
+                encoding="PCM16BE",
+                bit_depth=16,
+                layout="interleaved",
+            )
+        )
+
+
+def test_network_streamer_backend_accepts_pcm16le_s16le_contract() -> None:
+    _validate_audio_format(
+        AudioStreamFormat(
+            sample_rate=48000,
+            channels=1,
+            encoding="PCM16LE",
+            bit_depth=16,
+            layout="interleaved",
+        )
+    )
 
 
 def test_codec_settings_are_sink_packaging_not_general_format_conversion() -> None:

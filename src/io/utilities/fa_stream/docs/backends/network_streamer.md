@@ -11,7 +11,7 @@
 - endpoint URI
 - transport
 - codec or PCM format
-- audio chunk
+- `PCM16LE` / 16-bit / interleaved audio chunk
 
 ## 失敗条件
 

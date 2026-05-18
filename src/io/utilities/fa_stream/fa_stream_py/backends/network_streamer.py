@@ -21,6 +21,7 @@ class NetworkStreamerConfig:
 class AudioStreamFormat:
     sample_rate: int
     channels: int
+    encoding: str
     bit_depth: int
     layout: str
 
@@ -120,6 +121,10 @@ def _validate_audio_format(audio_format: AudioStreamFormat) -> None:
     if audio_format.layout != "interleaved":
         raise RuntimeError(
             f"Only interleaved AudioFrame layout is supported: {audio_format.layout}"
+        )
+    if audio_format.encoding != "PCM16LE":
+        raise RuntimeError(
+            f"Only PCM16LE AudioFrame encoding is supported: {audio_format.encoding}"
         )
     if audio_format.bit_depth != 16:
         raise RuntimeError(f"Only 16-bit PCM is supported: {audio_format.bit_depth}")
