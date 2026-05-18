@@ -19,6 +19,8 @@ using namespace std::chrono_literals;
 
 constexpr const char * kInputTopic = "audio/test/jitter_input";
 constexpr const char * kOutputTopic = "audio/test/jitter_output";
+constexpr const char * kInputStreamId = "audio/test/jitter_input_stream";
+constexpr const char * kOutputStreamId = "audio/test/jitter_output_stream";
 constexpr uint32_t kSampleRate = 16000;
 constexpr uint32_t kChannels = 1;
 constexpr uint32_t kBitDepth = 32;
@@ -28,6 +30,8 @@ std::vector<rclcpp::Parameter> validParameters()
   return {
     rclcpp::Parameter("input_topic", kInputTopic),
     rclcpp::Parameter("output_topic", kOutputTopic),
+    rclcpp::Parameter("input_stream_id", kInputStreamId),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("expected.sample_rate", static_cast<int>(kSampleRate)),
     rclcpp::Parameter("expected.channels", static_cast<int>(kChannels)),
     rclcpp::Parameter("expected.encoding", "FLOAT32LE"),
@@ -39,6 +43,8 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   };
 }
 
@@ -78,7 +84,7 @@ fa_interfaces::msg::AudioFrame frameWithEpoch(
   frame.header.stamp = rclcpp::Clock().now();
   frame.header.frame_id = source_id + "-frame";
   frame.source_id = source_id;
-  frame.stream_id = kInputTopic;
+  frame.stream_id = kInputStreamId;
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = kSampleRate;
   frame.channels = kChannels;
@@ -166,7 +172,7 @@ TEST_F(RclcppContractTest, PublishesEpochOrderedFramesAfterTargetDepth)
     return received.size() == 1u;
   }));
   EXPECT_EQ(received[0].epoch, 1u);
-  EXPECT_EQ(received[0].stream_id, kOutputTopic);
+  EXPECT_EQ(received[0].stream_id, kOutputStreamId);
 
   publisher->publish(frameWithEpoch(3));
   ASSERT_TRUE(spinUntil(executor, [&received]() {

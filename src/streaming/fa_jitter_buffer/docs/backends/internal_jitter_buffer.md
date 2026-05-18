@@ -5,7 +5,9 @@
 ## 責務
 
 - valid `AudioFrame` を epoch key で保持する。
+- 入力 `stream_id` が `input_stream_id` に一致する frame だけを受け入れる。
 - target depth を超えた分だけ最古 epoch から publish する。
+- publish 時は `stream_id` を `output.stream_id` に更新する。
 - duplicate / late epoch を明示的に drop する。
 - source / format contract change で buffer を reset する。
 

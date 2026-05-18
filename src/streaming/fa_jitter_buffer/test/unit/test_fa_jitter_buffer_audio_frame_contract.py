@@ -21,8 +21,12 @@ def test_default_config_declares_required_jitter_buffer_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_jitter_buffer_node"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/network/mic"
-    assert params["output_topic"] == "audio/jitter_buffered/mic"
+    assert params["input_topic"] == "fa_jitter_buffer/input"
+    assert params["output_topic"] == "fa_jitter_buffer/output"
+    assert params["input_stream_id"] == "audio/network/mic"
+    assert params["output"]["stream_id"] == "audio/jitter_buffered/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "FLOAT32LE"
@@ -86,6 +90,8 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
 
     assert 'declare_parameter<std::string>("input_topic");' in load_parameters
     assert 'declare_parameter<std::string>("output_topic");' in load_parameters
+    assert 'declare_parameter<std::string>("input_stream_id");' in load_parameters
+    assert 'declare_parameter<std::string>("output.stream_id");' in load_parameters
     assert 'declare_parameter<int>("expected.sample_rate");' in load_parameters
     assert 'declare_parameter<int>("jitter.target_depth_frames");' in load_parameters
     assert 'declare_parameter<int>("jitter.max_depth_frames");' in load_parameters
@@ -95,6 +101,8 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     required_reads = (
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredInt(*this, "expected.sample_rate")',
         'readRequiredInt(*this, "expected.channels")',
         'readRequiredString(*this, "expected.encoding")',
@@ -117,6 +125,13 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "SystemDefaultsQoS" not in source
     assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
     assert "throw std::runtime_error(\"output_topic is required\")" in load_parameters
+    assert "throw std::runtime_error(\"input_stream_id is required\")" in load_parameters
+    assert "throw std::runtime_error(\"output.stream_id is required\")" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "expected.sample_rate must be > 0" in load_parameters
     assert "expected.channels must be > 0" in load_parameters
     assert "expected.encoding is required" in load_parameters
@@ -142,7 +157,7 @@ def test_runtime_validation_rejects_invalid_frames_before_buffer_mutation() -> N
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)" in validate_frame
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
@@ -183,7 +198,7 @@ def test_epoch_buffer_uses_ordered_map_and_publishes_oldest_over_target_depth() 
     assert "buffered_frames_.size() > static_cast<size_t>(config_.target_depth_frames)" in publish_ready
     assert "auto oldest = buffered_frames_.begin();" in publish_ready
     assert "fa_interfaces::msg::AudioFrame out = oldest->second;" in publish_ready
-    assert "out.stream_id = config_.output_topic;" in publish_ready
+    assert "out.stream_id = config_.output_stream_id;" in publish_ready
     assert "audio_pub_->publish(out);" in publish_ready
     assert "last_published_epoch_ = oldest->first;" in publish_ready
     assert "buffered_frames_.erase(oldest);" in publish_ready
@@ -284,6 +299,8 @@ def test_diagnostics_publish_config_state_and_required_counters() -> None:
     assert "std::atomic<uint64_t> resets_" in header
     assert '"input_topic"' in diagnostics
     assert '"output_topic"' in diagnostics
+    assert '"input_stream_id"' in diagnostics
+    assert '"output_stream_id"' in diagnostics
     assert '"expected_sample_rate"' in diagnostics
     assert '"expected_channels"' in diagnostics
     assert '"expected_encoding"' in diagnostics

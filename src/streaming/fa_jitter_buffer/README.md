@@ -21,6 +21,8 @@
 | --- | --- |
 | `input_topic` | subscribe する `AudioFrame` topic |
 | `output_topic` | publish する `AudioFrame` topic |
+| `input_stream_id` | 受け入れる `AudioFrame.stream_id` |
+| `output.stream_id` | publish する `AudioFrame.stream_id` |
 | `expected.sample_rate` | 受け入れる sample rate |
 | `expected.channels` | 受け入れる channel 数 |
 | `expected.encoding` | 受け入れる encoding |
@@ -36,12 +38,13 @@
 ## Runtime Contract
 
 - `source_id` / `stream_id` が空の frame は drop する。
-- `stream_id` が `input_topic` と一致しない frame は drop する。
+- `stream_id` が `input_stream_id` と一致しない frame は drop する。
 - format が `expected.*` と完全一致しない frame は drop する。
 - data が空、または sample frame byte 境界に揃わない frame は drop する。
 - `FLOAT32LE` + `interleaved` の場合は全 sample が finite かつ `[-1.0, 1.0]` に収まることを検証する。
 - 受理した frame は epoch を key にした buffer へ入れる。
 - buffer size が `jitter.target_depth_frames` を超える間、最古 epoch の frame を publish する。
+- publish する frame の `stream_id` は `output.stream_id` に更新する。
 - duplicate epoch は drop する。
 - publish 済み epoch より古い epoch は late drop する。ただし `reset_on_epoch_regression=true` の場合は buffer を reset して新しい epoch sequence として受け入れる。
 - `source_id` または format contract が変わった場合は buffer を reset し、別 stream として扱う。
@@ -50,6 +53,6 @@
 
 `diagnostics` topic へ次の値を publish する。
 
-- config: input/output topic、expected format、target/max depth、reset policy
+- config: input/output topic、input/output stream identity、expected format、target/max depth、reset policy
 - state: `buffered_frames`
 - counters: `frames_in`, `frames_out`, `frames_dropped`, `duplicate_drops`, `late_drops`, `resets`

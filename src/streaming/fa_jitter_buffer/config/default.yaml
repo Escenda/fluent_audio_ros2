@@ -1,7 +1,11 @@
 fa_jitter_buffer_node:
   ros__parameters:
-    input_topic: "audio/network/mic"
-    output_topic: "audio/jitter_buffered/mic"
+    input_topic: "fa_jitter_buffer/input"
+    output_topic: "fa_jitter_buffer/output"
+    input_stream_id: "audio/network/mic"
+
+    output:
+      stream_id: "audio/jitter_buffered/mic"
 
     expected:
       sample_rate: 16000
