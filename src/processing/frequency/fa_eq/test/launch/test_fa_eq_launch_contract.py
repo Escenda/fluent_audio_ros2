@@ -20,6 +20,7 @@ def _run_fa_eq_launch(config_path: Path) -> subprocess.CompletedProcess[str]:
             "launch",
             "fa_eq",
             "fa_eq.launch.py",
+            "node_name:=fa_eq",
             f"config_file:={config_path}",
         ],
         check=False,

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -79,6 +80,14 @@ TEST(InternalFirstOrderBandPassBackendContract, ReportsInputRejectionStatuses)
   EXPECT_EQ(
     backend.process(float32LeBytes({1.25F}), output, false),
     fa_band_pass::backends::ProcessStatus::kOutOfRangeInput);
+}
+
+TEST(InternalFirstOrderBandPassBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_band_pass::backends::processStatusMessage(
+      static_cast<fa_band_pass::backends::ProcessStatus>(999)),
+    std::logic_error);
 }
 
 TEST(InternalFirstOrderBandPassBackendContract, ResetStateIsCommittedOnlyOnSuccessfulFrame)

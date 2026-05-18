@@ -114,7 +114,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kNonFiniteOutput:
       return "high-pass output sample is not representable as finite FLOAT32LE";
   }
-  return "unknown high-pass backend status";
+  throw std::logic_error("unhandled high-pass backend process status");
 }
 
 }  // namespace fa_high_pass::backends

@@ -20,6 +20,7 @@ def _run_fa_notch_launch(config_path: Path) -> subprocess.CompletedProcess[str]:
             "launch",
             "fa_notch",
             "fa_notch.launch.py",
+            "node_name:=fa_notch",
             f"config_file:={config_path}",
         ],
         check=False,

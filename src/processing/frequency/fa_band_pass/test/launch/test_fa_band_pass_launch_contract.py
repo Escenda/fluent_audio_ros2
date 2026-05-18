@@ -20,6 +20,7 @@ def _run_fa_band_pass_launch(config_path: Path) -> subprocess.CompletedProcess[s
             "launch",
             "fa_band_pass",
             "fa_band_pass.launch.py",
+            "node_name:=fa_band_pass",
             f"config_file:={config_path}",
         ],
         check=False,

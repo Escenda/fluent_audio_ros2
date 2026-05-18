@@ -222,7 +222,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "EQ output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown EQ backend status";
+  throw std::logic_error("unhandled EQ backend process status");
 }
 
 }  // namespace fa_eq::backends

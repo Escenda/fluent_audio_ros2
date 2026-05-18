@@ -178,7 +178,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "de-esser output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown de-esser backend status";
+  throw std::logic_error("unhandled de-esser backend process status");
 }
 
 }  // namespace fa_deesser::backends

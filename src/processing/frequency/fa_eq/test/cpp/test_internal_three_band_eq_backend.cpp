@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -97,6 +98,14 @@ TEST(InternalThreeBandEqBackendContract, ReportsInputRejectionStatuses)
   EXPECT_EQ(
     backend.process(float32LeBytes({1.25F}), output, false),
     fa_eq::backends::ProcessStatus::kOutOfRangeInput);
+}
+
+TEST(InternalThreeBandEqBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_eq::backends::processStatusMessage(
+      static_cast<fa_eq::backends::ProcessStatus>(999)),
+    std::logic_error);
 }
 
 TEST(InternalThreeBandEqBackendContract, DoesNotCommitResetStateWhenFrameIsRejected)

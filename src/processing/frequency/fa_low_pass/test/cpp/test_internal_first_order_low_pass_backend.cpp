@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -75,6 +76,14 @@ TEST(InternalFirstOrderLowPassBackendContract, ReportsInputRejectionStatuses)
   EXPECT_EQ(
     backend.process(float32LeBytes({1.25F}), output, false),
     fa_low_pass::backends::ProcessStatus::kOutOfRangeInput);
+}
+
+TEST(InternalFirstOrderLowPassBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_low_pass::backends::processStatusMessage(
+      static_cast<fa_low_pass::backends::ProcessStatus>(999)),
+    std::logic_error);
 }
 
 TEST(InternalFirstOrderLowPassBackendContract, ResetStateIsCommittedOnlyOnSuccessfulFrame)

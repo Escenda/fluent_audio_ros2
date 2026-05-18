@@ -152,7 +152,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kNonFiniteOutput:
       return "notch output sample is not representable as finite FLOAT32LE";
   }
-  return "unknown notch backend status";
+  throw std::logic_error("unhandled notch backend process status");
 }
 
 }  // namespace fa_notch::backends

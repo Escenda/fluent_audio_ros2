@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -70,6 +71,14 @@ TEST(InternalHighPassBackendContract, ReportsInputRejectionStatuses)
   EXPECT_EQ(
     backend.process(float32LeBytes({std::numeric_limits<float>::quiet_NaN()}), output),
     fa_high_pass::backends::ProcessStatus::kNonFiniteInput);
+}
+
+TEST(InternalHighPassBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_high_pass::backends::processStatusMessage(
+      static_cast<fa_high_pass::backends::ProcessStatus>(999)),
+    std::logic_error);
 }
 
 TEST(InternalHighPassBackendContract, DoesNotCommitStateWhenOutputCannotBeFloat32)

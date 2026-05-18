@@ -171,7 +171,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "band-pass output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown band-pass backend status";
+  throw std::logic_error("unhandled band-pass backend process status");
 }
 
 }  // namespace fa_band_pass::backends

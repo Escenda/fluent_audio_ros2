@@ -20,6 +20,7 @@ def _run_fa_low_pass_launch(config_path: Path) -> subprocess.CompletedProcess[st
             "launch",
             "fa_low_pass",
             "fa_low_pass.launch.py",
+            "node_name:=fa_low_pass",
             f"config_file:={config_path}",
         ],
         check=False,

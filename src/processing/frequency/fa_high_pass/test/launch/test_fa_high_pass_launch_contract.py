@@ -20,6 +20,7 @@ def _run_fa_high_pass_launch(config_path: Path) -> subprocess.CompletedProcess[s
             "launch",
             "fa_high_pass",
             "fa_high_pass.launch.py",
+            "node_name:=fa_high_pass",
             f"config_file:={config_path}",
         ],
         check=False,

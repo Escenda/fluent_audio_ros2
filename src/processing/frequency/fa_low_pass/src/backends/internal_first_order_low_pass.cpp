@@ -138,7 +138,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "low-pass output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown low-pass backend status";
+  throw std::logic_error("unhandled low-pass backend process status");
 }
 
 }  // namespace fa_low_pass::backends

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -75,6 +76,14 @@ TEST(InternalNotchBackendContract, ReportsInputRejectionStatuses)
   EXPECT_EQ(
     backend.process(float32LeBytes({std::numeric_limits<float>::quiet_NaN()}), output, false),
     fa_notch::backends::ProcessStatus::kNonFiniteInput);
+}
+
+TEST(InternalNotchBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_notch::backends::processStatusMessage(
+      static_cast<fa_notch::backends::ProcessStatus>(999)),
+    std::logic_error);
 }
 
 TEST(InternalNotchBackendContract, DoesNotCommitStateWhenFrameIsRejected)

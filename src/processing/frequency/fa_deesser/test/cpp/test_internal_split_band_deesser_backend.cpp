@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -97,6 +98,14 @@ TEST(InternalSplitBandDeesserBackendContract, ReportsInputRejectionStatuses)
   EXPECT_EQ(
     backend.process(float32LeBytes({1.25F}), output, false).status,
     fa_deesser::backends::ProcessStatus::kOutOfRangeInput);
+}
+
+TEST(InternalSplitBandDeesserBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_deesser::backends::processStatusMessage(
+      static_cast<fa_deesser::backends::ProcessStatus>(999)),
+    std::logic_error);
 }
 
 TEST(InternalSplitBandDeesserBackendContract, DoesNotCommitResetStateWhenFrameIsRejected)
