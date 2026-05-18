@@ -173,6 +173,14 @@ bool FaLimiterNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
+  if (msg.stream_id != config_.input_topic) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "AudioFrame stream_id mismatch: %s != %s",
+      msg.stream_id.c_str(),
+      config_.input_topic.c_str());
+    return false;
+  }
   if (msg.layout != config_.expected_layout) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
