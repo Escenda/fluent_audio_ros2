@@ -43,7 +43,7 @@ def _node_launch_parameters(
     parameters = node.launch_parameters()
     override_params: dict[str, ParamValue] = {}
     if node.package == "fa_in" and overrides.fa_in_source_id:
-        override_params["audio.device_selector.mode"] = "name"
+        override_params["audio.device_selector.mode"] = "id"
         override_params["audio.device_selector.identifier"] = overrides.fa_in_source_id
     if node.package in _SOURCE_BOUND_AUDIO_AI_PACKAGES and overrides.fa_in_source_id:
         override_params["expected_source_id"] = overrides.fa_in_source_id

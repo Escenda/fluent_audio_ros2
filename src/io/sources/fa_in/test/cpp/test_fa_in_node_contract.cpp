@@ -83,6 +83,14 @@ public:
       }
       throw fa_in::backends::BackendError("fake source index was not found");
     }
+    if (selector.mode == "id") {
+      for (const auto & device : devices) {
+        if (device.id == selector.identifier) {
+          return device;
+        }
+      }
+      throw fa_in::backends::BackendError("fake source id was not found");
+    }
     if (selector.mode == "name") {
       for (const auto & device : devices) {
         if (device.id == selector.identifier || displayName(device) == selector.identifier) {
@@ -159,7 +167,7 @@ std::vector<rclcpp::Parameter> validParameters()
 {
   return {
     rclcpp::Parameter("backend.name", "alsa_capture"),
-    rclcpp::Parameter("audio.device_selector.mode", "name"),
+    rclcpp::Parameter("audio.device_selector.mode", "id"),
     rclcpp::Parameter("audio.device_selector.identifier", "hw:0,0"),
     rclcpp::Parameter("audio.device_selector.index", -1),
     rclcpp::Parameter("audio.sample_rate", 48000),

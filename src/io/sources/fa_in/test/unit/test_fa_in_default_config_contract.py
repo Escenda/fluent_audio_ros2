@@ -17,7 +17,7 @@ def test_default_config_requires_explicit_source_identifier() -> None:
     assert params["audio"]["bit_depth"] == 16
     assert params["audio"]["stream_id"] == "audio/frame"
     assert params["audio"]["layout"] == "interleaved"
-    assert selector["mode"] == "name"
+    assert selector["mode"] == "id"
     assert selector["identifier"] == ""
     assert '"default"' not in config_text
 
@@ -158,6 +158,8 @@ def test_alsa_name_selector_fails_closed_on_duplicate_display_names() -> None:
         encoding="utf-8"
     )
 
+    assert 'selector.mode == "id"' in backend_source
+    assert "Configured ALSA input source id was not found" in backend_source
     assert "device.id == selector.identifier" in backend_source
     assert "display_name_matches.size() == 1" in backend_source
     assert "display_name_matches.size() > 1" in backend_source

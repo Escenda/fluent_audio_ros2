@@ -3,8 +3,8 @@ fa_in_node:
     backend.name: "alsa_capture"
     audio:
       device_selector:
-        mode: "name"        # index | name
-        identifier: ""      # e.g., "hw:CARD=Device,DEV=0"; required when mode is name
+        mode: "id"          # id | index | name
+        identifier: ""      # e.g., "hw:CARD=Device,DEV=0"; required when mode is id/name
         index: -1
       sample_rate: 48000
       channels: 1

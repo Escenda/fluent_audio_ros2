@@ -128,6 +128,15 @@ public:
       throw BackendError("Configured ALSA input source index is invalid: " + std::to_string(selector.index));
     }
 
+    if (selector.mode == "id") {
+      for (const auto& device : devices) {
+        if (device.id == selector.identifier) {
+          return device;
+        }
+      }
+      throw BackendError("Configured ALSA input source id was not found: " + selector.identifier);
+    }
+
     if (selector.mode == "name") {
       for (const auto& device : devices) {
         if (device.id == selector.identifier) {

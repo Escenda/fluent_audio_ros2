@@ -27,7 +27,7 @@ def test_default_launch_fails_closed_without_explicit_source_binding() -> None:
     assert "process has died" in output
     assert "exit code 1" in output
     assert (
-        "audio.device_selector.identifier is required when audio.device_selector.mode=name"
+        "audio.device_selector.identifier is required when audio.device_selector.mode=id"
         in output
     )
 

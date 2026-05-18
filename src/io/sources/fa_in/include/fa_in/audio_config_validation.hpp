@@ -20,9 +20,26 @@ inline uint32_t requirePositiveUint32(const char * parameter_name, const int64_t
   return static_cast<uint32_t>(value);
 }
 
+inline bool isRawAlsaHardwareSource(const std::string & source_id)
+{
+  return source_id.rfind("hw:", 0) == 0;
+}
+
 inline void requireDeviceSelector(
   const std::string & mode, const std::string & identifier, const int64_t index)
 {
+  if (mode == "id") {
+    if (identifier.empty()) {
+      throw std::runtime_error(
+        "audio.device_selector.identifier is required when audio.device_selector.mode=id");
+    }
+    if (!isRawAlsaHardwareSource(identifier)) {
+      throw std::runtime_error(
+        "audio.device_selector.identifier must be a raw hw: source id when audio.device_selector.mode=id");
+    }
+    return;
+  }
+
   if (mode == "name") {
     if (identifier.empty()) {
       throw std::runtime_error(
@@ -40,11 +57,6 @@ inline void requireDeviceSelector(
   }
 
   throw std::runtime_error("unsupported audio.device_selector.mode: " + mode);
-}
-
-inline bool isRawAlsaHardwareSource(const std::string & source_id)
-{
-  return source_id.rfind("hw:", 0) == 0;
 }
 
 inline void requireRawAlsaHardwareSource(const std::string & source_id)

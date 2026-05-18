@@ -1,7 +1,7 @@
 fa_in_node:
   ros__parameters:
     backend.name: "alsa_capture"
-    audio.device_selector.mode: "name"
+    audio.device_selector.mode: "id"
     audio.device_selector.identifier: "hw:CARD=Loopback,DEV=0"
     audio.sample_rate: 48000
     audio.channels: 1
