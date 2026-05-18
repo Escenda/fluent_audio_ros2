@@ -432,7 +432,8 @@ void FaInNode::handleSwitchDevice(
   std::shared_ptr<fa_interfaces::srv::SwitchDevice::Response> response)
 {
   try {
-    validation::requireExactlyOneSwitchDeviceSelector(
+    validation::requireSwitchDeviceSelector(
+      request->target_selector_mode,
       request->target_identifier,
       request->target_index);
   } catch (const std::runtime_error & e) {
@@ -453,7 +454,7 @@ void FaInNode::handleSwitchDevice(
   std::string device_id;
   std::string device_name;
 
-  if (request->target_index >= 0) {
+  if (request->target_selector_mode == "index") {
     if (static_cast<size_t>(request->target_index) >= devices.size()) {
       response->success = false;
       response->message = "device index not found";
@@ -461,7 +462,7 @@ void FaInNode::handleSwitchDevice(
     }
     device_id = devices[request->target_index].id;
     device_name = displayName(devices[request->target_index]);
-  } else {
+  } else if (request->target_selector_mode == "id") {
     for (const auto &dev : devices) {
       if (dev.id == request->target_identifier) {
         device_id = dev.id;
@@ -470,20 +471,24 @@ void FaInNode::handleSwitchDevice(
       }
     }
     if (device_id.empty()) {
-      std::vector<backends::DeviceInfo> display_name_matches;
-      for (const auto &dev : devices) {
-        if (displayName(dev) == request->target_identifier) {
-          display_name_matches.push_back(dev);
-        }
+      response->success = false;
+      response->message = "device id not found";
+      return;
+    }
+  } else if (request->target_selector_mode == "name") {
+    std::vector<backends::DeviceInfo> display_name_matches;
+    for (const auto &dev : devices) {
+      if (displayName(dev) == request->target_identifier) {
+        display_name_matches.push_back(dev);
       }
-      if (display_name_matches.size() == 1) {
-        device_id = display_name_matches[0].id;
-        device_name = displayName(display_name_matches[0]);
-      } else if (display_name_matches.size() > 1) {
-        response->success = false;
-        response->message = "device name is ambiguous";
-        return;
-      }
+    }
+    if (display_name_matches.size() == 1) {
+      device_id = display_name_matches[0].id;
+      device_name = displayName(display_name_matches[0]);
+    } else if (display_name_matches.size() > 1) {
+      response->success = false;
+      response->message = "device name is ambiguous";
+      return;
     }
   }
 

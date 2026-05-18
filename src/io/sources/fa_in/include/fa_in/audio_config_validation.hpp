@@ -70,15 +70,53 @@ inline void requireRawAlsaHardwareSource(const std::string & source_id)
   }
 }
 
-inline void requireExactlyOneSwitchDeviceSelector(
-  const std::string & target_identifier, const int64_t target_index)
+inline void requireSwitchDeviceSelector(
+  const std::string & target_selector_mode,
+  const std::string & target_identifier,
+  const int64_t target_index)
 {
-  const bool has_identifier = !target_identifier.empty();
-  const bool has_index = target_index >= 0;
-  if (has_identifier == has_index) {
-    throw std::runtime_error(
-      "switch_device requires exactly one selector: target_identifier or target_index");
+  if (target_selector_mode == "id") {
+    if (target_identifier.empty()) {
+      throw std::runtime_error(
+        "switch_device target_identifier is required when target_selector_mode=id");
+    }
+    if (target_index >= 0) {
+      throw std::runtime_error(
+        "switch_device target_index must be -1 when target_selector_mode=id");
+    }
+    if (!isRawAlsaHardwareSource(target_identifier)) {
+      throw std::runtime_error(
+        "switch_device target_identifier must be a raw hw: source id when target_selector_mode=id");
+    }
+    return;
   }
+
+  if (target_selector_mode == "name") {
+    if (target_identifier.empty()) {
+      throw std::runtime_error(
+        "switch_device target_identifier is required when target_selector_mode=name");
+    }
+    if (target_index >= 0) {
+      throw std::runtime_error(
+        "switch_device target_index must be -1 when target_selector_mode=name");
+    }
+    return;
+  }
+
+  if (target_selector_mode == "index") {
+    if (!target_identifier.empty()) {
+      throw std::runtime_error(
+        "switch_device target_identifier must be empty when target_selector_mode=index");
+    }
+    if (target_index < 0) {
+      throw std::runtime_error(
+        "switch_device target_index must be >= 0 when target_selector_mode=index");
+    }
+    return;
+  }
+
+  throw std::runtime_error(
+    "unsupported switch_device target_selector_mode: " + target_selector_mode);
 }
 
 inline size_t captureFramesPerBuffer(const uint32_t sample_rate, const uint32_t chunk_ms)

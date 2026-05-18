@@ -60,16 +60,35 @@ TEST(FaInAudioConfigValidation, RejectsAlsaPluginPcmSourceIds)
   EXPECT_THROW(fa_in::validation::requireRawAlsaHardwareSource("pipewire"), std::runtime_error);
 }
 
-TEST(FaInAudioConfigValidation, RejectsAmbiguousSwitchDeviceSelectors)
+TEST(FaInAudioConfigValidation, RejectsInvalidSwitchDeviceSelectors)
 {
-  EXPECT_NO_THROW(fa_in::validation::requireExactlyOneSwitchDeviceSelector("hw:1,0", -1));
-  EXPECT_NO_THROW(fa_in::validation::requireExactlyOneSwitchDeviceSelector("", 0));
+  EXPECT_NO_THROW(fa_in::validation::requireSwitchDeviceSelector("id", "hw:1,0", -1));
+  EXPECT_NO_THROW(fa_in::validation::requireSwitchDeviceSelector("name", "Backup Mic", -1));
+  EXPECT_NO_THROW(fa_in::validation::requireSwitchDeviceSelector("index", "", 0));
 
   EXPECT_THROW(
-    fa_in::validation::requireExactlyOneSwitchDeviceSelector("", -1),
+    fa_in::validation::requireSwitchDeviceSelector("id", "", -1),
     std::runtime_error);
   EXPECT_THROW(
-    fa_in::validation::requireExactlyOneSwitchDeviceSelector("hw:1,0", 0),
+    fa_in::validation::requireSwitchDeviceSelector("id", "Backup Mic", -1),
+    std::runtime_error);
+  EXPECT_THROW(
+    fa_in::validation::requireSwitchDeviceSelector("id", "hw:1,0", 0),
+    std::runtime_error);
+  EXPECT_THROW(
+    fa_in::validation::requireSwitchDeviceSelector("name", "", -1),
+    std::runtime_error);
+  EXPECT_THROW(
+    fa_in::validation::requireSwitchDeviceSelector("name", "Backup Mic", 0),
+    std::runtime_error);
+  EXPECT_THROW(
+    fa_in::validation::requireSwitchDeviceSelector("index", "hw:1,0", 0),
+    std::runtime_error);
+  EXPECT_THROW(
+    fa_in::validation::requireSwitchDeviceSelector("index", "", -1),
+    std::runtime_error);
+  EXPECT_THROW(
+    fa_in::validation::requireSwitchDeviceSelector("auto", "", -1),
     std::runtime_error);
 }
 

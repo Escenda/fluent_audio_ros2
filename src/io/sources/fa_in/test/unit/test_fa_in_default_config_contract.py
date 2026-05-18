@@ -153,12 +153,17 @@ def test_device_services_surface_enumeration_failure() -> None:
     assert "response->default_sample_rates.push_back(config_.sample_rate);" not in list_devices
     assert "response->success = false;" in switch_device
     assert "response->message = e.what();" in switch_device
-    assert "validation::requireExactlyOneSwitchDeviceSelector" in switch_device
+    assert "validation::requireSwitchDeviceSelector" in switch_device
+    assert "request->target_selector_mode" in switch_device
     assert "device index not found" in switch_device
+    assert "device id not found" in switch_device
     assert "device name is ambiguous" in switch_device
     assert "restart=false" not in switch_device
     assert "request->restart" not in switch_device
     assert "else if (!request->target_identifier.empty())" not in switch_device
+    assert 'request->target_selector_mode == "id"' in switch_device
+    assert 'request->target_selector_mode == "name"' in switch_device
+    assert 'request->target_selector_mode == "index"' in switch_device
 
 
 def test_alsa_name_selector_fails_closed_on_duplicate_display_names() -> None:
@@ -191,6 +196,16 @@ def test_alsa_name_selector_fails_closed_on_duplicate_display_names() -> None:
     assert "display_name_matches.size() == 1" in node_source
     assert "display_name_matches.size() > 1" in node_source
     assert "device name is ambiguous" in node_source
+    switch_device = node_source.split("void FaInNode::handleSwitchDevice")[1].split(
+        "bool FaInNode::reopenStream"
+    )[0]
+    id_switch_block = switch_device.split(
+        'request->target_selector_mode == "id"'
+    )[1].split('request->target_selector_mode == "name"')[0]
+    id_miss_block = id_switch_block.split("if (device_id.empty())")[1]
+    assert "display_name_matches" not in id_switch_block
+    assert "displayName(dev)" not in id_miss_block
+    assert "device id not found" in id_switch_block
     assert "一意に解決できる表示名" in spec
     assert "重複表示名では fail closed" in spec
     assert "configured display name が複数 source に一致する" in backend_doc

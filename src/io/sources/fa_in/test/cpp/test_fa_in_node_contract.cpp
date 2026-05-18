@@ -441,6 +441,7 @@ TEST_F(RclcppContractTest, SwitchReopenFailureFailsClosed)
   }));
   state->fail_open_on_switch_target.store(true);
   auto request = std::make_shared<fa_interfaces::srv::SwitchDevice::Request>();
+  request->target_selector_mode = "id";
   request->target_identifier = "hw:1,0";
   request->target_index = -1;
   client->async_send_request(request);
@@ -468,7 +469,76 @@ TEST_F(RclcppContractTest, SwitchDeviceReopensSelectedSource)
     return client->service_is_ready();
   }));
   auto request = std::make_shared<fa_interfaces::srv::SwitchDevice::Request>();
+  request->target_selector_mode = "id";
   request->target_identifier = "hw:1,0";
+  request->target_index = -1;
+  auto future = client->async_send_request(request);
+
+  ASSERT_TRUE(spinUntil(executor, [&future]() {
+    return future.wait_for(0ms) == std::future_status::ready;
+  }));
+  const auto response = future.get();
+  ASSERT_TRUE(response->success);
+  EXPECT_EQ(response->message, "switched");
+  EXPECT_TRUE(spinUntil(executor, [&state]() {
+    return openedDevice(state) == "hw:1,0";
+  }));
+  EXPECT_FALSE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, SwitchDeviceDoesNotFallbackFromIdToDisplayName)
+{
+  const auto state = std::make_shared<FakeSourceState>();
+  auto node = std::make_shared<fa_in::FaInNode>(
+    optionsWith(validParameters()),
+    factoryFor(state));
+  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_id_miss_client");
+  auto client = client_node->create_client<fa_interfaces::srv::SwitchDevice>("switch_device");
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(client_node);
+
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  auto request = std::make_shared<fa_interfaces::srv::SwitchDevice::Request>();
+  request->target_selector_mode = "id";
+  request->target_identifier = "Backup Mic";
+  request->target_index = -1;
+  auto future = client->async_send_request(request);
+
+  ASSERT_TRUE(spinUntil(executor, [&future]() {
+    return future.wait_for(0ms) == std::future_status::ready;
+  }));
+  const auto response = future.get();
+  ASSERT_FALSE(response->success);
+  EXPECT_EQ(
+    response->message,
+    "switch_device target_identifier must be a raw hw: source id when target_selector_mode=id");
+  EXPECT_EQ(openedDevice(state), "hw:0,0");
+  EXPECT_FALSE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, SwitchDeviceUsesExplicitDisplayNameSelector)
+{
+  const auto state = std::make_shared<FakeSourceState>();
+  auto node = std::make_shared<fa_in::FaInNode>(
+    optionsWith(validParameters()),
+    factoryFor(state));
+  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_name_client");
+  auto client = client_node->create_client<fa_interfaces::srv::SwitchDevice>("switch_device");
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(client_node);
+
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  auto request = std::make_shared<fa_interfaces::srv::SwitchDevice::Request>();
+  request->target_selector_mode = "name";
+  request->target_identifier = "Backup Mic";
   request->target_index = -1;
   auto future = client->async_send_request(request);
 

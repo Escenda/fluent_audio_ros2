@@ -1,3 +1,4 @@
+string target_selector_mode
 string target_identifier
 int32 target_index
 ---
