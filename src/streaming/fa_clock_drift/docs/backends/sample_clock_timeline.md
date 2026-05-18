@@ -10,7 +10,7 @@
 
 ## 3. Output Format
 
-出力は入力 frame の copy である。`header.stamp` は補正後 timestamp、`stream_id` は `output_topic` に設定する。`source_id`、`data`、`epoch` は保持する。
+出力は入力 frame の copy である。`header.stamp` は補正後 timestamp、`stream_id` は `output.stream_id` に設定する。`source_id`、`data`、`epoch` は保持する。
 
 ## 4. State
 

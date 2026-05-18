@@ -1,7 +1,11 @@
 fa_clock_drift:
   ros__parameters:
-    input_topic: "audio/sample_format/mic"
-    output_topic: "audio/clock_drift_corrected/mic"
+    input_topic: "fa_clock_drift/input"
+    output_topic: "fa_clock_drift/output"
+    input_stream_id: "audio/sample_format/mic"
+
+    output:
+      stream_id: "audio/clock_drift_corrected/mic"
 
     expected:
       sample_rate: 16000
