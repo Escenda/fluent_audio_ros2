@@ -36,7 +36,7 @@ struct GainConfig
 class FaGainNode : public rclcpp::Node
 {
 public:
-  FaGainNode();
+  explicit FaGainNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaGainNode() override;
 
 private:
