@@ -4,15 +4,15 @@ fa_monitor_mix:
       - "audio/program/frame"
       - "audio/tts/frame"
     input_stream_ids:
-      - "audio/program/frame"
-      - "audio/tts/frame"
+      - "audio/program_bus"
+      - "audio/tts_bus"
     input_gains_db:
       - 0.0
     master_index: 0
     output_topic: "audio/monitor/frame"
 
     output:
-      stream_id: "audio/monitor/frame"
+      stream_id: "audio/monitor_bus"
       source_id: "monitor_mix"
 
     expected:

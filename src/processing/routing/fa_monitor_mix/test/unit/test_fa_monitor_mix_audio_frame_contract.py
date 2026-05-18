@@ -18,11 +18,14 @@ def test_default_config_and_launch_use_monitor_mix_contract() -> None:
     launch = (package_root / "launch" / "fa_monitor_mix.launch.py").read_text(encoding="utf-8")
 
     assert params["input_topics"] == ["audio/program/frame", "audio/tts/frame"]
-    assert params["input_stream_ids"] == ["audio/program/frame", "audio/tts/frame"]
+    assert params["input_stream_ids"] == ["audio/program_bus", "audio/tts_bus"]
+    assert set(params["input_stream_ids"]).isdisjoint(params["input_topics"])
     assert params["input_gains_db"] == [0.0]
     assert params["master_index"] == 0
     assert params["output_topic"] == "audio/monitor/frame"
-    assert params["output"]["stream_id"] == "audio/monitor/frame"
+    assert params["output"]["stream_id"] == "audio/monitor_bus"
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["output"]["stream_id"] not in params["input_stream_ids"]
     assert params["output"]["source_id"] == "monitor_mix"
     assert params["expected"]["sample_rate"] == 48000
     assert params["expected"]["channels"] == 2
@@ -62,6 +65,7 @@ def test_startup_validation_fails_closed_for_required_parameters_and_format() ->
     assert "input_topics must not contain an empty topic" in load_parameters
     assert "input_stream_ids must match input_topics length" in load_parameters
     assert "input_stream_ids must not contain an empty stream_id" in load_parameters
+    assert "input_stream_ids must be unique" in load_parameters
     assert "resolved input_topics must be unique" in load_parameters
     assert "input_gains_db must be size 1 or match input_topics length" in load_parameters
     assert "master_index out of range" in load_parameters
@@ -69,6 +73,9 @@ def test_startup_validation_fails_closed_for_required_parameters_and_format() ->
     assert "output.stream_id is required" in load_parameters
     assert "output.source_id is required" in load_parameters
     assert "resolved output_topic must be distinct from input_topics" in load_parameters
+    assert "input_stream_ids must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from input_stream_ids" in load_parameters
     assert "expected.sample_rate must be > 0" in load_parameters
     assert "expected.channels must be > 0" in load_parameters
     assert "fa_monitor_mix requires expected.encoding=FLOAT32LE" in load_parameters

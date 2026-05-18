@@ -6,6 +6,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -112,6 +113,19 @@ bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
   }
   return parameter.as_bool();
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaMonitorMixNode::FaMonitorMixNode(const rclcpp::NodeOptions & options)
@@ -182,9 +196,19 @@ void FaMonitorMixNode::loadParameters()
       throw std::runtime_error("input_stream_ids must not contain an empty stream_id");
     }
   }
+  std::set<std::string> unique_stream_ids;
+  for (const auto & stream_id : config_.input_stream_ids) {
+    if (!unique_stream_ids.insert(identityWithoutLeadingSlash(stream_id)).second) {
+      throw std::runtime_error("input_stream_ids must be unique");
+    }
+  }
+
+  std::vector<std::string> resolved_input_topics;
+  resolved_input_topics.reserve(config_.input_topics.size());
   for (size_t i = 0; i < config_.input_topics.size(); ++i) {
     const std::string resolved_input =
       this->get_node_topics_interface()->resolve_topic_name(config_.input_topics[i]);
+    resolved_input_topics.push_back(resolved_input);
     for (size_t j = i + 1; j < config_.input_topics.size(); ++j) {
       if (resolved_input == this->get_node_topics_interface()->resolve_topic_name(config_.input_topics[j])) {
         throw std::runtime_error("resolved input_topics must be unique");
@@ -208,10 +232,40 @@ void FaMonitorMixNode::loadParameters()
   }
   const std::string resolved_output =
     this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
-  for (const auto & input_topic : config_.input_topics) {
-    if (resolved_output == this->get_node_topics_interface()->resolve_topic_name(input_topic)) {
+  for (size_t index = 0; index < config_.input_topics.size(); ++index) {
+    if (resolved_output == resolved_input_topics[index]) {
       throw std::runtime_error("resolved output_topic must be distinct from input_topics");
     }
+  }
+  for (size_t index = 0; index < config_.input_stream_ids.size(); ++index) {
+    const std::string & stream_id = config_.input_stream_ids[index];
+    if (sameIdentityString(stream_id, config_.output_topic) ||
+        sameIdentityString(stream_id, resolved_output))
+    {
+      throw std::runtime_error("input_stream_ids must be distinct from ROS topics");
+    }
+    for (size_t topic_index = 0; topic_index < config_.input_topics.size(); ++topic_index) {
+      if (sameIdentityString(stream_id, config_.input_topics[topic_index]) ||
+          sameIdentityString(stream_id, resolved_input_topics[topic_index]))
+      {
+        throw std::runtime_error("input_stream_ids must be distinct from ROS topics");
+      }
+    }
+  }
+  for (size_t index = 0; index < config_.input_topics.size(); ++index) {
+    if (sameIdentityString(config_.output_stream_id, config_.input_topics[index]) ||
+        sameIdentityString(config_.output_stream_id, resolved_input_topics[index]))
+    {
+      throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+    }
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output))
+  {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (!unique_stream_ids.insert(identityWithoutLeadingSlash(config_.output_stream_id)).second) {
+    throw std::runtime_error("output.stream_id must be distinct from input_stream_ids");
   }
   if (config_.expected_sample_rate <= 0) {
     throw std::runtime_error("expected.sample_rate must be > 0");
