@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -11,6 +10,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_expander/backends/internal_static_expander.hpp"
 
 namespace fa_expander
 {
@@ -19,8 +19,6 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
 
 bool isFinite(double value)
 {
@@ -44,8 +42,11 @@ FaExpanderNode::FaExpanderNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Expander node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaExpanderNode::~FaExpanderNode() = default;
 
 void FaExpanderNode::loadParameters()
 {
@@ -131,6 +132,15 @@ void FaExpanderNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
+void FaExpanderNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalStaticExpanderBackend>(
+    backends::InternalStaticExpanderConfig{
+      config_.expected_channels,
+      config_.threshold_linear,
+      config_.ratio});
+}
+
 void FaExpanderNode::setupInterfaces()
 {
   rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
@@ -157,6 +167,14 @@ void FaExpanderNode::setupInterfaces()
 void FaExpanderNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   frames_in_.fetch_add(1);
+
+  if (!msg) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping null AudioFrame pointer");
+    frames_dropped_.fetch_add(1);
+    return;
+  }
 
   if (!validateFrame(*msg)) {
     frames_dropped_.fetch_add(1);
@@ -241,54 +259,16 @@ bool FaExpanderNode::applyExpansion(
 {
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const double threshold = config_.threshold_linear;
-  const double ratio = config_.ratio;
-  const size_t sample_count = in.data.size() / sizeof(float);
-  uint64_t expanded_in_frame = 0;
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!std::isfinite(sample) || sample < kMinNormalizedSample || sample > kMaxNormalizedSample) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    const double magnitude = std::abs(static_cast<double>(sample));
-    double expanded = static_cast<double>(sample);
-    if (magnitude < threshold) {
-      const double expanded_abs = threshold * std::pow(magnitude / threshold, ratio);
-      expanded = std::copysign(expanded_abs, static_cast<double>(sample));
-      ++expanded_in_frame;
-    }
-
-    if (!isFinite(expanded) ||
-        expanded < kMinNormalizedSample ||
-        expanded > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because expander output is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    const float out_sample = static_cast<float>(expanded);
-    if (!std::isfinite(out_sample) ||
-        out_sample < kMinNormalizedSample ||
-        out_sample > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because expander output cannot be represented as normalized FLOAT32LE");
-      return false;
-    }
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
+  const backends::ProcessResult result = backend_->process(in.data, out.data);
+  if (result.status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because expander backend rejected input or output: %s",
+      backends::processStatusMessage(result.status));
+    return false;
   }
 
-  samples_expanded_.fetch_add(expanded_in_frame);
+  samples_expanded_.fetch_add(result.samples_expanded);
   return true;
 }
 
@@ -302,8 +282,8 @@ void FaExpanderNode::publishDiagnostics()
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
   status.values.reserve(9);
-  pushKeyValue(status, "expander_threshold_linear", std::to_string(config_.threshold_linear));
-  pushKeyValue(status, "expander_ratio", std::to_string(config_.ratio));
+  pushKeyValue(status, "expander_threshold_linear", std::to_string(backend_->thresholdLinear()));
+  pushKeyValue(status, "expander_ratio", std::to_string(backend_->ratio()));
   pushKeyValue(status, "expected_sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected_channels", std::to_string(config_.expected_channels));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
