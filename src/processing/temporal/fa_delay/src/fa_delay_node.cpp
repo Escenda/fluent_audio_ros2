@@ -1,10 +1,7 @@
 #include "fa_delay/fa_delay_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -13,6 +10,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_delay/backends/internal_sample_delay.hpp"
 
 namespace fa_delay
 {
@@ -21,9 +19,82 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr float kSilenceSample = 0.0F;
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
+constexpr int kMaxExpectedSampleRate = 384000;
+constexpr int kMaxExpectedChannels = 64;
+
+bool isFinite(double value)
+{
+  return std::isfinite(value);
+}
+
+std::string removeLeadingSlashes(std::string value)
+{
+  while (!value.empty() && value.front() == '/') {
+    value.erase(value.begin());
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return left == right || removeLeadingSlashes(left) == removeLeadingSlashes(right);
+}
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+double readRequiredDouble(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+    throw std::runtime_error(name + " must be a double");
+  }
+  return parameter.as_double();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
+}
 
 void pushKeyValue(
   diagnostic_msgs::msg::DiagnosticStatus & status,
@@ -35,56 +106,48 @@ void pushKeyValue(
   kv.value = value;
   status.values.push_back(kv);
 }
-
-float readFloatSample(const std::vector<uint8_t> & data, size_t sample_index)
-{
-  float sample = 0.0F;
-  std::memcpy(&sample, data.data() + (sample_index * sizeof(float)), sizeof(float));
-  return sample;
-}
-
-void writeFloatSample(std::vector<uint8_t> & data, size_t sample_index, float sample)
-{
-  std::memcpy(data.data() + (sample_index * sizeof(float)), &sample, sizeof(float));
-}
 }  // namespace
 
-FaDelayNode::FaDelayNode()
-: rclcpp::Node("fa_delay")
+FaDelayNode::FaDelayNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_delay", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Delay node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
 
+FaDelayNode::~FaDelayNode() = default;
+
 void FaDelayNode::loadParameters()
 {
-  this->declare_parameter("input_topic", config_.input_topic);
-  this->declare_parameter("output_topic", config_.output_topic);
-  this->declare_parameter<double>("delay.ms", config_.delay_ms);
-  this->declare_parameter<int>("expected.sample_rate", config_.expected_sample_rate);
-  this->declare_parameter<int>("expected.channels", config_.expected_channels);
-  this->declare_parameter("expected.encoding", config_.expected_encoding);
-  this->declare_parameter<int>("expected.bit_depth", config_.expected_bit_depth);
-  this->declare_parameter("expected.layout", config_.expected_layout);
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
-  this->declare_parameter<int>(
-    "diagnostics.publish_period_ms",
-    config_.diagnostics_publish_period_ms);
+  this->declare_parameter<std::string>("input_topic");
+  this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
+  this->declare_parameter<double>("delay.ms");
+  this->declare_parameter<int>("expected.sample_rate");
+  this->declare_parameter<int>("expected.channels");
+  this->declare_parameter<std::string>("expected.encoding");
+  this->declare_parameter<int>("expected.bit_depth");
+  this->declare_parameter<std::string>("expected.layout");
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
+  this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.input_topic = this->get_parameter("input_topic").as_string();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.delay_ms = this->get_parameter("delay.ms").as_double();
-  config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
-  config_.expected_channels = this->get_parameter("expected.channels").as_int();
-  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
-  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
-  config_.expected_layout = this->get_parameter("expected.layout").as_string();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.input_topic = readRequiredString(*this, "input_topic");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
+  config_.delay_ms = readRequiredDouble(*this, "delay.ms");
+  config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
+  config_.expected_channels = readRequiredInt(*this, "expected.channels");
+  config_.expected_encoding = readRequiredString(*this, "expected.encoding");
+  config_.expected_bit_depth = readRequiredInt(*this, "expected.bit_depth");
+  config_.expected_layout = readRequiredString(*this, "expected.layout");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(*this, "diagnostics.publish_period_ms");
 
   if (config_.input_topic.empty()) {
     throw std::runtime_error("input_topic is required");
@@ -92,14 +155,44 @@ void FaDelayNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
-  if (!std::isfinite(config_.delay_ms) || config_.delay_ms <= 0.0) {
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (resolved_input_topic == resolved_output_topic) {
+    throw std::runtime_error("input_topic and output_topic must resolve to distinct ROS topics");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic))
+  {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic))
+  {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (config_.input_stream_id == config_.output_stream_id) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
+  }
+  if (!isFinite(config_.delay_ms) || config_.delay_ms <= 0.0) {
     throw std::runtime_error("delay.ms must be > 0 and finite");
   }
-  if (config_.expected_sample_rate <= 0) {
-    throw std::runtime_error("expected.sample_rate must be > 0");
+  if (config_.expected_sample_rate <= 0 || config_.expected_sample_rate > kMaxExpectedSampleRate) {
+    throw std::runtime_error("expected.sample_rate must satisfy 0 < value <= 384000");
   }
-  if (config_.expected_channels <= 0) {
-    throw std::runtime_error("expected.channels must be > 0");
+  if (config_.expected_channels <= 0 || config_.expected_channels > kMaxExpectedChannels) {
+    throw std::runtime_error("expected.channels must satisfy 0 < value <= 64");
   }
   if (config_.expected_encoding != kEncodingFloat32) {
     throw std::runtime_error("fa_delay requires expected.encoding=FLOAT32LE");
@@ -117,26 +210,15 @@ void FaDelayNode::loadParameters()
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
 
-  const double raw_delay_samples =
-    config_.delay_ms * static_cast<double>(config_.expected_sample_rate) / 1000.0;
-  if (!std::isfinite(raw_delay_samples) ||
-      raw_delay_samples > static_cast<double>(std::numeric_limits<long long>::max()))
-  {
-    throw std::runtime_error("delay.ms converts to an unsupported sample count");
-  }
-  delay_samples_ = static_cast<size_t>(std::llround(raw_delay_samples));
-  if (delay_samples_ == 0) {
-    throw std::runtime_error("delay.ms must convert to at least 1 sample");
-  }
-
   RCLCPP_INFO(
     this->get_logger(),
-    "Delay config: input=%s output=%s delay=%.3fms delay_samples=%zu "
-    "expected=%dHz/%d/%s/%d/%s qos_depth=%d reliable=%s diag=%dms",
+    "Delay config: input_topic=%s output_topic=%s input_stream_id=%s output_stream_id=%s "
+    "delay=%.3fms expected=%dHz/%d/%s/%d/%s qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
+    config_.input_stream_id.c_str(),
+    config_.output_stream_id.c_str(),
     config_.delay_ms,
-    delay_samples_,
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -147,9 +229,29 @@ void FaDelayNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
+void FaDelayNode::configureBackend()
+{
+  const double raw_delay_samples =
+    config_.delay_ms * static_cast<double>(config_.expected_sample_rate) / 1000.0;
+  if (!isFinite(raw_delay_samples) ||
+      raw_delay_samples > static_cast<double>(std::numeric_limits<long long>::max()))
+  {
+    throw std::runtime_error("delay.ms converts to an unsupported sample count");
+  }
+  const size_t delay_samples = static_cast<size_t>(std::llround(raw_delay_samples));
+  if (delay_samples == 0U) {
+    throw std::runtime_error("delay.ms must convert to at least 1 sample");
+  }
+
+  backend_ = std::make_unique<backends::InternalSampleDelayBackend>(
+    backends::InternalSampleDelayConfig{
+      config_.expected_channels,
+      delay_samples});
+}
+
 void FaDelayNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -175,22 +277,12 @@ void FaDelayNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr ms
   messages_in_.fetch_add(1);
 
   if (!msg) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Received null AudioFrame pointer");
-    messages_dropped_.fetch_add(1);
-    return;
+    throw std::logic_error("FaDelayNode received null AudioFrame pointer");
   }
   if (!validateFrame(*msg)) {
     messages_dropped_.fetch_add(1);
     return;
   }
-  if (!validateSamples(*msg)) {
-    messages_dropped_.fetch_add(1);
-    return;
-  }
-
-  ensureDelayState(msg->source_id);
 
   fa_interfaces::msg::AudioFrame out;
   if (!applyDelay(*msg, out)) {
@@ -198,6 +290,9 @@ void FaDelayNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr ms
     return;
   }
 
+  if (!audio_pub_) {
+    throw std::logic_error("FaDelayNode publisher is not initialized");
+  }
   audio_pub_->publish(out);
   messages_out_.fetch_add(1);
 }
@@ -210,12 +305,12 @@ bool FaDelayNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -259,80 +354,32 @@ bool FaDelayNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
   return true;
 }
 
-bool FaDelayNode::validateSamples(const fa_interfaces::msg::AudioFrame & msg)
-{
-  const size_t sample_count = msg.data.size() / sizeof(float);
-  for (size_t sample_index = 0; sample_index < sample_count; ++sample_index) {
-    const float sample = readFloatSample(msg.data, sample_index);
-    if (!std::isfinite(sample) ||
-        sample < kMinNormalizedSample ||
-        sample > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is outside normalized FLOAT32LE range");
-      return false;
-    }
-  }
-  return true;
-}
-
-void FaDelayNode::ensureDelayState(const std::string & source_id)
-{
-  if (source_id == current_source_id_ &&
-      delay_buffers_.size() == static_cast<size_t>(config_.expected_channels))
-  {
-    return;
-  }
-
-  if (!current_source_id_.empty() && source_id != current_source_id_) {
-    source_resets_.fetch_add(1);
-    RCLCPP_WARN(
-      this->get_logger(),
-      "AudioFrame source_id changed: %s -> %s; resetting delay buffers",
-      current_source_id_.c_str(),
-      source_id.c_str());
-  }
-
-  resetDelayState(source_id);
-}
-
-void FaDelayNode::resetDelayState(const std::string & source_id)
-{
-  current_source_id_ = source_id;
-  delay_buffers_.assign(
-    static_cast<size_t>(config_.expected_channels),
-    std::deque<float>(delay_samples_, kSilenceSample));
-}
-
 bool FaDelayNode::applyDelay(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
-  if (delay_buffers_.size() != static_cast<size_t>(config_.expected_channels)) {
-    RCLCPP_WARN(
-      this->get_logger(),
-      "Dropping frame because delay buffer state does not match expected channel count");
+  if (!backend_) {
+    throw std::logic_error("FaDelayNode backend is not initialized");
+  }
+  out = in;
+  out.stream_id = config_.output_stream_id;
+  const backends::ProcessResult result = backend_->process(in.source_id, in.data, out.data);
+  if (result.status != backends::ProcessStatus::kOk) {
+    const char * status_message = backends::processStatusMessage(result.status);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because delay backend rejected input or output: %s",
+      status_message);
     return false;
   }
 
-  out = in;
-  out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const size_t channels = static_cast<size_t>(config_.expected_channels);
-  const size_t frame_count = in.data.size() / bytesPerFrame();
-  for (size_t frame_index = 0; frame_index < frame_count; ++frame_index) {
-    for (size_t channel_index = 0; channel_index < channels; ++channel_index) {
-      const size_t sample_index = (frame_index * channels) + channel_index;
-      const float input_sample = readFloatSample(in.data, sample_index);
-      const float delayed_sample = delay_buffers_[channel_index].front();
-      delay_buffers_[channel_index].pop_front();
-      delay_buffers_[channel_index].push_back(input_sample);
-      writeFloatSample(out.data, sample_index, delayed_sample);
-    }
+  if (result.source_reset) {
+    source_resets_.fetch_add(1);
+    RCLCPP_WARN(
+      this->get_logger(),
+      "AudioFrame source_id changed; resetting delay buffers for source %s",
+      in.source_id.c_str());
   }
-
   return true;
 }
 
@@ -350,12 +397,14 @@ void FaDelayNode::publishDiagnostics()
   status.name = "fa_delay";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(11);
+  status.values.reserve(13);
   pushKeyValue(status, "delay_ms", std::to_string(config_.delay_ms));
-  pushKeyValue(status, "delay_samples", std::to_string(delay_samples_));
-  pushKeyValue(status, "current_source_id", current_source_id_);
+  pushKeyValue(status, "delay_samples", std::to_string(backend_->delaySamples()));
+  pushKeyValue(status, "current_source_id", backend_->currentSourceId());
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "messages_in", std::to_string(messages_in_.load()));
   pushKeyValue(status, "messages_out", std::to_string(messages_out_.load()));
   pushKeyValue(status, "messages_dropped", std::to_string(messages_dropped_.load()));
@@ -367,18 +416,3 @@ void FaDelayNode::publishDiagnostics()
 }
 
 }  // namespace fa_delay
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_delay::FaDelayNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_delay"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

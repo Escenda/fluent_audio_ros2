@@ -3,9 +3,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -15,10 +14,17 @@
 namespace fa_delay
 {
 
+namespace backends
+{
+class InternalSampleDelayBackend;
+}  // namespace backends
+
 struct DelayConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   double delay_ms{-1.0};
   int expected_sample_rate{-1};
   int expected_channels{-1};
@@ -36,28 +42,24 @@ struct DelayConfig
 class FaDelayNode : public rclcpp::Node
 {
 public:
-  FaDelayNode();
-  ~FaDelayNode() override = default;
+  explicit FaDelayNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~FaDelayNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
-  void ensureDelayState(const std::string & source_id);
-  void resetDelayState(const std::string & source_id);
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
-  bool validateSamples(const fa_interfaces::msg::AudioFrame & msg);
   bool applyDelay(
     const fa_interfaces::msg::AudioFrame & in,
     fa_interfaces::msg::AudioFrame & out);
   size_t bytesPerFrame() const;
 
   DelayConfig config_;
-  size_t delay_samples_{0};
-  std::string current_source_id_{};
-  std::vector<std::deque<float>> delay_buffers_{};
+  std::unique_ptr<backends::InternalSampleDelayBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;

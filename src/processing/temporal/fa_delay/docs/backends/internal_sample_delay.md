@@ -2,7 +2,7 @@
 
 ## 1. 概要
 
-`internal_sample_delay` は `fa_delay` ノード内で実行する C++ 実装 backend である。外部 process、device、file、network、モデル推論 backend は使わない。
+`internal_sample_delay` は `fa_delay` ノードから呼ばれる ROS 非依存 C++ backend である。外部 process、device、file、network、モデル推論 backend は使わない。
 
 ## 2. 入力
 
@@ -24,7 +24,7 @@ delay_line[channel].push_back(input[channel])
 
 ## 4. 安全境界
 
-この backend は値の修正を行わない。不正入力を検出した場合、呼び出し元は frame を drop し、delay buffer を更新しない。
+この backend は値の修正を行わない。不正入力を検出した場合、`ProcessStatus` を返し、delay buffer と output buffer を更新しない。
 
 ## 5. 非責務
 

@@ -1,7 +1,11 @@
 fa_delay:
   ros__parameters:
-    input_topic: "audio/buffered/mic"
-    output_topic: "audio/delayed/mic"
+    input_topic: "fa_delay/input"
+    output_topic: "fa_delay/output"
+    input_stream_id: "audio/buffered/mic"
+
+    output:
+      stream_id: "audio/delayed/mic"
 
     delay:
       ms: 250.0

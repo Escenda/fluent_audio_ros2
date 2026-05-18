@@ -9,17 +9,21 @@
 - 対応形式: `sample_rate > 0`, `channels > 0`, `encoding=FLOAT32LE`, `bit_depth=32`, `layout=interleaved`
 - `delay.ms` は `expected.sample_rate` から whole samples に変換する
 - `source_id` と `stream_id` は必須
-- 入力 `stream_id` は `input_topic` と一致必須
-- 出力 `stream_id` は `output_topic` に更新
+- 入力 `stream_id` は `input_stream_id` と一致必須
+- 出力 `stream_id` は `output.stream_id` に更新
 - 入力サンプルは有限な正規化 FLOAT32 `[-1.0, 1.0]`
 - `source_id` が変わった accepted frame では delay buffer をリセットし、設定 delay 分の silence を再度先頭に挿入する
 
 ## パラメータ
 
-| 名前 | 既定値 | 内容 |
+`fa_delay.launch.py` は `config_file` を必須 launch argument として扱い、package 内の設定を暗黙には読み込まない。以下は `config/default.yaml` の設定例であり、runtime default ではない。
+
+| 名前 | 設定例 | 内容 |
 | --- | --- | --- |
-| `input_topic` | `audio/buffered/mic` | 入力 AudioFrame topic |
-| `output_topic` | `audio/delayed/mic` | 出力 AudioFrame topic |
+| `input_topic` | `fa_delay/input` | 入力 AudioFrame topic |
+| `output_topic` | `fa_delay/output` | 出力 AudioFrame topic |
+| `input_stream_id` | `audio/buffered/mic` | 入力 stream identity |
+| `output.stream_id` | `audio/delayed/mic` | 出力 stream identity |
 | `delay.ms` | `250.0` | 遅延時間。`expected.sample_rate` で whole samples へ丸める |
 | `expected.sample_rate` | `16000` | 入力 sample rate |
 | `expected.channels` | `1` | 入力 channel 数 |
