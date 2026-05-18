@@ -30,7 +30,12 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
 
 
 def test_low_pass_does_not_hide_other_processing_or_io_responsibilities() -> None:
-    source = read_source()
+    sources = [
+        read_source(),
+        (package_root() / "src" / "backends" / "internal_first_order_low_pass.cpp").read_text(
+            encoding="utf-8"
+        ),
+    ]
 
     forbidden = (
         "normalize(",
@@ -44,14 +49,15 @@ def test_low_pass_does_not_hide_other_processing_or_io_responsibilities() -> Non
         "limiter",
         "denoise",
     )
-    for token in forbidden:
-        assert token not in source
+    for source in sources:
+        for token in forbidden:
+            assert token not in source
 
 
 def test_low_pass_validates_startup_config_fail_closed() -> None:
     source = read_source()
     load_parameters = source.split("void FaLowPassNode::loadParameters")[1].split(
-        "void FaLowPassNode::configureFilterState"
+        "void FaLowPassNode::configureBackend"
     )[0]
 
     assert 'this->declare_parameter<double>("filter.cutoff_hz", config_.cutoff_hz);' in load_parameters
@@ -98,42 +104,71 @@ def test_low_pass_preserves_source_identity_and_updates_stream_identity() -> Non
     assert ".vad" not in apply_low_pass
 
 
-def test_low_pass_uses_first_order_coefficient_and_recurrence_per_channel() -> None:
-    header = (package_root() / "include" / "fa_low_pass" / "fa_low_pass_node.hpp").read_text(
-        encoding="utf-8"
-    )
+def test_low_pass_binds_source_only_after_backend_accepts_frame() -> None:
     source = read_source()
     apply_low_pass = source.split("bool FaLowPassNode::applyLowPass")[1].split(
         "void FaLowPassNode::publishDiagnostics"
+    )[0]
+
+    assert "const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;" in apply_low_pass
+    assert (
+        "const backends::ProcessStatus status = backend_->process(in.data, out.data, source_changed);"
+        in apply_low_pass
+    )
+    assert "if (status != backends::ProcessStatus::kOk)" in apply_low_pass
+    assert apply_low_pass.index("backend_->process") < apply_low_pass.index(
+        "if (status != backends::ProcessStatus::kOk)"
+    )
+    assert apply_low_pass.index("if (status != backends::ProcessStatus::kOk)") < apply_low_pass.index(
+        "active_source_id_ = in.source_id;"
+    )
+
+
+def test_low_pass_uses_first_order_coefficient_and_recurrence_per_channel() -> None:
+    header = (
+        package_root() / "include" / "fa_low_pass" / "backends" / "internal_first_order_low_pass.hpp"
+    ).read_text(encoding="utf-8")
+    source = (package_root() / "src" / "backends" / "internal_first_order_low_pass.cpp").read_text(
+        encoding="utf-8"
+    )
+    process = source.split("ProcessStatus InternalFirstOrderLowPassBackend::process")[1].split(
+        "const char * processStatusMessage"
     )[0]
 
     assert "struct ChannelFilterState" in header
     assert "float previous_output" in header
     assert "bool initialized" in header
     assert "std::vector<ChannelFilterState> channel_states_" in header
-    assert "filter_alpha_ = sample_interval_sec / (rc_sec + sample_interval_sec);" in source
-    assert "std::vector<ChannelFilterState> next_states = channel_states_;" in apply_low_pass
-    assert "ChannelFilterState & state = next_states.at(i % channel_count);" in apply_low_pass
-    assert "out_sample = sample;" in apply_low_pass
-    assert "static_cast<double>(state.previous_output) +" in apply_low_pass
-    assert "filter_alpha_ * (static_cast<double>(sample) - static_cast<double>(state.previous_output))" in apply_low_pass
-    assert "state.previous_output = out_sample;" in apply_low_pass
-    assert "state.initialized = true;" in apply_low_pass
-    assert "channel_states_ = next_states;" in apply_low_pass
+    assert "alpha_ = sample_interval_sec / (rc_sec + sample_interval_sec);" in source
+    assert "reset_state ?" in process
+    assert "channel_states_;" in process
+    assert "ChannelFilterState & state =" in process
+    assert "next_channel_states.at(i % static_cast<size_t>(config_.channels));" in process
+    assert "out_sample = sample;" in process
+    assert "static_cast<double>(state.previous_output) +" in process
+    assert "alpha_ * (static_cast<double>(sample) - static_cast<double>(state.previous_output))" in process
+    assert "state.previous_output = out_sample;" in process
+    assert "state.initialized = true;" in process
+    assert "channel_states_ = std::move(next_channel_states);" in process
 
 
 def test_low_pass_rejects_non_finite_or_out_of_range_samples_without_clamping() -> None:
-    source = read_source()
-    apply_low_pass = source.split("bool FaLowPassNode::applyLowPass")[1].split(
-        "void FaLowPassNode::publishDiagnostics"
-    )[0]
+    source = (package_root() / "src" / "backends" / "internal_first_order_low_pass.cpp").read_text(
+        encoding="utf-8"
+    )
+    header = (
+        package_root() / "include" / "fa_low_pass" / "backends" / "internal_first_order_low_pass.hpp"
+    ).read_text(encoding="utf-8")
 
     assert "bool isNormalizedSample(float value)" in source
     assert "value >= kNormalizedMin && value <= kNormalizedMax" in source
-    assert "!isNormalizedSample(sample)" in apply_low_pass
-    assert "!isNormalizedSample(out_sample)" in apply_low_pass
-    assert "return false;" in apply_low_pass
-    assert "std::clamp" not in apply_low_pass
+    assert "kNonFiniteInput" in header
+    assert "kOutOfRangeInput" in header
+    assert "kNonFiniteOutput" in header
+    assert "kOutOfRangeOutput" in header
+    assert "return ProcessStatus::kOutOfRangeInput;" in source
+    assert "return ProcessStatus::kOutOfRangeOutput;" in source
+    assert "std::clamp" not in source
 
 
 def test_low_pass_resets_state_on_source_change() -> None:
@@ -142,8 +177,8 @@ def test_low_pass_resets_state_on_source_change() -> None:
         "void FaLowPassNode::publishDiagnostics"
     )[0]
 
-    assert "if (active_source_id_.empty() || in.source_id != active_source_id_)" in apply_low_pass
-    assert "next_states.assign(static_cast<size_t>(config_.expected_channels), ChannelFilterState{});" in apply_low_pass
+    assert "const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;" in apply_low_pass
+    assert "backend_->process(in.data, out.data, source_changed)" in apply_low_pass
     assert "source_resets_.fetch_add(1);" in apply_low_pass
 
 
@@ -153,7 +188,7 @@ def test_low_pass_diagnostics_include_filter_state_and_counters() -> None:
 
     assert 'status.name = "fa_low_pass";' in diagnostics
     assert 'pushKeyValue(status, "filter_cutoff_hz", std::to_string(config_.cutoff_hz));' in diagnostics
-    assert 'pushKeyValue(status, "filter_alpha", std::to_string(filter_alpha_));' in diagnostics
+    assert 'pushKeyValue(status, "filter_alpha", std::to_string(backend_->alpha()));' in diagnostics
     assert 'pushKeyValue(status, "state_source_id", active_source_id_);' in diagnostics
     assert 'pushKeyValue(status, "source_resets", std::to_string(source_resets_.load()));' in diagnostics
     assert 'pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));' in diagnostics
@@ -171,7 +206,10 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_low_pass.launch.py",
         "include/fa_low_pass/fa_low_pass_node.hpp",
+        "include/fa_low_pass/backends/internal_first_order_low_pass.hpp",
         "src/fa_low_pass_node.cpp",
+        "src/backends/internal_first_order_low_pass.cpp",
+        "test/cpp/test_internal_first_order_low_pass_backend.cpp",
         "test/unit",
         "test/integration",
         "test/launch",
@@ -186,9 +224,12 @@ def test_colcon_runs_pytest_contracts() -> None:
     cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

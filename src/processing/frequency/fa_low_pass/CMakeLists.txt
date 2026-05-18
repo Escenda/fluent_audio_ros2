@@ -13,6 +13,14 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
+add_library(fa_low_pass_internal_first_order_low_pass STATIC
+  src/backends/internal_first_order_low_pass.cpp
+)
+
+target_include_directories(fa_low_pass_internal_first_order_low_pass PUBLIC
+  include
+)
+
 add_executable(fa_low_pass_node
   src/fa_low_pass_node.cpp
 )
@@ -25,6 +33,10 @@ ament_target_dependencies(fa_low_pass_node
   rclcpp
   diagnostic_msgs
   fa_interfaces
+)
+
+target_link_libraries(fa_low_pass_node
+  fa_low_pass_internal_first_order_low_pass
 )
 
 install(TARGETS fa_low_pass_node
@@ -42,8 +54,21 @@ install(DIRECTORY include/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  ament_add_gtest(${PROJECT_NAME}_backend_test
+    test/cpp/test_internal_first_order_low_pass_backend.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_backend_test)
+    target_include_directories(${PROJECT_NAME}_backend_test PRIVATE
+      include
+    )
+    target_link_libraries(${PROJECT_NAME}_backend_test
+      fa_low_pass_internal_first_order_low_pass
+    )
+  endif()
 
   set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
   ament_add_pytest_test(${PROJECT_NAME}_pytest test
