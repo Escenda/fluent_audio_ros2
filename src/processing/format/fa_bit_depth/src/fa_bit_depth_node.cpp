@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -14,10 +15,6 @@ namespace fa_bit_depth
 
 namespace
 {
-constexpr const char * kEncodingPcm16 = "PCM16LE";
-constexpr const char * kEncodingPcm32 = "PCM32LE";
-constexpr const char * kInterleavedLayout = "interleaved";
-
 void pushKeyValue(
   diagnostic_msgs::msg::DiagnosticStatus & status,
   const std::string & key,
@@ -27,6 +24,17 @@ void pushKeyValue(
   kv.key = key;
   kv.value = value;
   status.values.push_back(kv);
+}
+
+backends::FrameContract frameContractFrom(const fa_interfaces::msg::AudioFrame & msg)
+{
+  return backends::FrameContract{
+    msg.encoding,
+    msg.bit_depth,
+    msg.sample_rate,
+    msg.channels,
+    msg.layout,
+    msg.data.size()};
 }
 }  // namespace
 
@@ -75,30 +83,22 @@ void FaBitDepthNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
-  if (!isSupportedConversion(
-      config_.input_encoding,
-      config_.input_bit_depth,
-      config_.output_encoding,
-      config_.output_bit_depth))
-  {
-    throw std::runtime_error(
-            "fa_bit_depth supports only lossless PCM16LE/16 -> PCM32LE/32 integer bit-depth expansion");
-  }
-  if (config_.expected_sample_rate <= 0) {
-    throw std::runtime_error("expected.sample_rate must be > 0");
-  }
-  if (config_.expected_channels <= 0) {
-    throw std::runtime_error("expected.channels must be > 0");
-  }
-  if (config_.expected_layout != kInterleavedLayout) {
-    throw std::runtime_error("fa_bit_depth requires expected.layout=interleaved");
-  }
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0");
   }
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
+
+  backend_ = std::make_unique<backends::InternalIntegerBitDepthBackend>(
+    backends::InternalIntegerBitDepthConfig{
+      config_.input_encoding,
+      config_.input_bit_depth,
+      config_.output_encoding,
+      config_.output_bit_depth,
+      config_.expected_sample_rate,
+      config_.expected_channels,
+      config_.expected_layout});
 
   RCLCPP_INFO(
     this->get_logger(),
@@ -183,47 +183,17 @@ bool FaBitDepthNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       config_.input_topic.c_str());
     return false;
   }
-  if (msg.layout != config_.expected_layout) {
+
+  const backends::FrameContractStatus contract_status =
+    backend_->validateContract(frameContractFrom(msg));
+  if (contract_status != backends::FrameContractStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "AudioFrame layout mismatch: %s != %s",
-      msg.layout.c_str(),
-      config_.expected_layout.c_str());
-    return false;
-  }
-  if (msg.encoding != config_.input_encoding ||
-      msg.bit_depth != static_cast<uint32_t>(config_.input_bit_depth))
-  {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "AudioFrame input bit-depth format mismatch: %s/%u != %s/%d",
-      msg.encoding.c_str(),
-      msg.bit_depth,
-      config_.input_encoding.c_str(),
-      config_.input_bit_depth);
-    return false;
-  }
-  if (msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate) ||
-      msg.channels != static_cast<uint32_t>(config_.expected_channels))
-  {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "AudioFrame rate/channel mismatch: frame=%uHz/%u config=%dHz/%d",
-      msg.sample_rate,
-      msg.channels,
-      config_.expected_sample_rate,
-      config_.expected_channels);
+      "AudioFrame bit-depth contract mismatch: %s",
+      backends::frameContractStatusName(contract_status));
     return false;
   }
 
-  const size_t bytes_per_sample = bytesPerSample(config_.input_bit_depth);
-  const size_t bytes_per_frame = static_cast<size_t>(config_.expected_channels) * bytes_per_sample;
-  if (msg.data.empty() || (msg.data.size() % bytes_per_frame) != 0) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "AudioFrame data size is invalid for configured interleaved PCM bit depth");
-    return false;
-  }
   return true;
 }
 
@@ -232,80 +202,26 @@ bool FaBitDepthNode::convertFrame(
   fa_interfaces::msg::AudioFrame & out)
 {
   std::vector<uint8_t> output_data;
-  if (config_.input_encoding == kEncodingPcm16 && config_.input_bit_depth == 16 &&
-      config_.output_encoding == kEncodingPcm32 && config_.output_bit_depth == 32)
-  {
-    output_data = convertPcm16ToPcm32(in.data);
-  } else {
+  const backends::ProcessResult result =
+    backend_->process(in.data, frameContractFrom(in), output_data);
+  if (result.status != backends::ProcessStatus::kOk) {
     RCLCPP_ERROR_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Dropping frame because configured PCM bit-depth conversion is unsupported");
-    return false;
-  }
-
-  if (output_data.empty()) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping frame because PCM bit-depth conversion produced no output");
+      "Dropping frame because bit-depth backend failed: %s (%s)",
+      backends::processStatusMessage(result.status),
+      backends::frameContractStatusName(result.frame_contract_status));
     return false;
   }
 
   out = in;
   out.stream_id = config_.output_topic;
-  out.encoding = config_.output_encoding;
-  out.bit_depth = static_cast<uint32_t>(config_.output_bit_depth);
+  out.encoding = backend_->outputEncoding();
+  out.bit_depth = static_cast<uint32_t>(backend_->outputBitDepth());
   out.sample_rate = in.sample_rate;
   out.channels = in.channels;
   out.layout = in.layout;
   out.data = output_data;
   return true;
-}
-
-bool FaBitDepthNode::isSupportedConversion(
-  const std::string & input_encoding,
-  int input_bit_depth,
-  const std::string & output_encoding,
-  int output_bit_depth)
-{
-  return (input_encoding == kEncodingPcm16 && input_bit_depth == 16 &&
-         output_encoding == kEncodingPcm32 && output_bit_depth == 32);
-}
-
-size_t FaBitDepthNode::bytesPerSample(int bit_depth)
-{
-  return static_cast<size_t>(bit_depth / 8);
-}
-
-std::vector<uint8_t> FaBitDepthNode::convertPcm16ToPcm32(const std::vector<uint8_t> & input_bytes)
-{
-  if (input_bytes.empty() || (input_bytes.size() % sizeof(uint16_t)) != 0) {
-    return {};
-  }
-
-  std::vector<uint8_t> out_bytes;
-  out_bytes.reserve((input_bytes.size() / sizeof(uint16_t)) * sizeof(uint32_t));
-  for (size_t i = 0; i < input_bytes.size(); i += sizeof(uint16_t)) {
-    const uint16_t raw =
-      static_cast<uint16_t>(input_bytes.at(i)) |
-      (static_cast<uint16_t>(input_bytes.at(i + 1)) << 8U);
-    const uint32_t aligned_sample = static_cast<uint32_t>(raw) << 16U;
-    appendPcm32Le(aligned_sample, out_bytes);
-  }
-  return out_bytes;
-}
-
-void FaBitDepthNode::appendPcm16Le(uint16_t sample, std::vector<uint8_t> & out_bytes)
-{
-  out_bytes.push_back(static_cast<uint8_t>(sample & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((sample >> 8U) & 0xFFU));
-}
-
-void FaBitDepthNode::appendPcm32Le(uint32_t sample, std::vector<uint8_t> & out_bytes)
-{
-  out_bytes.push_back(static_cast<uint8_t>(sample & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((sample >> 8U) & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((sample >> 16U) & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((sample >> 24U) & 0xFFU));
 }
 
 void FaBitDepthNode::publishDiagnostics()

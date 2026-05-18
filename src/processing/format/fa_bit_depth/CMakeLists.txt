@@ -13,6 +13,14 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
+add_library(fa_bit_depth_internal_integer_bit_depth
+  src/backends/internal_integer_bit_depth.cpp
+)
+
+target_include_directories(fa_bit_depth_internal_integer_bit_depth PUBLIC
+  include
+)
+
 add_library(fa_bit_depth_node_core
   src/fa_bit_depth_node.cpp
 )
@@ -25,6 +33,10 @@ ament_target_dependencies(fa_bit_depth_node_core
   rclcpp
   diagnostic_msgs
   fa_interfaces
+)
+
+target_link_libraries(fa_bit_depth_node_core
+  fa_bit_depth_internal_integer_bit_depth
 )
 
 add_executable(fa_bit_depth_node
@@ -75,6 +87,16 @@ if(BUILD_TESTING)
   )
   target_link_libraries(${PROJECT_NAME}_node_contract_test
     fa_bit_depth_node_core
+  )
+
+  ament_add_gtest(${PROJECT_NAME}_backend_test
+    test/cpp/test_internal_integer_bit_depth_backend.cpp
+  )
+  target_include_directories(${PROJECT_NAME}_backend_test PRIVATE
+    include
+  )
+  target_link_libraries(${PROJECT_NAME}_backend_test
+    fa_bit_depth_internal_integer_bit_depth
   )
 
   ament_lint_auto_find_test_dependencies()

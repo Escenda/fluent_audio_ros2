@@ -1,14 +1,14 @@
 #pragma once
 
 #include <atomic>
-#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "fa_bit_depth/backends/internal_integer_bit_depth.hpp"
 #include "fa_interfaces/msg/audio_frame.hpp"
 
 namespace fa_bit_depth
@@ -51,17 +51,8 @@ private:
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool convertFrame(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
-  static bool isSupportedConversion(
-    const std::string & input_encoding,
-    int input_bit_depth,
-    const std::string & output_encoding,
-    int output_bit_depth);
-  static size_t bytesPerSample(int bit_depth);
-  static std::vector<uint8_t> convertPcm16ToPcm32(const std::vector<uint8_t> & input_bytes);
-  static void appendPcm16Le(uint16_t sample, std::vector<uint8_t> & out_bytes);
-  static void appendPcm32Le(uint32_t sample, std::vector<uint8_t> & out_bytes);
-
   BitDepthConfig config_;
+  std::unique_ptr<backends::InternalIntegerBitDepthBackend> backend_;
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;

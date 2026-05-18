@@ -3,6 +3,7 @@
 `fa_bit_depth` は `fa_interfaces/msg/AudioFrame` の PCM integer bit depth だけを変換する FluentAudio processing package です。
 
 この package は IO node ではありません。device、file、network、codec decode/encode、sample format normalization、resample、gain、loudness normalize、limit、filter、channel count 変更は扱いません。
+変換 engine は ROS2 topic/message を知らない `internal_integer_bit_depth` backend に分離し、node は parameter、QoS、AudioFrame metadata、publish/drop、diagnostics だけを扱います。
 
 ## 初期対応変換
 

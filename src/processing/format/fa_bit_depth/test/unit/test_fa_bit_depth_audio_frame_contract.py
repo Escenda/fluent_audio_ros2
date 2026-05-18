@@ -47,18 +47,22 @@ def test_bit_depth_does_not_hide_io_or_other_processing_responsibilities() -> No
 
 def test_startup_rejects_unknown_or_implicit_conversion_config() -> None:
     package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_bit_depth_node.cpp").read_text(encoding="utf-8")
-    is_supported = source.split("bool FaBitDepthNode::isSupportedConversion")[1].split(
-        "size_t FaBitDepthNode::bytesPerSample"
+    node_source = (package_root / "src" / "fa_bit_depth_node.cpp").read_text(encoding="utf-8")
+    backend_source = (
+        package_root / "src" / "backends" / "internal_integer_bit_depth.cpp"
+    ).read_text(encoding="utf-8")
+    is_supported = backend_source.split("bool isSupportedConversion")[1].split(
+        "size_t bytesPerSample"
     )[0]
 
-    assert "input_encoding == kEncodingPcm16 && input_bit_depth == 16" in is_supported
-    assert "output_encoding == kEncodingPcm32 && output_bit_depth == 32" in is_supported
-    assert "input_encoding == kEncodingPcm32 && input_bit_depth == 32" not in is_supported
-    assert "output_encoding == kEncodingPcm16 && output_bit_depth == 16" not in is_supported
-    assert "isSupportedConversion(" in source
-    assert "throw std::runtime_error(" in source
-    assert "lossless PCM16LE/16 -> PCM32LE/32" in source
+    assert "input_encoding == kEncodingPcm16Le && input_bit_depth == 16" in is_supported
+    assert "output_encoding == kEncodingPcm32Le && output_bit_depth == 32" in is_supported
+    assert "input_encoding == kEncodingPcm32Le && input_bit_depth == 32" not in is_supported
+    assert "output_encoding == kEncodingPcm16Le && output_bit_depth == 16" not in is_supported
+    assert "isSupportedConversion(" in backend_source
+    assert "throw std::runtime_error(" in backend_source
+    assert "lossless PCM16LE/16 -> PCM32LE/32" in backend_source
+    assert "std::make_unique<backends::InternalIntegerBitDepthBackend>" in node_source
     assert "metadata" not in is_supported
 
 
@@ -90,27 +94,46 @@ def test_bit_depth_validates_frame_contract_before_processing() -> None:
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
     assert "msg.stream_id != config_.input_topic" in validate_frame
-    assert "msg.layout != config_.expected_layout" in validate_frame
-    assert "msg.encoding != config_.input_encoding" in validate_frame
-    assert "msg.bit_depth != static_cast<uint32_t>(config_.input_bit_depth)" in validate_frame
-    assert "msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)" in validate_frame
-    assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in validate_frame
-    assert "msg.data.empty() || (msg.data.size() % bytes_per_frame) != 0" in validate_frame
+    assert "backend_->validateContract(frameContractFrom(msg))" in validate_frame
+    assert "FrameContractStatus::kOk" in validate_frame
+    assert "frameContractStatusName(contract_status)" in validate_frame
     assert "RCLCPP_WARN_THROTTLE" in validate_frame
     assert "return false;" in validate_frame
+
+    backend_header = (
+        package_root
+        / "include"
+        / "fa_bit_depth"
+        / "backends"
+        / "internal_integer_bit_depth.hpp"
+    ).read_text(encoding="utf-8")
+    backend_source = (
+        package_root / "src" / "backends" / "internal_integer_bit_depth.cpp"
+    ).read_text(encoding="utf-8")
+    assert "struct FrameContract" in backend_header
+    assert "validateContract(" in backend_source
+    assert "const FrameContract & contract" in backend_source
+    assert "contract.input_encoding != config_.input_encoding" in backend_source
+    assert "contract.input_bit_depth != static_cast<uint32_t>(config_.input_bit_depth)" in backend_source
+    assert "contract.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)" in backend_source
+    assert "contract.channels != static_cast<uint32_t>(config_.expected_channels)" in backend_source
+    assert "contract.layout != config_.expected_layout" in backend_source
+    assert "contract.data_size == 0" in backend_source
+    assert "contract.data_size % bytes_per_frame" in backend_source
 
 
 def test_bit_depth_preserves_identity_and_updates_format_metadata() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_bit_depth_node.cpp").read_text(encoding="utf-8")
     convert_frame = source.split("bool FaBitDepthNode::convertFrame")[1].split(
-        "bool FaBitDepthNode::isSupportedConversion"
+        "void FaBitDepthNode::publishDiagnostics"
     )[0]
 
+    assert "backend_->process(in.data, frameContractFrom(in), output_data)" in convert_frame
     assert "out = in;" in convert_frame
     assert "out.stream_id = config_.output_topic;" in convert_frame
-    assert "out.encoding = config_.output_encoding;" in convert_frame
-    assert "out.bit_depth = static_cast<uint32_t>(config_.output_bit_depth);" in convert_frame
+    assert "out.encoding = backend_->outputEncoding();" in convert_frame
+    assert "out.bit_depth = static_cast<uint32_t>(backend_->outputBitDepth());" in convert_frame
     assert "out.sample_rate = in.sample_rate;" in convert_frame
     assert "out.channels = in.channels;" in convert_frame
     assert "out.layout = in.layout;" in convert_frame
@@ -122,25 +145,27 @@ def test_bit_depth_preserves_identity_and_updates_format_metadata() -> None:
 
 def test_pcm_integer_bit_depth_conversion_uses_lossless_high_order_expansion_only() -> None:
     package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_bit_depth_node.cpp").read_text(encoding="utf-8")
-    pcm16 = source.split("std::vector<uint8_t> FaBitDepthNode::convertPcm16ToPcm32")[1].split(
-        "void FaBitDepthNode::appendPcm16Le"
+    node_source = (package_root / "src" / "fa_bit_depth_node.cpp").read_text(encoding="utf-8")
+    backend_source = (
+        package_root / "src" / "backends" / "internal_integer_bit_depth.cpp"
+    ).read_text(encoding="utf-8")
+    pcm16 = backend_source.split("std::vector<uint8_t> convertPcm16ToPcm32")[1].split(
+        "InternalIntegerBitDepthBackend::InternalIntegerBitDepthBackend"
     )[0]
-    append16 = source.split("void FaBitDepthNode::appendPcm16Le")[1].split(
-        "void FaBitDepthNode::appendPcm32Le"
-    )[0]
-    append32 = source.split("void FaBitDepthNode::appendPcm32Le")[1].split(
-        "void FaBitDepthNode::publishDiagnostics"
+    append32 = backend_source.split("void appendPcm32Le")[1].split(
+        "std::vector<uint8_t> convertPcm16ToPcm32"
     )[0]
 
     assert "input_bytes.size() % sizeof(uint16_t)" in pcm16
     assert "static_cast<uint16_t>(input_bytes.at(i))" in pcm16
     assert "const uint32_t aligned_sample = static_cast<uint32_t>(raw) << 16U;" in pcm16
     assert "appendPcm32Le(aligned_sample, out_bytes);" in pcm16
-    assert "convertPcm32ToPcm16" not in source
-    assert "raw >> 16U" not in source
-    assert "high_word" not in source
-    assert "out_bytes.push_back(static_cast<uint8_t>((sample >> 8U) & 0xFFU));" in append16
+    assert "convertPcm32ToPcm16" not in node_source
+    assert "convertPcm32ToPcm16" not in backend_source
+    assert "appendPcm16Le" not in node_source
+    assert "appendPcm16Le" not in backend_source
+    assert "raw >> 16U" not in backend_source
+    assert "high_word" not in backend_source
     assert "out_bytes.push_back(static_cast<uint8_t>((sample >> 24U) & 0xFFU));" in append32
 
 
@@ -178,10 +203,13 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_bit_depth.launch.py",
         "include/fa_bit_depth/fa_bit_depth_node.hpp",
+        "include/fa_bit_depth/backends/internal_integer_bit_depth.hpp",
         "src/fa_bit_depth_node.cpp",
+        "src/backends/internal_integer_bit_depth.cpp",
         "src/main.cpp",
         "test/unit",
         "test/cpp/test_fa_bit_depth_node_contract.cpp",
+        "test/cpp/test_internal_integer_bit_depth_backend.cpp",
         "test/integration",
         "test/launch",
         "test/fixtures",
@@ -206,3 +234,5 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
+    assert "add_library(fa_bit_depth_internal_integer_bit_depth" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
