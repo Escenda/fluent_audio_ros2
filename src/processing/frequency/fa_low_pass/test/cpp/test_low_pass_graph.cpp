@@ -131,6 +131,8 @@ TEST_F(RclcppFixture, PublishesFirstOrderLowPassFloat32Frame)
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
 
   auto low_pass_node = std::make_shared<fa_low_pass::FaLowPassNode>(options);
@@ -215,6 +217,8 @@ TEST_F(RclcppFixture, ResetsFilterStateOnForwardEpochGap)
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
 
   auto low_pass_node = std::make_shared<fa_low_pass::FaLowPassNode>(options);

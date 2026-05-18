@@ -32,6 +32,8 @@ def test_default_config_requires_float32_interleaved_three_band_eq_contract() ->
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is False
     assert params["diagnostics"]["publish_period_ms"] == 1000
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is True
 
 
 def test_eq_does_not_hide_other_processing_or_io_responsibilities() -> None:
@@ -71,6 +73,10 @@ def test_eq_validates_startup_config_fail_closed() -> None:
     assert 'readRequiredDouble(*this, "gains.mid_db")' in load_parameters
     assert 'readRequiredDouble(*this, "gains.high_db")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in load_parameters
+    assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
+    assert "rclcpp::SystemDefaultsQoS()" not in source
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line

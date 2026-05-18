@@ -181,6 +181,8 @@ rclcpp::NodeOptions notchNodeOptions()
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
   return options;
 }

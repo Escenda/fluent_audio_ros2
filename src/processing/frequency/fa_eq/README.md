@@ -32,6 +32,8 @@
 - `qos.depth`: `10`
 - `qos.reliable`: `false`
 - `diagnostics.publish_period_ms`: `1000`
+- `diagnostics.qos.depth`: `10`
+- `diagnostics.qos.reliable`: `true`
 
 ## Diagnostics
 

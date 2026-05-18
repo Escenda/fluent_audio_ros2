@@ -132,6 +132,8 @@ TEST_F(RclcppFixture, PublishesFirstOrderHighPassFloat32Frame)
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
 
   auto high_pass_node = std::make_shared<fa_high_pass::FaHighPassNode>(options);
@@ -210,6 +212,8 @@ TEST_F(RclcppFixture, ResetsFilterStateOnForwardEpochGap)
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
 
   auto high_pass_node = std::make_shared<fa_high_pass::FaHighPassNode>(options);
