@@ -6,7 +6,6 @@
 
 - `backend.name`
 - `backend.command.executable`
-- `backend.command.arguments`
 - `backend.command.timeout_ms`
 - `backend.command.max_output_bytes`
 - `codec`
@@ -24,6 +23,8 @@ backend は PCM samples と input format metadata を受け取り、encoded payl
 stdout は byte payload のみとして扱い、codec/container/payload_format を stdout から推定しない。
 output contract が config と一致しない場合、node は publish しない。
 command は shell 経由では実行せず、executable と arguments を分離して起動する。
+追加引数が必要な backend だけ `backend.command.arguments` を string list として指定する。
+引数なしの場合は ROS2 YAML の空配列型解決に依存せず、この parameter 自体を省略する。
 
 ## Forbidden
 

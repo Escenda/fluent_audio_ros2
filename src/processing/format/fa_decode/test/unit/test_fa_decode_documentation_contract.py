@@ -25,6 +25,7 @@ def test_fa_decode_default_config_requires_explicit_external_backend() -> None:
 
     assert params["backend.name"] == "external_codec_decoder"
     assert params["backend.command.executable"] == ""
+    assert "backend.command.arguments" not in params
     assert params["backend.command.timeout_ms"] > 0
     assert params["backend.command.max_output_bytes"] > 0
     assert params["input_topic"] == "audio/encoded/mic"
