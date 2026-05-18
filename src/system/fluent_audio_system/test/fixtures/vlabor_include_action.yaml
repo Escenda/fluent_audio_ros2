@@ -1,0 +1,12 @@
+action:
+  id: fluent_audio_system
+  type: include
+  package: fluent_audio_system
+  launch: run.py
+  enabled: ${fluent_audio_enabled}
+  args:
+    config: ${fluent_audio_config}
+    fa_in_enabled: ${fluent_audio_fa_in_enabled}
+    fa_out_enabled: ${fluent_audio_fa_out_enabled}
+    fa_in_source_id: ${fluent_audio_fa_in_source_id}
+    fa_out_sink_id: ${fluent_audio_fa_out_sink_id}
