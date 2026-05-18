@@ -39,7 +39,7 @@
 | --- | --- | --- | --- |
 | `audio/frame` | `fa_interfaces/msg/AudioFrame` | `fa_in_node` | PCM + メタ情報 |
 | `audio/vad` | `std_msgs/msg/Bool` | `fa_vad_node` | 簡易VADフラグ |
-| `voice/vad_state` | `fa_interfaces/msg/VadState` | `fa_vad_node` | VAD確率/開始/終了（Silero） |
+| `voice/vad_state` | `fa_interfaces/msg/VadState` | `fa_vad_node` | VAD確率/開始/終了と判定元 source / stream identity |
 | `voice/wake_word` | `fa_interfaces/msg/WakeWordResult` | `fa_kws` | ウェイクワード検出 |
 | `conversation/turn_context` | `fa_interfaces/msg/TurnContext` | 会話オーケストレータ | ASR/TDのID相関 |
 | `voice/asr/result` | `fa_interfaces/msg/AsrResult` | `fa_asr` | ASR結果/タイムアウト/エラー |
@@ -73,6 +73,8 @@
 3. 会話オーケストレータが`conversation/turn_context`をPublishする
 4. `fa_asr`が`voice/asr/result`をPublishする
 5. `fa_turn_detector`が`voice/turn_end`をPublishする
+
+この経路では `fa_vad` の入力 stream と、`fa_kws` / `fa_asr` / `fa_turn_detector` が処理する audio stream を一致させる必要があります。`VadState.source_id` / `stream_id` が一致しない場合、後段 node はその VAD state を gate / finalize / turn-end trigger として使いません。
 
 ### 5.4 録音（WAV）
 1. `fa_in_node`と`fa_record`を起動

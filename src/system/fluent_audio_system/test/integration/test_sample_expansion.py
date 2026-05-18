@@ -153,6 +153,30 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
     }
 
 
+@pytest.mark.parametrize(
+    ("profile_path", "group_id"),
+    (
+        ("config/fluent_audio_system.sample.yaml", "ai"),
+        ("config/profiles/so101.yaml", "ai"),
+        ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
+    ),
+)
+def test_vad_frontend_profiles_bind_consumers_to_vad_stream(
+    profile_path: str,
+    group_id: str,
+) -> None:
+    config = yaml.safe_load((PACKAGE_ROOT / profile_path).read_text(encoding="utf-8"))
+    group = next(group for group in config["groups"] if group["id"] == group_id)
+    params_by_id = {node["id"]: node.get("parameters", {}) for node in group["nodes"]}
+
+    vad_stream_id = params_by_id["fa_vad"]["input_topic"]
+
+    assert params_by_id["fa_kws"]["audio_topic"] == vad_stream_id
+    assert params_by_id["fa_turn_detector"]["audio_topic"] == vad_stream_id
+    assert params_by_id["fa_asr"]["audio_topic"] == vad_stream_id
+    assert params_by_id["fa_asr"]["expected_stream_id"] == vad_stream_id
+
+
 def test_required_packages_for_so101_mic_frontend_profile(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

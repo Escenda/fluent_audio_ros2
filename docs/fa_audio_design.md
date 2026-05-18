@@ -69,7 +69,7 @@ fa_tts
 ### 3.1 トピック
 - `audio/frame`（`fa_interfaces/msg/AudioFrame`）
 - `audio/vad`（`std_msgs/msg/Bool`）
-- `voice/vad_state`（`fa_interfaces/msg/VadState`）
+- `voice/vad_state`（`fa_interfaces/msg/VadState`: VAD probability / start / end と判定元 `source_id` / `stream_id`）
 - `voice/wake_word`（`fa_interfaces/msg/WakeWordResult`）
 - `voice/asr/result`（`fa_interfaces/msg/AsrResult`）
 - `voice/turn_end`（`fa_interfaces/msg/TurnEnd`）
@@ -109,6 +109,8 @@ fa_tts
 | `audio.chunk_ms` | `20` | 1フレームの長さ(ms) |
 | `audio.encoding` | `PCM16LE / PCM32LE / FLOAT32LE` | `AudioFrame`の格納形式 |
 | `diagnostics.publish_period_ms` | `1000` | diagnostics周期(ms) |
+
+VAD/KWS/ASR/TD を同じ音声 stream で連携する場合、`fa_vad.input_topic`、`fa_kws.audio_topic`、`fa_turn_detector.audio_topic`、`fa_asr.expected_stream_id` は同じ `AudioFrame.stream_id` に揃える必要があります。`VadState.stream_id` は `fa_vad` の入力 `AudioFrame.stream_id` を引き継ぎ、後段 node は不一致の VAD state を処理に使いません。
 
 ## 5. ランチ例
 ```bash

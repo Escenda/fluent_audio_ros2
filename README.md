@@ -16,7 +16,7 @@
 - `fa_out`（`src/io/sinks/fa_out/`）: `audio/output/frame` をスピーカーへ再生
 - `fa_record`（`src/io/utilities/fa_record/`）: `audio/frame` をWAVへ録音（`record` サービス）
 - `fa_stream`（`src/io/utilities/fa_stream/`）: `audio/frame` を外部へ配信する utility（Icecast向け `fa_stream_node.py`）
-- `fa_vad`（`src/ai/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と`voice/vad_state`を提供
+- `fa_vad`（`src/ai/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と source / stream identity 付き `voice/vad_state` を提供
 - `fa_kws`（`src/ai/fa_kws/`）: sherpa-onnx によるローカルKWS、`voice/wake_word`を提供
 - `fa_asr`（`src/ai/fa_asr/`）: ローカルASRコマンド（whisper.cpp等）を呼び出し、`voice/asr/result`を提供
 - `fa_turn_detector`（`src/ai/fa_turn_detector/`）: Smart Turn v3 ONNX によるターン終了推定、`voice/turn_end`を提供
@@ -80,11 +80,13 @@ ros2 launch fa_turn_detector fa_turn_detector.launch.py
 
 `fa_kws` / `fa_asr` / `fa_turn_detector` はローカルモデルのパスが必須です。未設定または存在しない場合は起動時に失敗します。
 
+`voice/vad_state` は `fa_vad` が判定した `AudioFrame.source_id` / `stream_id` を保持します。`fa_kws` / `fa_asr` / `fa_turn_detector` は topic 名だけで VAD state を信頼せず、自分が処理する audio stream と identity が一致しない VAD state を reject します。
+
 ## インターフェース（抜粋）
 - Topics:
   - `audio/frame`（`fa_interfaces/msg/AudioFrame`）
   - `audio/vad`（`std_msgs/msg/Bool`）
-  - `voice/vad_state`（`fa_interfaces/msg/VadState`）
+  - `voice/vad_state`（`fa_interfaces/msg/VadState`: VAD probability / start / end / source_id / stream_id）
   - `voice/wake_word`（`fa_interfaces/msg/WakeWordResult`）
   - `voice/asr/result`（`fa_interfaces/msg/AsrResult`）
   - `voice/turn_end`（`fa_interfaces/msg/TurnEnd`）
