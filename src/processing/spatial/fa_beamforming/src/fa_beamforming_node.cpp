@@ -60,6 +60,8 @@ void FaBeamformingNode::loadParameters()
   declareRequiredParameter("qos.depth");
   declareRequiredParameter("qos.reliable");
   declareRequiredParameter("diagnostics.publish_period_ms");
+  declareRequiredParameter("diagnostics.qos.depth");
+  declareRequiredParameter("diagnostics.qos.reliable");
 
   config_.input_topic = requireStringParameter("input_topic");
   config_.output_topic = requireStringParameter("output_topic");
@@ -74,6 +76,8 @@ void FaBeamformingNode::loadParameters()
   config_.qos_reliable = requireBoolParameter("qos.reliable");
   config_.diagnostics_publish_period_ms =
     requireIntegerParameter("diagnostics.publish_period_ms");
+  config_.diagnostics_qos_depth = requireIntegerParameter("diagnostics.qos.depth");
+  config_.diagnostics_qos_reliable = requireBoolParameter("diagnostics.qos.reliable");
 
   if (config_.input_topic.empty()) {
     throw std::runtime_error("input_topic is required");
@@ -118,6 +122,9 @@ void FaBeamformingNode::loadParameters()
   }
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
+  }
+  if (config_.diagnostics_qos_depth <= 0) {
+    throw std::runtime_error("diagnostics.qos.depth must be > 0");
   }
 
   const std::string weights_text = formatWeights(config_.weights);
@@ -220,9 +227,16 @@ void FaBeamformingNode::setupInterfaces()
     qos,
     std::bind(&FaBeamformingNode::handleFrame, this, std::placeholders::_1));
 
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
+  }
+
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics",
-    rclcpp::SystemDefaultsQoS());
+    diagnostics_qos);
   diag_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.diagnostics_publish_period_ms),
     std::bind(&FaBeamformingNode::publishDiagnostics, this));

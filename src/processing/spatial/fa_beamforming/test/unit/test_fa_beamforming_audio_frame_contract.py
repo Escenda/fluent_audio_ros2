@@ -59,6 +59,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
         "qos.depth",
         "qos.reliable",
         "diagnostics.publish_period_ms",
+        "diagnostics.qos.depth",
+        "diagnostics.qos.reliable",
     )
     for name in required_names:
         assert f'declareRequiredParameter("{name}");' in load_parameters
@@ -113,6 +115,7 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "config_.expected_layout != kInterleavedLayout" in load_parameters
     assert "config_.qos_depth <= 0" in load_parameters
     assert "config_.diagnostics_publish_period_ms <= 0" in load_parameters
+    assert "config_.diagnostics_qos_depth <= 0" in load_parameters
     assert "throw std::runtime_error" in load_parameters
 
 
