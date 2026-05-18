@@ -10,6 +10,10 @@ def test_default_config_declares_required_latency_compensation_contract() -> Non
 
     assert params["input_topic"] == "audio/frame"
     assert params["output_topic"] == "audio/latency_compensated/frame"
+    assert params["input_stream_id"] == "audio/preprocessed/mono16k"
+    assert params["output"]["stream_id"] == "audio/latency_compensated/mono16k"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
     assert params["compensation"]["offset_ms"] == 0.0
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
@@ -83,13 +87,19 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
 
     assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
     assert "throw std::runtime_error(\"output_topic is required\")" in load_parameters
+    assert "throw std::runtime_error(\"input_stream_id is required\")" in load_parameters
+    assert "throw std::runtime_error(\"output.stream_id is required\")" in load_parameters
     assert 'declare_parameter<double>("compensation.offset_ms");' in load_parameters
+    assert 'declare_parameter<std::string>("input_stream_id");' in load_parameters
+    assert 'declare_parameter<std::string>("output.stream_id");' in load_parameters
     assert 'declare_parameter<bool>("qos.reliable");' in load_parameters
     assert 'declare_parameter<double>("compensation.offset_ms", config_.offset_ms)' not in load_parameters
     assert 'declare_parameter<bool>("qos.reliable", config_.qos_reliable)' not in load_parameters
     required_reads = (
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredDouble(*this, "compensation.offset_ms")',
         'readRequiredInt(*this, "expected.sample_rate")',
         'readRequiredInt(*this, "expected.channels")',
@@ -105,6 +115,10 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         assert read in load_parameters
     assert "readRequiredInt(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
     assert "this->get_parameter(" not in load_parameters
     assert "SystemDefaultsQoS" not in source
     assert "std::isfinite(config_.offset_ms)" in load_parameters
@@ -119,6 +133,7 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "qos.depth must be > 0" in load_parameters
     assert "diagnostics.publish_period_ms must be > 0" in load_parameters
     assert "diagnostics.qos.depth must be > 0" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
 
 
 def test_runtime_validates_audio_frame_contract_before_compensation() -> None:
@@ -131,7 +146,7 @@ def test_runtime_validates_audio_frame_contract_before_compensation() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -161,7 +176,7 @@ def test_compensation_updates_only_stamp_and_stream_identity_after_copy() -> Non
     assert "return false;" in compensate_frame
     assert "out = in;" in compensate_frame
     assert "out.header.stamp = nanosecondsToStamp(adjusted_ns);" in compensate_frame
-    assert "out.stream_id = config_.output_topic;" in compensate_frame
+    assert "out.stream_id = config_.output_stream_id;" in compensate_frame
     assert "out.data" not in compensate_frame
 
 
@@ -190,6 +205,8 @@ def test_negative_timestamp_drop_and_diagnostics_counters_are_explicit() -> None
     assert "frames_in" in diagnostics
     assert "frames_out" in diagnostics
     assert "frames_dropped" in diagnostics
+    assert 'pushKeyValue(status, "input_stream_id", config_.input_stream_id);' in diagnostics
+    assert 'pushKeyValue(status, "output_stream_id", config_.output_stream_id);' in diagnostics
     assert "negative_timestamp_drops" in diagnostics
     assert "timestamp_overflow_drops" in diagnostics
 

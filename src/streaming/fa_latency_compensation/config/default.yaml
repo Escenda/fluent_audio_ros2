@@ -2,9 +2,13 @@ fa_latency_compensation:
   ros__parameters:
     input_topic: "audio/frame"
     output_topic: "audio/latency_compensated/frame"
+    input_stream_id: "audio/preprocessed/mono16k"
 
     compensation:
       offset_ms: 0.0
+
+    output:
+      stream_id: "audio/latency_compensated/mono16k"
 
     expected:
       sample_rate: 16000

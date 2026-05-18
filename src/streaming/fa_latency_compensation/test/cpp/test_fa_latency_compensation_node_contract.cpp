@@ -21,6 +21,8 @@ using namespace std::chrono_literals;
 
 constexpr const char * kInputTopic = "audio/test/latency_input";
 constexpr const char * kOutputTopic = "audio/test/latency_output";
+constexpr const char * kInputStreamId = "audio/test/latency_input_stream";
+constexpr const char * kOutputStreamId = "audio/test/latency_output_stream";
 constexpr uint32_t kSampleRate = 16000;
 constexpr uint32_t kChannels = 1;
 constexpr uint32_t kBitDepth = 32;
@@ -33,6 +35,8 @@ std::vector<rclcpp::Parameter> validParameters()
   return {
     rclcpp::Parameter("input_topic", kInputTopic),
     rclcpp::Parameter("output_topic", kOutputTopic),
+    rclcpp::Parameter("input_stream_id", kInputStreamId),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("compensation.offset_ms", 20.0),
     rclcpp::Parameter("expected.sample_rate", static_cast<int>(kSampleRate)),
     rclcpp::Parameter("expected.channels", static_cast<int>(kChannels)),
@@ -42,6 +46,8 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   };
 }
 
@@ -95,7 +101,7 @@ fa_interfaces::msg::AudioFrame frameAt(
   frame.header.stamp = stampFromNanoseconds(timestamp_ns);
   frame.header.frame_id = "mic-a-frame";
   frame.source_id = "mic-a";
-  frame.stream_id = kInputTopic;
+  frame.stream_id = kInputStreamId;
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = kSampleRate;
   frame.channels = kChannels;
@@ -181,7 +187,7 @@ TEST_F(RclcppContractTest, PositiveOffsetUpdatesStampAndPreservesPayloadContract
   }));
 
   EXPECT_EQ(stampToNanoseconds(received[0].header.stamp), 1020000000LL);
-  EXPECT_EQ(received[0].stream_id, kOutputTopic);
+  EXPECT_EQ(received[0].stream_id, kOutputStreamId);
   EXPECT_EQ(received[0].source_id, input.source_id);
   EXPECT_EQ(received[0].epoch, input.epoch);
   EXPECT_EQ(received[0].data, input.data);
@@ -218,7 +224,7 @@ TEST_F(RclcppContractTest, NegativeOffsetUpdatesStampWithoutPayloadMutation)
   }));
 
   EXPECT_EQ(stampToNanoseconds(received[0].header.stamp), 990000000LL);
-  EXPECT_EQ(received[0].stream_id, kOutputTopic);
+  EXPECT_EQ(received[0].stream_id, kOutputStreamId);
   EXPECT_EQ(received[0].data, input.data);
 }
 
