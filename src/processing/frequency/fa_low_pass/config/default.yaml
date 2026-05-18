@@ -1,6 +1,6 @@
 fa_low_pass:
   ros__parameters:
-    input_topic: "audio/sample_format/mic"
+    input_topic: "audio/resample16k/mic"
     output_topic: "audio/low_pass/mic"
 
     filter:

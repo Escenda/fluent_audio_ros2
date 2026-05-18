@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -38,8 +37,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaLowPassNode::FaLowPassNode()
-: rclcpp::Node("fa_low_pass")
+FaLowPassNode::FaLowPassNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_low_pass", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Low Pass node");
   loadParameters();
@@ -127,7 +126,12 @@ void FaLowPassNode::loadParameters()
 
 void FaLowPassNode::configureBackend()
 {
-  backend_ = std::make_unique<backends::InternalFirstOrderLowPassBackend>(
+  backend_ = createBackend();
+}
+
+std::unique_ptr<backends::InternalFirstOrderLowPassBackend> FaLowPassNode::createBackend() const
+{
+  return std::make_unique<backends::InternalFirstOrderLowPassBackend>(
     backends::InternalFirstOrderLowPassConfig{
       config_.expected_sample_rate,
       config_.expected_channels,
@@ -161,6 +165,14 @@ void FaLowPassNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr 
 {
   frames_in_.fetch_add(1);
 
+  if (!msg) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping null AudioFrame pointer");
+    frames_dropped_.fetch_add(1);
+    return;
+  }
+
   if (!validateFrame(*msg)) {
     frames_dropped_.fetch_add(1);
     return;
@@ -182,6 +194,22 @@ bool FaLowPassNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame source_id and stream_id are required");
+    return false;
+  }
+  if (!active_source_id_.empty() && msg.source_id != active_source_id_) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "AudioFrame source_id mismatch: %s != %s",
+      msg.source_id.c_str(),
+      active_source_id_.c_str());
+    return false;
+  }
+  if (last_epoch_.has_value() && msg.epoch <= *last_epoch_) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping non-monotonic AudioFrame epoch %u after epoch %u",
+      msg.epoch,
+      *last_epoch_);
     return false;
   }
   if (msg.stream_id != config_.input_topic) {
@@ -236,11 +264,13 @@ bool FaLowPassNode::applyLowPass(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
-  const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;
+  const bool should_bind_source = active_source_id_.empty();
+  const bool should_reset_state =
+    last_epoch_.has_value() && in.epoch != (*last_epoch_ + 1U);
 
   out = in;
   out.stream_id = config_.output_topic;
-  const backends::ProcessStatus status = backend_->process(in.data, out.data, source_changed);
+  const backends::ProcessStatus status = backend_->process(in.data, out.data, should_reset_state);
   if (status != backends::ProcessStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
@@ -249,10 +279,18 @@ bool FaLowPassNode::applyLowPass(
     return false;
   }
 
-  active_source_id_ = in.source_id;
-  if (source_changed) {
-    source_resets_.fetch_add(1);
+  if (should_bind_source) {
+    active_source_id_ = in.source_id;
   }
+  if (should_reset_state) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "AudioFrame epoch jumped from %u to %u; processing with fresh low-pass state",
+      *last_epoch_,
+      in.epoch);
+    state_resets_.fetch_add(1);
+  }
+  last_epoch_ = in.epoch;
   return true;
 }
 
@@ -269,7 +307,7 @@ void FaLowPassNode::publishDiagnostics()
   pushKeyValue(status, "filter_cutoff_hz", std::to_string(config_.cutoff_hz));
   pushKeyValue(status, "filter_alpha", std::to_string(backend_->alpha()));
   pushKeyValue(status, "state_source_id", active_source_id_);
-  pushKeyValue(status, "source_resets", std::to_string(source_resets_.load()));
+  pushKeyValue(status, "state_resets", std::to_string(state_resets_.load()));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
@@ -280,18 +318,3 @@ void FaLowPassNode::publishDiagnostics()
 }
 
 }  // namespace fa_low_pass
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_low_pass::FaLowPassNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_low_pass"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}
