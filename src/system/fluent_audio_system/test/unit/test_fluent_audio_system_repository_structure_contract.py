@@ -1,9 +1,12 @@
+import importlib
 from pathlib import Path
-
-from fluent_audio_system import config_schema
-
+import sys
 
 PACKAGE_ROOT = Path(__file__).parents[2]
+sys.path.insert(0, str(PACKAGE_ROOT))
+
+config_schema = importlib.import_module("fluent_audio_system.config_schema")
+
 SRC_ROOT = PACKAGE_ROOT.parents[1]
 BASE_PACKAGES = frozenset(("fa_interfaces", "fluent_audio_system"))
 
