@@ -20,6 +20,8 @@ REQUIRED_PACKAGE_PATHS = (
     "test/fixtures",
 )
 
+PACKAGE_TEST_CODE_SUFFIXES = (".py", ".cpp")
+
 IO_ROADMAP_PACKAGE_PATHS = (
     "io/sources/fa_in",
     "io/sources/fa_file_in",
@@ -260,6 +262,22 @@ def _package_roots() -> list[Path]:
     return sorted(path.parent for path in SRC_ROOT.rglob("package.xml"))
 
 
+def _package_test_code_files(package_root: Path, relative_test_dir: str) -> list[Path]:
+    test_dir = package_root / relative_test_dir
+    return sorted(
+        path
+        for path in test_dir.rglob("*")
+        if path.is_file()
+        and path.suffix in PACKAGE_TEST_CODE_SUFFIXES
+        and "__pycache__" not in path.parts
+        and (
+            path.name.startswith("test_")
+            or path.name.endswith("_contract.cpp")
+            or path.name.endswith("_contract.py")
+        )
+    )
+
+
 def _roadmap_placeholder_roots() -> list[Path]:
     return sorted(
         path
@@ -376,6 +394,28 @@ def test_all_ros_packages_use_standard_documented_layout() -> None:
             expected = package_root / relative_path
             if not expected.exists():
                 missing.append(f"{package_root.relative_to(REPO_ROOT)}/{relative_path}")
+
+    assert missing == []
+
+
+def test_all_ros_packages_have_package_local_test_code() -> None:
+    missing: list[str] = []
+
+    for package_root in _package_roots():
+        test_files = _package_test_code_files(package_root, "test")
+        if not test_files:
+            missing.append(f"{package_root.relative_to(REPO_ROOT)}/test")
+
+    assert missing == []
+
+
+def test_all_ros_packages_have_unit_contract_tests() -> None:
+    missing: list[str] = []
+
+    for package_root in _package_roots():
+        test_files = _package_test_code_files(package_root, "test/unit")
+        if not test_files:
+            missing.append(f"{package_root.relative_to(REPO_ROOT)}/test/unit")
 
     assert missing == []
 
