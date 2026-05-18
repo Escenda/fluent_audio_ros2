@@ -12,9 +12,9 @@ namespace fa_kws
 
 struct SherpaOnnxKwsBackendConfig
 {
-  std::int32_t target_sample_rate{16000};
-  int model_num_threads{4};
-  std::string execution_provider{};
+  std::int32_t target_sample_rate;
+  int model_num_threads;
+  std::string execution_provider;
 
   std::string encoder_path;
   std::string decoder_path;
@@ -22,13 +22,13 @@ struct SherpaOnnxKwsBackendConfig
   std::string tokens_path;
   std::string keywords_path;
 
-  int max_active_paths{4};
-  int num_trailing_blanks{1};
-  float keywords_score{1.0f};
-  float keywords_threshold{0.25f};
+  int max_active_paths;
+  int num_trailing_blanks;
+  float keywords_score;
+  float keywords_threshold;
 
-  float vad_threshold{0.35f};
-  std::chrono::milliseconds cooldown{std::chrono::milliseconds{2000}};
+  float vad_threshold;
+  std::chrono::milliseconds cooldown;
 };
 
 bool isSupportedSherpaOnnxExecutionProvider(const std::string &execution_provider);

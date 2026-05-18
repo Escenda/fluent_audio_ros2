@@ -34,12 +34,20 @@ def test_backend_config_has_no_provider_default() -> None:
     header_text = header_path.read_text(encoding="utf-8")
     interface_text = interface_path.read_text(encoding="utf-8")
 
-    assert "std::string execution_provider{};" in header_text
+    assert "std::string execution_provider;" in header_text
+    assert "std::string execution_provider{};" not in header_text
     assert "class KwsBackend" in interface_text
     assert "struct KwsDetection" in interface_text
     assert "class SherpaOnnxKwsBackend final : public KwsBackend" in header_text
     assert "model_provider" not in header_text
     assert '{"cpu"}' not in header_text
+    assert "target_sample_rate{16000}" not in header_text
+    assert "model_num_threads{4}" not in header_text
+    assert "max_active_paths{4}" not in header_text
+    assert "keywords_score{1.0f}" not in header_text
+    assert "keywords_threshold{0.25f}" not in header_text
+    assert "vad_threshold{0.35f}" not in header_text
+    assert "std::chrono::milliseconds{2000}" not in header_text
 
 
 def test_cmake_accepts_sherpa_prefix_from_environment() -> None:
@@ -95,14 +103,27 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     ).read_text(encoding="utf-8")
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
-    assert '"backend.execution_provider", ""' in node_text
-    assert '"expected_source_id", ""' in node_text
+    assert 'declare_parameter<std::string>("backend.execution_provider");' in node_text
+    assert 'declare_parameter<std::string>("expected_source_id");' in node_text
+    assert 'declare_parameter<std::string>("audio_topic");' in node_text
+    assert 'declare_parameter<int>("target_sample_rate");' in node_text
     assert "expected_source_id is required" in node_text
     assert "validateTopicBindingsOrThrow();" in node_text
     assert "frameToCanonicalFloat(*msg, expected_source_id_, audio_topic_)" in node_text
-    assert '"vad.probability_gate", 0.35' in node_text
+    assert 'declare_parameter<double>("vad.probability_gate");' in node_text
     assert "backend.execution_provider is required" in node_text
-    assert '"vad.max_age_ms", 1000' in node_text
+    assert 'declare_parameter<int>("vad.max_age_ms");' in node_text
+    assert 'declare_parameter<int>("cooldown_ms");' in node_text
+    assert 'declare_parameter<double>("debug.status_period_sec");' in node_text
+    assert 'declare_parameter<int>("model.num_threads");' in node_text
+    assert 'declare_parameter<int>("kws.max_active_paths");' in node_text
+    assert 'declare_parameter<int>("kws.num_trailing_blanks");' in node_text
+    assert 'declare_parameter<double>("kws.keywords_score");' in node_text
+    assert 'declare_parameter<double>("kws.keywords_threshold");' in node_text
+    assert 'declare_parameter<std::string>("audio_topic", "audio/frame")' not in node_text
+    assert 'declare_parameter<int>("target_sample_rate", 16000)' not in node_text
+    assert 'declare_parameter<double>("vad.probability_gate", 0.35)' not in node_text
+    assert 'declare_parameter<int>("vad.max_age_ms", 1000)' not in node_text
     assert "vad.probability_gate must be finite and in (0.0, 1.0]" in node_text
     assert "vad.max_age_ms must be greater than zero" in node_text
     assert "vadStateMatchesAudioBinding(*msg, expected_source_id_, audio_topic_)" in node_text
@@ -152,7 +173,8 @@ def test_backend_keeps_vad_gate_mandatory() -> None:
         encoding="utf-8"
     )
 
-    assert "float vad_threshold{0.35f};" in header_text
+    assert "float vad_threshold;" in header_text
+    assert "float vad_threshold{0.35f};" not in header_text
     assert "isValidVadGateThreshold" in backend_text
     assert "isValidVadProbability" in backend_text
     assert "vad_threshold must be finite and in (0.0, 1.0]" in backend_text

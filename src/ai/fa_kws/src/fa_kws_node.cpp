@@ -205,32 +205,31 @@ private:
 
   void loadParameters()
   {
-    audio_topic_ = this->declare_parameter<std::string>("audio_topic", "audio/frame");
-    vad_topic_ = this->declare_parameter<std::string>("vad_topic", "voice/vad_state");
-    output_topic_ = this->declare_parameter<std::string>("output_topic", "voice/wake_word");
-    expected_source_id_ = this->declare_parameter<std::string>("expected_source_id", "");
-    backend_name_ = this->declare_parameter<std::string>("backend.name", "");
+    audio_topic_ = this->declare_parameter<std::string>("audio_topic");
+    vad_topic_ = this->declare_parameter<std::string>("vad_topic");
+    output_topic_ = this->declare_parameter<std::string>("output_topic");
+    expected_source_id_ = this->declare_parameter<std::string>("expected_source_id");
+    backend_name_ = this->declare_parameter<std::string>("backend.name");
 
-    target_sample_rate_ = this->declare_parameter<int>("target_sample_rate", 16000);
-    probability_gate_ = this->declare_parameter<double>("vad.probability_gate", 0.35);
-    vad_max_age_ms_ = this->declare_parameter<int>("vad.max_age_ms", 1000);
-    cooldown_ms_ = this->declare_parameter<int>("cooldown_ms", 2000);
-    debug_status_period_sec_ = this->declare_parameter<double>("debug.status_period_sec", 0.0);
+    target_sample_rate_ = this->declare_parameter<int>("target_sample_rate");
+    probability_gate_ = this->declare_parameter<double>("vad.probability_gate");
+    vad_max_age_ms_ = this->declare_parameter<int>("vad.max_age_ms");
+    cooldown_ms_ = this->declare_parameter<int>("cooldown_ms");
+    debug_status_period_sec_ = this->declare_parameter<double>("debug.status_period_sec");
 
-    encoder_path_ = this->declare_parameter<std::string>("model.encoder", "");
-    decoder_path_ = this->declare_parameter<std::string>("model.decoder", "");
-    joiner_path_ = this->declare_parameter<std::string>("model.joiner", "");
-    tokens_path_ = this->declare_parameter<std::string>("model.tokens", "");
-    keywords_path_ = this->declare_parameter<std::string>("kws.keywords_file", "");
+    encoder_path_ = this->declare_parameter<std::string>("model.encoder");
+    decoder_path_ = this->declare_parameter<std::string>("model.decoder");
+    joiner_path_ = this->declare_parameter<std::string>("model.joiner");
+    tokens_path_ = this->declare_parameter<std::string>("model.tokens");
+    keywords_path_ = this->declare_parameter<std::string>("kws.keywords_file");
 
-    model_num_threads_ = this->declare_parameter<int>("model.num_threads", 4);
-    execution_provider_ = this->declare_parameter<std::string>(
-      "backend.execution_provider", "");
+    model_num_threads_ = this->declare_parameter<int>("model.num_threads");
+    execution_provider_ = this->declare_parameter<std::string>("backend.execution_provider");
 
-    kws_max_active_paths_ = this->declare_parameter<int>("kws.max_active_paths", 4);
-    kws_num_trailing_blanks_ = this->declare_parameter<int>("kws.num_trailing_blanks", 1);
-    kws_keywords_score_ = this->declare_parameter<double>("kws.keywords_score", 1.0);
-    kws_keywords_threshold_ = this->declare_parameter<double>("kws.keywords_threshold", 0.25);
+    kws_max_active_paths_ = this->declare_parameter<int>("kws.max_active_paths");
+    kws_num_trailing_blanks_ = this->declare_parameter<int>("kws.num_trailing_blanks");
+    kws_keywords_score_ = this->declare_parameter<double>("kws.keywords_score");
+    kws_keywords_threshold_ = this->declare_parameter<double>("kws.keywords_threshold");
   }
 
   void setupCommunication()
@@ -451,10 +450,10 @@ private:
   std::string expected_source_id_;
   std::string backend_name_;
 
-  int target_sample_rate_{16000};
-  double probability_gate_{0.35};
-  int vad_max_age_ms_{1000};
-  int cooldown_ms_{2000};
+  int target_sample_rate_{};
+  double probability_gate_{};
+  int vad_max_age_ms_{};
+  int cooldown_ms_{};
 
   std::string encoder_path_;
   std::string decoder_path_;
@@ -462,13 +461,13 @@ private:
   std::string tokens_path_;
   std::string keywords_path_;
 
-  int model_num_threads_{4};
-  std::string execution_provider_{};
+  int model_num_threads_{};
+  std::string execution_provider_;
 
-  int kws_max_active_paths_{4};
-  int kws_num_trailing_blanks_{1};
-  double kws_keywords_score_{1.0};
-  double kws_keywords_threshold_{0.25};
+  int kws_max_active_paths_{};
+  int kws_num_trailing_blanks_{};
+  double kws_keywords_score_{};
+  double kws_keywords_threshold_{};
 
   std::atomic<float> current_vad_prob_;
   std::atomic<std::int64_t> last_vad_rx_ns_{0};
