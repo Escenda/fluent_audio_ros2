@@ -1,11 +1,22 @@
 # fa_network_out
 
-Roadmap directory for the network sink adapter that sends incoming `AudioFrame`
-payloads to an explicitly configured endpoint.
+`fa_network_out` is a ROS 2 sink adapter that sends incoming
+`fa_interfaces/msg/AudioFrame` payload bytes to an explicitly configured UDP
+endpoint.
 
-This is not a ROS 2 package yet. Do not add `package.xml` until the sink adapter
-specification, backend documentation, launch contract, and tests are in place.
-Transport stabilization belongs in `src/streaming`, not inside this adapter.
+It does not encode media, resample, change channel layout, change sample format,
+add a jitter buffer, perform packet loss concealment, or correct clock drift.
+Those steps must be explicit processing or `src/streaming` nodes.
+
+## Launch
+
+```bash
+ros2 launch fa_network_out fa_network_out.launch.py config_file:=/path/to/fa_network_out.yaml
+```
+
+The default config intentionally leaves `endpoint.uri` and `transport.identity`
+empty, so direct default launch fails closed until a site or test config binds a
+concrete endpoint.
 
 ## Documents
 

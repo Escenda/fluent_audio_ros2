@@ -1,0 +1,91 @@
+from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
+import yaml
+
+
+PACKAGE_ROOT = Path(__file__).parents[2]
+
+
+def _run_fa_network_out_launch(config_path: Path) -> subprocess.CompletedProcess[str]:
+    ros2 = shutil.which("ros2")
+    if ros2 is None:
+        pytest.skip("ros2 executable is required for launch fail-closed verification")
+
+    return subprocess.run(
+        [
+            ros2,
+            "launch",
+            "fa_network_out",
+            "fa_network_out.launch.py",
+            f"config_file:={config_path}",
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=8,
+    )
+
+
+def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
+    launch_text = (PACKAGE_ROOT / "launch" / "fa_network_out.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
+    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
+    assert 'FindPackageShare("fa_network_out"), "config", "default.yaml"' in launch_text
+    assert 'package="fa_network_out"' in launch_text
+    assert 'executable="fa_network_out_node"' in launch_text
+    assert "parameters=[config_file]" in launch_text
+    assert "endpoint.uri" not in launch_text
+    assert "backend.name" not in launch_text
+    assert "jitter" not in launch_text
+
+
+def test_default_launch_config_declares_raw_pcm_network_sink_contract() -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_network_out"]["ros__parameters"]
+
+    assert params["backend.name"] == "network_pcm_sender"
+    assert params["endpoint.uri"] == ""
+    assert params["transport.identity"] == ""
+    assert params["input_topic"] == "audio/network_out"
+    assert params["expected"]["sample_rate"] == 16000
+    assert params["expected"]["channels"] == 1
+    assert params["expected"]["encoding"] == "PCM16LE"
+    assert params["expected"]["bit_depth"] == 16
+    assert params["expected"]["layout"] == "interleaved"
+
+
+def test_launch_fails_closed_when_endpoint_uri_is_missing(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    config["fa_network_out"]["ros__parameters"]["transport.identity"] = "launch-test"
+    config_path = tmp_path / "missing_endpoint_uri.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_network_out_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "endpoint.uri is required" in result.stdout
+
+
+def test_launch_fails_closed_when_transport_identity_is_missing(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    config["fa_network_out"]["ros__parameters"]["endpoint.uri"] = "udp://127.0.0.1:9"
+    config_path = tmp_path / "missing_transport_identity.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_network_out_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "transport.identity is required" in result.stdout
