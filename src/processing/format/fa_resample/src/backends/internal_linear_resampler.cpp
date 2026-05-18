@@ -29,7 +29,7 @@ const char * frameContractStatusName(const FrameContractStatus status)
     case FrameContractStatus::kUnalignedData:
       return "unaligned_data";
   }
-  return "unknown";
+  throw std::logic_error("unhandled resample frame contract status");
 }
 
 const char * processStatusMessage(const ProcessStatus status)
@@ -46,7 +46,7 @@ const char * processStatusMessage(const ProcessStatus status)
     case ProcessStatus::kEncodeFailed:
       return "FLOAT32LE encoding failed";
   }
-  return "unknown resample backend status";
+  throw std::logic_error("unhandled resample backend process status");
 }
 
 FrameContractStatus validateFloat32InterleavedContract(const FrameContract & contract)

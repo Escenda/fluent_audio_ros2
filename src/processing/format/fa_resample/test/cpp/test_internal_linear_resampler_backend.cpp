@@ -163,6 +163,18 @@ TEST(InternalLinearResamplerBackendContract, ReturnsTypedStatusAndLeavesOutputOn
   EXPECT_EQ(output, float32LeBytes({0.125F}));
 }
 
+TEST(InternalLinearResamplerBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_resample::backends::frameContractStatusName(
+      static_cast<fa_resample::backends::FrameContractStatus>(999)),
+    std::logic_error);
+  EXPECT_THROW(
+    fa_resample::backends::processStatusMessage(
+      static_cast<fa_resample::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(InternalLinearResamplerBackendContract, ProcessesBytesThroughBackend)
 {
   fa_resample::backends::InternalLinearResamplerBackend backend(

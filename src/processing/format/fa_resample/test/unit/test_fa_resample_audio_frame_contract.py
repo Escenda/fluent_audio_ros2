@@ -140,6 +140,9 @@ def test_resample_does_not_hide_sample_format_conversion_or_clamping() -> None:
     assert "containsOnlyFiniteNormalizedSamples" in backend_source
     assert "ProcessStatus::kInvalidInputSamples" in backend_source
     assert "ProcessStatus::kEncodeFailed" in backend_source
+    assert 'throw std::logic_error("unhandled resample backend process status")' in backend_source
+    assert 'throw std::logic_error("unhandled resample frame contract status")' in backend_source
+    assert "unknown resample backend status" not in backend_source
 
 
 def test_resample_backend_reports_typed_status_and_keeps_ros_boundary() -> None:

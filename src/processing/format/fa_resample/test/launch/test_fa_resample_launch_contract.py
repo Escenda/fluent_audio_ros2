@@ -20,6 +20,7 @@ def _run_fa_resample_launch(config_path: Path) -> subprocess.CompletedProcess[st
             "launch",
             "fa_resample",
             "fa_resample.launch.py",
+            "node_name:=fa_resample",
             f"config_file:={config_path}",
         ],
         check=False,
