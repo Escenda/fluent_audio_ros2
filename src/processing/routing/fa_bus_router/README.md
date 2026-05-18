@@ -27,4 +27,4 @@
 - outputs: `audio/output/frame`
 - expected: `48000Hz`, `1ch`, `PCM16LE`, `16bit`, `interleaved`
 - qos: reliable, depth `10`
-- diagnostics: `1000ms`
+- diagnostics: `1000ms`, `diagnostics.qos.depth=10`, `diagnostics.qos.reliable=true`

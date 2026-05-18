@@ -33,6 +33,8 @@ def test_default_config_and_launch_use_monitor_mix_contract() -> None:
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is False
     assert params["diagnostics"]["publish_period_ms"] == 1000
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is True
     assert "default_value" not in launch
     assert "FindPackageShare" not in launch
     assert "PathJoinSubstitution" not in launch
@@ -50,6 +52,9 @@ def test_startup_validation_fails_closed_for_required_parameters_and_format() ->
     assert "readRequiredString(*this, \"output_topic\")" in load_parameters
     assert "readRequiredInt(*this, \"expected.sample_rate\")" in load_parameters
     assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
+    assert "readRequiredInt(*this, \"diagnostics.qos.depth\")" in load_parameters
+    assert "readRequiredBool(*this, \"diagnostics.qos.reliable\")" in load_parameters
+    assert "rclcpp::SystemDefaultsQoS()" not in source
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line
@@ -72,6 +77,7 @@ def test_startup_validation_fails_closed_for_required_parameters_and_format() ->
     assert "max_frame_age_ms must be > 0" in load_parameters
     assert "qos.depth must be > 0" in load_parameters
     assert "diagnostics.publish_period_ms must be > 0" in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
     assert "input_gains_db must resolve to finite linear gains" in load_parameters
 
 

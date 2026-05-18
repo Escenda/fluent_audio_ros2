@@ -143,6 +143,8 @@ void FaMonitorMixNode::loadParameters()
   this->declare_parameter<int>("qos.depth");
   this->declare_parameter<bool>("qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
+  this->declare_parameter<int>("diagnostics.qos.depth");
+  this->declare_parameter<bool>("diagnostics.qos.reliable");
 
   config_.input_topics = readRequiredStringArray(*this, "input_topics");
   config_.input_stream_ids = readRequiredStringArray(*this, "input_stream_ids");
@@ -161,6 +163,8 @@ void FaMonitorMixNode::loadParameters()
   config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
   config_.diagnostics_publish_period_ms = readRequiredInt(
     *this, "diagnostics.publish_period_ms");
+  config_.diagnostics_qos_depth = readRequiredInt(*this, "diagnostics.qos.depth");
+  config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
 
   if (config_.input_topics.empty()) {
     throw std::runtime_error("input_topics must contain at least one topic");
@@ -233,6 +237,9 @@ void FaMonitorMixNode::loadParameters()
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
+  if (config_.diagnostics_qos_depth <= 0) {
+    throw std::runtime_error("diagnostics.qos.depth must be > 0");
+  }
 
   config_.input_gains_linear.clear();
   config_.input_gains_linear.reserve(config_.input_topics.size());
@@ -297,9 +304,15 @@ void FaMonitorMixNode::setupInterfaces()
       });
   }
 
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
+  }
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics",
-    rclcpp::SystemDefaultsQoS());
+    diagnostics_qos);
   diag_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.diagnostics_publish_period_ms),
     std::bind(&FaMonitorMixNode::publishDiagnostics, this));

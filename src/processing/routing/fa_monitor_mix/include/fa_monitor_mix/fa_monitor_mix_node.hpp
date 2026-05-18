@@ -39,6 +39,8 @@ struct MonitorMixConfig
   int qos_depth{-1};
   bool qos_reliable{false};
   int diagnostics_publish_period_ms{-1};
+  int diagnostics_qos_depth{-1};
+  bool diagnostics_qos_reliable{false};
 };
 
 /**

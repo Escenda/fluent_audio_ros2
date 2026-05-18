@@ -26,6 +26,8 @@ def test_default_config_defines_explicit_patchbay_contract() -> None:
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is True
     assert params["diagnostics"]["publish_period_ms"] == 1000
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is True
     assert "default_value" not in launch_text
     assert "FindPackageShare" not in launch_text
     assert "PathJoinSubstitution" not in launch_text
@@ -42,6 +44,9 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "readRequiredStringArray(*this, \"output_topics\")" in load_parameters
     assert "readRequiredInt(*this, \"expected.sample_rate\")" in load_parameters
     assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
+    assert "readRequiredInt(*this, \"diagnostics.qos.depth\")" in load_parameters
+    assert "readRequiredBool(*this, \"diagnostics.qos.reliable\")" in load_parameters
+    assert "rclcpp::SystemDefaultsQoS()" not in source
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line
@@ -67,6 +72,7 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "fa_patchbay requires expected.layout=interleaved" in load_parameters
     assert "qos.depth must be > 0" in load_parameters
     assert "diagnostics.publish_period_ms must be > 0" in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
 
 
 def test_runtime_frame_validation_drops_invalid_frames_before_routing() -> None:
