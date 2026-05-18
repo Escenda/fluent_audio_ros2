@@ -110,7 +110,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "gain output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown gain backend status";
+  throw std::logic_error("unhandled gain backend process status");
 }
 
 }  // namespace fa_gain::backends

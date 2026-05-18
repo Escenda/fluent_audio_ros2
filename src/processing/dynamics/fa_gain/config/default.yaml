@@ -1,7 +1,7 @@
 fa_gain:
   ros__parameters:
-    input_topic: "audio/resample16k/mic"
-    output_topic: "audio/gain/mic"
+    input_topic: "fa_gain/input"
+    output_topic: "fa_gain/output"
     input_stream_id: "audio/resample16k/mic"
 
     output:

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -103,4 +104,13 @@ TEST(InternalGainBackendContract, RejectsUnrepresentableOutput)
   EXPECT_EQ(
     backend.process(float32LeBytes({1.0F}), output),
     fa_gain::backends::ProcessStatus::kNonFiniteOutput);
+}
+
+TEST(InternalGainBackendContract, FailsClosedForUnhandledStatusMessage)
+{
+  EXPECT_THROW(
+    static_cast<void>(
+      fa_gain::backends::processStatusMessage(
+        static_cast<fa_gain::backends::ProcessStatus>(999))),
+    std::logic_error);
 }

@@ -27,6 +27,19 @@ bool isFinite(double value)
   return std::isfinite(value);
 }
 
+std::string removeLeadingSlashes(std::string value)
+{
+  while (!value.empty() && value.front() == '/') {
+    value.erase(value.begin());
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return left == right || removeLeadingSlashes(left) == removeLeadingSlashes(right);
+}
+
 bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
 {
   return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
@@ -159,13 +172,24 @@ void FaReverbNode::loadParameters()
   if (config_.output_stream_id.empty()) {
     throw std::runtime_error("output.stream_id is required");
   }
-  if (config_.input_stream_id == config_.input_topic ||
-      config_.input_stream_id == config_.output_topic)
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (resolved_input_topic == resolved_output_topic) {
+    throw std::runtime_error("input_topic and output_topic must resolve to distinct ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic))
   {
     throw std::runtime_error("input_stream_id must be distinct from ROS topics");
   }
-  if (config_.output_stream_id == config_.input_topic ||
-      config_.output_stream_id == config_.output_topic)
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic))
   {
     throw std::runtime_error("output.stream_id must be distinct from ROS topics");
   }
@@ -362,10 +386,11 @@ bool FaReverbNode::applyReverb(
   out.stream_id = config_.output_stream_id;
   const backends::ProcessResult result = backend_->process(in.source_id, in.data, out.data);
   if (result.status != backends::ProcessStatus::kOk) {
+    const char * status_message = backends::processStatusMessage(result.status);
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "Dropping frame because reverb backend rejected input or output: %s",
-      backends::processStatusMessage(result.status));
+      status_message);
     return false;
   }
 

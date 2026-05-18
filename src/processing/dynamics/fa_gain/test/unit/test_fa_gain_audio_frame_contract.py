@@ -27,10 +27,14 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_gain"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/resample16k/mic"
-    assert params["output_topic"] == "audio/gain/mic"
+    assert params["input_topic"] == "fa_gain/input"
+    assert params["output_topic"] == "fa_gain/output"
     assert params["input_stream_id"] == "audio/resample16k/mic"
     assert params["output"]["stream_id"] == "audio/gain/mic"
+    assert params["input_topic"] != params["input_stream_id"]
+    assert params["output_topic"] != params["output"]["stream_id"]
+    assert params["output_topic"] != params["input_stream_id"]
+    assert params["input_topic"] != params["output"]["stream_id"]
     assert params["gain"]["linear"] == 1.0
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
@@ -77,6 +81,38 @@ def test_gain_validates_frame_contract_before_processing() -> None:
     assert "msg.data.empty() || (msg.data.size() % bytes_per_frame) != 0" in validate_frame
 
 
+def test_gain_parameters_are_required_without_runtime_defaults() -> None:
+    source = read_node_source()
+    load_parameters = source.split("void FaGainNode::loadParameters")[1].split(
+        "void FaGainNode::configureBackend"
+    )[0]
+
+    assert 'this->declare_parameter<std::string>("input_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("input_stream_id");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output.stream_id");' in load_parameters
+    assert 'this->declare_parameter<double>("gain.linear");' in load_parameters
+    assert "readRequiredString(*this, \"input_topic\")" in load_parameters
+    assert "readRequiredString(*this, \"input_stream_id\")" in load_parameters
+    assert "readRequiredString(*this, \"output.stream_id\")" in load_parameters
+    assert "readRequiredDouble(*this, \"gain.linear\")" in load_parameters
+    assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
+
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
+    assert "config_.expected_sample_rate > kMaxExpectedSampleRate" in load_parameters
+    assert "config_.expected_channels > kMaxExpectedChannels" in load_parameters
+
+
 def test_gain_preserves_source_identity_and_updates_stream_identity() -> None:
     source = read_node_source()
     apply_gain = source.split("bool FaGainNode::applyGain")[1].split(
@@ -108,7 +144,7 @@ def test_gain_algorithm_uses_ros_free_backend() -> None:
     assert "kOutOfRangeOutput" in header
     assert "static_cast<double>(sample) * config_.linear_gain" in process
     assert "output = std::move(next_output);" in process
-    assert "backends::processStatusMessage(status)" in node_source
+    assert "const char * status_message = backends::processStatusMessage(status);" in node_source
 
     forbidden_backend_tokens = ("rclcpp", "fa_interfaces", "AudioFrame")
     for token in forbidden_backend_tokens:
@@ -130,7 +166,7 @@ def test_gain_drops_out_of_range_samples_instead_of_limiting() -> None:
     assert "return ProcessStatus::kOutOfRangeInput;" in process
     assert "return ProcessStatus::kOutOfRangeOutput;" in process
     assert "std::clamp" not in process
-    assert "backends::processStatusMessage(status)" in node_source
+    assert "const char * status_message = backends::processStatusMessage(status);" in node_source
 
 
 def test_gain_keeps_transport_topics_separate_from_stream_identity() -> None:
@@ -142,6 +178,8 @@ def test_gain_keeps_transport_topics_separate_from_stream_identity() -> None:
     assert params["output"]["stream_id"]
     assert "config_.input_topic == config_.output_topic" in source
     assert "input_stream_id and output.stream_id must be distinct" in source
+    assert "input_stream_id must be distinct from ROS topics" in source
+    assert "output.stream_id must be distinct from ROS topics" in source
     assert "msg.stream_id != config_.input_stream_id" in source
     assert "out.stream_id = config_.output_stream_id;" in source
     assert "std::max<int>(1, config_.qos_depth)" not in source

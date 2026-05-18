@@ -113,10 +113,14 @@ def test_reverb_parameters_are_range_checked() -> None:
     assert "config_.input_topic == config_.output_topic" in load_parameters
     assert "config_.input_stream_id.empty()" in load_parameters
     assert "config_.output_stream_id.empty()" in load_parameters
-    assert "config_.input_stream_id == config_.input_topic" in load_parameters
-    assert "config_.input_stream_id == config_.output_topic" in load_parameters
-    assert "config_.output_stream_id == config_.input_topic" in load_parameters
-    assert "config_.output_stream_id == config_.output_topic" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
     assert "config_.input_stream_id == config_.output_stream_id" in load_parameters
     assert "!isFinite(config_.room_size) || config_.room_size < 0.0 || config_.room_size > 1.0" in load_parameters
     assert "!isFinite(config_.damping) || config_.damping < 0.0 || config_.damping > 1.0" in load_parameters
@@ -168,6 +172,7 @@ def test_reverb_delegates_sample_validation_and_state_mutation_to_backend() -> N
     assert "validateSamples" not in source
     assert "if (!applyReverb(*msg, out))" in handle_frame
     assert "backend_->process(in.source_id, in.data, out.data)" in apply_reverb
+    assert "const char * status_message = backends::processStatusMessage(result.status);" in apply_reverb
     assert "enum class ProcessStatus" in backend_header
     assert "ProcessResult" in backend_header
     assert "!isNormalizedSample(input_sample)" in process

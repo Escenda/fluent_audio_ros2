@@ -97,10 +97,14 @@ def test_echo_parameters_are_required_without_runtime_defaults_and_range_checked
     assert "config_.input_topic == config_.output_topic" in load_parameters
     assert "config_.input_stream_id.empty()" in load_parameters
     assert "config_.output_stream_id.empty()" in load_parameters
-    assert "config_.input_stream_id == config_.input_topic" in load_parameters
-    assert "config_.input_stream_id == config_.output_topic" in load_parameters
-    assert "config_.output_stream_id == config_.input_topic" in load_parameters
-    assert "config_.output_stream_id == config_.output_topic" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
     assert "config_.input_stream_id == config_.output_stream_id" in load_parameters
     assert "!isFinite(config_.delay_ms) || config_.delay_ms <= 0.0" in load_parameters
     assert "!isFinite(config_.feedback_gain) || std::abs(config_.feedback_gain) >= 1.0" in load_parameters
@@ -152,6 +156,7 @@ def test_echo_delegates_sample_validation_and_state_mutation_to_backend() -> Non
     assert "validateSamples" not in source
     assert "if (!applyEcho(*msg, out))" in handle_frame
     assert "backend_->process(in.source_id, in.data, out.data)" in apply_echo
+    assert "const char * status_message = backends::processStatusMessage(result.status);" in apply_echo
     assert "enum class ProcessStatus" in backend_header
     assert "ProcessResult" in backend_header
     assert "!isNormalizedSample(input_sample)" in process
