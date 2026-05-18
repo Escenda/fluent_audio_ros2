@@ -4,7 +4,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -111,6 +114,52 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("audio.qos.reliable", true),
     rclcpp::Parameter("lifecycle.qos.depth", 10),
     rclcpp::Parameter("lifecycle.qos.reliable", true),
+  };
+}
+
+std::filesystem::path targetPath(const std::string & name)
+{
+  const auto path = std::filesystem::temp_directory_path() / name;
+  std::error_code error;
+  std::filesystem::remove(path, error);
+  return path;
+}
+
+void writeExistingFile(const std::filesystem::path & path)
+{
+  std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+  const std::vector<uint8_t> bytes{0x99, 0x88};
+  stream.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+std::vector<uint8_t> readFile(const std::filesystem::path & path)
+{
+  std::ifstream stream(path, std::ios::binary);
+  return std::vector<uint8_t>(
+    std::istreambuf_iterator<char>(stream),
+    std::istreambuf_iterator<char>());
+}
+
+std::vector<rclcpp::Parameter> validFileParameters(const std::filesystem::path & file_path)
+{
+  return {
+    rclcpp::Parameter("backend.name", "pcm_file_writer"),
+    rclcpp::Parameter("file.path", file_path.string()),
+    rclcpp::Parameter("input_topic", "fa_out_contract/file_input"),
+    rclcpp::Parameter("input_stream_id", "audio/playback/main"),
+    rclcpp::Parameter("playback_done_topic", "fa_out_contract/file_playback_done"),
+    rclcpp::Parameter("playback_control_service", "fa_out_contract/file_playback_control"),
+    rclcpp::Parameter("audio.encoding", "PCM16LE"),
+    rclcpp::Parameter("audio.sample_rate", 48000),
+    rclcpp::Parameter("audio.channels", 1),
+    rclcpp::Parameter("audio.bit_depth", 16),
+    rclcpp::Parameter("queue.max_frames", 32),
+    rclcpp::Parameter("audio.chunk_duration_ms", 1),
+    rclcpp::Parameter("audio.qos.depth", 10),
+    rclcpp::Parameter("audio.qos.reliable", true),
+    rclcpp::Parameter("lifecycle.qos.depth", 10),
+    rclcpp::Parameter("lifecycle.qos.reliable", true),
+    rclcpp::Parameter("overwrite.enabled", false),
   };
 }
 
@@ -263,6 +312,82 @@ TEST_F(RclcppContractTest, PassesExplicitConfigToSinkBackend)
   EXPECT_EQ(state->backend_config.bit_depth, 16u);
   EXPECT_EQ(state->backend_config.buffer_frames, 16384u);
   EXPECT_EQ(state->backend_config.period_frames, 4096u);
+}
+
+TEST_F(RclcppContractTest, FileBackendFailsClosedWhenFilePathIsMissing)
+{
+  const auto target = targetPath("fa_out_missing_file_path_placeholder.pcm");
+  auto parameters = validFileParameters(target);
+  replaceParameter(parameters, rclcpp::Parameter("file.path", ""));
+  const auto state = std::make_shared<FakeSinkState>();
+
+  EXPECT_THROW(
+    {
+      auto node = std::make_shared<fa_out::FaOutNode>(
+        optionsWith(std::move(parameters)),
+        factoryFor(state));
+    },
+    std::invalid_argument);
+  EXPECT_EQ(state->open_calls.load(), 0u);
+}
+
+TEST_F(RclcppContractTest, FileBackendFailsClosedWhenOverwriteDisabledTargetExists)
+{
+  const auto target = targetPath("fa_out_existing_file_target.pcm");
+  writeExistingFile(target);
+  const auto state = std::make_shared<FakeSinkState>();
+
+  EXPECT_THROW(
+    {
+      auto node = std::make_shared<fa_out::FaOutNode>(
+        optionsWith(validFileParameters(target)),
+        factoryFor(state));
+    },
+    std::runtime_error);
+  EXPECT_EQ(state->open_calls.load(), 0u);
+}
+
+TEST_F(RclcppContractTest, FileBackendWritesRawPcmPayloadWithoutFormatMutation)
+{
+  const auto target = targetPath("fa_out_valid_file_target.pcm");
+  const auto state = std::make_shared<FakeSinkState>();
+  auto node = std::make_shared<fa_out::FaOutNode>(
+    optionsWith(validFileParameters(target)),
+    factoryFor(state));
+  auto publisher_node = std::make_shared<rclcpp::Node>("fa_out_file_contract_publisher");
+  auto publisher = publisher_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    "fa_out_contract/file_input",
+    rclcpp::QoS(10).reliable());
+  auto done_node = std::make_shared<rclcpp::Node>("fa_out_file_contract_done_watcher");
+  std::mutex done_mutex;
+  std::vector<fa_interfaces::msg::PlaybackDone> done_messages;
+  auto done_sub = done_node->create_subscription<fa_interfaces::msg::PlaybackDone>(
+    "fa_out_contract/file_playback_done", rclcpp::QoS(10).reliable(),
+    [&done_mutex, &done_messages](const fa_interfaces::msg::PlaybackDone::SharedPtr msg) {
+      std::lock_guard<std::mutex> lock(done_mutex);
+      done_messages.push_back(*msg);
+    });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(publisher_node);
+  executor.add_node(done_node);
+  ASSERT_TRUE(spinUntil(executor, [&publisher]() {
+    return publisher->get_subscription_count() > 0;
+  }));
+
+  const auto frame = validFrame();
+  publisher->publish(frame);
+  ASSERT_TRUE(spinUntil(executor, [&target]() {
+    return std::filesystem::exists(target) && std::filesystem::file_size(target) == 4U;
+  }));
+
+  EXPECT_EQ(readFile(target), frame.data);
+  EXPECT_EQ(state->open_calls.load(), 0u);
+  EXPECT_TRUE(spinUntil(executor, [&done_mutex, &done_messages]() {
+    std::lock_guard<std::mutex> lock(done_mutex);
+    return done_messages.size() == 1u;
+  }));
 }
 
 TEST_F(RclcppContractTest, WritesOnlyFramesMatchingTheConfiguredSinkContract)

@@ -10,6 +10,8 @@
 
 実装は `fa_out::backends::AlsaPlaybackBackend` です。この class は ROS2 adapter ではなく device backend なので、`rclcpp`、`fa_interfaces`、ROS message header を include しません。
 
+同じ `fa_out` node には sibling backend として `pcm_file_writer` があります。backend selection は `backend.name` で明示し、ALSA backend が file output に fallback することはありません。
+
 ## Input
 
 - ALSA playback device id。`hw:` で始まる raw hardware device のみ許可する

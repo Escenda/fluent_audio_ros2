@@ -36,7 +36,6 @@ IO_ROADMAP_PACKAGE_PATHS = (
     "io/sources/fa_in",
     "io/sources/fa_network_in",
     "io/sinks/fa_out",
-    "io/sinks/fa_file_out",
     "io/sinks/fa_network_out",
     "io/utilities/fa_record",
     "io/utilities/fa_stream",

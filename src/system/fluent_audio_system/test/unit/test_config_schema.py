@@ -663,7 +663,6 @@ fa_in:
         ("fa_in", "fa_in_node"),
         ("fa_network_in", "fa_network_in_node"),
         ("fa_out", "fa_out_node"),
-        ("fa_file_out", "fa_file_out_node"),
         ("fa_network_out", "fa_network_out_node"),
         ("fa_record", "fa_record_node"),
         ("fa_stream", "fa_stream_node"),
@@ -702,10 +701,13 @@ def test_io_group_accepts_source_sink_and_io_utility_packages(
     assert spec.groups[0].nodes[0].package == package_name
 
 
-def test_system_config_rejects_removed_or_unknown_packages_even_when_disabled() -> None:
+@pytest.mark.parametrize("package_name", ["fa_file_in", "fa_file_out"])
+def test_system_config_rejects_removed_or_unknown_packages_even_when_disabled(
+    package_name: str,
+) -> None:
     with pytest.raises(
         RuntimeError,
-        match="group io contains unsupported FluentAudio package fa_file_in",
+        match=f"group io contains unsupported FluentAudio package {package_name}",
     ):
         parse_system_config(
             {
@@ -716,9 +718,9 @@ def test_system_config_rejects_removed_or_unknown_packages_even_when_disabled() 
                         "enable": True,
                         "nodes": [
                             {
-                                "id": "fa_file_in",
+                                "id": package_name,
                                 "enable": False,
-                                "package": "fa_file_in",
+                                "package": package_name,
                             }
                         ],
                     }

@@ -35,6 +35,7 @@ struct OutputConfig
   std::string playback_done_topic{};
   std::string playback_control_service{};
   std::string device_id{};
+  std::string file_path{};
   std::string encoding{};
   uint32_t sample_rate{0};
   uint32_t channels{0};
@@ -49,6 +50,7 @@ struct OutputConfig
   bool qos_reliable{false};
   size_t lifecycle_qos_depth{0};
   bool lifecycle_qos_reliable{false};
+  bool overwrite_enabled{false};
 };
 
 struct QueuedFrame
@@ -76,6 +78,7 @@ private:
   void closeBackend();
   size_t writeBackendFrames(const uint8_t * data, size_t frame_count);
   bool isBackendRunning();
+  std::string configuredSinkLabel() const;
   void failClosed(const std::string &reason);
   void playbackThread();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);

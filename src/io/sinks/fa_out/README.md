@@ -1,6 +1,6 @@
 # FA Out
 
-`fa_out`は`fa_interfaces/msg/AudioFrame`をALSA raw hardware device に出力するROS2ノードです。`input_topic`で指定したtopicを購読し、`input_stream_id`に一致するPCM16LE frameだけをスピーカーへ再生します。
+`fa_out`は`fa_interfaces/msg/AudioFrame`を明示 backend で選んだ sink に出力するROS2ノードです。`input_topic`で指定したtopicを購読し、`input_stream_id`に一致する frame だけを speaker device または raw PCM file へ書き込みます。
 
 ## 依存
 - ALSA (`libasound2-dev`)
@@ -11,7 +11,7 @@
 ros2 launch fa_out fa_out.launch.py node_name:=fa_out config_file:=/path/to/fa_out.yaml
 ```
 
-`config/default.yaml` は site 固有の sink id を空にしています。
+`config/default.yaml` は `alsa_playback` backend 用で、site 固有の sink id を空にしています。
 `audio.device_id` を明示しない起動は fail closed します。
 `node_name` と `config_file` は launch 時に明示する必要があります。
 受信した `AudioFrame.stream_id` は `input_stream_id` と一致する必要があります。topic subscription だけを根拠に、別 stream の frame を speaker sink へ流しません。
@@ -23,10 +23,13 @@ ros2 launch fa_out fa_out.launch.py node_name:=fa_out config_file:=/path/to/fa_o
 - `input_stream_id`: speaker sink に流せる `AudioFrame.stream_id`
 - `playback_done_topic`: playback 完了通知を publish する ROS topic
 - `playback_control_service`: stop / pause / resume を受ける ROS service
-- `audio.device_id`: ALSA raw hardware device id（例: `hw:1,0`）
+- `backend.name`: `alsa_playback` または `pcm_file_writer`
+- `audio.device_id`: ALSA raw hardware device id（`alsa_playback`、例: `hw:1,0`）
+- `file.path`: raw PCM output path（`pcm_file_writer`）
+- `overwrite.enabled`: 既存 file を上書きするか（`pcm_file_writer`）
 - `audio.sample_rate`, `audio.channels`, `audio.bit_depth`: フレームと一致している必要があります。
 - `queue.max_frames`: バッファに保持するフレーム数。溢れた場合は frame drop で継続せず fail closed します。
 
 `fa_tts`と組み合わせる場合、`fa_tts` の出力を `fa_mix` などの routing node で `input_topic` に流し、routing 後の `AudioFrame.stream_id` を `input_stream_id` に揃えてから再生します。
 
-ファイル出力やファイル再生は `fa_out` では扱いません。必要な場合は file sink/source 専用 package として切り出します。
+`pcm_file_writer` は raw bytes を書くだけで、WAV/MP3/AAC/FLAC container 生成、encode、resample、gain は行いません。必要な処理は `fa_encode`、`fa_sample_format`、`fa_gain` などを前段に置きます。

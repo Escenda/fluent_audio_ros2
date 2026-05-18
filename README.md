@@ -13,7 +13,7 @@
 
 ## 主要パッケージ（Audio）
 - `fa_in`（`src/io/sources/fa_in/`）: 明示 backend で選択した入力源（ALSA / raw PCM file）→ `audio/frame` を Publish、Diagnostics
-- `fa_out`（`src/io/sinks/fa_out/`）: `audio/output/frame` をスピーカーへ再生
+- `fa_out`（`src/io/sinks/fa_out/`）: 明示 backend で選択した出力先（ALSA / raw PCM file）へ `AudioFrame` を出力
 - `fa_record`（`src/io/utilities/fa_record/`）: `audio/frame` をWAVへ録音（`record` サービス）
 - `fa_stream`（`src/io/utilities/fa_stream/`）: `audio/frame` を外部へ配信する utility（Icecast向け `fa_stream_node.py`）
 - `fa_vad`（`src/ai/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と source / stream identity 付き `voice/vad_state` を提供

@@ -172,24 +172,27 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
         },
     )
     _write_yaml(
-        tmp_path / "fa_file_out.params.yaml",
+        tmp_path / "fa_out.params.yaml",
         {
-            "fa_file_out_codec_e2e": {
+            "fa_out_codec_e2e": {
                 "ros__parameters": {
                     "backend.name": "pcm_file_writer",
                     "file.path": str(output_pcm),
                     "input_topic": gained_topic,
-                    "expected.sample_rate": 16000,
-                    "expected.channels": 1,
-                    "expected.encoding": "FLOAT32LE",
-                    "expected.bit_depth": 32,
-                    "expected.layout": "interleaved",
+                    "input_stream_id": gained_stream_id,
+                    "playback_done_topic": "audio/e2e/codec_done",
+                    "playback_control_service": "audio/e2e/codec_control",
+                    "audio.sample_rate": 16000,
+                    "audio.channels": 1,
+                    "audio.encoding": "FLOAT32LE",
+                    "audio.bit_depth": 32,
+                    "audio.chunk_duration_ms": 1,
+                    "queue.max_frames": 32,
                     "overwrite.enabled": False,
-                    "qos.depth": 10,
-                    "qos.reliable": True,
-                    "diagnostics.publish_period_ms": 1000,
-                    "diagnostics.qos.depth": 10,
-                    "diagnostics.qos.reliable": True,
+                    "audio.qos.depth": 10,
+                    "audio.qos.reliable": True,
+                    "lifecycle.qos.depth": 10,
+                    "lifecycle.qos.reliable": True,
                 }
             }
         },
@@ -211,12 +214,12 @@ def _write_system_config(tmp_path: Path) -> Path:
                     "enable": True,
                     "nodes": [
                         {
-                            "id": "fa_file_out",
+                            "id": "fa_out",
                             "enable": True,
-                            "package": "fa_file_out",
-                            "exec": "fa_file_out_node",
-                            "node_name": "fa_file_out_codec_e2e",
-                            "params_file": str(tmp_path / "fa_file_out.params.yaml"),
+                            "package": "fa_out",
+                            "exec": "fa_out_node",
+                            "node_name": "fa_out_codec_e2e",
+                            "params_file": str(tmp_path / "fa_out.params.yaml"),
                         },
                     ],
                 },
@@ -339,7 +342,7 @@ def test_fluent_audio_system_launches_explicit_codec_pipeline_e2e(
             "fluent_audio_system.launch.py",
             f"config:={system_config}",
             "fa_in_enabled:=true",
-            "fa_out_enabled:=false",
+            "fa_out_enabled:=true",
             "fa_in_source_id:=disabled",
             "fa_out_sink_id:=disabled",
         ],
