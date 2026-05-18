@@ -7,6 +7,7 @@ ros2 launch fluent_audio_system run.py config:=/path/to/fluent_audio_system.yaml
 ```
 
 Missing config や missing params file は起動失敗にします。暗黙の device 推測、model fallback、temporary YAML 書き換えは行いません。
+`fa_in_enabled` / `fa_out_enabled` の launch default は `true` です。profile で enabled な IO を起動しない場合は、site profile または debug launch で `fa_in_enabled:=false` / `fa_out_enabled:=false` を明示します。
 
 VLAbor / Docker 側で system config から build 対象 package を解決する場合は、次の CLI を使います。出力は `fa_interfaces`、`fluent_audio_system`、enabled node package の順で 1 行 1 package です。
 

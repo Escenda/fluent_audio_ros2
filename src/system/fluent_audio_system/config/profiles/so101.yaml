@@ -136,19 +136,3 @@ groups:
         remappings: {}
         parameters:
           audio_topic: "audio/resample16k/mic"
-          backend.model_path: "${share:fa_turn_detector}/models/smart-turn-v3/smart-turn-v3.0.onnx"
-          backend.execution_provider: "CPUExecutionProvider"
-          backend.command: "smart_turn_onnx_worker"
-          backend.args:
-            - "--audio"
-            - "{audio}"
-            - "--model"
-            - "{model}"
-            - "--provider"
-            - "{provider}"
-          backend.health_args:
-            - "--model"
-            - "{model}"
-            - "--provider"
-            - "{provider}"
-            - "--health-check"

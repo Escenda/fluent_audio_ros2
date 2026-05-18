@@ -80,6 +80,25 @@ def test_valid_fixture_expands_enabled_nodes_and_remappings(
     assert params["audio.layout"] == "interleaved"
 
 
+def test_required_packages_for_full_sample_config_validate_package_taxonomy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_fluent_audio_system_share(monkeypatch)
+
+    packages = load_required_packages(
+        "${share:fluent_audio_system}/config/fluent_audio_system.sample.yaml"
+    )
+
+    assert packages == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_in",
+        "fa_out",
+        "fa_sample_format",
+        "fa_resample",
+    ]
+
+
 def test_so101_profile_config_expands_default_site_bound_nodes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -104,6 +123,21 @@ def test_so101_profile_config_expands_default_site_bound_nodes(
     assert enabled_nodes[1].params_file == str(
         tmp_path / "fa_out" / "config" / "default.yaml"
     )
+
+
+def test_so101_profile_does_not_embed_turn_detector_model_artifact_path() -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "profiles" / "so101.yaml").read_text(encoding="utf-8")
+    )
+    ai_group = next(group for group in config["groups"] if group["id"] == "ai")
+    turn_detector = next(
+        node for node in ai_group["nodes"] if node["id"] == "fa_turn_detector"
+    )
+
+    assert turn_detector["enable"] is False
+    assert turn_detector["parameters"] == {
+        "audio_topic": "audio/resample16k/mic",
+    }
 
 
 def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(

@@ -22,7 +22,9 @@ def test_system_launch_declares_site_binding_arguments() -> None:
         assert f'"{arg_name}"' in launch_text
         assert f'"{arg_name}"' in run_text
 
-    assert 'default_value="false"' in launch_text
+    assert 'default_value="true"' in launch_text
+    assert "profile-declared fa_in" in launch_text
+    assert "profile-declared fa_out" in launch_text
     assert "_required_bool_launch_arg" in launch_text
     assert "_node_enabled_by_site_binding" in launch_text
     assert "_node_launch_parameters" in launch_text
@@ -52,6 +54,18 @@ def test_sample_config_keeps_site_binding_out_of_system_config() -> None:
     assert fa_out["enable"] is True
     assert fa_in["parameters"] == {}
     assert fa_out["parameters"] == {}
+
+
+def test_launch_defaults_do_not_suppress_profile_enabled_io() -> None:
+    launch_text = (PACKAGE_ROOT / "launch" / "fluent_audio_system.launch.py").read_text(
+        encoding="utf-8"
+    )
+    run_text = (PACKAGE_ROOT / "launch" / "run.py").read_text(encoding="utf-8")
+
+    assert 'DeclareLaunchArgument(\n                "fa_in_enabled",\n                default_value="true"' in launch_text
+    assert 'DeclareLaunchArgument(\n                "fa_out_enabled",\n                default_value="true"' in launch_text
+    assert 'DeclareLaunchArgument(\n                "fa_in_enabled",\n                default_value="true"' in run_text
+    assert 'DeclareLaunchArgument(\n                "fa_out_enabled",\n                default_value="true"' in run_text
 
 
 def test_site_binding_bool_values_are_strict() -> None:

@@ -39,13 +39,13 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "fa_in_enabled",
-                default_value="false",
-                description="Enable fa_in from site profile binding.",
+                default_value="true",
+                description="Enable profile-declared fa_in unless site profile disables it.",
             ),
             DeclareLaunchArgument(
                 "fa_out_enabled",
-                default_value="false",
-                description="Enable fa_out from site profile binding.",
+                default_value="true",
+                description="Enable profile-declared fa_out unless site profile disables it.",
             ),
             DeclareLaunchArgument(
                 "fa_in_source_id",
