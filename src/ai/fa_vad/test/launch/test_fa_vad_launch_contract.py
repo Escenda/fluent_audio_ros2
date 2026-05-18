@@ -21,7 +21,7 @@ def test_launch_uses_explicit_config_file_contract() -> None:
     assert "parameters=[config_file]" in launch_text
 
 
-def test_default_config_requires_external_worker_command() -> None:
+def test_default_config_requires_explicit_backend_and_external_worker_command() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
@@ -29,7 +29,7 @@ def test_default_config_requires_external_worker_command() -> None:
     assert "fa_vad_node" not in config
     params = config["fa_vad"]["ros__parameters"]
 
-    assert params["backend.name"] == "silero"
+    assert params["backend.name"] == ""
     assert params["input_topic"] == "audio/frame"
     assert params["input_stream_id"] == "audio/raw/mic"
     assert params["input_topic"] != params["input_stream_id"]

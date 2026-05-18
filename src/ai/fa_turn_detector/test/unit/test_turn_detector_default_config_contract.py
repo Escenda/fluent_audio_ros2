@@ -258,7 +258,7 @@ def _install_onnxruntime_fake(
     sys.modules.pop("fa_turn_detector_py.backends.smart_turn_onnx_runtime", None)
 
 
-def test_default_config_requires_explicit_model_and_provider() -> None:
+def test_default_config_requires_explicit_backend_model_and_provider() -> None:
     config_path = Path(__file__).parents[2] / "config" / "default.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     source = (
@@ -267,7 +267,7 @@ def test_default_config_requires_explicit_model_and_provider() -> None:
 
     params = config["fa_turn_detector"]["ros__parameters"]
 
-    assert params["backend.name"] == "smart_turn_onnx"
+    assert params["backend.name"] == ""
     assert params["audio_topic"] == "audio/frame"
     assert params["expected_stream_id"] == "audio/raw/mic"
     assert params["audio_topic"] != params["expected_stream_id"]

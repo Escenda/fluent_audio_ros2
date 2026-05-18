@@ -6,13 +6,13 @@ import yaml
 PACKAGE_ROOT = Path(__file__).parents[2]
 
 
-def test_default_config_requires_explicit_execution_provider() -> None:
+def test_default_config_requires_explicit_backend_and_execution_provider() -> None:
     config_path = PACKAGE_ROOT / "config" / "default.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     params = config["fa_kws"]["ros__parameters"]
 
-    assert params["backend.name"] == "sherpa_onnx_kws"
+    assert params["backend.name"] == ""
     assert params["backend.execution_provider"] == ""
     assert params["expected_source_id"] == ""
     assert params["audio_topic"] == "audio/frame"

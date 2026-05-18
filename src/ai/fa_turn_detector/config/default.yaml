@@ -7,7 +7,8 @@ fa_turn_detector:
     output_topic: "voice/turn_end"
     # Required. Must match AudioFrame.source_id from the configured fa_in/source pipeline.
     expected_source_id: ""
-    backend.name: "smart_turn_onnx"
+    # Required backend id. Empty means startup fails closed until launch/profile config selects one.
+    backend.name: ""
     # Required. Set an explicit model path in launch/system config.
     backend.model_path: ""
     # Required ONNX Runtime provider, e.g. CPUExecutionProvider or CUDAExecutionProvider.

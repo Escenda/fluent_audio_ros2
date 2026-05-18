@@ -241,7 +241,7 @@ def _write_executable(path: Path) -> None:
     path.chmod(0o755)
 
 
-def test_default_config_requires_explicit_silero_model_path() -> None:
+def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     config_path = Path(__file__).parents[2] / "config" / "default.yaml"
     readme_path = Path(__file__).parents[2] / "README.md"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -254,7 +254,7 @@ def test_default_config_requires_explicit_silero_model_path() -> None:
     assert "fa_vad_node" not in config
     params = config["fa_vad"]["ros__parameters"]
 
-    assert params["backend.name"] == "silero"
+    assert params["backend.name"] == ""
     assert params["input_topic"] == "audio/frame"
     assert params["input_stream_id"] == "audio/raw/mic"
     assert params["input_topic"] != params["input_stream_id"]

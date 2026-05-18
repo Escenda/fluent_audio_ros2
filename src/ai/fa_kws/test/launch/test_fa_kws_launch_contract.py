@@ -20,13 +20,13 @@ def test_launch_uses_explicit_config_file_contract() -> None:
     assert 'LaunchConfiguration("config"' not in launch_text
 
 
-def test_default_config_requires_explicit_kws_backend_inputs() -> None:
+def test_default_config_requires_explicit_backend_and_kws_inputs() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
     params = config["fa_kws"]["ros__parameters"]
 
-    assert params["backend.name"] == "sherpa_onnx_kws"
+    assert params["backend.name"] == ""
     assert params["backend.execution_provider"] == ""
     assert params["model.encoder"] == ""
     assert params["model.decoder"] == ""

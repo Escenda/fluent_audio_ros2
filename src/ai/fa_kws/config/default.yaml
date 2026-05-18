@@ -6,7 +6,8 @@ fa_kws:
     output_topic: "voice/wake_word"
     # Required. Must match AudioFrame.source_id from the configured fa_in/source pipeline.
     expected_source_id: ""
-    backend.name: "sherpa_onnx_kws"
+    # Required backend id. Empty means startup fails closed until launch/profile config selects one.
+    backend.name: ""
 
     target_sample_rate: 16000
     vad.probability_gate: 0.35

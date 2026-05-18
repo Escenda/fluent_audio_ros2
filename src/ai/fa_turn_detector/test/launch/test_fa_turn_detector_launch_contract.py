@@ -25,7 +25,7 @@ def test_launch_uses_explicit_config_file_without_model_override_contract() -> N
     assert "onnxruntime" not in launch_text
 
 
-def test_default_config_requires_external_worker_boundary() -> None:
+def test_default_config_requires_explicit_backend_and_external_worker_boundary() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
@@ -35,7 +35,7 @@ def test_default_config_requires_external_worker_boundary() -> None:
     assert params["expected_stream_id"] == "audio/raw/mic"
     assert params["audio_topic"] != params["expected_stream_id"]
     assert params["expected_source_id"] == ""
-    assert params["backend.name"] == "smart_turn_onnx"
+    assert params["backend.name"] == ""
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""
     assert params["backend.command"] == ""
