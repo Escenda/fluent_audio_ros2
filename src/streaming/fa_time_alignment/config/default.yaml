@@ -1,7 +1,11 @@
 fa_time_alignment:
   ros__parameters:
-    input_topic: "audio/frame_buffer/mic"
-    output_topic: "audio/time_aligned/mic"
+    input_topic: "fa_time_alignment/input"
+    output_topic: "fa_time_alignment/output"
+    input_stream_id: "audio/frame_buffer/mic"
+
+    output:
+      stream_id: "audio/time_aligned/mic"
 
     expected:
       sample_rate: 16000

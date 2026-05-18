@@ -9,7 +9,7 @@
 - `AudioFrame` 契約の検証
 - nearest grid timestamp の計算
 - `max_adjust_ms` による drop 判定
-- `header.stamp` と `stream_id` の更新
+- `header.stamp` と `stream_id = output.stream_id` の更新
 - diagnostics counters の publish
 
 ## 非責務

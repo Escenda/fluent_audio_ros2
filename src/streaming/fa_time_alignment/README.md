@@ -14,6 +14,8 @@
 
 - `input_topic`: 必須。入力 `AudioFrame` の topic。
 - `output_topic`: 必須。出力 `AudioFrame` の topic。
+- `input_stream_id`: 必須。受け入れる `AudioFrame.stream_id`。
+- `output.stream_id`: 必須。publish する `AudioFrame.stream_id`。
 - `expected.*`: 入力フレームの sample rate、channels、encoding、bit depth、layout。
 - `alignment.period_ms`: 時間グリッド周期。有限かつ `> 0`。
 - `alignment.phase_ms`: グリッド位相。有限かつ `>= 0`、`period_ms` 未満。
@@ -26,7 +28,7 @@
 次の場合は frame を publish せず drop します。
 
 - `source_id` または `stream_id` が空
-- `stream_id` が `input_topic` と一致しない
+- `stream_id` が `input_stream_id` と一致しない
 - format fields が `expected.*` と一致しない
 - `data` が空、または 1 audio frame の byte 境界に揃っていない
 - nearest grid timestamp が負

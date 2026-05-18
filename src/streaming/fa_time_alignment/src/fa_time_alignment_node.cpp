@@ -76,6 +76,19 @@ double readRequiredDouble(const rclcpp::Node & node, const std::string & name)
   return parameter.as_double();
 }
 
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
+
 void pushKeyValue(
   diagnostic_msgs::msg::DiagnosticStatus & status,
   const std::string & key,
@@ -114,6 +127,8 @@ void FaTimeAlignmentNode::loadParameters()
 {
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<int>("expected.sample_rate");
   this->declare_parameter<int>("expected.channels");
   this->declare_parameter<std::string>("expected.encoding");
@@ -130,6 +145,8 @@ void FaTimeAlignmentNode::loadParameters()
 
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
   config_.expected_channels = readRequiredInt(*this, "expected.channels");
   config_.expected_encoding = readRequiredString(*this, "expected.encoding");
@@ -151,6 +168,31 @@ void FaTimeAlignmentNode::loadParameters()
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (config_.expected_sample_rate <= 0) {
     throw std::runtime_error("expected.sample_rate must be > 0");
@@ -193,10 +235,12 @@ void FaTimeAlignmentNode::loadParameters()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Time alignment config: input=%s output=%s expected=%dHz/%d/%s/%d/%s period=%.6fms "
+    "Time alignment config: input=%s/%s output=%s/%s expected=%dHz/%d/%s/%d/%s period=%.6fms "
     "phase=%.6fms max_adjust=%.6fms qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -271,12 +315,12 @@ bool FaTimeAlignmentNode::validateFrame(const fa_interfaces::msg::AudioFrame & m
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -372,7 +416,7 @@ bool FaTimeAlignmentNode::alignFrame(
   const int64_t aligned_ns = static_cast<int64_t>(std::llround(aligned_ns_decimal));
   out = in;
   out.header.stamp = nanosecondsToStamp(aligned_ns);
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   frames_aligned_.fetch_add(1);
   return true;
 }
@@ -386,9 +430,11 @@ void FaTimeAlignmentNode::publishDiagnostics()
   status.name = "fa_time_alignment";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(12);
+  status.values.reserve(14);
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "alignment_period_ms", std::to_string(config_.alignment_period_ms));
   pushKeyValue(status, "alignment_phase_ms", std::to_string(config_.alignment_phase_ms));
   pushKeyValue(status, "alignment_max_adjust_ms", std::to_string(config_.alignment_max_adjust_ms));

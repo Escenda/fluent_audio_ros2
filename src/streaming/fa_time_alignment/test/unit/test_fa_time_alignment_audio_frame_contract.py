@@ -21,8 +21,12 @@ def test_default_config_declares_explicit_time_alignment_contract() -> None:
     config = yaml.safe_load((_package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_time_alignment"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/frame_buffer/mic"
-    assert params["output_topic"] == "audio/time_aligned/mic"
+    assert params["input_topic"] == "fa_time_alignment/input"
+    assert params["output_topic"] == "fa_time_alignment/output"
+    assert params["input_stream_id"] == "audio/frame_buffer/mic"
+    assert params["output"]["stream_id"] == "audio/time_aligned/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "FLOAT32LE"
@@ -44,6 +48,8 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
 
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "config_.input_stream_id.empty()" in load_parameters
+    assert "config_.output_stream_id.empty()" in load_parameters
     assert "config_.expected_sample_rate <= 0" in load_parameters
     assert "config_.expected_channels <= 0" in load_parameters
     assert "config_.expected_encoding.empty()" in load_parameters
@@ -62,11 +68,15 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert 'declare_parameter<double>("alignment.period_ms");' in load_parameters
     assert 'declare_parameter<double>("alignment.phase_ms");' in load_parameters
     assert 'declare_parameter<double>("alignment.max_adjust_ms");' in load_parameters
+    assert 'declare_parameter<std::string>("input_stream_id");' in load_parameters
+    assert 'declare_parameter<std::string>("output.stream_id");' in load_parameters
     assert 'declare_parameter<bool>("qos.reliable");' in load_parameters
     assert 'declare_parameter<bool>("qos.reliable", config_.qos_reliable)' not in load_parameters
     required_reads = (
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredInt(*this, "expected.sample_rate")',
         'readRequiredInt(*this, "expected.channels")',
         'readRequiredString(*this, "expected.encoding")',
@@ -84,6 +94,11 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         assert read in load_parameters
     assert "readRequiredInt(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "this->get_parameter(" not in load_parameters
     assert "SystemDefaultsQoS" not in source
     assert "throw std::runtime_error" in load_parameters
@@ -96,7 +111,7 @@ def test_runtime_validates_audio_frame_identity_format_and_byte_alignment() -> N
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -134,7 +149,7 @@ def test_output_preserves_audio_data_and_updates_only_stamp_and_stream_id() -> N
 
     assert "out = in;" in align_frame
     assert "out.header.stamp = nanosecondsToStamp(aligned_ns);" in align_frame
-    assert "out.stream_id = config_.output_topic;" in align_frame
+    assert "out.stream_id = config_.output_stream_id;" in align_frame
     assert "out.data" not in align_frame
     assert "out.encoding =" not in align_frame
     assert "out.bit_depth =" not in align_frame
@@ -192,6 +207,8 @@ def test_diagnostics_publish_required_counters() -> None:
     assert '"frames_in"' in publish_diagnostics
     assert '"frames_out"' in publish_diagnostics
     assert '"frames_dropped"' in publish_diagnostics
+    assert '"input_stream_id"' in publish_diagnostics
+    assert '"output_stream_id"' in publish_diagnostics
     assert '"frames_aligned"' in publish_diagnostics
     assert '"frames_excess_adjust"' in publish_diagnostics
     assert '"backend.name", "no_runtime_backend"' in publish_diagnostics
