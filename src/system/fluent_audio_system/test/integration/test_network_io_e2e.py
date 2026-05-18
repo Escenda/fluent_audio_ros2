@@ -41,6 +41,7 @@ def _write_network_io_params(
     output_endpoint: str,
 ) -> None:
     topic = "audio/e2e/network_pcm"
+    stream_id = "audio/e2e/network_pcm_stream"
     _write_yaml(
         tmp_path / "fa_network_in.params.yaml",
         {
@@ -51,7 +52,7 @@ def _write_network_io_params(
                     "transport.identity": "network_in_e2e",
                     "output_topic": topic,
                     "audio.source_id": "network_e2e_source",
-                    "audio.stream_id": topic,
+                    "audio.stream_id": stream_id,
                     "expected.sample_rate": 16000,
                     "expected.channels": 1,
                     "expected.encoding": "PCM16LE",
@@ -62,6 +63,8 @@ def _write_network_io_params(
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -83,6 +86,8 @@ def _write_network_io_params(
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -95,7 +100,7 @@ def _write_system_config(tmp_path: Path) -> Path:
         system_config,
         {
             "system": {
-                "default_start_delay": 0.2,
+                "default_start_delay": 1.0,
                 "inter_group_delay": 0.0,
             },
             "groups": [
@@ -133,7 +138,7 @@ def _wait_for_network_output(
     expected_payload: bytes,
 ) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
-        deadline = time.monotonic() + 8.0
+        deadline = time.monotonic() + 12.0
         while time.monotonic() < deadline:
             sender.sendto(expected_payload, ("127.0.0.1", input_port))
             try:

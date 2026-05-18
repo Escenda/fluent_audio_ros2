@@ -66,7 +66,7 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                 "ros__parameters": {
                     "backend.name": "external_codec_encoder",
                     "backend.command.executable": "/bin/cat",
-                    "backend.command.arguments": [],
+                    "backend.command.arguments": ["--"],
                     "backend.command.timeout_ms": 3000,
                     "backend.command.max_output_bytes": 1048576,
                     "input_topic": pcm16_input_topic,
@@ -97,7 +97,7 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                 "ros__parameters": {
                     "backend.name": "external_codec_decoder",
                     "backend.command.executable": "/bin/cat",
-                    "backend.command.arguments": [],
+                    "backend.command.arguments": ["--"],
                     "backend.command.timeout_ms": 3000,
                     "backend.command.max_output_bytes": 1048576,
                     "input_topic": encoded_topic,

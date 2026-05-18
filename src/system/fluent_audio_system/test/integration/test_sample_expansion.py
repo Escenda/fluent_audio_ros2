@@ -116,7 +116,7 @@ def test_valid_fixture_expands_enabled_nodes_and_remappings(
     assert node.launch_remappings() == [("audio/frame", "robot/audio/input")]
 
     params = _load_fixture_params("fa_in.params.yaml", "fa_in")
-    assert params["audio.stream_id"] == "audio/frame"
+    assert params["audio.stream_id"] == "audio/raw/mic"
     assert params["audio.layout"] == "interleaved"
 
 

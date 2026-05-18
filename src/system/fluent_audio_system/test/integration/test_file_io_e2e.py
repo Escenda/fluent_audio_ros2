@@ -21,6 +21,7 @@ def _write_yaml(path: Path, value: YamlValue) -> None:
 
 def _write_file_io_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) -> None:
     topic = "audio/e2e/file_pcm"
+    stream_id = "audio/e2e/file_pcm_stream"
     _write_yaml(
         tmp_path / "fa_file_in.params.yaml",
         {
@@ -30,7 +31,7 @@ def _write_file_io_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) -> 
                     "file.path": str(input_pcm),
                     "output_topic": topic,
                     "audio.source_id": "file_e2e_source",
-                    "audio.stream_id": topic,
+                    "audio.stream_id": stream_id,
                     "audio.frames_per_chunk": 2,
                     "expected.sample_rate": 16000,
                     "expected.channels": 1,
@@ -42,6 +43,8 @@ def _write_file_io_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) -> 
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -63,6 +66,8 @@ def _write_file_io_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) -> 
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },

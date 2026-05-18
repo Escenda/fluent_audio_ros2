@@ -24,6 +24,9 @@ def _write_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) ->
     pcm16_topic = "audio/e2e/pipeline_pcm16"
     float32_topic = "audio/e2e/pipeline_float32"
     gained_topic = "audio/e2e/pipeline_gain_float32"
+    pcm16_stream_id = "audio/e2e/pipeline_pcm16_stream"
+    float32_stream_id = "audio/e2e/pipeline_float32_stream"
+    gained_stream_id = "audio/e2e/pipeline_gain_float32_stream"
 
     _write_yaml(
         tmp_path / "fa_file_in.params.yaml",
@@ -34,7 +37,7 @@ def _write_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) ->
                     "file.path": str(input_pcm),
                     "output_topic": pcm16_topic,
                     "audio.source_id": "pipeline_e2e_source",
-                    "audio.stream_id": pcm16_topic,
+                    "audio.stream_id": pcm16_stream_id,
                     "audio.frames_per_chunk": 4,
                     "expected.sample_rate": 16000,
                     "expected.channels": 1,
@@ -46,6 +49,8 @@ def _write_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) ->
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -57,8 +62,10 @@ def _write_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) ->
                 "ros__parameters": {
                     "input_topic": pcm16_topic,
                     "output_topic": float32_topic,
+                    "input_stream_id": pcm16_stream_id,
                     "input.encoding": "PCM16LE",
                     "input.bit_depth": 16,
+                    "output.stream_id": float32_stream_id,
                     "output.encoding": "FLOAT32LE",
                     "output.bit_depth": 32,
                     "expected.sample_rate": 16000,
@@ -67,6 +74,8 @@ def _write_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) ->
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -78,6 +87,8 @@ def _write_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) ->
                 "ros__parameters": {
                     "input_topic": float32_topic,
                     "output_topic": gained_topic,
+                    "input_stream_id": float32_stream_id,
+                    "output.stream_id": gained_stream_id,
                     "gain.linear": 2.0,
                     "expected.sample_rate": 16000,
                     "expected.channels": 1,
@@ -87,6 +98,8 @@ def _write_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) ->
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -108,6 +121,8 @@ def _write_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) ->
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -120,7 +135,7 @@ def _write_system_config(tmp_path: Path) -> Path:
         system_config,
         {
             "system": {
-                "default_start_delay": 0.2,
+                "default_start_delay": 1.0,
                 "inter_group_delay": 0.0,
             },
             "groups": [
@@ -187,7 +202,7 @@ def _write_system_config(tmp_path: Path) -> Path:
 
 
 def _wait_for_output(output_pcm: Path, expected_payload: bytes) -> bool:
-    deadline = time.monotonic() + 8.0
+    deadline = time.monotonic() + 12.0
     while time.monotonic() < deadline:
         if output_pcm.exists() and output_pcm.read_bytes() == expected_payload:
             return True

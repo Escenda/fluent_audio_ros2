@@ -20,6 +20,7 @@ def _run_fa_sample_format_launch(config_path: Path) -> subprocess.CompletedProce
             "launch",
             "fa_sample_format",
             "fa_sample_format.launch.py",
+            "node_name:=fa_sample_format",
             f"config_file:={config_path}",
         ],
         check=False,
