@@ -1,6 +1,7 @@
 # fa_pan
 
 `fa_pan` は FluentAudio の stereo spatial processing node です。`fa_interfaces/msg/AudioFrame` の FLOAT32LE interleaved stereo stream を購読し、constant-power pan を適用して別 topic へ publish します。
+sample loop と FLOAT32LE byte 変換は `backends/internal_constant_power_pan` に分離し、ROS node は topic、metadata validation、diagnostics、publish を担当します。
 
 ## Contract
 

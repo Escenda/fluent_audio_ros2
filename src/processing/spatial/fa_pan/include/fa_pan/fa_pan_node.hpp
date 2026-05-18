@@ -3,11 +3,13 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
+#include "fa_pan/backends/internal_constant_power_pan.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "fa_interfaces/msg/audio_frame.hpp"
 
@@ -48,13 +50,9 @@ private:
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyPan(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
-  float readFloat32Le(const std::vector<uint8_t> & bytes, size_t sample_index);
-  void appendFloat32Le(float sample, std::vector<uint8_t> & out_bytes);
-  bool isNormalizedFinite(float sample);
 
   PanConfig config_;
-  double left_gain_{1.0};
-  double right_gain_{1.0};
+  std::unique_ptr<backends::InternalConstantPowerPanBackend> pan_backend_{};
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;

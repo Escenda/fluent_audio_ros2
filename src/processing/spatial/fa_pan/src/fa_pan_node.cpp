@@ -2,9 +2,7 @@
 
 #include <chrono>
 #include <cmath>
-#include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -22,14 +20,6 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr double kPi = 3.14159265358979323846;
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
-
-bool isFinite(double value)
-{
-  return std::isfinite(value);
-}
 
 void pushKeyValue(
   diagnostic_msgs::msg::DiagnosticStatus & status,
@@ -187,7 +177,7 @@ void FaPanNode::loadParameters()
   if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
     throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
-  if (!isFinite(config_.pan_position) || config_.pan_position < -1.0 || config_.pan_position > 1.0) {
+  if (!std::isfinite(config_.pan_position) || config_.pan_position < -1.0 || config_.pan_position > 1.0) {
     throw std::runtime_error("pan.position must be finite and in [-1.0, 1.0]");
   }
   if (config_.expected_sample_rate <= 0) {
@@ -218,13 +208,8 @@ void FaPanNode::loadParameters()
 
 void FaPanNode::configurePan()
 {
-  const double angle = (config_.pan_position + 1.0) * kPi / 4.0;
-  left_gain_ = std::cos(angle);
-  right_gain_ = std::sin(angle);
-
-  if (!isFinite(left_gain_) || !isFinite(right_gain_)) {
-    throw std::runtime_error("pan gain calculation produced non-finite coefficients");
-  }
+  pan_backend_ = std::make_unique<backends::InternalConstantPowerPanBackend>(
+    backends::InternalConstantPowerPanConfig{config_.pan_position});
 
   RCLCPP_INFO(
     this->get_logger(),
@@ -235,8 +220,8 @@ void FaPanNode::configurePan()
     config_.output_topic.c_str(),
     config_.output_stream_id.c_str(),
     config_.pan_position,
-    left_gain_,
-    right_gain_,
+    pan_backend_->leftGain(),
+    pan_backend_->rightGain(),
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -364,66 +349,23 @@ bool FaPanNode::applyPan(
   fa_interfaces::msg::AudioFrame & out)
 {
   std::vector<uint8_t> output_data;
-  output_data.reserve(in.data.size());
+  if (!pan_backend_) {
+    throw std::runtime_error("fa_pan backend is not initialized");
+  }
 
-  const size_t sample_count = in.data.size() / sizeof(float);
-  for (size_t sample_index = 0; sample_index < sample_count; sample_index += 2U) {
-    const float left = readFloat32Le(in.data, sample_index);
-    const float right = readFloat32Le(in.data, sample_index + 1U);
-    if (!isNormalizedFinite(left) || !isNormalizedFinite(right)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    const double panned_left = static_cast<double>(left) * left_gain_;
-    const double panned_right = static_cast<double>(right) * right_gain_;
-    if (!isFinite(panned_left) || !isFinite(panned_right) ||
-        panned_left < kMinNormalizedSample || panned_left > kMaxNormalizedSample ||
-        panned_right < kMinNormalizedSample || panned_right > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because pan output is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    appendFloat32Le(static_cast<float>(panned_left), output_data);
-    appendFloat32Le(static_cast<float>(panned_right), output_data);
+  const backends::ProcessStatus status = pan_backend_->process(in.data, output_data);
+  if (status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because %s",
+      backends::processStatusMessage(status));
+    return false;
   }
 
   out = in;
   out.stream_id = config_.output_stream_id;
   out.data = output_data;
   return true;
-}
-
-float FaPanNode::readFloat32Le(const std::vector<uint8_t> & bytes, size_t sample_index)
-{
-  uint32_t raw =
-    static_cast<uint32_t>(bytes.at(sample_index * sizeof(float))) |
-    (static_cast<uint32_t>(bytes.at((sample_index * sizeof(float)) + 1U)) << 8U) |
-    (static_cast<uint32_t>(bytes.at((sample_index * sizeof(float)) + 2U)) << 16U) |
-    (static_cast<uint32_t>(bytes.at((sample_index * sizeof(float)) + 3U)) << 24U);
-  float sample = 0.0F;
-  std::memcpy(&sample, &raw, sizeof(float));
-  return sample;
-}
-
-void FaPanNode::appendFloat32Le(float sample, std::vector<uint8_t> & out_bytes)
-{
-  uint32_t raw = 0;
-  std::memcpy(&raw, &sample, sizeof(float));
-  out_bytes.push_back(static_cast<uint8_t>(raw & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((raw >> 8U) & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((raw >> 16U) & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((raw >> 24U) & 0xFFU));
-}
-
-bool FaPanNode::isNormalizedFinite(float sample)
-{
-  return std::isfinite(sample) && sample >= kMinNormalizedSample && sample <= kMaxNormalizedSample;
 }
 
 void FaPanNode::publishDiagnostics()
@@ -443,8 +385,14 @@ void FaPanNode::publishDiagnostics()
   pushKeyValue(status, "input_stream_id", config_.input_stream_id);
   pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "pan.position", std::to_string(config_.pan_position));
-  pushKeyValue(status, "pan.left_gain", std::to_string(left_gain_));
-  pushKeyValue(status, "pan.right_gain", std::to_string(right_gain_));
+  pushKeyValue(
+    status,
+    "pan.left_gain",
+    pan_backend_ ? std::to_string(pan_backend_->leftGain()) : "");
+  pushKeyValue(
+    status,
+    "pan.right_gain",
+    pan_backend_ ? std::to_string(pan_backend_->rightGain()) : "");
   pushKeyValue(status, "expected.sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected.channels", std::to_string(config_.expected_channels));
   pushKeyValue(status, "expected.encoding", config_.expected_encoding);
