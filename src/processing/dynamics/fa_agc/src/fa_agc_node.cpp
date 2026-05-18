@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -11,6 +10,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_agc/backends/internal_rms_agc.hpp"
 
 namespace fa_agc
 {
@@ -19,8 +19,6 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
 
 bool isFinite(double value)
 {
@@ -44,8 +42,11 @@ FaAgcNode::FaAgcNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA AGC node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaAgcNode::~FaAgcNode() = default;
 
 void FaAgcNode::loadParameters()
 {
@@ -133,9 +134,6 @@ void FaAgcNode::loadParameters()
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
 
-  current_gain_.store(1.0);
-  last_target_gain_.store(1.0);
-
   RCLCPP_INFO(
     this->get_logger(),
     "AGC config: input=%s output=%s target_rms=%f min_gain=%f max_gain=%f attack=%fms release=%fms expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
@@ -153,6 +151,19 @@ void FaAgcNode::loadParameters()
     config_.qos_depth,
     config_.qos_reliable ? "true" : "false",
     config_.diagnostics_publish_period_ms);
+}
+
+void FaAgcNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalRmsAgcBackend>(
+    backends::InternalRmsAgcConfig{
+      config_.expected_sample_rate,
+      config_.expected_channels,
+      config_.target_rms,
+      config_.min_gain,
+      config_.max_gain,
+      config_.attack_ms,
+      config_.release_ms});
 }
 
 void FaAgcNode::setupInterfaces()
@@ -181,6 +192,14 @@ void FaAgcNode::setupInterfaces()
 void FaAgcNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   frames_in_.fetch_add(1);
+
+  if (!msg) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping null AudioFrame pointer");
+    frames_dropped_.fetch_add(1);
+    return;
+  }
 
   if (!validateFrame(*msg)) {
     frames_dropped_.fetch_add(1);
@@ -253,145 +272,26 @@ bool FaAgcNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
   return true;
 }
 
-bool FaAgcNode::readSamples(
-  const fa_interfaces::msg::AudioFrame & msg,
-  std::vector<float> & samples)
-{
-  const size_t sample_count = msg.data.size() / sizeof(float);
-  samples.resize(sample_count);
-
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, msg.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!std::isfinite(sample) || sample < kMinNormalizedSample || sample > kMaxNormalizedSample) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is outside normalized FLOAT32LE range");
-      return false;
-    }
-    samples[i] = sample;
-  }
-
-  return true;
-}
-
-double FaAgcNode::calculateFrameRms(const std::vector<float> & samples) const
-{
-  double square_sum = 0.0;
-  for (const float sample : samples) {
-    const double value = static_cast<double>(sample);
-    square_sum += value * value;
-  }
-
-  const double mean_square = square_sum / static_cast<double>(samples.size());
-  return std::sqrt(mean_square);
-}
-
-double FaAgcNode::boundedTargetGain(double frame_rms) const
-{
-  double target_gain = config_.max_gain;
-  if (frame_rms > 0.0) {
-    target_gain = config_.target_rms / frame_rms;
-  }
-
-  if (target_gain < config_.min_gain) {
-    return config_.min_gain;
-  }
-  if (target_gain > config_.max_gain) {
-    return config_.max_gain;
-  }
-  return target_gain;
-}
-
-double FaAgcNode::smoothingAlpha(double time_constant_ms, size_t sample_count) const
-{
-  const double frame_count =
-    static_cast<double>(sample_count) / static_cast<double>(config_.expected_channels);
-  const double frame_seconds = frame_count / static_cast<double>(config_.expected_sample_rate);
-  const double time_constant_seconds = time_constant_ms / 1000.0;
-  return 1.0 - std::exp(-frame_seconds / time_constant_seconds);
-}
-
-double FaAgcNode::smoothedGain(double target_gain, size_t sample_count) const
-{
-  const double current_gain = current_gain_.load();
-  const double time_constant_ms = target_gain < current_gain ? config_.attack_ms : config_.release_ms;
-  const double alpha = smoothingAlpha(time_constant_ms, sample_count);
-  const double next_gain = current_gain + (alpha * (target_gain - current_gain));
-
-  if (next_gain < config_.min_gain) {
-    return config_.min_gain;
-  }
-  if (next_gain > config_.max_gain) {
-    return config_.max_gain;
-  }
-  return next_gain;
-}
-
 bool FaAgcNode::applyAgc(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
-  std::vector<float> samples;
-  if (!readSamples(in, samples)) {
-    return false;
-  }
-
-  const double frame_rms = calculateFrameRms(samples);
-  if (!isFinite(frame_rms)) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping frame because frame RMS is not finite");
-    return false;
-  }
-
-  const double target_gain = boundedTargetGain(frame_rms);
-  const double candidate_gain = smoothedGain(target_gain, samples.size());
-  if (!isFinite(target_gain) || !isFinite(candidate_gain)) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping frame because AGC gain is not finite");
-    return false;
-  }
-
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  for (size_t i = 0; i < samples.size(); ++i) {
-    const double output = static_cast<double>(samples[i]) * candidate_gain;
-    if (!isFinite(output) ||
-        output < kMinNormalizedSample ||
-        output > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because AGC output is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    const float out_sample = static_cast<float>(output);
-    if (!std::isfinite(out_sample) ||
-        out_sample < kMinNormalizedSample ||
-        out_sample > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because AGC output cannot be represented as normalized FLOAT32LE");
-      return false;
-    }
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
+  const backends::ProcessResult result = backend_->process(in.data, out.data);
+  if (result.status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because AGC backend rejected input or output: %s",
+      backends::processStatusMessage(result.status));
+    return false;
   }
 
-  const double previous_gain = current_gain_.load();
-  if (candidate_gain < previous_gain) {
+  if (result.gain_direction == backends::GainDirection::kReduction) {
     gain_reductions_.fetch_add(1);
-  } else if (candidate_gain > previous_gain) {
+  } else if (result.gain_direction == backends::GainDirection::kIncrease) {
     gain_increases_.fetch_add(1);
   }
-  current_gain_.store(candidate_gain);
-  last_frame_rms_.store(frame_rms);
-  last_target_gain_.store(target_gain);
   return true;
 }
 
@@ -405,14 +305,14 @@ void FaAgcNode::publishDiagnostics()
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
   status.values.reserve(14);
-  pushKeyValue(status, "target_rms", std::to_string(config_.target_rms));
-  pushKeyValue(status, "min_gain", std::to_string(config_.min_gain));
-  pushKeyValue(status, "max_gain", std::to_string(config_.max_gain));
-  pushKeyValue(status, "attack_ms", std::to_string(config_.attack_ms));
-  pushKeyValue(status, "release_ms", std::to_string(config_.release_ms));
-  pushKeyValue(status, "current_gain", std::to_string(current_gain_.load()));
-  pushKeyValue(status, "last_frame_rms", std::to_string(last_frame_rms_.load()));
-  pushKeyValue(status, "last_target_gain", std::to_string(last_target_gain_.load()));
+  pushKeyValue(status, "target_rms", std::to_string(backend_->targetRms()));
+  pushKeyValue(status, "min_gain", std::to_string(backend_->minGain()));
+  pushKeyValue(status, "max_gain", std::to_string(backend_->maxGain()));
+  pushKeyValue(status, "attack_ms", std::to_string(backend_->attackMs()));
+  pushKeyValue(status, "release_ms", std::to_string(backend_->releaseMs()));
+  pushKeyValue(status, "current_gain", std::to_string(backend_->currentGain()));
+  pushKeyValue(status, "last_frame_rms", std::to_string(backend_->lastFrameRms()));
+  pushKeyValue(status, "last_target_gain", std::to_string(backend_->lastTargetGain()));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));

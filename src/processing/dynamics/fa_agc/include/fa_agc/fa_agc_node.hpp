@@ -2,8 +2,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -12,6 +12,11 @@
 
 namespace fa_agc
 {
+
+namespace backends
+{
+class InternalRmsAgcBackend;
+}  // namespace backends
 
 struct AgcConfig
 {
@@ -39,23 +44,21 @@ class FaAgcNode : public rclcpp::Node
 {
 public:
   FaAgcNode();
-  ~FaAgcNode() override = default;
+  ~FaAgcNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyAgc(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
-  bool readSamples(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & samples);
-  double calculateFrameRms(const std::vector<float> & samples) const;
-  double boundedTargetGain(double frame_rms) const;
-  double smoothingAlpha(double time_constant_ms, size_t sample_count) const;
-  double smoothedGain(double target_gain, size_t sample_count) const;
 
   AgcConfig config_;
+  std::unique_ptr<backends::InternalRmsAgcBackend> backend_{};
+
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
@@ -66,9 +69,6 @@ private:
   std::atomic<uint64_t> frames_dropped_{0};
   std::atomic<uint64_t> gain_reductions_{0};
   std::atomic<uint64_t> gain_increases_{0};
-  std::atomic<double> current_gain_{1.0};
-  std::atomic<double> last_frame_rms_{0.0};
-  std::atomic<double> last_target_gain_{1.0};
 };
 
 }  // namespace fa_agc
