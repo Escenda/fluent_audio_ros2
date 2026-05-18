@@ -8,8 +8,13 @@ def test_default_config_requires_explicit_float32le_beamforming_contract() -> No
     config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_beamforming"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/spatial/mic"
-    assert params["output_topic"] == "audio/beamformed/mic"
+    assert params["input_topic"] == "fa_beamforming/input"
+    assert params["output_topic"] == "fa_beamforming/output"
+    assert params["input_stream_id"] == "audio/spatial/mic"
+    assert params["output"]["stream_id"] == "audio/beamformed/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["beamforming"]["weights"] == [1.0, 0.0, 0.0, 0.0]
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 4
@@ -49,6 +54,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     required_names = (
         "input_topic",
         "output_topic",
+        "input_stream_id",
+        "output.stream_id",
         "beamforming.weights",
         "output.channels",
         "expected.sample_rate",
@@ -107,6 +114,13 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
 
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "config_.input_stream_id.empty()" in load_parameters
+    assert "config_.output_stream_id.empty()" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "config_.output_channels != 1" in load_parameters
     assert "config_.expected_sample_rate <= 0" in load_parameters
     assert "config_.expected_channels <= 0" in load_parameters
@@ -147,7 +161,7 @@ def test_beamforming_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -165,7 +179,8 @@ def test_beamforming_outputs_mono_float32le_interleaved_stream() -> None:
     )[0]
 
     assert "out = in;" in beamform_frame
-    assert "out.stream_id = config_.output_topic;" in beamform_frame
+    assert "out.stream_id = config_.output_stream_id;" in beamform_frame
+    assert "out.stream_id = config_.output_topic;" not in beamform_frame
     assert "out.channels = static_cast<uint32_t>(config_.output_channels);" in beamform_frame
     assert "out.encoding = kEncodingFloat32;" in beamform_frame
     assert "out.bit_depth = 32;" in beamform_frame
@@ -231,6 +246,10 @@ def test_diagnostics_include_beamforming_config_and_counters() -> None:
     )[0]
 
     assert 'status.name = "fa_beamforming";' in diagnostics
+    assert 'pushKeyValue(status, "input_topic", config_.input_topic);' in diagnostics
+    assert 'pushKeyValue(status, "output_topic", config_.output_topic);' in diagnostics
+    assert 'pushKeyValue(status, "input_stream_id", config_.input_stream_id);' in diagnostics
+    assert 'pushKeyValue(status, "output_stream_id", config_.output_stream_id);' in diagnostics
     assert 'pushKeyValue(status, "beamforming.weights", formatWeights(config_.weights));' in diagnostics
     assert (
         'pushKeyValue(status, "beamforming.weights_sum_abs", '

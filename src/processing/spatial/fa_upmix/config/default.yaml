@@ -1,7 +1,8 @@
 fa_upmix:
   ros__parameters:
-    input_topic: "audio/mono/mic"
-    output_topic: "audio/upmixed/mic"
+    input_topic: "fa_upmix/input"
+    output_topic: "fa_upmix/output"
+    input_stream_id: "audio/mono/mic/raw"
 
     expected:
       sample_rate: 16000
@@ -11,6 +12,7 @@ fa_upmix:
       layout: "interleaved"
 
     output:
+      stream_id: "audio/upmixed/mic/processed"
       channels: 2
 
     mode: "mono_duplicate"

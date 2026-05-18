@@ -8,10 +8,12 @@ def test_default_config_requires_explicit_float32le_upmix_contract() -> None:
     config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_upmix"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/mono/mic"
-    assert params["output_topic"] == "audio/upmixed/mic"
+    assert params["input_topic"] == "fa_upmix/input"
+    assert params["output_topic"] == "fa_upmix/output"
+    assert params["input_stream_id"] == "audio/mono/mic/raw"
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["input_channels"] == 1
+    assert params["output"]["stream_id"] == "audio/upmixed/mic/processed"
     assert params["output"]["channels"] == 2
     assert params["expected"]["encoding"] == "FLOAT32LE"
     assert params["expected"]["bit_depth"] == 32
@@ -77,6 +79,17 @@ def test_startup_validation_fails_closed_for_invalid_or_non_upmix_config() -> No
 
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "config_.input_stream_id.empty()" in load_parameters
+    assert "config_.output_stream_id.empty()" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_output_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.output_stream_id)" in load_parameters
     assert "config_.expected_sample_rate <= 0" in load_parameters
     assert "config_.expected_input_channels <= 0" in load_parameters
     assert "config_.output_channels <= 0" in load_parameters
@@ -99,6 +112,10 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
 
     assert 'readRequiredString(*this, "input_topic")' in load_parameters
     assert 'readRequiredString(*this, "output_topic")' in load_parameters
+    assert 'declare_parameter<std::string>("input_stream_id")' in load_parameters
+    assert 'declare_parameter<std::string>("output.stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
     assert 'readRequiredInt(*this, "expected.input_channels")' in load_parameters
     assert 'readRequiredInt(*this, "output.channels")' in load_parameters
@@ -127,7 +144,7 @@ def test_upmix_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -145,7 +162,7 @@ def test_upmix_preserves_metadata_and_updates_stream_channels_data_only() -> Non
     )[0]
 
     assert "out = in;" in upmix_frame
-    assert "out.stream_id = config_.output_topic;" in upmix_frame
+    assert "out.stream_id = config_.output_stream_id;" in upmix_frame
     assert "out.channels = static_cast<uint32_t>(config_.output_channels);" in upmix_frame
     assert "out.data = output_data;" in upmix_frame
     assert "out.encoding =" not in upmix_frame
@@ -215,6 +232,8 @@ def test_diagnostics_include_upmix_config_and_counters() -> None:
     )[0]
 
     assert 'status.name = "fa_upmix";' in diagnostics
+    assert 'pushKeyValue(status, "input_stream_id", config_.input_stream_id);' in diagnostics
+    assert 'pushKeyValue(status, "output_stream_id", config_.output_stream_id);' in diagnostics
     assert 'pushKeyValue(status, "mode", config_.mode);' in diagnostics
     assert (
         'pushKeyValue(status, "expected.input_channels", '

@@ -36,6 +36,19 @@ void pushKeyValue(
   kv.value = value;
   status.values.push_back(kv);
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaBeamformingNode::FaBeamformingNode()
@@ -50,6 +63,8 @@ void FaBeamformingNode::loadParameters()
 {
   declareRequiredParameter("input_topic");
   declareRequiredParameter("output_topic");
+  declareRequiredParameter("input_stream_id");
+  declareRequiredParameter("output.stream_id");
   declareRequiredParameter("beamforming.weights");
   declareRequiredParameter("output.channels");
   declareRequiredParameter("expected.sample_rate");
@@ -65,6 +80,8 @@ void FaBeamformingNode::loadParameters()
 
   config_.input_topic = requireStringParameter("input_topic");
   config_.output_topic = requireStringParameter("output_topic");
+  config_.input_stream_id = requireStringParameter("input_stream_id");
+  config_.output_stream_id = requireStringParameter("output.stream_id");
   config_.weights = requireDoubleArrayParameter("beamforming.weights");
   config_.output_channels = requireIntegerParameter("output.channels");
   config_.expected_sample_rate = requireIntegerParameter("expected.sample_rate");
@@ -84,6 +101,31 @@ void FaBeamformingNode::loadParameters()
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (config_.output_channels != 1) {
     throw std::runtime_error("fa_beamforming requires output.channels=1");
@@ -130,10 +172,12 @@ void FaBeamformingNode::loadParameters()
   const std::string weights_text = formatWeights(config_.weights);
   RCLCPP_INFO(
     this->get_logger(),
-    "Beamforming config: input=%s output=%s weights=[%s] expected=%dHz/%dch/%s/%d/%s "
+    "Beamforming config: input=%s/%s output=%s/%s weights=[%s] expected=%dHz/%dch/%s/%d/%s "
     "output_channels=%d qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     weights_text.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
@@ -276,12 +320,12 @@ bool FaBeamformingNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -360,7 +404,7 @@ bool FaBeamformingNode::beamformFrame(
   }
 
   out = in;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   out.channels = static_cast<uint32_t>(config_.output_channels);
   out.encoding = kEncodingFloat32;
   out.bit_depth = 32;
@@ -419,9 +463,11 @@ void FaBeamformingNode::publishDiagnostics()
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
 
-  status.values.reserve(14);
+  status.values.reserve(15);
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "beamforming.weights", formatWeights(config_.weights));
   pushKeyValue(status, "beamforming.weights_sum_abs", std::to_string(weights_sum_abs_));
   pushKeyValue(status, "expected.sample_rate", std::to_string(config_.expected_sample_rate));

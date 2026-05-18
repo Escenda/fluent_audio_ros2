@@ -18,6 +18,8 @@ struct UpmixConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   int expected_sample_rate{-1};
   int expected_input_channels{-1};
   int output_channels{-1};

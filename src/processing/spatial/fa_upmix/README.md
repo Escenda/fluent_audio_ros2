@@ -8,7 +8,12 @@
 - mode:
   - `mono_duplicate`: 1ch 入力を Nch 出力へ複製する。`N > 1`
   - `stereo_duplicate_pairs`: 2ch 入力を LR ペア単位で偶数 Nch 出力へ複製する。`N > 2`
-- 出力: `stream_id` を `output_topic` に更新し、`channels` と `data` を upmix 後の値へ更新する
+- ROS topic は搬送路であり、`AudioFrame.stream_id` ではない
+- 入力 frame identity: `input_stream_id`
+- 出力 frame identity: `output.stream_id`
+- 入力 `stream_id` は `input_stream_id` と一致する必要がある
+- 出力: `stream_id` を `output.stream_id` に更新し、`channels` と `data` を upmix 後の値へ更新する
+- `input_stream_id` と `output.stream_id` は raw/resolved topic 名および互いと一致してはならない
 
 ## 範囲外
 

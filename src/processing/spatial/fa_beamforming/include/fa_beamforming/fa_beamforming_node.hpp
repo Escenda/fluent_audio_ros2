@@ -18,6 +18,8 @@ struct BeamformingConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   std::vector<double> weights{};
   int output_channels{-1};
   int expected_sample_rate{-1};

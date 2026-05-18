@@ -1,7 +1,8 @@
 fa_beamforming:
   ros__parameters:
-    input_topic: "audio/spatial/mic"
-    output_topic: "audio/beamformed/mic"
+    input_topic: "fa_beamforming/input"
+    output_topic: "fa_beamforming/output"
+    input_stream_id: "audio/spatial/mic"
 
     beamforming:
       weights: [1.0, 0.0, 0.0, 0.0]
@@ -15,6 +16,7 @@ fa_beamforming:
 
     output:
       channels: 1
+      stream_id: "audio/beamformed/mic"
 
     qos:
       depth: 10
