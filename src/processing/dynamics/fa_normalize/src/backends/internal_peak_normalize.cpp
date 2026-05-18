@@ -25,6 +25,16 @@ bool isNormalizedSample(float value)
 }
 }  // namespace
 
+InternalPeakNormalizeConfig::InternalPeakNormalizeConfig(
+  const int channels_value,
+  const double target_peak_linear_value,
+  const double silence_threshold_linear_value)
+: channels(channels_value),
+  target_peak_linear(target_peak_linear_value),
+  silence_threshold_linear(silence_threshold_linear_value)
+{
+}
+
 InternalPeakNormalizeBackend::InternalPeakNormalizeBackend(
   const InternalPeakNormalizeConfig & config)
 : config_(config)

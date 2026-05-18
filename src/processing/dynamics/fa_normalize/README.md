@@ -2,8 +2,8 @@
 
 `fa_normalize` は `FLOAT32LE` interleaved `AudioFrame` stream に per-frame peak normalization を適用する dynamics processing node です。
 
-- Sub: `audio/noise_gated/mic` (`fa_interfaces/msg/AudioFrame`)
-- Pub: `audio/normalized/mic` (`fa_interfaces/msg/AudioFrame`)
+- Sub: `fa_normalize/input` (`fa_interfaces/msg/AudioFrame`)
+- Pub: `fa_normalize/output` (`fa_interfaces/msg/AudioFrame`)
 - Executable: `fa_normalize_node`
 
 この package は peak normalize のみを行います。device I/O、resampling、sample format conversion、channel conversion、compressor、limiter、gate、filter、denoise、LUFS/loudness normalize は行いません。
@@ -13,7 +13,7 @@
 入力 `AudioFrame` は次の契約を満たす必要があります。
 
 - `source_id` は non-empty
-- `stream_id` は non-empty かつ `input_topic` と一致
+- `stream_id` は non-empty かつ `input_stream_id` と一致
 - `sample_rate > 0` かつ設定値と一致
 - `channels > 0` かつ設定値と一致
 - `encoding == FLOAT32LE`
@@ -26,21 +26,27 @@
 
 ## Parameters
 
-| name | default | rule |
+| name | example | rule |
 | --- | ---: | --- |
-| `input_topic` | `audio/noise_gated/mic` | non-empty |
-| `output_topic` | `audio/normalized/mic` | non-empty |
+| `input_topic` | `fa_normalize/input` | non-empty、`output_topic` と別 |
+| `output_topic` | `fa_normalize/output` | non-empty、`input_topic` と別 |
+| `input_stream_id` | `audio/noise_gated/mic` | non-empty、ROS topic 名と衝突しない |
+| `output.stream_id` | `audio/normalized/mic` | non-empty、`input_stream_id` と別、ROS topic 名と衝突しない |
 | `normalize.target_peak_linear` | `0.9` | finite, `> 0.0`, `<= 1.0` |
 | `normalize.silence_threshold_linear` | `0.0001` | finite, `>= 0.0`, `< target_peak_linear` |
-| `expected.sample_rate` | `16000` | `> 0` |
-| `expected.channels` | `1` | `> 0` |
+| `expected.sample_rate` | `16000` | `0 < value <= 384000` |
+| `expected.channels` | `1` | `0 < value <= 64` |
 | `expected.encoding` | `FLOAT32LE` | fixed |
 | `expected.bit_depth` | `32` | fixed |
 | `expected.layout` | `interleaved` | fixed |
 | `qos.depth` | `10` | `> 0` |
-| `qos.reliable` | `false` | best effort by default |
+| `qos.reliable` | `false` | bool |
+| `diagnostics.qos.depth` | `10` | `> 0` |
+| `diagnostics.qos.reliable` | `false` | bool |
 | `diagnostics.publish_period_ms` | `1000` | `> 0` |
+
+`input_topic` / `output_topic` は ROS2 transport topic、`input_stream_id` / `output.stream_id` は `AudioFrame.stream_id` として扱う stream identity である。topic 名を stream identity として代用しない。
 
 ## Diagnostics
 
-`/diagnostics` に `target_peak_linear`、`silence_threshold_linear`、`last_gain`、`frames_in`、`frames_out`、`frames_dropped`、`frames_silence_passthrough`、`frames_normalized`、`output_topic` を publish します。
+`/diagnostics` に `target_peak_linear`、`silence_threshold_linear`、`last_gain`、`frames_in`、`frames_out`、`frames_dropped`、`frames_silence_passthrough`、`frames_normalized`、`input_topic`、`output_topic`、`input_stream_id`、`output_stream_id`、QoS 設定を publish します。

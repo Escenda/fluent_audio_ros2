@@ -83,6 +83,8 @@ TEST_F(RclcppFixture, PublishesPeakNormalizedFloat32Frame)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_normalize_test/input"),
     rclcpp::Parameter("output_topic", "/fa_normalize_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_normalize_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_normalize_test/output_stream"),
     rclcpp::Parameter("normalize.target_peak_linear", 0.9),
     rclcpp::Parameter("normalize.silence_threshold_linear", 0.0001),
     rclcpp::Parameter("expected.sample_rate", 16000),
@@ -92,6 +94,8 @@ TEST_F(RclcppFixture, PublishesPeakNormalizedFloat32Frame)
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 
@@ -117,7 +121,7 @@ TEST_F(RclcppFixture, PublishesPeakNormalizedFloat32Frame)
 
   const auto deadline = std::chrono::steady_clock::now() + 3s;
   while (!received.has_value() && std::chrono::steady_clock::now() < deadline) {
-    publisher->publish(makeFloat32Frame(*test_node, "/fa_normalize_test/input", 31));
+    publisher->publish(makeFloat32Frame(*test_node, "fa_normalize_test/input_stream", 31));
     executor.spin_some(20ms);
     std::this_thread::sleep_for(10ms);
   }
@@ -129,7 +133,7 @@ TEST_F(RclcppFixture, PublishesPeakNormalizedFloat32Frame)
 
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "test-mic");
-  EXPECT_EQ(received->stream_id, "/fa_normalize_test/output");
+  EXPECT_EQ(received->stream_id, "fa_normalize_test/output_stream");
   EXPECT_EQ(received->encoding, "FLOAT32LE");
   EXPECT_EQ(received->sample_rate, 16000U);
   EXPECT_EQ(received->channels, 1U);
@@ -148,6 +152,8 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_normalize_drop_test/input"),
     rclcpp::Parameter("output_topic", "/fa_normalize_drop_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_normalize_drop_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_normalize_drop_test/output_stream"),
     rclcpp::Parameter("normalize.target_peak_linear", 0.9),
     rclcpp::Parameter("normalize.silence_threshold_linear", 0.0001),
     rclcpp::Parameter("expected.sample_rate", 16000),
@@ -157,6 +163,8 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 

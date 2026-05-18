@@ -1,7 +1,10 @@
 fa_normalize:
   ros__parameters:
-    input_topic: "audio/noise_gated/mic"
-    output_topic: "audio/normalized/mic"
+    input_topic: "fa_normalize/input"
+    output_topic: "fa_normalize/output"
+    input_stream_id: "audio/noise_gated/mic"
+    output:
+      stream_id: "audio/normalized/mic"
 
     normalize:
       target_peak_linear: 0.9
@@ -19,4 +22,7 @@ fa_normalize:
       reliable: false
 
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000

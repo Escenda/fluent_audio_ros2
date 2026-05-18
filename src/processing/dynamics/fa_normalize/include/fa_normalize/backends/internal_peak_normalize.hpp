@@ -9,9 +9,15 @@ namespace fa_normalize::backends
 
 struct InternalPeakNormalizeConfig
 {
-  int channels{-1};
-  double target_peak_linear{0.9};
-  double silence_threshold_linear{0.0001};
+  InternalPeakNormalizeConfig() = delete;
+  InternalPeakNormalizeConfig(
+    int channels_value,
+    double target_peak_linear_value,
+    double silence_threshold_linear_value);
+
+  int channels;
+  double target_peak_linear;
+  double silence_threshold_linear;
 };
 
 enum class ProcessStatus
