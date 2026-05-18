@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -37,8 +36,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaCompressorNode::FaCompressorNode()
-: rclcpp::Node("fa_compressor")
+FaCompressorNode::FaCompressorNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_compressor", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Compressor node");
   loadParameters();
@@ -302,18 +301,3 @@ void FaCompressorNode::publishDiagnostics()
 }
 
 }  // namespace fa_compressor
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_compressor::FaCompressorNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_compressor"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

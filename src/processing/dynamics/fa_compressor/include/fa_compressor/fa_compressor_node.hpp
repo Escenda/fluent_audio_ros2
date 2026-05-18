@@ -41,7 +41,7 @@ struct CompressorConfig
 class FaCompressorNode : public rclcpp::Node
 {
 public:
-  FaCompressorNode();
+  explicit FaCompressorNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaCompressorNode() override;
 
 private:

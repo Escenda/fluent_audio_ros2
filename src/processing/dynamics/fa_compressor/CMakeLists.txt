@@ -21,22 +21,30 @@ target_include_directories(fa_compressor_internal_static_curve PUBLIC
   include
 )
 
-add_executable(fa_compressor_node
+add_library(fa_compressor_node_core
   src/fa_compressor_node.cpp
 )
 
-target_include_directories(fa_compressor_node PRIVATE
+target_include_directories(fa_compressor_node_core PUBLIC
   include
 )
 
-ament_target_dependencies(fa_compressor_node
+ament_target_dependencies(fa_compressor_node_core
   rclcpp
   diagnostic_msgs
   fa_interfaces
 )
 
-target_link_libraries(fa_compressor_node
+target_link_libraries(fa_compressor_node_core
   fa_compressor_internal_static_curve
+)
+
+add_executable(fa_compressor_node
+  src/main.cpp
+)
+
+target_link_libraries(fa_compressor_node
+  fa_compressor_node_core
 )
 
 install(TARGETS fa_compressor_node
@@ -67,6 +75,22 @@ if(BUILD_TESTING)
     )
     target_link_libraries(${PROJECT_NAME}_backend_test
       fa_compressor_internal_static_curve
+    )
+  endif()
+
+  ament_add_gtest(${PROJECT_NAME}_graph_smoke_test
+    test/cpp/test_compressor_graph.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_graph_smoke_test)
+    target_include_directories(${PROJECT_NAME}_graph_smoke_test PRIVATE
+      include
+    )
+    target_link_libraries(${PROJECT_NAME}_graph_smoke_test
+      fa_compressor_node_core
+    )
+    ament_target_dependencies(${PROJECT_NAME}_graph_smoke_test
+      rclcpp
+      fa_interfaces
     )
   endif()
 
