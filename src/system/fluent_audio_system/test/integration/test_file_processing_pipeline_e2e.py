@@ -229,6 +229,8 @@ def test_fluent_audio_system_launches_explicit_processing_pipeline_e2e(
             f"config:={system_config}",
             "fa_in_enabled:=false",
             "fa_out_enabled:=false",
+            "fa_in_source_id:=disabled",
+            "fa_out_sink_id:=disabled",
         ],
         env=os.environ.copy(),
         stdout=subprocess.PIPE,

@@ -148,6 +148,8 @@ def test_fluent_audio_system_launches_file_source_to_file_sink_e2e(tmp_path: Pat
             f"config:={system_config}",
             "fa_in_enabled:=false",
             "fa_out_enabled:=false",
+            "fa_in_source_id:=disabled",
+            "fa_out_sink_id:=disabled",
         ],
         env=os.environ.copy(),
         stdout=subprocess.PIPE,

@@ -211,6 +211,7 @@ class _NodeConfig(BaseModel):
             return self
         _required_model_text(self.package, f"node {node_id}.package")
         _required_model_text(self.executable, f"node {node_id}.exec")
+        _required_model_text(self.node_name, f"node {node_id}.node_name")
         _required_model_text(self.params_file, f"node {node_id}.params_file")
         return self
 
@@ -374,7 +375,7 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
     node_id = _required_model_text(node.id, "node id")
     package = _required_model_text(node.package, f"node {node_id}.package")
     executable = _required_model_text(node.executable, f"node {node_id}.exec")
-    node_name = _optional_model_text(node.node_name, node_id)
+    node_name = _required_model_text(node.node_name, f"node {node_id}.node_name")
     namespace = _optional_model_text(node.namespace, "")
     if namespace == "/":
         namespace = ""

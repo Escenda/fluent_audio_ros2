@@ -10,6 +10,20 @@ def test_run_launch_includes_system_launch_with_site_binding_args() -> None:
     assert "IncludeLaunchDescription" in run_text
     assert "PythonLaunchDescriptionSource" in run_text
     assert '"fluent_audio_system.launch.py"' in run_text
+    assert '"config": config_path' in run_text
+    for arg_name in ("fa_in_enabled", "fa_out_enabled", "fa_in_source_id", "fa_out_sink_id"):
+        assert f'"{arg_name}": {arg_name}' in run_text
+
+
+def test_system_entrypoints_require_explicit_launch_arguments() -> None:
+    launch_text = (
+        PACKAGE_ROOT / "launch" / "fluent_audio_system.launch.py"
+    ).read_text(encoding="utf-8")
+    run_text = (PACKAGE_ROOT / "launch" / "run.py").read_text(encoding="utf-8")
+    combined = launch_text + "\n" + run_text
+
+    assert "default_value" not in combined
+    assert "/config/fluent_audio_system.yaml" not in combined
     for arg_name in (
         "config",
         "fa_in_enabled",
@@ -17,7 +31,8 @@ def test_run_launch_includes_system_launch_with_site_binding_args() -> None:
         "fa_in_source_id",
         "fa_out_sink_id",
     ):
-        assert f'"{arg_name}": {arg_name}' in run_text
+        assert f'"{arg_name}"' in launch_text
+        assert f'"{arg_name}"' in run_text
 
 
 def test_system_launch_uses_node_actions_without_temp_yaml_rewrite() -> None:

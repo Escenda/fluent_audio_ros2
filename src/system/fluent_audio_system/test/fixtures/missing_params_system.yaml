@@ -9,4 +9,5 @@ groups:
         enable: true
         package: fa_in
         exec: fa_in_node
+        node_name: fa_in
         params_file: "${share:fluent_audio_system}/test/fixtures/not_found.params.yaml"

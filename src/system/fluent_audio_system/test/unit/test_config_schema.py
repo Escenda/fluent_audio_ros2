@@ -36,6 +36,7 @@ def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
                             "enable": True,
                             "package": "fa_in",
                             "exec": "fa_in_node",
+                            "node_name": "fa_in",
                             "params_file": str(params_file),
                             "remappings": {"audio/frame": "robot/audio/frame"},
                             "parameters": {
@@ -116,6 +117,7 @@ def test_required_packages_include_base_and_enabled_nodes_in_launch_order(
                             "enable": True,
                             "package": "fa_in",
                             "exec": "fa_in_node",
+                            "node_name": "fa_in",
                             "params_file": str(fa_in_params),
                         },
                         {
@@ -130,6 +132,7 @@ def test_required_packages_include_base_and_enabled_nodes_in_launch_order(
                             "enable": True,
                             "package": "fa_resample",
                             "exec": "fa_resample_node",
+                            "node_name": "fa_resample",
                             "params_file": str(resample_params),
                         },
                         {
@@ -137,6 +140,7 @@ def test_required_packages_include_base_and_enabled_nodes_in_launch_order(
                             "enable": True,
                             "package": "fa_resample",
                             "exec": "fa_resample_node",
+                            "node_name": "fa_resample_duplicate",
                             "params_file": str(resample_params),
                         },
                     ],
@@ -150,6 +154,7 @@ def test_required_packages_include_base_and_enabled_nodes_in_launch_order(
                             "enable": True,
                             "package": "fa_gain",
                             "exec": "fa_gain_node",
+                            "node_name": "fa_gain",
                             "params_file": str(gain_params),
                         }
                     ],
@@ -184,6 +189,7 @@ groups:
         enable: true
         package: fa_in
         exec: fa_in_node
+        node_name: fa_in
         params_file: /missing/fa_in.yaml
 """,
         encoding="utf-8",
@@ -211,6 +217,7 @@ groups:
         enable: true
         package: fa_in
         exec: fa_in_node
+        node_name: fa_in
 """,
         encoding="utf-8",
     )
@@ -260,6 +267,7 @@ groups:
         enable: true
         package: fa_in
         exec: fa_in_node
+        node_name: fa_in
         params_file: {params_file}
 """,
         encoding="utf-8",
@@ -395,6 +403,7 @@ def test_streaming_group_accepts_streaming_package(tmp_path: Path) -> None:
                             "enable": True,
                             "package": "fa_frame_buffer",
                             "exec": "fa_frame_buffer_node",
+                            "node_name": "fa_frame_buffer",
                             "params_file": str(params_file),
                         }
                     ],
@@ -426,6 +435,7 @@ def test_ai_group_accepts_audio_embedding_package(tmp_path: Path) -> None:
                             "enable": True,
                             "package": "fa_audio_embedding",
                             "exec": "fa_audio_embedding_node",
+                            "node_name": "fa_audio_embedding",
                             "params_file": str(params_file),
                             "parameters": {
                                 "input_topic": "audio/resample16k/mic",
@@ -486,6 +496,7 @@ def test_io_group_accepts_source_sink_and_io_utility_packages(
                             "enable": True,
                             "package": package_name,
                             "exec": executable_name,
+                            "node_name": package_name,
                             "params_file": str(params_file),
                         }
                     ],
@@ -593,6 +604,7 @@ def test_generation_routing_group_accepts_generation_and_routing_packages(
                             "enable": True,
                             "package": "fa_tts",
                             "exec": "fa_tts_node",
+                            "node_name": "fa_tts",
                             "params_file": str(tts_params),
                         },
                         {
@@ -600,6 +612,7 @@ def test_generation_routing_group_accepts_generation_and_routing_packages(
                             "enable": True,
                             "package": "fa_mix",
                             "exec": "fa_mix_node",
+                            "node_name": "fa_mix",
                             "params_file": str(mix_params),
                         },
                     ],
@@ -628,6 +641,7 @@ def test_analysis_group_accepts_non_ai_feature_package(tmp_path: Path) -> None:
                             "enable": True,
                             "package": "fa_log_mel",
                             "exec": "fa_log_mel_node",
+                            "node_name": "fa_log_mel",
                             "params_file": str(params_file),
                         }
                     ],
@@ -655,6 +669,7 @@ def test_missing_params_file_fails(tmp_path: Path) -> None:
                                 "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "node_name": "fa_in",
                                 "params_file": str(missing),
                             }
                         ],
@@ -679,10 +694,38 @@ def test_node_requires_params_file() -> None:
                                 "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "node_name": "fa_in",
                             }
                         ],
                     }
                 ]
+            }
+        )
+
+
+def test_node_requires_explicit_node_name(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="node fa_in.node_name is required"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "io",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "enable": True,
+                                "package": "fa_in",
+                                "exec": "fa_in_node",
+                                "params_file": str(params_file),
+                            }
+                        ],
+                    }
+                ],
             }
         )
 
@@ -702,6 +745,7 @@ def test_inline_parameters_without_params_file_fail() -> None:
                                 "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "node_name": "fa_in",
                                 "parameters": {"audio.sample_rate": 48000},
                             }
                         ],
@@ -726,6 +770,7 @@ def test_empty_params_file_fails() -> None:
                                 "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "node_name": "fa_in",
                                 "params_file": "",
                             }
                         ],
@@ -753,6 +798,7 @@ def test_nested_inline_parameters_fail(tmp_path: Path) -> None:
                                 "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "node_name": "fa_in",
                                 "params_file": str(params_file),
                                 "parameters": {"audio": {"sample_rate": 48000}},
                             }
@@ -786,6 +832,7 @@ def test_from_to_sequence_remappings_fail(tmp_path: Path) -> None:
                                 "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "node_name": "fa_in",
                                 "params_file": str(params_file),
                                 "remappings": [
                                     {"from": "audio/frame", "to": "robot/audio/frame"}
@@ -816,6 +863,7 @@ def test_pair_sequence_remappings_fail(tmp_path: Path) -> None:
                                 "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "node_name": "fa_in",
                                 "params_file": str(params_file),
                                 "remappings": [["audio/frame", "robot/audio/frame"]],
                             }
@@ -844,6 +892,7 @@ def test_invalid_pair_sequence_remappings_fail(tmp_path: Path) -> None:
                                 "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "node_name": "fa_in",
                                 "params_file": str(params_file),
                                 "remappings": [["audio/frame"]],
                             }
@@ -872,6 +921,7 @@ def test_invalid_remappings_fail(tmp_path: Path) -> None:
                                 "enable": True,
                                 "package": "fa_in",
                                 "exec": "fa_in_node",
+                                "node_name": "fa_in",
                                 "params_file": str(params_file),
                                 "remappings": {"audio/frame": ""},
                             }
@@ -899,6 +949,7 @@ groups:
         enable: true
         package: fa_in
         exec: fa_in_node
+        node_name: fa_in
         params_file: "${share:demo_pkg}/fa_in.yaml"
 """,
         encoding="utf-8",
@@ -941,6 +992,7 @@ def test_inline_parameter_share_path_expansion(
                             "enable": True,
                             "package": "fa_denoise",
                             "exec": "fa_denoise_node",
+                            "node_name": "fa_denoise",
                             "params_file": "${share:params_pkg}/fa_denoise.yaml",
                             "parameters": {
                                 "dtln.model_1_path": "${share:fa_denoise}/models/model_1.onnx",
@@ -992,6 +1044,7 @@ groups:
         enable: true
         package: fa_tts
         exec: fa_tts_node
+        node_name: fa_tts
         params_file: "${env:FA_TEST_PARAMS_DIR}/fa_tts.yaml"
         parameters:
           backend.openjtalk_dict_dir: "${env:FA_TEST_OPENJTALK_DICT_DIR}"
@@ -1043,6 +1096,7 @@ def test_missing_environment_path_fails_closed(
                                 "enable": True,
                                 "package": "fa_tts",
                                 "exec": "fa_tts_node",
+                                "node_name": "fa_tts",
                                 "params_file": str(params_file),
                                 "parameters": {
                                     "backend.openjtalk_dict_dir": (
@@ -1082,6 +1136,7 @@ def test_empty_environment_path_fails_closed(
                                 "enable": True,
                                 "package": "fa_tts",
                                 "exec": "fa_tts_node",
+                                "node_name": "fa_tts",
                                 "params_file": str(params_file),
                                 "parameters": {
                                     "backend.openjtalk_dict_dir": (
@@ -1166,6 +1221,7 @@ def test_node_executable_field_name_is_rejected(tmp_path: Path) -> None:
                                 "enable": True,
                                 "package": "fa_in",
                                 "executable": "fa_in_node",
+                                "node_name": "fa_in",
                                 "params_file": str(params_file),
                             }
                         ],

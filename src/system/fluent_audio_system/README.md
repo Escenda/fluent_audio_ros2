@@ -3,17 +3,27 @@
 `fluent_audio_system` は FluentAudio の node group を YAML から展開する launch 専用 package です。VLAbor profile からは `type: include` で `launch/run.py` を呼び、詳細な backend / model / node 構成は FluentAudio 側 config に閉じ込めます。
 
 ```bash
-ros2 launch fluent_audio_system run.py config:=/path/to/fluent_audio_system.yaml fa_in_source_id:=hw:1,0 fa_out_sink_id:=hw:2,0
+ros2 launch fluent_audio_system run.py \
+  config:=/path/to/fluent_audio_system.yaml \
+  fa_in_enabled:=true \
+  fa_out_enabled:=true \
+  fa_in_source_id:=hw:1,0 \
+  fa_out_sink_id:=hw:2,0
 ```
 
 I/O node を起動しない debug では、次のように site binding を明示的に無効化します。
 
 ```bash
-ros2 launch fluent_audio_system run.py config:=/path/to/fluent_audio_system.yaml fa_in_enabled:=false fa_out_enabled:=false
+ros2 launch fluent_audio_system run.py \
+  config:=/path/to/fluent_audio_system.yaml \
+  fa_in_enabled:=false \
+  fa_out_enabled:=false \
+  fa_in_source_id:=disabled \
+  fa_out_sink_id:=disabled
 ```
 
 Missing config や missing params file は起動失敗にします。暗黙の device 推測、model fallback、temporary YAML 書き換えは行いません。
-`fa_in_enabled` / `fa_out_enabled` の launch default は `true` です。profile で enabled な IO を起動しない場合は、site profile または debug launch で `fa_in_enabled:=false` / `fa_out_enabled:=false` を明示します。
+`config`、`fa_in_enabled`、`fa_out_enabled`、`fa_in_source_id`、`fa_out_sink_id` に launch default はありません。profile で enabled な IO を起動しない場合は、site profile または debug launch で `fa_in_enabled:=false` / `fa_out_enabled:=false` を明示します。
 
 VLAbor / Docker 側で system config から build 対象 package を解決する場合は、次の CLI を使います。出力は `fa_interfaces`、`fluent_audio_system`、enabled node package の順で 1 行 1 package です。
 

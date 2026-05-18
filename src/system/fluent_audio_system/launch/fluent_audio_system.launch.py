@@ -100,28 +100,23 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "config",
-                default_value="/config/fluent_audio_system.yaml",
-                description="Absolute path to fluent_audio_system yaml.",
+                description="Explicit path to fluent_audio_system yaml.",
             ),
             DeclareLaunchArgument(
                 "fa_in_enabled",
-                default_value="true",
-                description="Enable profile-declared fa_in unless site profile disables it.",
+                description="Explicit true/false site binding for profile-declared fa_in.",
             ),
             DeclareLaunchArgument(
                 "fa_out_enabled",
-                default_value="true",
-                description="Enable profile-declared fa_out unless site profile disables it.",
+                description="Explicit true/false site binding for profile-declared fa_out.",
             ),
             DeclareLaunchArgument(
                 "fa_in_source_id",
-                default_value="",
-                description="Raw ALSA capture source id for fa_in.",
+                description="Explicit raw ALSA capture source id for fa_in.",
             ),
             DeclareLaunchArgument(
                 "fa_out_sink_id",
-                default_value="",
-                description="Raw ALSA playback sink id for fa_out.",
+                description="Explicit raw ALSA playback sink id for fa_out.",
             ),
             OpaqueFunction(function=_launch_setup),
         ]
