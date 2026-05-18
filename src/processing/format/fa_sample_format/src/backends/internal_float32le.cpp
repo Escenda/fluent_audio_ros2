@@ -43,7 +43,7 @@ const char * frameContractStatusName(const FrameContractStatus status)
     case FrameContractStatus::kUnalignedData:
       return "unaligned_data";
   }
-  return "unknown";
+  throw std::logic_error("unhandled sample-format frame contract status");
 }
 
 const char * processStatusMessage(const ProcessStatus status)
@@ -60,7 +60,7 @@ const char * processStatusMessage(const ProcessStatus status)
     case ProcessStatus::kConversionFailed:
       return "sample-format conversion failed";
   }
-  return "unknown sample-format backend status";
+  throw std::logic_error("unhandled sample-format backend process status");
 }
 
 bool isSupportedSampleFormatConversion(

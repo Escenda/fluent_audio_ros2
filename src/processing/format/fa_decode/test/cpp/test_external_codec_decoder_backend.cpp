@@ -63,6 +63,18 @@ TEST(ExternalCodecDecoderBackendContract, ValidatesStartupConfig)
   }, std::runtime_error);
 }
 
+TEST(ExternalCodecDecoderBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_decode::backends::encodedChunkContractStatusName(
+      static_cast<fa_decode::backends::EncodedChunkContractStatus>(999)),
+    std::logic_error);
+  EXPECT_THROW(
+    fa_decode::backends::decodeStatusMessage(
+      static_cast<fa_decode::backends::DecodeStatus>(999)),
+    std::logic_error);
+}
+
 TEST(ExternalCodecDecoderBackendContract, DecodesViaExplicitExternalCommand)
 {
   fa_decode::backends::ExternalCodecDecoderBackend backend(baseConfig());

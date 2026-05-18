@@ -54,6 +54,18 @@ TEST(ExternalCodecEncoderBackendContract, ValidatesStartupConfig)
   }, std::runtime_error);
 }
 
+TEST(ExternalCodecEncoderBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_encode::backends::frameContractStatusName(
+      static_cast<fa_encode::backends::FrameContractStatus>(999)),
+    std::logic_error);
+  EXPECT_THROW(
+    fa_encode::backends::encodeStatusMessage(
+      static_cast<fa_encode::backends::EncodeStatus>(999)),
+    std::logic_error);
+}
+
 TEST(ExternalCodecEncoderBackendContract, EncodesViaExplicitExternalCommand)
 {
   fa_encode::backends::ExternalCodecEncoderBackend backend(baseConfig());

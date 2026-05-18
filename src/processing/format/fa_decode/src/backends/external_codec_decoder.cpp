@@ -273,7 +273,7 @@ const char * encodedChunkContractStatusName(const EncodedChunkContractStatus sta
     case EncodedChunkContractStatus::kEmptyData:
       return "empty_data";
   }
-  return "unknown";
+  throw std::logic_error("unhandled decoder encoded chunk contract status");
 }
 
 const char * decodeStatusMessage(const DecodeStatus status)
@@ -302,7 +302,7 @@ const char * decodeStatusMessage(const DecodeStatus status)
     case DecodeStatus::kUnalignedOutput:
       return "external codec decoder output is not aligned to PCM frame size";
   }
-  return "unknown decoder status";
+  throw std::logic_error("unhandled decoder process status");
 }
 
 bool isSupportedPcmFormat(const std::string & encoding, const int bit_depth)

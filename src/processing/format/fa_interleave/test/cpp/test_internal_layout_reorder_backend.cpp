@@ -55,6 +55,18 @@ TEST(InternalLayoutReorderBackend, AcceptsOnlyExplicitLayoutAndFormatContracts)
   }, std::runtime_error);
 }
 
+TEST(InternalLayoutReorderBackend, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_interleave::backends::frameContractStatusName(
+      static_cast<fa_interleave::backends::FrameContractStatus>(999)),
+    std::logic_error);
+  EXPECT_THROW(
+    fa_interleave::backends::processStatusMessage(
+      static_cast<fa_interleave::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(InternalLayoutReorderBackend, ReordersInterleavedToPlanarBySampleBytes)
 {
   fa_interleave::backends::InternalLayoutReorderBackend backend(interleavedToPlanarConfig());

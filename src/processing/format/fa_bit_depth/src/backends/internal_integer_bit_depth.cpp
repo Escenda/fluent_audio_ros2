@@ -30,7 +30,7 @@ const char * frameContractStatusName(const FrameContractStatus status)
     case FrameContractStatus::kUnalignedData:
       return "unaligned_data";
   }
-  return "unknown";
+  throw std::logic_error("unhandled bit-depth frame contract status");
 }
 
 const char * processStatusMessage(const ProcessStatus status)
@@ -43,7 +43,7 @@ const char * processStatusMessage(const ProcessStatus status)
     case ProcessStatus::kConversionFailed:
       return "PCM integer bit-depth conversion failed";
   }
-  return "unknown bit-depth backend status";
+  throw std::logic_error("unhandled bit-depth backend process status");
 }
 
 bool isSupportedConversion(

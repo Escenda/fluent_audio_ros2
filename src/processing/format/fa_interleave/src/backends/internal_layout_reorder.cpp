@@ -26,7 +26,7 @@ const char * frameContractStatusName(const FrameContractStatus status)
     case FrameContractStatus::kUnalignedData:
       return "unaligned_data";
   }
-  return "unknown";
+  throw std::logic_error("unhandled layout reorder frame contract status");
 }
 
 const char * processStatusMessage(const ProcessStatus status)
@@ -39,7 +39,7 @@ const char * processStatusMessage(const ProcessStatus status)
     case ProcessStatus::kReorderFailed:
       return "layout reorder failed";
   }
-  return "unknown layout reorder backend status";
+  throw std::logic_error("unhandled layout reorder backend process status");
 }
 
 bool isSupportedLayout(const std::string & layout)

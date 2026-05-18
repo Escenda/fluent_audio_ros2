@@ -81,6 +81,18 @@ TEST(InternalFloat32LeChannelConvertBackend, SupportsOnlyExplicitChannelConversi
   }, std::runtime_error);
 }
 
+TEST(InternalFloat32LeChannelConvertBackend, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_channel_convert::backends::frameContractStatusName(
+      static_cast<fa_channel_convert::backends::FrameContractStatus>(999)),
+    std::logic_error);
+  EXPECT_THROW(
+    fa_channel_convert::backends::processStatusMessage(
+      static_cast<fa_channel_convert::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(InternalFloat32LeChannelConvertBackend, DuplicatesMonoToStereo)
 {
   fa_channel_convert::backends::InternalFloat32LeChannelConvertBackend backend(monoToStereoConfig());

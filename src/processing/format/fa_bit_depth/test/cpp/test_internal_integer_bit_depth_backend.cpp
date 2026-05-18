@@ -52,6 +52,18 @@ TEST(InternalIntegerBitDepthBackend, AcceptsOnlyLosslessPcm16LeToPcm32LeConfig)
   }, std::runtime_error);
 }
 
+TEST(InternalIntegerBitDepthBackend, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_bit_depth::backends::frameContractStatusName(
+      static_cast<fa_bit_depth::backends::FrameContractStatus>(999)),
+    std::logic_error);
+  EXPECT_THROW(
+    fa_bit_depth::backends::processStatusMessage(
+      static_cast<fa_bit_depth::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(InternalIntegerBitDepthBackend, ConvertsPcm16LeWordsToPcm32LeHighWords)
 {
   fa_bit_depth::backends::InternalIntegerBitDepthBackend backend(validConfig());

@@ -34,7 +34,7 @@ const char * frameContractStatusName(const FrameContractStatus status)
     case FrameContractStatus::kUnalignedData:
       return "unaligned_data";
   }
-  return "unknown";
+  throw std::logic_error("unhandled channel-convert frame contract status");
 }
 
 const char * processStatusMessage(const ProcessStatus status)
@@ -51,7 +51,7 @@ const char * processStatusMessage(const ProcessStatus status)
     case ProcessStatus::kUnsupportedConversion:
       return "unsupported channel conversion";
   }
-  return "unknown channel-convert backend status";
+  throw std::logic_error("unhandled channel-convert backend process status");
 }
 
 bool isSupportedChannelConversion(

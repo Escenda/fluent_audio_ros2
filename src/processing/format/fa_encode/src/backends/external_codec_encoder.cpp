@@ -273,7 +273,7 @@ const char * frameContractStatusName(const FrameContractStatus status)
     case FrameContractStatus::kUnalignedData:
       return "unaligned_data";
   }
-  return "unknown";
+  throw std::logic_error("unhandled encoder frame contract status");
 }
 
 const char * encodeStatusMessage(const EncodeStatus status)
@@ -300,7 +300,7 @@ const char * encodeStatusMessage(const EncodeStatus status)
     case EncodeStatus::kOutputTooLarge:
       return "external codec encoder output exceeded configured maximum";
   }
-  return "unknown encoder status";
+  throw std::logic_error("unhandled encoder process status");
 }
 
 bool isSupportedPcmFormat(const std::string & encoding, const int bit_depth)

@@ -81,6 +81,18 @@ TEST(InternalFloat32LeBackend, SupportsOnlyExplicitConfiguredConversions)
   }, std::runtime_error);
 }
 
+TEST(InternalFloat32LeBackend, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_sample_format::backends::frameContractStatusName(
+      static_cast<fa_sample_format::backends::FrameContractStatus>(999)),
+    std::logic_error);
+  EXPECT_THROW(
+    fa_sample_format::backends::processStatusMessage(
+      static_cast<fa_sample_format::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(InternalFloat32LeBackend, ConvertsPcm16LeToFloat32LeWithoutClipping)
 {
   fa_sample_format::backends::InternalFloat32LeBackend backend(validPcm16ToFloat32Config());
