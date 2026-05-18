@@ -48,12 +48,15 @@ def test_resample_uses_validated_qos_depth_without_hidden_fallback() -> None:
     )[0]
 
     assert "qos.depth must be > 0" in source
+    assert "diagnostics.qos.depth must be > 0" in source
     assert "rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));" in source
     assert "std::max<int>(1, config_.qos_depth)" not in source
     assert 'readRequiredInt(*this, "target_sample_rate")' in load_parameters
     assert 'readRequiredString(*this, "input.encoding")' in load_parameters
     assert 'readRequiredBool(*this, "mic.enabled")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in load_parameters
+    assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in load_parameters
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line

@@ -75,6 +75,8 @@ def test_launch_and_node_require_explicit_runtime_config() -> None:
     assert 'readRequiredStringArray(*this, "backend.command.arguments")' in load_parameters
     assert 'readRequiredInt(*this, "input.sample_rate")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in load_parameters
+    assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in load_parameters
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line

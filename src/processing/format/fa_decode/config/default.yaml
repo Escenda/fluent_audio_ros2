@@ -29,3 +29,6 @@ fa_decode:
 
     diagnostics:
       publish_period_ms: 1000
+      qos:
+        depth: 10
+        reliable: true

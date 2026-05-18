@@ -79,6 +79,8 @@ TEST_F(RclcppFixture, PublishesEncodedAudioChunkFromPcmInput)
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
 
   auto encode_node = std::make_shared<fa_encode::FaEncodeNode>(options);

@@ -99,6 +99,8 @@ void FaResampleNode::loadParameters()
   this->declare_parameter<bool>("qos.reliable");
 
   this->declare_parameter<int>("diagnostics.publish_period_ms");
+  this->declare_parameter<int>("diagnostics.qos.depth");
+  this->declare_parameter<bool>("diagnostics.qos.reliable");
 
   config_.target_sample_rate = readRequiredInt(*this, "target_sample_rate");
   config_.input_encoding = readRequiredString(*this, "input.encoding");
@@ -120,6 +122,8 @@ void FaResampleNode::loadParameters()
 
   config_.diagnostics_publish_period_ms = readRequiredInt(
     *this, "diagnostics.publish_period_ms");
+  config_.diagnostics_qos_depth = readRequiredInt(*this, "diagnostics.qos.depth");
+  config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
 
   if (config_.target_sample_rate <= 0) {
     throw std::runtime_error("target_sample_rate must be > 0 (set via YAML)");
@@ -144,6 +148,9 @@ void FaResampleNode::loadParameters()
   }
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0 (set via YAML)");
+  }
+  if (config_.diagnostics_qos_depth <= 0) {
+    throw std::runtime_error("diagnostics.qos.depth must be > 0");
   }
   if (config_.mic_enabled) {
     if (config_.mic_input_topic.empty()) {
@@ -204,8 +211,15 @@ void FaResampleNode::setupInterfaces()
       std::bind(&FaResampleNode::handleRefFrame, this, std::placeholders::_1));
   }
 
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
+  }
+
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
-    "diagnostics", rclcpp::SystemDefaultsQoS());
+    "diagnostics", diagnostics_qos);
   diag_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.diagnostics_publish_period_ms),
     std::bind(&FaResampleNode::publishDiagnostics, this));

@@ -82,6 +82,8 @@ TEST_F(RclcppFixture, PublishesFloat32FrameFromPcm16Input)
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
 
   auto sample_format_node = std::make_shared<fa_sample_format::FaSampleFormatNode>(options);

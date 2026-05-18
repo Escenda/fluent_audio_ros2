@@ -73,6 +73,8 @@ def test_startup_rejects_unsupported_or_implicit_channel_conversion() -> None:
     assert 'readRequiredInt(*this, "input.channels")' in load_parameters
     assert 'readRequiredString(*this, "conversion.mode")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in load_parameters
+    assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in load_parameters
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line

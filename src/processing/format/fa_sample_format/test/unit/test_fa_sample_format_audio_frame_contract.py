@@ -67,6 +67,8 @@ def test_startup_rejects_unknown_or_implicit_conversion_config() -> None:
     assert 'readRequiredString(*this, "input.encoding")' in load_parameters
     assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in load_parameters
+    assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in load_parameters
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line

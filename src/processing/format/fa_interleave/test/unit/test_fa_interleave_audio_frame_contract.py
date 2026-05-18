@@ -79,6 +79,8 @@ def test_startup_rejects_unsupported_or_implicit_layout_conversion_config() -> N
     assert 'readRequiredString(*this, "input.layout")' in load_parameters
     assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in load_parameters
+    assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in load_parameters
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line

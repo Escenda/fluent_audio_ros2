@@ -134,6 +134,8 @@ void FaEncodeNode::loadParameters()
   this->declare_parameter<int>("qos.depth");
   this->declare_parameter<bool>("qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
+  this->declare_parameter<int>("diagnostics.qos.depth");
+  this->declare_parameter<bool>("diagnostics.qos.reliable");
 
   config_.backend_name = readRequiredString(*this, "backend.name");
   config_.command_executable = readRequiredString(*this, "backend.command.executable");
@@ -155,6 +157,8 @@ void FaEncodeNode::loadParameters()
   config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
   config_.diagnostics_publish_period_ms = readRequiredInt(
     *this, "diagnostics.publish_period_ms");
+  config_.diagnostics_qos_depth = readRequiredInt(*this, "diagnostics.qos.depth");
+  config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
 
   if (config_.backend_name.empty()) {
     throw std::runtime_error("backend.name is required");
@@ -170,6 +174,7 @@ void FaEncodeNode::loadParameters()
   }
   requirePositive("qos.depth", config_.qos_depth);
   requirePositive("diagnostics.publish_period_ms", config_.diagnostics_publish_period_ms);
+  requirePositive("diagnostics.qos.depth", config_.diagnostics_qos_depth);
 }
 
 void FaEncodeNode::setupBackend()
@@ -226,9 +231,16 @@ void FaEncodeNode::setupInterfaces()
     qos,
     std::bind(&FaEncodeNode::handleFrame, this, std::placeholders::_1));
 
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
+  }
+
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics",
-    rclcpp::SystemDefaultsQoS());
+    diagnostics_qos);
   diag_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.diagnostics_publish_period_ms),
     std::bind(&FaEncodeNode::publishDiagnostics, this));
