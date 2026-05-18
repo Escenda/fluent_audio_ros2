@@ -7,7 +7,7 @@
 - 入力: `fa_interfaces/msg/AudioFrame`
 - 出力: `fa_interfaces/msg/AudioFrame`
 - 対応 format: `FLOAT32LE` / 32 bit / interleaved
-- 必須 parameter: `input_topic`, `output_topic`, `input_stream_id`, `output.stream_id`, `echo.delay_ms`, `echo.feedback_gain`, `echo.wet_gain`, `echo.dry_gain`
+- 必須 parameter: `input_topic`, `output_topic`, `input_stream_id`, `output.stream_id`, `echo.delay_ms`, `echo.feedback_gain`, `echo.wet_gain`, `echo.dry_gain`, `expected.sample_rate`, `expected.channels`, `expected.encoding`, `expected.bit_depth`, `expected.layout`, `qos.depth`, `diagnostics.publish_period_ms`
 - source が切り替わった場合は delay state をリセットします。
 
 ## Processing
@@ -19,7 +19,7 @@ output = dry_gain * input + wet_gain * delayed
 next_delay_state = input + feedback_gain * delayed
 ```
 
-gain は正規化しません。非 finite な設定、契約外 frame、非 finite sample、または正規化範囲外の output/state は frame ごと drop します。
+gain は正規化しません。非 finite な設定は起動時に失敗し、契約外 frame、非 finite sample、または正規化範囲外の output/state は frame ごと drop します。
 
 ## Launch
 

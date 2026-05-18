@@ -128,7 +128,7 @@ TEST_F(RclcppFixture, PublishesEchoFrameWithSeparateStreamIdentity)
   executor.add_node(echo_node);
   executor.add_node(test_node);
 
-  const auto deadline = std::chrono::steady_clock::now() + 3s;
+  auto deadline = std::chrono::steady_clock::now() + 3s;
   while ((publisher->get_subscription_count() == 0U || subscriber->get_publisher_count() == 0U) &&
          std::chrono::steady_clock::now() < deadline)
   {
@@ -136,11 +136,14 @@ TEST_F(RclcppFixture, PublishesEchoFrameWithSeparateStreamIdentity)
     std::this_thread::sleep_for(10ms);
   }
 
+  deadline = std::chrono::steady_clock::now() + 3s;
   publisher->publish(makeFloat32Frame(*test_node, 1.0F, 1U));
   while (received.size() < 1U && std::chrono::steady_clock::now() < deadline) {
     executor.spin_some(20ms);
     std::this_thread::sleep_for(10ms);
   }
+
+  deadline = std::chrono::steady_clock::now() + 3s;
   publisher->publish(makeFloat32Frame(*test_node, 0.0F, 2U));
   while (received.size() < 2U && std::chrono::steady_clock::now() < deadline) {
     executor.spin_some(20ms);
