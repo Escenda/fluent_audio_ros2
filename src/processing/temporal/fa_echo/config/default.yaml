@@ -2,6 +2,10 @@ fa_echo:
   ros__parameters:
     input_topic: "audio/buffered/mic"
     output_topic: "audio/echo/mic"
+    input_stream_id: "audio/buffered/mic"
+
+    output:
+      stream_id: "audio/echo/mic"
 
     echo:
       delay_ms: 250.0

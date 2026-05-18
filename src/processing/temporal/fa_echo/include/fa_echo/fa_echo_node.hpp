@@ -3,8 +3,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -14,10 +14,17 @@
 namespace fa_echo
 {
 
+namespace backends
+{
+class InternalFeedbackEchoBackend;
+}  // namespace backends
+
 struct EchoConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   double delay_ms{-1.0};
   double feedback_gain{0.0};
   double wet_gain{0.0};
@@ -38,31 +45,25 @@ struct EchoConfig
 class FaEchoNode : public rclcpp::Node
 {
 public:
-  FaEchoNode();
-  ~FaEchoNode() override = default;
+  explicit FaEchoNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~FaEchoNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
-  bool validateSamples(const fa_interfaces::msg::AudioFrame & msg);
   bool applyEcho(
     const fa_interfaces::msg::AudioFrame & in,
     fa_interfaces::msg::AudioFrame & out);
 
-  void resetDelayState(
-    std::vector<std::vector<float>> & buffers,
-    std::vector<size_t> & positions) const;
   size_t bytesPerFrame() const;
 
   EchoConfig config_;
-  size_t delay_samples_{0};
-  std::string current_source_id_{};
-  std::vector<std::vector<float>> delay_buffers_{};
-  std::vector<size_t> delay_positions_{};
+  std::unique_ptr<backends::InternalFeedbackEchoBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;

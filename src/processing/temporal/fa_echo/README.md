@@ -1,13 +1,13 @@
 # fa_echo
 
-`fa_echo` は FluentAudio の `AudioFrame` を受け取り、FLOAT32LE interleaved stream に内部 feedback echo を適用する ROS2 processing package です。デバイス入出力は持たず、入力 topic と出力 topic の間で sample 値のみを処理します。
+`fa_echo` は FluentAudio の `AudioFrame` を受け取り、FLOAT32LE interleaved stream に内部 feedback echo を適用する ROS2 processing package です。デバイス入出力は持たず、入力 topic と出力 topic の間で sample 値のみを処理します。sample loop と delay state は ROS 非依存 backend が持ちます。
 
 ## Contract
 
 - 入力: `fa_interfaces/msg/AudioFrame`
 - 出力: `fa_interfaces/msg/AudioFrame`
 - 対応 format: `FLOAT32LE` / 32 bit / interleaved
-- 必須 parameter: `input_topic`, `output_topic`, `echo.delay_ms`, `echo.feedback_gain`, `echo.wet_gain`, `echo.dry_gain`
+- 必須 parameter: `input_topic`, `output_topic`, `input_stream_id`, `output.stream_id`, `echo.delay_ms`, `echo.feedback_gain`, `echo.wet_gain`, `echo.dry_gain`
 - source が切り替わった場合は delay state をリセットします。
 
 ## Processing
