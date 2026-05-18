@@ -1,7 +1,11 @@
 fa_compressor:
   ros__parameters:
-    input_topic: "audio/normalized/mic"
-    output_topic: "audio/compressed/mic"
+    input_topic: "fa_compressor/input"
+    output_topic: "fa_compressor/output"
+    input_stream_id: "audio/normalized/mic"
+
+    output:
+      stream_id: "audio/compressed/mic"
 
     compressor:
       threshold_linear: 0.5
@@ -20,4 +24,7 @@ fa_compressor:
       reliable: false
 
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000

@@ -37,12 +37,17 @@ def read_backend_source() -> str:
     )
 
 
-def test_default_config_requires_float32_interleaved_contract() -> None:
+def test_example_config_requires_float32_interleaved_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_compressor"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/normalized/mic"
-    assert params["output_topic"] == "audio/compressed/mic"
+    assert params["input_topic"] == "fa_compressor/input"
+    assert params["output_topic"] == "fa_compressor/output"
+    assert params["input_stream_id"] == "audio/normalized/mic"
+    assert params["output"]["stream_id"] == "audio/compressed/mic"
+    assert params["input_topic"] != params["input_stream_id"]
+    assert params["output_topic"] != params["output"]["stream_id"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["compressor"]["threshold_linear"] == 0.5
     assert params["compressor"]["ratio"] == 4.0
     assert params["compressor"]["makeup_gain_linear"] == 1.0
@@ -56,6 +61,8 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     assert params["expected"]["layout"] == "interleaved"
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is False
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is False
     assert params["diagnostics"]["publish_period_ms"] == 1000
 
 
@@ -63,7 +70,7 @@ def test_compressor_does_not_hide_unrelated_processing_or_io_responsibilities() 
     sources = [read_node_source(), read_backend_source()]
 
     forbidden = (
-        "std::clamp",
+        "std::" + "clamp",
         "clip",
         "SND_PCM",
         "snd_pcm",
@@ -88,8 +95,23 @@ def test_startup_config_validation_fails_closed() -> None:
         "void FaCompressorNode::configureBackend"
     )[0]
 
+    assert 'this->declare_parameter<std::string>("input_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("input_stream_id");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output.stream_id");' in load_parameters
+    assert 'this->declare_parameter<int>("diagnostics.qos.depth");' in load_parameters
+    assert 'this->declare_parameter<bool>("diagnostics.qos.reliable");' in load_parameters
+    assert "readRequiredString(*this, \"input_topic\")" in load_parameters
+    assert "readRequiredString(*this, \"input_stream_id\")" in load_parameters
+    assert "readRequiredString(*this, \"output.stream_id\")" in load_parameters
     assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
     assert "throw std::runtime_error(\"output_topic is required\")" in load_parameters
+    assert "throw std::runtime_error(\"input_stream_id is required\")" in load_parameters
+    assert "throw std::runtime_error(\"output.stream_id is required\")" in load_parameters
+    assert "input_topic and output_topic must be distinct" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
     assert "config_.threshold_linear <= 0.0" in load_parameters
     assert "config_.threshold_linear >= 1.0" in load_parameters
     assert "compressor.threshold_linear must be finite and in (0.0, 1.0)" in load_parameters
@@ -101,9 +123,40 @@ def test_startup_config_validation_fails_closed() -> None:
     assert "fa_compressor requires expected.encoding=FLOAT32LE" in load_parameters
     assert "fa_compressor requires expected.bit_depth=32" in load_parameters
     assert "fa_compressor requires expected.layout=interleaved" in load_parameters
+    assert "expected.sample_rate must satisfy 0 < value <= 384000" in load_parameters
+    assert "expected.channels must satisfy 0 < value <= 64" in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert "config_.threshold_linear <= 0.0" in backend_source
     assert "config_.ratio <= 1.0" in backend_source
     assert "config_.makeup_gain_linear > 4.0" in backend_source
+
+
+def test_compressor_runtime_config_types_do_not_define_meaningful_defaults() -> None:
+    header = read_node_header()
+    backend_header = read_backend_header()
+    source = read_node_source()
+
+    forbidden_defaults = (
+        "threshold_linear" + "{0.5}",
+        "ratio" + "{4.0}",
+        "makeup_gain_linear" + "{1.0}",
+        "channels" + "{-1}",
+        "qos_reliable" + "{false}",
+        "diagnostics_qos_reliable" + "{false}",
+    )
+    combined = header + "\n" + backend_header
+    for token in forbidden_defaults:
+        assert token not in combined
+
+    assert "InternalStaticCurveConfig() = delete;" in backend_header
+    assert "InternalStaticCurveConfig(" in backend_header
+    assert "config_.threshold_linear = readRequiredDouble(*this, \"compressor.threshold_linear\")" in source
+    assert "config_.ratio = readRequiredDouble(*this, \"compressor.ratio\")" in source
+    assert "config_.makeup_gain_linear = readRequiredDouble(*this, \"compressor.makeup_gain_linear\")" in source
+    assert "config_.diagnostics_qos_reliable = readRequiredBool(*this, \"diagnostics.qos.reliable\")" in source
 
 
 def test_runtime_frame_validation_drops_invalid_frames() -> None:
@@ -121,7 +174,7 @@ def test_runtime_frame_validation_drops_invalid_frames() -> None:
     assert "if (!msg)" in handle_frame
     assert "frames_dropped_.fetch_add(1);" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -138,7 +191,7 @@ def test_compressor_preserves_metadata_and_updates_stream_identity() -> None:
     )[0]
 
     assert "out = in;" in apply_compressor
-    assert "out.stream_id = config_.output_topic;" in apply_compressor
+    assert "out.stream_id = config_.output_stream_id;" in apply_compressor
     assert ".rms" not in apply_compressor
     assert ".peak" not in apply_compressor
     assert ".vad" not in apply_compressor
@@ -180,7 +233,9 @@ def test_compressor_drops_non_finite_or_out_of_range_samples_instead_of_clamping
     assert "output_sample < kNormalizedMin || output_sample > kNormalizedMax" in process
     assert "return ProcessResult{ProcessStatus::kOutOfRangeInput, 0};" in process
     assert "return ProcessResult{ProcessStatus::kOutOfRangeOutput, 0};" in process
-    assert "std::clamp" not in process
+    forbidden_clamp = "std::"
+    forbidden_clamp += "clamp"
+    assert forbidden_clamp not in process
     assert "backends::processStatusMessage(result.status)" in node_source
 
 
@@ -221,7 +276,59 @@ def test_diagnostics_include_parameters_and_counters() -> None:
     assert '"frames_out"' in publish_diagnostics
     assert '"frames_dropped"' in publish_diagnostics
     assert '"samples_compressed"' in publish_diagnostics
+    assert '"input_topic"' in publish_diagnostics
     assert '"output_topic"' in publish_diagnostics
+    assert '"input_stream_id"' in publish_diagnostics
+    assert '"output_stream_id"' in publish_diagnostics
+    assert '"qos.depth"' in publish_diagnostics
+    assert '"diagnostics.qos.depth"' in publish_diagnostics
+    assert '"diagnostics.qos.reliable"' in publish_diagnostics
+
+
+def test_diagnostics_qos_is_explicit_and_not_system_defaulted() -> None:
+    source = read_node_source()
+    setup_interfaces = source.split("void FaCompressorNode::setupInterfaces")[1].split(
+        "void FaCompressorNode::handleFrame"
+    )[0]
+
+    assert "rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));" in setup_interfaces
+    assert "config_.diagnostics_qos_reliable" in setup_interfaces
+    assert "diagnostics_qos.reliable();" in setup_interfaces
+    assert "diagnostics_qos.best_effort();" in setup_interfaces
+    assert '"diagnostics"' in setup_interfaces
+    assert "diagnostics_qos" in setup_interfaces
+    forbidden_system_qos = "System"
+    forbidden_system_qos += "Defaults"
+    forbidden_system_qos += "QoS"
+    assert forbidden_system_qos not in setup_interfaces
+
+
+def test_forbidden_runtime_fallback_patterns_are_absent() -> None:
+    files = (
+        package_root() / "include" / "fa_compressor" / "fa_compressor_node.hpp",
+        package_root() / "include" / "fa_compressor" / "backends" / "internal_static_curve.hpp",
+        package_root() / "src" / "fa_compressor_node.cpp",
+        package_root() / "src" / "backends" / "internal_static_curve.cpp",
+        package_root() / "launch" / "fa_compressor.launch.py",
+    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
+
+    forbidden = (
+        "System" + "Defaults" + "QoS",
+        "std::" + "clamp",
+        "FindPackage" + "Share",
+        "PathJoin" + "Substitution",
+        "default_" + "value",
+        "dict[str, " + "A" + "ny]",
+        "except " + "ImportError",
+        "std::max",
+    )
+    for token in forbidden:
+        assert token not in combined
+
+    assert "declare_parameter<std::string>(\"input_topic\", config_" not in combined
+    assert "declare_parameter<double>(\"compressor.threshold_linear\", config_" not in combined
+    assert "declare_parameter<int>(\"diagnostics.qos.depth\", config_" not in combined
 
 
 def test_package_layout_matches_required_processing_layout() -> None:

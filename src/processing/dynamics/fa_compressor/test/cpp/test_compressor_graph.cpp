@@ -83,6 +83,8 @@ TEST_F(RclcppFixture, PublishesCompressedFloat32Frame)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_compressor_test/input"),
     rclcpp::Parameter("output_topic", "/fa_compressor_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_compressor_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_compressor_test/output_stream"),
     rclcpp::Parameter("compressor.threshold_linear", 0.5),
     rclcpp::Parameter("compressor.ratio", 4.0),
     rclcpp::Parameter("compressor.makeup_gain_linear", 1.0),
@@ -93,6 +95,8 @@ TEST_F(RclcppFixture, PublishesCompressedFloat32Frame)
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 
@@ -118,7 +122,7 @@ TEST_F(RclcppFixture, PublishesCompressedFloat32Frame)
 
   const auto deadline = std::chrono::steady_clock::now() + 3s;
   while (!received.has_value() && std::chrono::steady_clock::now() < deadline) {
-    publisher->publish(makeFloat32Frame(*test_node, "/fa_compressor_test/input", 41));
+    publisher->publish(makeFloat32Frame(*test_node, "fa_compressor_test/input_stream", 41));
     executor.spin_some(20ms);
     std::this_thread::sleep_for(10ms);
   }
@@ -130,7 +134,7 @@ TEST_F(RclcppFixture, PublishesCompressedFloat32Frame)
 
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "test-mic");
-  EXPECT_EQ(received->stream_id, "/fa_compressor_test/output");
+  EXPECT_EQ(received->stream_id, "fa_compressor_test/output_stream");
   EXPECT_EQ(received->encoding, "FLOAT32LE");
   EXPECT_EQ(received->sample_rate, 16000U);
   EXPECT_EQ(received->channels, 1U);
@@ -150,6 +154,8 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_compressor_drop_test/input"),
     rclcpp::Parameter("output_topic", "/fa_compressor_drop_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_compressor_drop_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_compressor_drop_test/output_stream"),
     rclcpp::Parameter("compressor.threshold_linear", 0.5),
     rclcpp::Parameter("compressor.ratio", 4.0),
     rclcpp::Parameter("compressor.makeup_gain_linear", 1.0),
@@ -160,6 +166,8 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 
@@ -192,7 +200,7 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
   deadline = std::chrono::steady_clock::now() + 500ms;
   while (std::chrono::steady_clock::now() < deadline) {
     publisher->publish(
-      makeFloat32Frame(*test_node, "/fa_compressor_drop_test/wrong_input", 42));
+      makeFloat32Frame(*test_node, "fa_compressor_drop_test/wrong_input", 42));
     executor.spin_some(20ms);
     std::this_thread::sleep_for(10ms);
   }

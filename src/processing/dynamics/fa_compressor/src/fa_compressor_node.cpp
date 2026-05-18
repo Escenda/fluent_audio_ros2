@@ -1,8 +1,8 @@
 #include "fa_compressor/fa_compressor_node.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -18,10 +18,81 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
+constexpr int kMaxExpectedSampleRate = 384000;
+constexpr int kMaxExpectedChannels = 64;
 
 bool isFinite(double value)
 {
   return std::isfinite(value);
+}
+
+std::string removeLeadingSlashes(std::string value)
+{
+  while (!value.empty() && value.front() == '/') {
+    value.erase(value.begin());
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return left == right || removeLeadingSlashes(left) == removeLeadingSlashes(right);
+}
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+double readRequiredDouble(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+    throw std::runtime_error(name + " must be a double");
+  }
+  return parameter.as_double();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
 }
 
 void pushKeyValue(
@@ -49,42 +120,80 @@ FaCompressorNode::~FaCompressorNode() = default;
 
 void FaCompressorNode::loadParameters()
 {
-  this->declare_parameter("input_topic", config_.input_topic);
-  this->declare_parameter("output_topic", config_.output_topic);
-  this->declare_parameter<double>("compressor.threshold_linear", config_.threshold_linear);
-  this->declare_parameter<double>("compressor.ratio", config_.ratio);
-  this->declare_parameter<double>("compressor.makeup_gain_linear", config_.makeup_gain_linear);
-  this->declare_parameter<int>("expected.sample_rate", config_.expected_sample_rate);
-  this->declare_parameter<int>("expected.channels", config_.expected_channels);
-  this->declare_parameter("expected.encoding", config_.expected_encoding);
-  this->declare_parameter<int>("expected.bit_depth", config_.expected_bit_depth);
-  this->declare_parameter("expected.layout", config_.expected_layout);
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
-  this->declare_parameter<int>(
-    "diagnostics.publish_period_ms",
-    config_.diagnostics_publish_period_ms);
+  this->declare_parameter<std::string>("input_topic");
+  this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
+  this->declare_parameter<double>("compressor.threshold_linear");
+  this->declare_parameter<double>("compressor.ratio");
+  this->declare_parameter<double>("compressor.makeup_gain_linear");
+  this->declare_parameter<int>("expected.sample_rate");
+  this->declare_parameter<int>("expected.channels");
+  this->declare_parameter<std::string>("expected.encoding");
+  this->declare_parameter<int>("expected.bit_depth");
+  this->declare_parameter<std::string>("expected.layout");
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
+  this->declare_parameter<int>("diagnostics.qos.depth");
+  this->declare_parameter<bool>("diagnostics.qos.reliable");
+  this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.input_topic = this->get_parameter("input_topic").as_string();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.threshold_linear = this->get_parameter("compressor.threshold_linear").as_double();
-  config_.ratio = this->get_parameter("compressor.ratio").as_double();
-  config_.makeup_gain_linear = this->get_parameter("compressor.makeup_gain_linear").as_double();
-  config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
-  config_.expected_channels = this->get_parameter("expected.channels").as_int();
-  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
-  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
-  config_.expected_layout = this->get_parameter("expected.layout").as_string();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.input_topic = readRequiredString(*this, "input_topic");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
+  config_.threshold_linear = readRequiredDouble(*this, "compressor.threshold_linear");
+  config_.ratio = readRequiredDouble(*this, "compressor.ratio");
+  config_.makeup_gain_linear = readRequiredDouble(*this, "compressor.makeup_gain_linear");
+  config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
+  config_.expected_channels = readRequiredInt(*this, "expected.channels");
+  config_.expected_encoding = readRequiredString(*this, "expected.encoding");
+  config_.expected_bit_depth = readRequiredInt(*this, "expected.bit_depth");
+  config_.expected_layout = readRequiredString(*this, "expected.layout");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_qos_depth = readRequiredInt(*this, "diagnostics.qos.depth");
+  config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(*this, "diagnostics.publish_period_ms");
 
   if (config_.input_topic.empty()) {
     throw std::runtime_error("input_topic is required");
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
+  }
+  if (config_.input_topic == config_.output_topic) {
+    throw std::runtime_error("input_topic and output_topic must be distinct");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(resolved_input_topic, resolved_output_topic)) {
+    throw std::runtime_error("input_topic and output_topic must resolve to distinct ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic))
+  {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic))
+  {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (config_.input_stream_id == config_.output_stream_id) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (!isFinite(config_.threshold_linear) ||
       config_.threshold_linear <= 0.0 ||
@@ -101,11 +210,11 @@ void FaCompressorNode::loadParameters()
   {
     throw std::runtime_error("compressor.makeup_gain_linear must be finite and in (0.0, 4.0]");
   }
-  if (config_.expected_sample_rate <= 0) {
-    throw std::runtime_error("expected.sample_rate must be > 0");
+  if (config_.expected_sample_rate <= 0 || config_.expected_sample_rate > kMaxExpectedSampleRate) {
+    throw std::runtime_error("expected.sample_rate must satisfy 0 < value <= 384000");
   }
-  if (config_.expected_channels <= 0) {
-    throw std::runtime_error("expected.channels must be > 0");
+  if (config_.expected_channels <= 0 || config_.expected_channels > kMaxExpectedChannels) {
+    throw std::runtime_error("expected.channels must satisfy 0 < value <= 64");
   }
   if (config_.expected_encoding != kEncodingFloat32) {
     throw std::runtime_error("fa_compressor requires expected.encoding=FLOAT32LE");
@@ -119,15 +228,20 @@ void FaCompressorNode::loadParameters()
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0");
   }
+  if (config_.diagnostics_qos_depth <= 0) {
+    throw std::runtime_error("diagnostics.qos.depth must be > 0");
+  }
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Compressor config: input=%s output=%s threshold=%f ratio=%f makeup_gain=%f expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
+    "Compressor config: input_topic=%s output_topic=%s input_stream_id=%s output_stream_id=%s threshold=%f ratio=%f makeup_gain=%f expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diagnostics_qos_depth=%d diagnostics_reliable=%s diag=%dms",
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
+    config_.input_stream_id.c_str(),
+    config_.output_stream_id.c_str(),
     config_.threshold_linear,
     config_.ratio,
     config_.makeup_gain_linear,
@@ -137,6 +251,8 @@ void FaCompressorNode::loadParameters()
     config_.expected_bit_depth,
     config_.qos_depth,
     config_.qos_reliable ? "true" : "false",
+    config_.diagnostics_qos_depth,
+    config_.diagnostics_qos_reliable ? "true" : "false",
     config_.diagnostics_publish_period_ms);
 }
 
@@ -152,11 +268,18 @@ void FaCompressorNode::configureBackend()
 
 void FaCompressorNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
     qos.best_effort();
+  }
+
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
   }
 
   audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(config_.output_topic, qos);
@@ -167,7 +290,7 @@ void FaCompressorNode::setupInterfaces()
 
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics",
-    rclcpp::SystemDefaultsQoS());
+    diagnostics_qos);
   diag_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.diagnostics_publish_period_ms),
     std::bind(&FaCompressorNode::publishDiagnostics, this));
@@ -208,12 +331,12 @@ bool FaCompressorNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -261,7 +384,7 @@ bool FaCompressorNode::applyCompressor(
   fa_interfaces::msg::AudioFrame & out)
 {
   out = in;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   const backends::ProcessResult result = backend_->process(in.data, out.data);
   if (result.status != backends::ProcessStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
@@ -284,7 +407,7 @@ void FaCompressorNode::publishDiagnostics()
   status.name = "fa_compressor";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(10);
+  status.values.reserve(15);
   pushKeyValue(status, "threshold_linear", std::to_string(backend_->thresholdLinear()));
   pushKeyValue(status, "ratio", std::to_string(backend_->ratio()));
   pushKeyValue(status, "makeup_gain_linear", std::to_string(backend_->makeupGainLinear()));
@@ -294,7 +417,13 @@ void FaCompressorNode::publishDiagnostics()
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
   pushKeyValue(status, "samples_compressed", std::to_string(samples_compressed_.load()));
+  pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
+  pushKeyValue(status, "qos.depth", std::to_string(config_.qos_depth));
+  pushKeyValue(status, "diagnostics.qos.depth", std::to_string(config_.diagnostics_qos_depth));
+  pushKeyValue(status, "diagnostics.qos.reliable", config_.diagnostics_qos_reliable ? "true" : "false");
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);

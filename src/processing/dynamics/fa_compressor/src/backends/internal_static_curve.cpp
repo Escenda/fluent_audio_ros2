@@ -25,6 +25,18 @@ bool isNormalizedSample(float value)
 }
 }  // namespace
 
+InternalStaticCurveConfig::InternalStaticCurveConfig(
+  int channels_value,
+  double threshold_linear_value,
+  double ratio_value,
+  double makeup_gain_linear_value)
+: channels(channels_value),
+  threshold_linear(threshold_linear_value),
+  ratio(ratio_value),
+  makeup_gain_linear(makeup_gain_linear_value)
+{
+}
+
 InternalStaticCurveBackend::InternalStaticCurveBackend(
   const InternalStaticCurveConfig & config)
 : config_(config)

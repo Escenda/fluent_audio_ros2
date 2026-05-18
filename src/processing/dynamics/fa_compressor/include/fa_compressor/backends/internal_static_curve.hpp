@@ -8,10 +8,17 @@ namespace fa_compressor::backends
 
 struct InternalStaticCurveConfig
 {
-  int channels{-1};
-  double threshold_linear{0.5};
-  double ratio{4.0};
-  double makeup_gain_linear{1.0};
+  InternalStaticCurveConfig() = delete;
+  InternalStaticCurveConfig(
+    int channels_value,
+    double threshold_linear_value,
+    double ratio_value,
+    double makeup_gain_linear_value);
+
+  int channels;
+  double threshold_linear;
+  double ratio;
+  double makeup_gain_linear;
 };
 
 enum class ProcessStatus
