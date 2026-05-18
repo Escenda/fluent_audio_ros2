@@ -8,8 +8,11 @@ namespace fa_limiter::backends
 
 struct InternalLimiterConfig
 {
-  int channels{-1};
-  double threshold_linear{-1.0};
+  InternalLimiterConfig() = delete;
+  InternalLimiterConfig(int channels_value, double threshold_linear_value);
+
+  int channels;
+  double threshold_linear;
 };
 
 enum class ProcessStatus
@@ -43,7 +46,7 @@ public:
 
 private:
   InternalLimiterConfig config_;
-  float threshold_{1.0F};
+  float threshold_;
 };
 
 const char * processStatusMessage(ProcessStatus status);

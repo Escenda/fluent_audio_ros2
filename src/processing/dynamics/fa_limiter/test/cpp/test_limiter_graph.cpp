@@ -36,12 +36,14 @@ float readFloat32Le(const std::vector<uint8_t> & bytes, const size_t index)
   return value;
 }
 
-fa_interfaces::msg::AudioFrame makeFloat32Frame(const rclcpp::Node & node)
+fa_interfaces::msg::AudioFrame makeFloat32Frame(
+  const rclcpp::Node & node,
+  const std::string & stream_id)
 {
   fa_interfaces::msg::AudioFrame frame;
   frame.header.stamp = node.now();
   frame.source_id = "test-mic";
-  frame.stream_id = "/fa_limiter_test/input";
+  frame.stream_id = stream_id;
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = 16000;
   frame.channels = 1;
@@ -54,8 +56,7 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(const rclcpp::Node & node)
 
 fa_interfaces::msg::AudioFrame makeWrongStreamFrame(const rclcpp::Node & node)
 {
-  auto frame = makeFloat32Frame(node);
-  frame.stream_id = "/fa_limiter_drop_test/wrong_input";
+  auto frame = makeFloat32Frame(node, "fa_limiter_drop_test/wrong_input");
   frame.epoch = 22;
   return frame;
 }
@@ -88,6 +89,8 @@ TEST_F(RclcppFixture, PublishesLimitedFloat32Frame)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_limiter_test/input"),
     rclcpp::Parameter("output_topic", "/fa_limiter_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_limiter_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_limiter_test/output_stream"),
     rclcpp::Parameter("threshold.linear", 0.5),
     rclcpp::Parameter("expected.sample_rate", 16000),
     rclcpp::Parameter("expected.channels", 1),
@@ -96,6 +99,8 @@ TEST_F(RclcppFixture, PublishesLimitedFloat32Frame)
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 
@@ -121,7 +126,7 @@ TEST_F(RclcppFixture, PublishesLimitedFloat32Frame)
 
   const auto deadline = std::chrono::steady_clock::now() + 3s;
   while (!received.has_value() && std::chrono::steady_clock::now() < deadline) {
-    publisher->publish(makeFloat32Frame(*test_node));
+    publisher->publish(makeFloat32Frame(*test_node, "fa_limiter_test/input_stream"));
     executor.spin_some(20ms);
     std::this_thread::sleep_for(10ms);
   }
@@ -133,7 +138,7 @@ TEST_F(RclcppFixture, PublishesLimitedFloat32Frame)
 
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "test-mic");
-  EXPECT_EQ(received->stream_id, "/fa_limiter_test/output");
+  EXPECT_EQ(received->stream_id, "fa_limiter_test/output_stream");
   EXPECT_EQ(received->encoding, "FLOAT32LE");
   EXPECT_EQ(received->sample_rate, 16000U);
   EXPECT_EQ(received->channels, 1U);
@@ -154,6 +159,8 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_limiter_drop_test/input"),
     rclcpp::Parameter("output_topic", "/fa_limiter_drop_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_limiter_drop_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_limiter_drop_test/output_stream"),
     rclcpp::Parameter("threshold.linear", 0.5),
     rclcpp::Parameter("expected.sample_rate", 16000),
     rclcpp::Parameter("expected.channels", 1),
@@ -162,6 +169,8 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 

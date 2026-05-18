@@ -1,7 +1,11 @@
 fa_limiter:
   ros__parameters:
-    input_topic: "audio/gain/mic"
-    output_topic: "audio/limit/mic"
+    input_topic: "fa_limiter/input"
+    output_topic: "fa_limiter/output"
+    input_stream_id: "audio/gain/mic"
+
+    output:
+      stream_id: "audio/limit/mic"
 
     threshold:
       linear: 1.0
@@ -18,4 +22,7 @@ fa_limiter:
       reliable: false
 
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000

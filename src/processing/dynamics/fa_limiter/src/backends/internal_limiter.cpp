@@ -17,6 +17,12 @@ bool isFinite(double value)
 }
 }  // namespace
 
+InternalLimiterConfig::InternalLimiterConfig(int channels_value, double threshold_linear_value)
+: channels(channels_value),
+  threshold_linear(threshold_linear_value)
+{
+}
+
 InternalLimiterBackend::InternalLimiterBackend(const InternalLimiterConfig & config)
 : config_(config)
 {

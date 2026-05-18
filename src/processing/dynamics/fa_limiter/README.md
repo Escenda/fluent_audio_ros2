@@ -9,7 +9,7 @@ gain, compress, gate, or open audio devices. Clamping samples to
 responsibility.
 
 ```bash
-ros2 launch fa_limiter fa_limiter.launch.py
+ros2 launch fa_limiter fa_limiter.launch.py node_name:=fa_limiter config_file:=/path/to/fa_limiter.yaml
 ```
 
 See `docs/仕様書.md` for the runtime contract and `docs/テスト設計.md` for the
