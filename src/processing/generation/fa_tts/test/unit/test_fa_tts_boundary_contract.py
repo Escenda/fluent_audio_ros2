@@ -135,6 +135,27 @@ def test_pyopenjtalk_backend_has_no_hidden_scale_guessing_or_clipping() -> None:
     assert "cache metadata bit_depth must be 32 for FLOAT32LE" in node_text
 
 
+def test_tts_cache_key_is_path_safe_and_write_failure_is_not_success() -> None:
+    node_text = (Path(__file__).parents[2] / "fa_tts_py" / "tts_node.py").read_text(
+        encoding="utf-8"
+    )
+    spec_text = (Path(__file__).parents[2] / "docs" / "仕様書.md").read_text(
+        encoding="utf-8"
+    )
+    algorithm_text = (
+        Path(__file__).parents[2] / "docs" / "アルゴリズム詳細説明書.md"
+    ).read_text(encoding="utf-8")
+
+    assert "def validate_cache_key(cache_key: str) -> None:" in node_text
+    assert "cache_key must be 40 lowercase hex characters" in node_text
+    assert "self.validate_cache_key(cache_key)" in node_text
+    assert 'return self.cache_dir / f"{cache_key}.pcm"' in node_text
+    assert "raise RuntimeError(f\"failed to write TTS cache file {path}: {exc}\") from exc" in node_text
+    assert "response.message = str(exc)" in node_text
+    assert "40 lowercase hex" in spec_text
+    assert "path traversal" in algorithm_text
+
+
 def test_colcon_runs_pytest_contracts() -> None:
     package_root = Path(__file__).parents[2]
     cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")

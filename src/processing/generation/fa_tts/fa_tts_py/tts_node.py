@@ -89,6 +89,13 @@ class FaTtsNode(Node):
 
         voice_id = request.voice_id or self.default_voice
         cache_key = request.cache_key or self.make_cache_key(text, voice_id)
+        try:
+            self.validate_cache_key(cache_key)
+        except ValueError as exc:
+            response.success = False
+            response.message = str(exc)
+            self.get_logger().warn(f"TTS rejected: {exc}")
+            return response
 
         cached = self.cache.get(cache_key)
         if cached is None and self.cache_dir:
@@ -103,9 +110,15 @@ class FaTtsNode(Node):
                 response.success = False
                 response.message = f"TTS failed: {exc}"
                 return response
-            self.cache[cache_key] = cached
             if self.cache_dir:
-                self.write_cache_to_disk(cache_key, cached)
+                try:
+                    self.write_cache_to_disk(cache_key, cached)
+                except RuntimeError as exc:
+                    response.success = False
+                    response.message = str(exc)
+                    self.get_logger().error(str(exc))
+                    return response
+            self.cache[cache_key] = cached
             self.get_logger().info(f"TTS synthesized: {len(cached.audio_bytes)} bytes, {cached.sample_rate}Hz")
         else:
             self.get_logger().info("TTS cache hit")
@@ -146,7 +159,16 @@ class FaTtsNode(Node):
         digest.update(voice_id.encode("utf-8"))
         return digest.hexdigest()
 
+    @staticmethod
+    def validate_cache_key(cache_key: str) -> None:
+        if len(cache_key) != 40:
+            raise ValueError("cache_key must be 40 lowercase hex characters")
+        for character in cache_key:
+            if character not in "0123456789abcdef":
+                raise ValueError("cache_key must be 40 lowercase hex characters")
+
     def cache_file_path(self, cache_key: str) -> Path | None:
+        self.validate_cache_key(cache_key)
         if not self.cache_dir:
             return None
         return self.cache_dir / f"{cache_key}.pcm"
@@ -230,7 +252,7 @@ class FaTtsNode(Node):
             ])
             path.with_suffix(".meta").write_text(meta)
         except OSError as exc:
-            self.get_logger().warning("Failed to write cache file %s: %s", path, exc)
+            raise RuntimeError(f"failed to write TTS cache file {path}: {exc}") from exc
 
 
 def main(args=None) -> None:
