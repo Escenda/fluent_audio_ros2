@@ -23,6 +23,8 @@ struct NotchConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   double center_hz{-1.0};
   double q{-1.0};
   int expected_sample_rate{-1};

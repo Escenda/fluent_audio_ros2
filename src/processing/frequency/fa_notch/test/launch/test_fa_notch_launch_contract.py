@@ -55,8 +55,13 @@ def test_default_launch_config_keeps_notch_as_frequency_node() -> None:
     )
     params = config["fa_notch"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/high_pass/mic"
-    assert params["output_topic"] == "audio/notch/mic"
+    assert params["input_topic"] == "fa_notch/input"
+    assert params["output_topic"] == "fa_notch/output"
+    assert params["input_stream_id"] == "audio/high_pass/mic"
+    assert params["output"]["stream_id"] == "audio/notch/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["filter"]["center_hz"] == 60.0
     assert params["filter"]["q"] == 30.0
     assert 0.0 < params["filter"]["center_hz"] < params["expected"]["sample_rate"] / 2.0

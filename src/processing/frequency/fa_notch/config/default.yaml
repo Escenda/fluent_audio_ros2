@@ -1,7 +1,10 @@
 fa_notch:
   ros__parameters:
-    input_topic: "audio/high_pass/mic"
-    output_topic: "audio/notch/mic"
+    input_topic: "fa_notch/input"
+    output_topic: "fa_notch/output"
+    input_stream_id: "audio/high_pass/mic"
+    output:
+      stream_id: "audio/notch/mic"
 
     filter:
       center_hz: 60.0

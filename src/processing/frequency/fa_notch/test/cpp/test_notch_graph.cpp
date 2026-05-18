@@ -17,6 +17,8 @@ namespace
 using namespace std::chrono_literals;
 
 constexpr double kPi = 3.14159265358979323846;
+constexpr const char * kInputStreamId = "audio/test/notch_input";
+constexpr const char * kOutputStreamId = "audio/test/notch_output";
 
 struct BiquadCoefficients
 {
@@ -104,7 +106,7 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(
   fa_interfaces::msg::AudioFrame frame;
   frame.header.stamp = node.now();
   frame.source_id = "test-mic";
-  frame.stream_id = "/fa_notch_test/input";
+  frame.stream_id = kInputStreamId;
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = 1000;
   frame.channels = 1;
@@ -171,6 +173,8 @@ rclcpp::NodeOptions notchNodeOptions()
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_notch_test/input"),
     rclcpp::Parameter("output_topic", "/fa_notch_test/output"),
+    rclcpp::Parameter("input_stream_id", kInputStreamId),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("filter.center_hz", 100.0),
     rclcpp::Parameter("filter.q", 30.0),
     rclcpp::Parameter("expected.sample_rate", 1000),
@@ -236,7 +240,7 @@ TEST_F(RclcppFixture, PublishesNotchFilteredFloat32Frame)
     applyBiquad({1.0F, 1.0F}, coefficients, expected_state);
 
   EXPECT_EQ(received[0].source_id, "test-mic");
-  EXPECT_EQ(received[0].stream_id, "/fa_notch_test/output");
+  EXPECT_EQ(received[0].stream_id, kOutputStreamId);
   EXPECT_EQ(received[0].encoding, "FLOAT32LE");
   EXPECT_EQ(received[0].sample_rate, 1000U);
   EXPECT_EQ(received[0].channels, 1U);
