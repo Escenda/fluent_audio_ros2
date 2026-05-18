@@ -29,7 +29,6 @@ public:
   virtual void close() = 0;
   virtual bool isOpen() const = 0;
   virtual bool isRunning() const = 0;
-  virtual void discardBuffer(const std::string & operation) = 0;
   virtual size_t writeFrames(const uint8_t * data, size_t frame_count) = 0;
 };
 

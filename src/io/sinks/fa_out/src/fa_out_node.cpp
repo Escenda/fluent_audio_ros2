@@ -60,29 +60,6 @@ FaOutNode::FaOutNode(const rclcpp::NodeOptions & options, BackendFactory backend
     kInputTopic, audio_qos,
     std::bind(&FaOutNode::handleFrame, this, std::placeholders::_1));
 
-  // 停止リクエスト subscription
-  stop_sub_ = this->create_subscription<std_msgs::msg::Empty>(
-    "audio/output/stop", 10,
-    std::bind(&FaOutNode::handleStop, this, std::placeholders::_1));
-
-  // 一時停止リクエスト subscription
-  pause_sub_ = this->create_subscription<std_msgs::msg::Empty>(
-    "audio/output/pause", 10,
-    std::bind(&FaOutNode::handlePause, this, std::placeholders::_1));
-
-  // 再開リクエスト subscription
-  resume_sub_ = this->create_subscription<std_msgs::msg::Empty>(
-    "audio/output/resume", 10,
-    std::bind(&FaOutNode::handleResume, this, std::placeholders::_1));
-
-  // 再生完了通知 publisher
-  playback_done_pub_ = this->create_publisher<fa_interfaces::msg::PlaybackDone>(
-    "audio/output/playback_done", 10);
-
-  // 一時停止完了通知 publisher
-  paused_pub_ = this->create_publisher<std_msgs::msg::Empty>(
-    "audio/output/paused", 10);
-
   running_.store(true);
   playback_thread_ = std::thread(&FaOutNode::playbackThread, this);
 }
@@ -214,28 +191,6 @@ void FaOutNode::closeBackend()
   }
 }
 
-bool FaOutNode::discardBackendBuffer(const char *operation)
-{
-  std::string error_message;
-  {
-    std::lock_guard<std::mutex> lock(backend_mutex_);
-    if (!sink_backend_ || !sink_backend_->isOpen()) {
-      error_message = std::string(operation) + " requested without an open ALSA playback device";
-    } else {
-      try {
-        sink_backend_->discardBuffer(operation);
-      } catch (const std::exception & e) {
-        error_message = e.what();
-      }
-    }
-  }
-  if (!error_message.empty()) {
-    failClosed(error_message);
-    return false;
-  }
-  return true;
-}
-
 size_t FaOutNode::writeBackendFrames(const uint8_t * data, size_t frame_count)
 {
   std::lock_guard<std::mutex> lock(backend_mutex_);
@@ -303,34 +258,8 @@ void FaOutNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
     return;
   }
 
-  // Barge-in 後の古いフレームをフィルタリング
-  {
-    std::lock_guard<std::mutex> lock(stop_time_mutex_);
-    rclcpp::Time frame_time(msg->header.stamp);
-    if (last_stop_time_.nanoseconds() > 0 && frame_time < last_stop_time_) {
-      RCLCPP_WARN(this->get_logger(),
-        "Dropping stale frame (frame_time < last_stop_time): %.3f < %.3f",
-        frame_time.seconds(), last_stop_time_.seconds());
-      return;
-    }
-  }
-
-  // stop 後に遅れて到着した「旧リクエスト由来のフレーム」を破棄する。
-  // publish 時刻 stamp では判別できないため epoch を使う。
-  const uint32_t frame_epoch = msg->epoch;
-  const uint32_t current_epoch = current_epoch_.load();
-  if (frame_epoch != 0 && frame_epoch < current_epoch) {
-    RCLCPP_WARN(this->get_logger(),
-      "Dropping stale frame (epoch < current_epoch): %u < %u",
-      static_cast<unsigned int>(frame_epoch),
-      static_cast<unsigned int>(current_epoch));
-    return;
-  }
-
   QueuedFrame queued_frame;
   queued_frame.data = std::vector<uint8_t>(msg->data.begin(), msg->data.end());
-  queued_frame.header = msg->header;
-  queued_frame.epoch = msg->epoch;
   bool queue_overflow = false;
   {
     std::lock_guard<std::mutex> lock(queue_mutex_);
@@ -350,68 +279,6 @@ void FaOutNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
   RCLCPP_DEBUG_THROTTLE(
     this->get_logger(), *this->get_clock(), 2000,
     "Frame queued for playback");
-}
-
-void FaOutNode::handleStop(const std_msgs::msg::Empty::SharedPtr /*msg*/)
-{
-  RCLCPP_INFO(this->get_logger(), "Stop requested");
-
-  const auto new_epoch = current_epoch_.fetch_add(1) + 1;
-  RCLCPP_INFO(this->get_logger(), "Playback epoch advanced: %u", static_cast<unsigned int>(new_epoch));
-
-  // 停止時刻を記録（この時刻より前のフレームは無視される）
-  {
-    std::lock_guard<std::mutex> lock(stop_time_mutex_);
-    last_stop_time_ = this->now();
-    RCLCPP_INFO(this->get_logger(), "Recording stop time: %.3f", last_stop_time_.seconds());
-  }
-
-  // 停止フラグを立てる
-  stop_requested_.store(true);
-
-  // キューをクリア
-  {
-    std::lock_guard<std::mutex> lock(queue_mutex_);
-    frame_queue_.clear();
-  }
-
-  // ALSA バッファをドロップ（即座に停止）
-  if (!discardBackendBuffer("stop")) {
-    return;
-  }
-
-  // 停止フラグをリセット
-  stop_requested_.store(false);
-
-  // 一時停止も解除
-  is_paused_.store(false);
-  pause_requested_.store(false);
-
-  RCLCPP_INFO(this->get_logger(), "Playback stopped");
-}
-
-void FaOutNode::handlePause(const std_msgs::msg::Empty::SharedPtr /*msg*/)
-{
-  if (is_paused_.load()) {
-    RCLCPP_INFO(this->get_logger(), "Already paused, ignoring pause request");
-    return;
-  }
-
-  RCLCPP_INFO(this->get_logger(), "Pause requested");
-  pause_requested_.store(true);
-  queue_cv_.notify_one();  // playbackThreadを起こす
-}
-
-void FaOutNode::handleResume(const std_msgs::msg::Empty::SharedPtr /*msg*/)
-{
-  if (!is_paused_.load()) {
-    RCLCPP_DEBUG(this->get_logger(), "Not paused, ignoring resume request");
-    return;
-  }
-
-  RCLCPP_INFO(this->get_logger(), "Resume requested");
-  is_paused_.store(false);
-  queue_cv_.notify_all();  // playbackThreadを起こす
 }
 
 bool FaOutNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
@@ -467,41 +334,18 @@ bool FaOutNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
 
 void FaOutNode::playbackThread()
 {
-  // チャンク単位で書くことで stop / pause の応答性を固定する。
   const size_t chunk_bytes = config_.playback_chunk_bytes;
 
   rclcpp::Rate idle_rate(50);
   while (running_.load()) {
-    // 一時停止中なら待機
-    if (is_paused_.load()) {
-      std::unique_lock<std::mutex> lock(queue_mutex_);
-      queue_cv_.wait_for(lock, std::chrono::milliseconds(100), [this]() {
-        return !is_paused_.load() || !running_.load() || stop_requested_.load();
-      });
-      continue;
-    }
-
-    // 一時停止リクエストがあれば即座に停止
-    if (pause_requested_.load()) {
-      // ALSAバッファをドロップして即座に停止
-      if (!discardBackendBuffer("pause")) {
-        continue;
-      }
-      is_paused_.store(true);
-      pause_requested_.store(false);
-      RCLCPP_INFO(this->get_logger(), "Playback paused immediately");
-      paused_pub_->publish(std_msgs::msg::Empty());
-      continue;
-    }
-
     QueuedFrame queued_frame;
     bool has_frame = false;
     {
       std::unique_lock<std::mutex> lock(queue_mutex_);
       queue_cv_.wait_for(lock, std::chrono::milliseconds(100), [this]() {
-        return !frame_queue_.empty() || !running_.load() || pause_requested_.load();
+        return !frame_queue_.empty() || !running_.load();
       });
-      if (!frame_queue_.empty() && !pause_requested_.load()) {
+      if (!frame_queue_.empty()) {
         queued_frame = std::move(frame_queue_.front());
         frame_queue_.pop_front();
         has_frame = true;
@@ -512,17 +356,8 @@ void FaOutNode::playbackThread()
       size_t total_bytes = queued_frame.data.size();
       size_t bytes_written = 0;
       uint8_t * data_ptr = queued_frame.data.data();
-      bool interrupted = false;
 
-      // チャンク単位で書き込み（停止/一時停止の応答性向上）
       while (bytes_written < total_bytes && running_.load()) {
-        // 停止/一時停止チェック
-        if (stop_requested_.load() || pause_requested_.load()) {
-          interrupted = true;
-          break;
-        }
-
-        // 今回書き込むバイト数（最大chunk_bytes）
         size_t write_bytes = std::min(chunk_bytes, total_bytes - bytes_written);
         size_t write_frames = write_bytes / bytes_per_frame_;
 
@@ -540,27 +375,8 @@ void FaOutNode::playbackThread()
       if (fatal_error_.load()) {
         continue;
       }
-
-      if (interrupted) {
-        // 中断時: ALSAバッファをドロップして即停止
-        if (!discardBackendBuffer("interruption")) {
-          continue;
-        }
-        RCLCPP_INFO(this->get_logger(), "Playback interrupted, dropped remaining audio");
-      } else if (bytes_written > 0) {
-        // 正常完了: drain せずに即座に playback_done を送信
-        // （次のフレームがあれば連続再生される）
-        RCLCPP_INFO(this->get_logger(), "Playback done, publishing notification");
-        fa_interfaces::msg::PlaybackDone done_msg;
-        done_msg.header = queued_frame.header;
-        done_msg.request_id = queued_frame.header.frame_id;
-        done_msg.epoch = queued_frame.epoch;
-        playback_done_pub_->publish(done_msg);
-      }
     } else {
-      // キューが空の場合のみ、残りのALSAバッファを再生完了待ち
       if (isBackendRunning()) {
-        // まだ再生中なら少し待つ
         idle_rate.sleep();
         continue;
       }

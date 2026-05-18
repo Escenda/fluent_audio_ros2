@@ -42,7 +42,6 @@ public:
   void close() override;
   bool isOpen() const override;
   bool isRunning() const override;
-  void discardBuffer(const std::string & operation) override;
   size_t writeFrames(const uint8_t * data, size_t frame_count) override;
 
 private:

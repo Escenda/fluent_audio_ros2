@@ -206,25 +206,6 @@ bool AlsaPlaybackBackend::isRunning() const
   return snd_pcm_state(impl_->pcm_handle) == SND_PCM_STATE_RUNNING;
 }
 
-void AlsaPlaybackBackend::discardBuffer(const std::string & operation)
-{
-  if (impl_->pcm_handle == nullptr) {
-    throw AlsaPlaybackError(operation + " requested without an open ALSA playback device");
-  }
-
-  int err = snd_pcm_drop(impl_->pcm_handle);
-  if (err < 0) {
-    throw AlsaPlaybackError(
-      std::string("snd_pcm_drop failed during ") + operation + ": " + snd_strerror(err));
-  }
-
-  err = snd_pcm_prepare(impl_->pcm_handle);
-  if (err < 0) {
-    throw AlsaPlaybackError(
-      std::string("snd_pcm_prepare failed during ") + operation + ": " + snd_strerror(err));
-  }
-}
-
 size_t AlsaPlaybackBackend::writeFrames(const uint8_t * data, const size_t frame_count)
 {
   if (impl_->pcm_handle == nullptr) {

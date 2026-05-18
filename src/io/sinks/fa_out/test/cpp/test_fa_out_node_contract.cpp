@@ -26,6 +26,8 @@ struct FakeSinkState
   std::atomic<size_t> write_calls{0};
   std::atomic<size_t> frames_written{0};
   std::atomic<bool> fail_on_write{false};
+  std::atomic<bool> saw_backend_config{false};
+  fa_out::backends::AlsaPlaybackConfig backend_config;
 };
 
 class FakeSinkBackend final : public fa_out::backends::SinkBackend
@@ -59,13 +61,6 @@ public:
   bool isRunning() const override
   {
     return false;
-  }
-
-  void discardBuffer(const std::string & /*operation*/) override
-  {
-    if (!open_) {
-      throw fa_out::backends::SinkBackendError("fake sink is closed");
-    }
   }
 
   size_t writeFrames(const uint8_t * /*data*/, const size_t frame_count) override
@@ -126,7 +121,9 @@ rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 
 fa_out::FaOutNode::BackendFactory factoryFor(const std::shared_ptr<FakeSinkState> & state)
 {
-  return [state](const fa_out::backends::AlsaPlaybackConfig & /*config*/) {
+  return [state](const fa_out::backends::AlsaPlaybackConfig & config) {
+    state->backend_config = config;
+    state->saw_backend_config.store(true);
     return std::make_unique<FakeSinkBackend>(state);
   };
 }
@@ -216,6 +213,23 @@ TEST_F(RclcppContractTest, RejectsAlsaPluginSinkBeforeOpeningSink)
     },
     std::invalid_argument);
   EXPECT_EQ(state->open_calls.load(), 0u);
+}
+
+TEST_F(RclcppContractTest, PassesExplicitConfigToSinkBackend)
+{
+  const auto state = std::make_shared<FakeSinkState>();
+  auto node = std::make_shared<fa_out::FaOutNode>(
+    optionsWith(validParameters()),
+    factoryFor(state));
+
+  EXPECT_TRUE(state->saw_backend_config.load());
+  EXPECT_EQ(state->backend_config.device_id, "hw:0,0");
+  EXPECT_EQ(state->backend_config.encoding, "PCM16LE");
+  EXPECT_EQ(state->backend_config.sample_rate, 48000u);
+  EXPECT_EQ(state->backend_config.channels, 1u);
+  EXPECT_EQ(state->backend_config.bit_depth, 16u);
+  EXPECT_EQ(state->backend_config.buffer_frames, 16384u);
+  EXPECT_EQ(state->backend_config.period_frames, 4096u);
 }
 
 TEST_F(RclcppContractTest, WritesOnlyFramesMatchingTheConfiguredSinkContract)

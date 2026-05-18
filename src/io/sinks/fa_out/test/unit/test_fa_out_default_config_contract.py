@@ -164,7 +164,7 @@ def test_queue_overflow_fails_closed_without_dropping_oldest_frame() -> None:
     source_path = Path(__file__).parents[2] / "src" / "fa_out_node.cpp"
     source = source_path.read_text(encoding="utf-8")
     handle_frame = source.split("void FaOutNode::handleFrame")[1].split(
-        "void FaOutNode::handleStop"
+        "bool FaOutNode::validateFrame"
     )[0]
 
     assert "playback queue exceeded queue.max_frames" in handle_frame
@@ -183,7 +183,7 @@ def test_playback_backend_access_is_serialized() -> None:
         "}  // namespace fa_out"
     )[0]
     handle_frame = source.split("void FaOutNode::handleFrame")[1].split(
-        "void FaOutNode::handleStop"
+        "bool FaOutNode::validateFrame"
     )[0]
 
     assert "std::mutex backend_mutex_;" in header_text
@@ -283,6 +283,8 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
     assert "diagnostic_msgs" not in cmake_text
     assert "diagnostic_msgs" not in package_xml
+    assert "std_msgs" not in cmake_text
+    assert "std_msgs" not in package_xml
 
 
 def test_sink_adapter_exposes_no_file_or_dsp_surface() -> None:
@@ -295,6 +297,15 @@ def test_sink_adapter_exposes_no_file_or_dsp_surface() -> None:
     combined = "\n".join([source_text, header_text, config_text])
 
     assert "create_service" not in source_text
+    assert "audio/output/stop" not in combined
+    assert "audio/output/pause" not in combined
+    assert "audio/output/resume" not in combined
+    assert "audio/output/playback_done" not in combined
+    assert "audio/output/paused" not in combined
+    assert "PlaybackDone" not in combined
+    assert "std_msgs" not in combined
+    assert "last_stop_time_" not in combined
+    assert "current_epoch_" not in combined
     forbidden_tokens = [
         "file_path",
         "audio.file",
@@ -308,6 +319,22 @@ def test_sink_adapter_exposes_no_file_or_dsp_surface() -> None:
     ]
     for token in forbidden_tokens:
         assert token not in combined
+
+
+def test_sink_backend_exposes_no_session_control_primitive() -> None:
+    package_root = Path(__file__).parents[2]
+    backend_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in [
+            package_root / "include" / "fa_out" / "backends" / "sink_backend.hpp",
+            package_root / "include" / "fa_out" / "backends" / "alsa_playback_backend.hpp",
+            package_root / "src" / "backends" / "alsa_playback_backend.cpp",
+        ]
+    )
+
+    assert "discardBuffer" not in backend_text
+    assert "snd_pcm_drop" not in backend_text
+    assert "snd_pcm_prepare" not in backend_text
 
 
 def test_backend_open_result_is_info_only_without_warning_continuation() -> None:

@@ -10,7 +10,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(std_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
 find_package(PkgConfig REQUIRED)
@@ -35,7 +34,6 @@ add_library(fa_out_node_core
 
 ament_target_dependencies(fa_out_node_core
   rclcpp
-  std_msgs
   fa_interfaces
 )
 
@@ -101,7 +99,6 @@ if(BUILD_TESTING)
   )
   ament_target_dependencies(${PROJECT_NAME}_node_contract_test
     rclcpp
-    std_msgs
     fa_interfaces
   )
   target_link_libraries(${PROJECT_NAME}_node_contract_test
