@@ -3,12 +3,16 @@ fa_monitor_mix:
     input_topics:
       - "audio/program/frame"
       - "audio/tts/frame"
+    input_stream_ids:
+      - "audio/program/frame"
+      - "audio/tts/frame"
     input_gains_db:
       - 0.0
     master_index: 0
     output_topic: "audio/monitor/frame"
 
     output:
+      stream_id: "audio/monitor/frame"
       source_id: "monitor_mix"
 
     expected:

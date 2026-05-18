@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -13,6 +11,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_monitor_mix/backends/internal_monitor_mix.hpp"
 
 namespace fa_monitor_mix
 {
@@ -21,8 +20,6 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
 constexpr size_t kFloat32Bytes = sizeof(float);
 
 bool isFinite(double value)
@@ -47,20 +44,25 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaMonitorMixNode::FaMonitorMixNode()
-: rclcpp::Node("fa_monitor_mix")
+FaMonitorMixNode::FaMonitorMixNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_monitor_mix", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Monitor Mix node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaMonitorMixNode::~FaMonitorMixNode() = default;
 
 void FaMonitorMixNode::loadParameters()
 {
   this->declare_parameter<std::vector<std::string>>("input_topics", config_.input_topics);
+  this->declare_parameter<std::vector<std::string>>("input_stream_ids", config_.input_stream_ids);
   this->declare_parameter<std::vector<double>>("input_gains_db", config_.input_gains_db);
   this->declare_parameter<int>("master_index", config_.master_index);
   this->declare_parameter("output_topic", config_.output_topic);
+  this->declare_parameter("output.stream_id", config_.output_stream_id);
   this->declare_parameter("output.source_id", config_.output_source_id);
   this->declare_parameter<int>("expected.sample_rate", config_.expected_sample_rate);
   this->declare_parameter<int>("expected.channels", config_.expected_channels);
@@ -75,9 +77,11 @@ void FaMonitorMixNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 
   config_.input_topics = this->get_parameter("input_topics").as_string_array();
+  config_.input_stream_ids = this->get_parameter("input_stream_ids").as_string_array();
   config_.input_gains_db = this->get_parameter("input_gains_db").as_double_array();
   config_.master_index = this->get_parameter("master_index").as_int();
   config_.output_topic = this->get_parameter("output_topic").as_string();
+  config_.output_stream_id = this->get_parameter("output.stream_id").as_string();
   config_.output_source_id = this->get_parameter("output.source_id").as_string();
   config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
   config_.expected_channels = this->get_parameter("expected.channels").as_int();
@@ -98,6 +102,23 @@ void FaMonitorMixNode::loadParameters()
       throw std::runtime_error("input_topics must not contain an empty topic");
     }
   }
+  if (config_.input_stream_ids.size() != config_.input_topics.size()) {
+    throw std::runtime_error("input_stream_ids must match input_topics length");
+  }
+  for (const auto & stream_id : config_.input_stream_ids) {
+    if (stream_id.empty()) {
+      throw std::runtime_error("input_stream_ids must not contain an empty stream_id");
+    }
+  }
+  for (size_t i = 0; i < config_.input_topics.size(); ++i) {
+    const std::string resolved_input =
+      this->get_node_topics_interface()->resolve_topic_name(config_.input_topics[i]);
+    for (size_t j = i + 1; j < config_.input_topics.size(); ++j) {
+      if (resolved_input == this->get_node_topics_interface()->resolve_topic_name(config_.input_topics[j])) {
+        throw std::runtime_error("resolved input_topics must be unique");
+      }
+    }
+  }
   if (config_.input_gains_db.size() != 1 && config_.input_gains_db.size() != config_.input_topics.size()) {
     throw std::runtime_error("input_gains_db must be size 1 or match input_topics length");
   }
@@ -107,8 +128,18 @@ void FaMonitorMixNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
   if (config_.output_source_id.empty()) {
     throw std::runtime_error("output.source_id is required");
+  }
+  const std::string resolved_output =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  for (const auto & input_topic : config_.input_topics) {
+    if (resolved_output == this->get_node_topics_interface()->resolve_topic_name(input_topic)) {
+      throw std::runtime_error("resolved output_topic must be distinct from input_topics");
+    }
   }
   if (config_.expected_sample_rate <= 0) {
     throw std::runtime_error("expected.sample_rate must be > 0");
@@ -148,10 +179,11 @@ void FaMonitorMixNode::loadParameters()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Monitor mix config: inputs=%zu master=%d output=%s source_id=%s expected=%dHz/%d/%s/%d/%s max_age=%dms qos_depth=%d reliable=%s diag=%dms",
+    "Monitor mix config: inputs=%zu master=%d output=%s stream_id=%s source_id=%s expected=%dHz/%d/%s/%d/%s max_age=%dms qos_depth=%d reliable=%s diag=%dms",
     config_.input_topics.size(),
     config_.master_index,
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.output_source_id.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
@@ -164,9 +196,19 @@ void FaMonitorMixNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
+void FaMonitorMixNode::configureBackend()
+{
+  backends::InternalMonitorMixConfig backend_config;
+  backend_config.input_count = config_.input_topics.size();
+  backend_config.master_index = static_cast<size_t>(config_.master_index);
+  backend_config.channels = static_cast<size_t>(config_.expected_channels);
+  backend_config.gains_linear = config_.input_gains_linear;
+  backend_ = std::make_unique<backends::InternalMonitorMixBackend>(backend_config);
+}
+
 void FaMonitorMixNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -202,11 +244,10 @@ void FaMonitorMixNode::handleInputFrame(
   frames_in_.fetch_add(1);
 
   if (!msg) {
-    frames_dropped_.fetch_add(1);
-    return;
+    throw std::logic_error("fa_monitor_mix received a null AudioFrame pointer");
   }
 
-  if (!validateFrame(*msg, config_.input_topics[index])) {
+  if (!validateFrame(*msg, config_.input_stream_ids[index])) {
     frames_dropped_.fetch_add(1);
     return;
   }
@@ -277,29 +318,21 @@ bool FaMonitorMixNode::validateFrame(
     return false;
   }
 
-  std::vector<float> samples;
-  return readSamples(msg, samples);
-}
-
-bool FaMonitorMixNode::readSamples(
-  const fa_interfaces::msg::AudioFrame & msg,
-  std::vector<float> & samples)
-{
-  samples.clear();
-  if (msg.data.empty() || (msg.data.size() % kFloat32Bytes) != 0) {
-    return false;
+  if (!backend_) {
+    throw std::logic_error("monitor mix backend is not initialized");
   }
-
-  samples.resize(msg.data.size() / kFloat32Bytes);
-  std::memcpy(samples.data(), msg.data.data(), msg.data.size());
-  for (float sample : samples) {
-    if (!std::isfinite(sample) || sample < kMinNormalizedSample || sample > kMaxNormalizedSample) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping monitor input frame because sample is outside normalized FLOAT32LE range");
+  const backends::ProcessStatus status = backend_->validateFrameBytes(msg.data);
+  if (status != backends::ProcessStatus::kOk) {
+    if (status == backends::ProcessStatus::kOutOfRangeInput ||
+        status == backends::ProcessStatus::kNonFiniteInput)
+    {
       range_drops_.fetch_add(1);
-      return false;
     }
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping monitor input frame because backend rejected bytes: %s",
+      backends::processStatusMessage(status));
+    return false;
   }
   return true;
 }
@@ -307,11 +340,13 @@ bool FaMonitorMixNode::readSamples(
 bool FaMonitorMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & master_frame)
 {
   if (!audio_pub_) {
-    return false;
+    throw std::logic_error("monitor mix publisher is not initialized");
+  }
+  if (!backend_) {
+    throw std::logic_error("monitor mix backend is not initialized");
   }
 
   const rclcpp::Time now = this->now();
-  const size_t expected_bytes = master_frame.data.size();
 
   std::vector<fa_interfaces::msg::AudioFrame::SharedPtr> frames;
   std::vector<rclcpp::Time> received_at;
@@ -321,24 +356,8 @@ bool FaMonitorMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & mast
     received_at = latest_frame_received_at_;
   }
 
-  std::vector<float> mixed;
-  if (!readSamples(master_frame, mixed)) {
-    return false;
-  }
-  for (float & sample : mixed) {
-    sample *= static_cast<float>(config_.input_gains_linear[config_.master_index]);
-    if (!std::isfinite(sample) ||
-        sample < kMinNormalizedSample ||
-        sample > kMaxNormalizedSample)
-    {
-      range_drops_.fetch_add(1);
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping monitor mix because master gain output is outside normalized FLOAT32LE range");
-      return false;
-    }
-  }
-
+  std::vector<std::vector<uint8_t>> input_bytes(frames.size());
+  input_bytes[static_cast<size_t>(config_.master_index)] = master_frame.data;
   for (size_t i = 0; i < frames.size(); ++i) {
     if (static_cast<int>(i) == config_.master_index) {
       continue;
@@ -361,46 +380,38 @@ bool FaMonitorMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & mast
         config_.max_frame_age_ms);
       return false;
     }
-    if (frames[i]->data.size() != expected_bytes) {
-      missing_frame_drops_.fetch_add(1);
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping monitor mix because input %zu byte length differs from master", i);
-      return false;
-    }
+    input_bytes[i] = frames[i]->data;
+  }
 
-    std::vector<float> input_samples;
-    if (!readSamples(*frames[i], input_samples)) {
-      return false;
+  const backends::ProcessResult result = backend_->mix(input_bytes);
+  if (result.status != backends::ProcessStatus::kOk) {
+    if (result.status == backends::ProcessStatus::kByteLengthMismatch) {
+      missing_frame_drops_.fetch_add(1);
     }
-    const float gain = static_cast<float>(config_.input_gains_linear[i]);
-    for (size_t sample_index = 0; sample_index < mixed.size(); ++sample_index) {
-      const float output = mixed[sample_index] + (input_samples[sample_index] * gain);
-      if (!std::isfinite(output) ||
-          output < kMinNormalizedSample ||
-          output > kMaxNormalizedSample)
-      {
-        range_drops_.fetch_add(1);
-        RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 3000,
-          "Dropping monitor mix because output sample is outside normalized FLOAT32LE range");
-        return false;
-      }
-      mixed[sample_index] = output;
+    if (result.status == backends::ProcessStatus::kOutOfRangeInput ||
+        result.status == backends::ProcessStatus::kNonFiniteInput ||
+        result.status == backends::ProcessStatus::kOutOfRangeOutput ||
+        result.status == backends::ProcessStatus::kNonFiniteOutput)
+    {
+      range_drops_.fetch_add(1);
     }
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping monitor mix because backend rejected input or output: %s",
+      backends::processStatusMessage(result.status));
+    return false;
   }
 
   fa_interfaces::msg::AudioFrame out;
   out.header = master_frame.header;
   out.source_id = config_.output_source_id;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   out.encoding = config_.expected_encoding;
   out.sample_rate = static_cast<uint32_t>(config_.expected_sample_rate);
   out.channels = static_cast<uint32_t>(config_.expected_channels);
   out.bit_depth = static_cast<uint32_t>(config_.expected_bit_depth);
   out.layout = config_.expected_layout;
-  out.data.resize(mixed.size() * kFloat32Bytes);
-  std::memcpy(out.data.data(), mixed.data(), out.data.size());
+  out.data = result.output;
   out.epoch = master_frame.epoch;
 
   audio_pub_->publish(std::move(out));
@@ -415,6 +426,10 @@ double FaMonitorMixNode::gainDbForIndex(size_t index) const
 
 void FaMonitorMixNode::publishDiagnostics()
 {
+  if (!diag_pub_) {
+    throw std::logic_error("monitor mix diagnostics publisher is not initialized");
+  }
+
   diagnostic_msgs::msg::DiagnosticArray array_msg;
   array_msg.header.stamp = this->now();
 
@@ -428,12 +443,14 @@ void FaMonitorMixNode::publishDiagnostics()
   pushKeyValue(status, "inputs", std::to_string(config_.input_topics.size()));
   pushKeyValue(status, "master_index", std::to_string(config_.master_index));
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "output.stream_id", config_.output_stream_id);
   pushKeyValue(status, "output.source_id", config_.output_source_id);
   pushKeyValue(status, "expected.sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected.channels", std::to_string(config_.expected_channels));
   pushKeyValue(status, "expected.encoding", config_.expected_encoding);
   pushKeyValue(status, "expected.bit_depth", std::to_string(config_.expected_bit_depth));
   pushKeyValue(status, "expected.layout", config_.expected_layout);
+  pushKeyValue(status, "backend.name", backends::InternalMonitorMixBackend::kName);
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_valid", std::to_string(frames_valid_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
@@ -448,18 +465,3 @@ void FaMonitorMixNode::publishDiagnostics()
 }
 
 }  // namespace fa_monitor_mix
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_monitor_mix::FaMonitorMixNode>();
-    rclcpp::spin(node);
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_monitor_mix"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-  rclcpp::shutdown();
-  return EXIT_SUCCESS;
-}
