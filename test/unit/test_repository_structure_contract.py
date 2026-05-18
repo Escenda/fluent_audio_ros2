@@ -219,6 +219,19 @@ FORBIDDEN_BACKEND_TOKENS = (
     "import fa_interfaces",
 )
 
+FORBIDDEN_AI_BACKEND_FORMAT_CONVERSION_TOKENS = (
+    "np.clip",
+    "_float_to_pcm16",
+    "astype(np.int16",
+    'astype("<i2"',
+    "astype('<i2'",
+    "dtype=np.int16",
+    'dtype="<i2"',
+    "dtype='<i2'",
+    "std::int16_t",
+    "PCM16LE",
+)
+
 
 FORBIDDEN_PYTHON_TYPE_ESCAPE_TOKENS = (
     "from typing import Any",
@@ -274,6 +287,17 @@ def _backend_code_files() -> list[Path]:
             if path.is_file() and path.suffix in BACKEND_CODE_SUFFIXES
         )
     return sorted(files)
+
+
+def _ai_backend_code_files() -> list[Path]:
+    ai_root = SRC_ROOT / "ai"
+    return sorted(
+        path
+        for path in ai_root.rglob("*")
+        if path.is_file()
+        and path.suffix in BACKEND_CODE_SUFFIXES
+        and "backends" in path.parts
+    )
 
 
 def _production_python_files() -> list[Path]:
@@ -586,6 +610,20 @@ def test_runtime_backends_do_not_import_ros2_or_audio_messages() -> None:
     for code_file in _backend_code_files():
         source = code_file.read_text(encoding="utf-8")
         for forbidden_token in FORBIDDEN_BACKEND_TOKENS:
+            if forbidden_token in source:
+                violations.append(
+                    f"{code_file.relative_to(REPO_ROOT)} contains {forbidden_token}"
+                )
+
+    assert violations == []
+
+
+def test_ai_runtime_backends_do_not_perform_hidden_pcm16_conversion() -> None:
+    violations: list[str] = []
+
+    for code_file in _ai_backend_code_files():
+        source = code_file.read_text(encoding="utf-8")
+        for forbidden_token in FORBIDDEN_AI_BACKEND_FORMAT_CONVERSION_TOKENS:
             if forbidden_token in source:
                 violations.append(
                     f"{code_file.relative_to(REPO_ROOT)} contains {forbidden_token}"
