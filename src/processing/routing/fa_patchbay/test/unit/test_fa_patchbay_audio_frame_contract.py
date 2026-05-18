@@ -26,7 +26,9 @@ def test_default_config_defines_explicit_patchbay_contract() -> None:
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is True
     assert params["diagnostics"]["publish_period_ms"] == 1000
-    assert 'default_value="fa_patchbay"' in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
 
 
 def test_startup_validation_fails_closed_for_invalid_config() -> None:
@@ -36,6 +38,13 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         "void FaPatchbayNode::setupInterfaces"
     )[0]
 
+    assert "readRequiredStringArray(*this, \"input_topics\")" in load_parameters
+    assert "readRequiredStringArray(*this, \"output_topics\")" in load_parameters
+    assert "readRequiredInt(*this, \"expected.sample_rate\")" in load_parameters
+    assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert "throw std::runtime_error(\"input_topics must contain at least one topic\")" in load_parameters
     assert "throw std::runtime_error(\"output_topics must contain at least one topic\")" in load_parameters
     assert (

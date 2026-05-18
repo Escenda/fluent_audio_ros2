@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -42,6 +43,75 @@ void pushKeyValue(
   kv.value = value;
   status.values.push_back(kv);
 }
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+std::vector<std::string> readRequiredStringArray(
+  const rclcpp::Node & node,
+  const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING_ARRAY) {
+    throw std::runtime_error(name + " must be a string array");
+  }
+  return parameter.as_string_array();
+}
+
+std::vector<double> readRequiredDoubleArray(
+  const rclcpp::Node & node,
+  const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE_ARRAY) {
+    throw std::runtime_error(name + " must be a double array");
+  }
+  return parameter.as_double_array();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
+}
 }  // namespace
 
 FaMonitorMixNode::FaMonitorMixNode(const rclcpp::NodeOptions & options)
@@ -57,42 +127,40 @@ FaMonitorMixNode::~FaMonitorMixNode() = default;
 
 void FaMonitorMixNode::loadParameters()
 {
-  this->declare_parameter<std::vector<std::string>>("input_topics", config_.input_topics);
-  this->declare_parameter<std::vector<std::string>>("input_stream_ids", config_.input_stream_ids);
-  this->declare_parameter<std::vector<double>>("input_gains_db", config_.input_gains_db);
-  this->declare_parameter<int>("master_index", config_.master_index);
-  this->declare_parameter("output_topic", config_.output_topic);
-  this->declare_parameter("output.stream_id", config_.output_stream_id);
-  this->declare_parameter("output.source_id", config_.output_source_id);
-  this->declare_parameter<int>("expected.sample_rate", config_.expected_sample_rate);
-  this->declare_parameter<int>("expected.channels", config_.expected_channels);
-  this->declare_parameter("expected.encoding", config_.expected_encoding);
-  this->declare_parameter<int>("expected.bit_depth", config_.expected_bit_depth);
-  this->declare_parameter("expected.layout", config_.expected_layout);
-  this->declare_parameter<int>("max_frame_age_ms", config_.max_frame_age_ms);
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
-  this->declare_parameter<int>(
-    "diagnostics.publish_period_ms",
-    config_.diagnostics_publish_period_ms);
+  this->declare_parameter<std::vector<std::string>>("input_topics");
+  this->declare_parameter<std::vector<std::string>>("input_stream_ids");
+  this->declare_parameter<std::vector<double>>("input_gains_db");
+  this->declare_parameter<int>("master_index");
+  this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("output.stream_id");
+  this->declare_parameter<std::string>("output.source_id");
+  this->declare_parameter<int>("expected.sample_rate");
+  this->declare_parameter<int>("expected.channels");
+  this->declare_parameter<std::string>("expected.encoding");
+  this->declare_parameter<int>("expected.bit_depth");
+  this->declare_parameter<std::string>("expected.layout");
+  this->declare_parameter<int>("max_frame_age_ms");
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
+  this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.input_topics = this->get_parameter("input_topics").as_string_array();
-  config_.input_stream_ids = this->get_parameter("input_stream_ids").as_string_array();
-  config_.input_gains_db = this->get_parameter("input_gains_db").as_double_array();
-  config_.master_index = this->get_parameter("master_index").as_int();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.output_stream_id = this->get_parameter("output.stream_id").as_string();
-  config_.output_source_id = this->get_parameter("output.source_id").as_string();
-  config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
-  config_.expected_channels = this->get_parameter("expected.channels").as_int();
-  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
-  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
-  config_.expected_layout = this->get_parameter("expected.layout").as_string();
-  config_.max_frame_age_ms = this->get_parameter("max_frame_age_ms").as_int();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.input_topics = readRequiredStringArray(*this, "input_topics");
+  config_.input_stream_ids = readRequiredStringArray(*this, "input_stream_ids");
+  config_.input_gains_db = readRequiredDoubleArray(*this, "input_gains_db");
+  config_.master_index = readRequiredInt(*this, "master_index");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
+  config_.output_source_id = readRequiredString(*this, "output.source_id");
+  config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
+  config_.expected_channels = readRequiredInt(*this, "expected.channels");
+  config_.expected_encoding = readRequiredString(*this, "expected.encoding");
+  config_.expected_bit_depth = readRequiredInt(*this, "expected.bit_depth");
+  config_.expected_layout = readRequiredString(*this, "expected.layout");
+  config_.max_frame_age_ms = readRequiredInt(*this, "max_frame_age_ms");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(
+    *this, "diagnostics.publish_period_ms");
 
   if (config_.input_topics.empty()) {
     throw std::runtime_error("input_topics must contain at least one topic");

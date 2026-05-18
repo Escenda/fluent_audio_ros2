@@ -22,23 +22,23 @@ class InternalMonitorMixBackend;
 
 struct MonitorMixConfig
 {
-  std::vector<std::string> input_topics{"audio/program/frame", "audio/tts/frame"};
-  std::vector<std::string> input_stream_ids{"audio/program/frame", "audio/tts/frame"};
-  std::vector<double> input_gains_db{0.0};
-  std::vector<double> input_gains_linear{1.0};
-  int master_index{0};
-  std::string output_topic{"audio/monitor/frame"};
-  std::string output_stream_id{"audio/monitor/frame"};
-  std::string output_source_id{"monitor_mix"};
-  int expected_sample_rate{48000};
-  int expected_channels{2};
-  std::string expected_encoding{"FLOAT32LE"};
-  int expected_bit_depth{32};
-  std::string expected_layout{"interleaved"};
-  int max_frame_age_ms{100};
-  int qos_depth{10};
+  std::vector<std::string> input_topics{};
+  std::vector<std::string> input_stream_ids{};
+  std::vector<double> input_gains_db{};
+  std::vector<double> input_gains_linear{};
+  int master_index{-1};
+  std::string output_topic{};
+  std::string output_stream_id{};
+  std::string output_source_id{};
+  int expected_sample_rate{-1};
+  int expected_channels{-1};
+  std::string expected_encoding{};
+  int expected_bit_depth{-1};
+  std::string expected_layout{};
+  int max_frame_age_ms{-1};
+  int qos_depth{-1};
   bool qos_reliable{false};
-  int diagnostics_publish_period_ms{1000};
+  int diagnostics_publish_period_ms{-1};
 };
 
 /**

@@ -33,8 +33,9 @@ def test_default_config_and_launch_use_monitor_mix_contract() -> None:
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is False
     assert params["diagnostics"]["publish_period_ms"] == 1000
-    assert 'default_value="fa_monitor_mix"' in launch
-    assert 'FindPackageShare("fa_monitor_mix")' in launch
+    assert "default_value" not in launch
+    assert "FindPackageShare" not in launch
+    assert "PathJoinSubstitution" not in launch
 
 
 def test_startup_validation_fails_closed_for_required_parameters_and_format() -> None:
@@ -43,6 +44,15 @@ def test_startup_validation_fails_closed_for_required_parameters_and_format() ->
         "void FaMonitorMixNode::setupInterfaces"
     )[0]
 
+    assert "readRequiredStringArray(*this, \"input_topics\")" in load_parameters
+    assert "readRequiredStringArray(*this, \"input_stream_ids\")" in load_parameters
+    assert "readRequiredDoubleArray(*this, \"input_gains_db\")" in load_parameters
+    assert "readRequiredString(*this, \"output_topic\")" in load_parameters
+    assert "readRequiredInt(*this, \"expected.sample_rate\")" in load_parameters
+    assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert "input_topics must contain at least one topic" in load_parameters
     assert "input_topics must not contain an empty topic" in load_parameters
     assert "input_stream_ids must match input_topics length" in load_parameters

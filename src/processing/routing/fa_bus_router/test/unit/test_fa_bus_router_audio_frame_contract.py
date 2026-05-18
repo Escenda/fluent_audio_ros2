@@ -6,6 +6,9 @@ import yaml
 def test_default_config_defines_explicit_bus_routing_contract() -> None:
     package_root = Path(__file__).parents[2]
     config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
+    launch_text = (package_root / "launch" / "fa_bus_router.launch.py").read_text(
+        encoding="utf-8"
+    )
     params = config["fa_bus_router"]["ros__parameters"]
 
     assert params["input_topic"] == "audio/frame"
@@ -20,6 +23,9 @@ def test_default_config_defines_explicit_bus_routing_contract() -> None:
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is True
     assert params["diagnostics"]["publish_period_ms"] == 1000
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
 
 
 def test_startup_validation_fails_closed_for_invalid_config() -> None:
@@ -30,6 +36,13 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     )[0]
 
     assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
+    assert "readRequiredString(*this, \"input_topic\")" in load_parameters
+    assert "readRequiredStringArray(*this, \"output_topics\")" in load_parameters
+    assert "readRequiredInt(*this, \"expected.sample_rate\")" in load_parameters
+    assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert "throw std::runtime_error(\"output_topics must contain at least one topic\")" in load_parameters
     assert "throw std::runtime_error(\"output_topics must not contain empty topic\")" in load_parameters
     assert "throw std::runtime_error(\"output_topics must not contain input_topic\")" in load_parameters
