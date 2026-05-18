@@ -161,6 +161,14 @@ void FaDenoiseNode::loadParameters()
     throw std::runtime_error("backend.name must be passthrough or dtln_onnx");
   }
 
+  if (config_.backend_name == "passthrough" &&
+      (config_.output_encoding != config_.expected_encoding ||
+       config_.output_bit_depth != config_.expected_bit_depth))
+  {
+    throw std::runtime_error(
+      "fa_denoise passthrough requires output format to match expected input format");
+  }
+
   if (config_.backend_name == "dtln_onnx") {
     if (config_.expected_channels != 1) {
       throw std::runtime_error("fa_denoise dtln_onnx requires expected_channels=1");
@@ -359,8 +367,18 @@ bool FaDenoiseNode::encodeFromFloat(
 void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   in_.fetch_add(1);
-  if (!msg || !pub_) {
+  if (!msg) {
+    throw std::logic_error("fa_denoise received a null AudioFrame pointer");
+  }
+  if (!pub_) {
+    throw std::logic_error("fa_denoise publisher is not initialized");
+  }
+
+  if (!config_.enabled) {
     drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because fa_denoise is disabled; disable the system node instead");
     return;
   }
 
@@ -376,14 +394,6 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
 
   const auto start = std::chrono::steady_clock::now();
 
-  if (!config_.enabled) {
-    drop_.fetch_add(1);
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping frame because fa_denoise is disabled; disable the system node instead");
-    return;
-  }
-
   if (config_.backend_name == "passthrough") {
     auto out_msg = *msg;
     out_msg.stream_id = config_.output_topic;
@@ -398,14 +408,12 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   }
 
   if (config_.backend_name != "dtln_onnx") {
-    drop_.fetch_add(1);
-    return;
+    throw std::logic_error("fa_denoise backend invariant violated after startup validation");
   }
 
 #ifdef FA_DENOISE_WITH_ONNXRUNTIME
   if (!dtln_) {
-    drop_.fetch_add(1);
-    return;
+    throw std::logic_error("fa_denoise dtln_onnx backend is not initialized");
   }
 
   std::vector<float> in_f32;
@@ -420,6 +428,14 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     return;
   }
 
+  if ((in_f32.size() % static_cast<size_t>(config_.dtln_block_shift)) != 0) {
+    drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping denoise frame because sample count is not aligned to dtln.block_shift");
+    return;
+  }
+
   std::vector<float> out_f32;
   try {
     out_f32 = dtln_->process(in_f32.data(), in_f32.size());
@@ -429,12 +445,9 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     return;
   }
 
-  if (out_f32.empty()) {
-    const uint64_t elapsed_ns = nanosSince(start);
-    process_ns_sum_.fetch_add(elapsed_ns);
-    process_count_.fetch_add(1);
-    updateMaxAtomic(process_ns_max_, elapsed_ns);
-    return;
+  if (out_f32.size() != in_f32.size()) {
+    throw std::runtime_error(
+      "fa_denoise dtln_onnx output sample count must match input sample count");
   }
 
   std::vector<uint8_t> out_bytes;
@@ -463,8 +476,7 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   pub_->publish(out_msg);
   out_.fetch_add(1);
 #else
-  drop_.fetch_add(1);
-  return;
+  throw std::logic_error("fa_denoise dtln_onnx backend was selected without ONNX Runtime support");
 #endif
 
   const uint64_t elapsed_ns = nanosSince(start);

@@ -138,6 +138,37 @@ protected:
   }
 };
 
+TEST_F(RclcppContractTest, RejectsMissingBackendAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("backend.name", ""));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsUnknownBackendAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("backend.name", "unknown"));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsPassthroughOutputFormatChangeAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("output.encoding", "FLOAT32LE"));
+  replaceParameter(parameters, rclcpp::Parameter("output.bit_depth", 32));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
 TEST_F(RclcppContractTest, PublishesPassthroughFrameWithOutputStreamId)
 {
   auto node = std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(validParameters()));
@@ -174,6 +205,35 @@ TEST_F(RclcppContractTest, PublishesPassthroughFrameWithOutputStreamId)
   EXPECT_EQ(received[0].layout, "interleaved");
   EXPECT_EQ(received[0].epoch, 1U);
   EXPECT_EQ(received[0].data, data);
+}
+
+TEST_F(RclcppContractTest, DropsFrameWhenDisabled)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("enabled", false));
+  auto node = std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(std::move(parameters)));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_denoise_disabled_contract_io");
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto input_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic, rclcpp::QoS(10).reliable());
+  auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    kOutputTopic, rclcpp::QoS(10).reliable(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+  ASSERT_NE(output_sub, nullptr);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&input_pub, &output_sub]() {
+    return input_pub->get_subscription_count() > 0 && output_sub->get_publisher_count() > 0;
+  }));
+
+  input_pub->publish(frameWith(kInputTopic, {0x00U, 0x00U}, 1U));
+  spinFor(executor, 250ms);
+
+  EXPECT_TRUE(received.empty());
 }
 
 TEST_F(RclcppContractTest, DropsFrameWithMismatchedStreamId)

@@ -47,6 +47,31 @@ size_t elementCount(const std::vector<int64_t> & shape)
   return count;
 }
 
+std::string shapeToString(const std::vector<int64_t> & shape)
+{
+  std::string out = "[";
+  for (size_t i = 0; i < shape.size(); ++i) {
+    if (i > 0) {
+      out += ",";
+    }
+    out += std::to_string(shape[i]);
+  }
+  out += "]";
+  return out;
+}
+
+void requireShapeEquals(
+  const std::vector<int64_t> & actual,
+  const std::vector<int64_t> & expected,
+  const std::string & tensor_name)
+{
+  if (actual != expected) {
+    throw std::runtime_error(
+      tensor_name + " shape mismatch: actual=" + shapeToString(actual) +
+      " expected=" + shapeToString(expected));
+  }
+}
+
 #ifdef _WIN32
 std::wstring toOrtPath(const std::string & path)
 {
@@ -128,6 +153,10 @@ struct DtlnOnnxEngine::Impl
       session_1_->GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape());
     state_shape_1_ = concreteShape(
       session_1_->GetInputTypeInfo(1).GetTensorTypeAndShapeInfo().GetShape());
+    const std::vector<int64_t> mask_shape = concreteShape(
+      session_1_->GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape());
+    const std::vector<int64_t> state_output_shape_1 = concreteShape(
+      session_1_->GetOutputTypeInfo(1).GetTensorTypeAndShapeInfo().GetShape());
 
     if (mag_shape_.size() != 3 || mag_shape_[0] != 1 || mag_shape_[1] != 1) {
       throw std::runtime_error("DTLN model_1 mag input must be [1,1,bins]");
@@ -146,6 +175,8 @@ struct DtlnOnnxEngine::Impl
     if (state_shape_1_.size() != 4 || state_shape_1_[0] != 1 || state_shape_1_[3] != 2) {
       throw std::runtime_error("DTLN model_1 state input must be [1,layers,units,2]");
     }
+    requireShapeEquals(mask_shape, mag_shape_, "DTLN model_1 mask output");
+    requireShapeEquals(state_output_shape_1, state_shape_1_, "DTLN model_1 state output");
 
     // Model 2: [time, state] -> [time, state]
     const size_t in_count_2 = session_2_->GetInputCount();
@@ -169,6 +200,10 @@ struct DtlnOnnxEngine::Impl
       session_2_->GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape());
     state_shape_2_ = concreteShape(
       session_2_->GetInputTypeInfo(1).GetTensorTypeAndShapeInfo().GetShape());
+    const std::vector<int64_t> time_output_shape = concreteShape(
+      session_2_->GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape());
+    const std::vector<int64_t> state_output_shape_2 = concreteShape(
+      session_2_->GetOutputTypeInfo(1).GetTensorTypeAndShapeInfo().GetShape());
 
     if (time_shape_.size() != 3 || time_shape_[0] != 1 || time_shape_[1] != 1) {
       throw std::runtime_error("DTLN model_2 time input must be [1,1,block_len]");
@@ -182,6 +217,8 @@ struct DtlnOnnxEngine::Impl
     if (state_shape_2_ != state_shape_1_) {
       throw std::runtime_error("DTLN model_2 state shape must match model_1 state shape");
     }
+    requireShapeEquals(time_output_shape, time_shape_, "DTLN model_2 time output");
+    requireShapeEquals(state_output_shape_2, state_shape_2_, "DTLN model_2 state output");
 
     const size_t bins_count = elementCount(mag_shape_);
     mag_.assign(bins_count, 0.0f);

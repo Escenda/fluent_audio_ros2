@@ -24,6 +24,8 @@ def test_denoise_outputs_audio_frame_identity_without_analysis_metadata() -> Non
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in source
     assert "msg.layout != kInterleavedLayout" in source
+    assert "fa_denoise received a null AudioFrame pointer" in source
+    assert "fa_denoise publisher is not initialized" in source
     assert "out_msg.stream_id = config_.output_topic;" in source
     assert "out_msg.layout = kInterleavedLayout;" in source
     assert "computeRmsPeak" not in source
@@ -96,7 +98,11 @@ def test_cmake_builds_backend_library_and_registers_pytest() -> None:
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
+    assert "<test_depend>python3-yaml</test_depend>" in package_xml
+    assert "<exec_depend>launch</exec_depend>" in package_xml
+    assert "<exec_depend>launch_ros</exec_depend>" in package_xml
 
 
 def test_node_fails_closed_when_dtln_selected_without_onnxruntime() -> None:
@@ -132,7 +138,33 @@ def test_denoise_requires_explicit_format_pairs_and_no_hidden_clamp() -> None:
     assert "msg.stream_id != config_.input_topic" in source
     assert "std::max<int>(1, config_.qos_depth)" not in source
     assert "msg.encoding != kEncodingFloat32 || msg.bit_depth != 32" in source
+    assert "fa_denoise passthrough requires output format to match expected input format" in source
+    assert "sample count is not aligned to dtln.block_shift" in source
+    assert "dtln_onnx output sample count must match input sample count" in source
+    assert "fa_denoise dtln_onnx backend is not initialized" in source
     assert "denoise output sample out of normalized range" in source
     assert "std::clamp" not in source
     assert "hidden range clamp" in spec
     assert "PCM32LE/32" in algorithm
+
+
+def test_dtln_backend_validates_onnx_output_shapes_before_copy() -> None:
+    backend_source = (
+        Path(__file__).parents[2] / "src" / "backends" / "dtln_onnx_engine.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "requireShapeEquals(mask_shape, mag_shape_" in backend_source
+    assert "requireShapeEquals(state_output_shape_1, state_shape_1_" in backend_source
+    assert "requireShapeEquals(time_output_shape, time_shape_" in backend_source
+    assert "requireShapeEquals(state_output_shape_2, state_shape_2_" in backend_source
+    assert "DTLN model_1 mask output" in backend_source
+    assert "DTLN model_2 time output" in backend_source
+
+
+def test_main_shutdown_is_guarded_by_rclcpp_ok() -> None:
+    main_source = (Path(__file__).parents[2] / "src" / "main.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "if (rclcpp::ok()) {\n      rclcpp::shutdown();" in main_source
+    assert "}\n  if (rclcpp::ok()) {\n    rclcpp::shutdown();" in main_source
