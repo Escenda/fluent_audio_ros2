@@ -608,6 +608,22 @@ def test_silero_backend_is_external_process_boundary() -> None:
     assert "VAD backend failed" in node_source
 
 
+def test_vad_backends_stay_ros_free() -> None:
+    backend_files = tuple((Path(__file__).parents[2] / "fa_vad_py" / "backends").glob("*.py"))
+    assert backend_files
+    forbidden_ros_tokens = (
+        "rclpy",
+        "fa_interfaces",
+        "AudioFrame",
+        "VadState",
+    )
+
+    for backend_file in backend_files:
+        source = backend_file.read_text(encoding="utf-8")
+        for token in forbidden_ros_tokens:
+            assert token not in source
+
+
 def test_silero_backend_runs_external_worker_contract(tmp_path: Path) -> None:
     model_dir = tmp_path / "model"
     model_dir.mkdir()

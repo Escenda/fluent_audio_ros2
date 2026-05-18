@@ -353,6 +353,24 @@ def test_asr_python_sources_keep_dependency_boundary_explicit() -> None:
     assert "typing import object" not in combined
 
 
+def test_asr_backends_stay_ros_free() -> None:
+    backend_files = tuple((PACKAGE_ROOT / "fa_asr_py" / "backends").glob("*.py"))
+    assert backend_files
+    forbidden_ros_tokens = (
+        "rclpy",
+        "fa_interfaces",
+        "AudioFrame",
+        "VadState",
+        "TurnContext",
+        "AsrResult",
+    )
+
+    for backend_file in backend_files:
+        source = backend_file.read_text(encoding="utf-8")
+        for token in forbidden_ros_tokens:
+            assert token not in source
+
+
 def test_openai_backends_are_external_worker_slots() -> None:
     openai_realtime = (
         PACKAGE_ROOT / "fa_asr_py" / "backends" / "openai_realtime.py"
