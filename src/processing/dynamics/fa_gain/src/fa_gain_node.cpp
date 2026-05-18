@@ -132,6 +132,8 @@ void FaGainNode::loadParameters()
   this->declare_parameter<std::string>("expected.layout");
   this->declare_parameter<int>("qos.depth");
   this->declare_parameter<bool>("qos.reliable");
+  this->declare_parameter<int>("diagnostics.qos.depth");
+  this->declare_parameter<bool>("diagnostics.qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
 
   config_.input_topic = readRequiredString(*this, "input_topic");
@@ -146,6 +148,8 @@ void FaGainNode::loadParameters()
   config_.expected_layout = readRequiredString(*this, "expected.layout");
   config_.qos_depth = readRequiredInt(*this, "qos.depth");
   config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_qos_depth = readRequiredInt(*this, "diagnostics.qos.depth");
+  config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
   config_.diagnostics_publish_period_ms = readRequiredInt(*this, "diagnostics.publish_period_ms");
 
   if (config_.input_topic.empty()) {
@@ -208,13 +212,16 @@ void FaGainNode::loadParameters()
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0");
   }
+  if (config_.diagnostics_qos_depth <= 0) {
+    throw std::runtime_error("diagnostics.qos.depth must be > 0");
+  }
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Gain config: input_topic=%s output_topic=%s input_stream_id=%s output_stream_id=%s gain=%f expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
+    "Gain config: input_topic=%s output_topic=%s input_stream_id=%s output_stream_id=%s gain=%f expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diagnostics_qos_depth=%d diagnostics_reliable=%s diag=%dms",
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
     config_.input_stream_id.c_str(),
@@ -226,6 +233,8 @@ void FaGainNode::loadParameters()
     config_.expected_bit_depth,
     config_.qos_depth,
     config_.qos_reliable ? "true" : "false",
+    config_.diagnostics_qos_depth,
+    config_.diagnostics_qos_reliable ? "true" : "false",
     config_.diagnostics_publish_period_ms);
 }
 
@@ -246,6 +255,13 @@ void FaGainNode::setupInterfaces()
     qos.best_effort();
   }
 
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
+  }
+
   audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(config_.output_topic, qos);
   audio_sub_ = this->create_subscription<fa_interfaces::msg::AudioFrame>(
     config_.input_topic,
@@ -254,7 +270,7 @@ void FaGainNode::setupInterfaces()
 
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics",
-    rclcpp::SystemDefaultsQoS());
+    diagnostics_qos);
   diag_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.diagnostics_publish_period_ms),
     std::bind(&FaGainNode::publishDiagnostics, this));
@@ -373,13 +389,16 @@ void FaGainNode::publishDiagnostics()
   status.name = "fa_gain";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(5);
+  status.values.reserve(8);
   pushKeyValue(status, "gain_linear", std::to_string(backend_->linearGain()));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
   pushKeyValue(status, "output_topic", config_.output_topic);
   pushKeyValue(status, "output_stream_id", config_.output_stream_id);
+  pushKeyValue(status, "qos.depth", std::to_string(config_.qos_depth));
+  pushKeyValue(status, "diagnostics.qos.depth", std::to_string(config_.diagnostics_qos_depth));
+  pushKeyValue(status, "diagnostics.qos.reliable", config_.diagnostics_qos_reliable ? "true" : "false");
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);

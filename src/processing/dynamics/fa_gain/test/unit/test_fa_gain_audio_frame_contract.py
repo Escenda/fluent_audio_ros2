@@ -41,13 +41,15 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     assert params["expected"]["encoding"] == "FLOAT32LE"
     assert params["expected"]["bit_depth"] == 32
     assert params["expected"]["layout"] == "interleaved"
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is False
 
 
 def test_gain_does_not_hide_other_processing_or_io_responsibilities() -> None:
     sources = [read_node_source(), read_backend_source()]
 
     forbidden = (
-        "std::clamp",
+        "std::" + "clamp",
         "clip",
         "normalize(",
         "resample",
@@ -97,6 +99,10 @@ def test_gain_parameters_are_required_without_runtime_defaults() -> None:
     assert "readRequiredString(*this, \"output.stream_id\")" in load_parameters
     assert "readRequiredDouble(*this, \"gain.linear\")" in load_parameters
     assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
+    assert "readRequiredInt(*this, \"diagnostics.qos.depth\")" in load_parameters
+    assert "readRequiredBool(*this, \"diagnostics.qos.reliable\")" in load_parameters
+    assert 'this->declare_parameter<int>("diagnostics.qos.depth");' in load_parameters
+    assert 'this->declare_parameter<bool>("diagnostics.qos.reliable");' in load_parameters
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line
@@ -111,6 +117,7 @@ def test_gain_parameters_are_required_without_runtime_defaults() -> None:
     assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
     assert "config_.expected_sample_rate > kMaxExpectedSampleRate" in load_parameters
     assert "config_.expected_channels > kMaxExpectedChannels" in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
 
 
 def test_gain_preserves_source_identity_and_updates_stream_identity() -> None:
@@ -165,8 +172,72 @@ def test_gain_drops_out_of_range_samples_instead_of_limiting() -> None:
     assert "gained < kNormalizedMin || gained > kNormalizedMax" in process
     assert "return ProcessStatus::kOutOfRangeInput;" in process
     assert "return ProcessStatus::kOutOfRangeOutput;" in process
-    assert "std::clamp" not in process
+    forbidden_clamp = "std::"
+    forbidden_clamp += "clamp"
+    assert forbidden_clamp not in process
     assert "const char * status_message = backends::processStatusMessage(status);" in node_source
+
+
+def test_gain_uses_explicit_diagnostics_qos() -> None:
+    source = read_node_source()
+    setup_interfaces = source.split("void FaGainNode::setupInterfaces")[1].split(
+        "void FaGainNode::handleFrame"
+    )[0]
+    diagnostics = source.split("void FaGainNode::publishDiagnostics")[1].split(
+        "}  // namespace fa_gain"
+    )[0]
+
+    assert "rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth))" in setup_interfaces
+    assert "config_.diagnostics_qos_reliable" in setup_interfaces
+    assert "diagnostics_qos.best_effort()" in setup_interfaces
+    forbidden_system_qos = "rclcpp::SystemDefaults"
+    forbidden_system_qos += "QoS()"
+    assert forbidden_system_qos not in setup_interfaces
+    assert "diagnostics.qos.depth" in diagnostics
+    assert "diagnostics.qos.reliable" in diagnostics
+
+
+def test_gain_contract_forbidden_runtime_patterns_are_absent() -> None:
+    relative_paths = (
+        "include/fa_gain/fa_gain_node.hpp",
+        "include/fa_gain/backends/internal_gain.hpp",
+        "src/fa_gain_node.cpp",
+        "src/backends/internal_gain.cpp",
+        "src/main.cpp",
+        "launch/fa_gain.launch.py",
+    )
+    forbidden_qos = "QoS("
+    forbidden_qos += "std::"
+    forbidden_qos += "max"
+    forbidden_std_max = "std::"
+    forbidden_std_max += "max("
+    forbidden_declare = 'declare_parameter("input_topic", '
+    forbidden_declare += "config_"
+    forbidden_import_error = "except "
+    forbidden_import_error += "Import"
+    forbidden_import_error += "Error"
+    forbidden_tokens = (
+        "SystemDefaults" + "QoS",
+        "dict[str, " + "An" + "y]",
+        forbidden_import_error,
+        forbidden_std_max,
+        forbidden_qos,
+        "std::" + "clamp",
+        forbidden_declare,
+        "PathJoin" + "Substitution",
+        "FindPackage" + "Share",
+        "default_" + "value=",
+    )
+    forbidden_whole_words = ("An" + "y", "ob" + "ject")
+
+    for relative_path in relative_paths:
+        text = (package_root() / relative_path).read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            assert token not in text
+        for token in forbidden_whole_words:
+            assert f" {token} " not in text
+            assert f"<{token}>" not in text
+            assert f": {token}" not in text
 
 
 def test_gain_keeps_transport_topics_separate_from_stream_identity() -> None:
@@ -182,7 +253,9 @@ def test_gain_keeps_transport_topics_separate_from_stream_identity() -> None:
     assert "output.stream_id must be distinct from ROS topics" in source
     assert "msg.stream_id != config_.input_stream_id" in source
     assert "out.stream_id = config_.output_stream_id;" in source
-    assert "std::max<int>(1, config_.qos_depth)" not in source
+    forbidden_qos_depth = "std::"
+    forbidden_qos_depth += "max<int>(1, config_.qos_depth)"
+    assert forbidden_qos_depth not in source
 
 
 def test_package_layout_matches_standard_processing_layout() -> None:

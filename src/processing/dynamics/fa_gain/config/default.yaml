@@ -22,4 +22,7 @@ fa_gain:
       reliable: false
 
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000

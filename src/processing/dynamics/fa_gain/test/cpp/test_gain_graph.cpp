@@ -90,6 +90,8 @@ TEST_F(RclcppFixture, PublishesGainAdjustedFloat32Frame)
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 

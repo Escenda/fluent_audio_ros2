@@ -10,7 +10,7 @@ open audio devices. Those responsibilities belong to separate processing or I/O
 nodes.
 
 ```bash
-ros2 launch fa_gain fa_gain.launch.py
+ros2 launch fa_gain fa_gain.launch.py node_name:=fa_gain config_file:=/path/to/fa_gain.yaml
 ```
 
 See `docs/仕様書.md` for the runtime contract and `docs/テスト設計.md` for the

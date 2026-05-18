@@ -20,6 +20,7 @@ def _run_fa_gain_launch(config_path: Path) -> subprocess.CompletedProcess[str]:
             "launch",
             "fa_gain",
             "fa_gain.launch.py",
+            "node_name:=fa_gain",
             f"config_file:={config_path}",
         ],
         check=False,
@@ -37,7 +38,9 @@ def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
 
     assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
     assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert 'FindPackageShare("fa_gain"), "config", "default.yaml"' in launch_text
+    assert ("default_" + "value") not in launch_text
+    assert ("FindPackage" + "Share") not in launch_text
+    assert ("PathJoin" + "Substitution") not in launch_text
     assert 'package="fa_gain"' in launch_text
     assert 'executable="fa_gain_node"' in launch_text
     assert "parameters=[config_file]" in launch_text
@@ -66,6 +69,8 @@ def test_default_launch_config_keeps_gain_as_dynamics_node() -> None:
     assert params["expected"]["encoding"] == "FLOAT32LE"
     assert params["expected"]["bit_depth"] == 32
     assert params["expected"]["layout"] == "interleaved"
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is False
     assert "resample" not in params
     assert "normalize" not in params
     assert "limiter" not in params
