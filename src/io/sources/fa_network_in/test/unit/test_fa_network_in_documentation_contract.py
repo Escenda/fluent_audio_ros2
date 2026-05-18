@@ -36,3 +36,19 @@ def test_fa_network_in_docs_keep_streaming_stability_out_of_source_adapter() -> 
     assert "jitter buffer / PLC / clock drift correction" in specification
     assert "codec decode" in specification
     assert "transport instability はこの node で補正しない" in algorithm
+
+
+def test_fa_network_in_runtime_parameters_are_required_not_defaulted() -> None:
+    source = (PACKAGE_ROOT / "src" / "fa_network_in_node.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'declare_parameter("output_topic", config_.output_topic)' not in source
+    assert 'declare_parameter("audio.source_id", config_.source_id)' not in source
+    assert 'declare_parameter("audio.stream_id", config_.stream_id)' not in source
+    assert 'declare_parameter<int>("qos.depth", config_.qos_depth)' not in source
+    assert 'declare_parameter<bool>("qos.reliable", config_.qos_reliable)' not in source
+    assert 'readRequiredString(*this, "output_topic")' in source
+    assert 'readRequiredString(*this, "audio.source_id")' in source
+    assert 'readRequiredString(*this, "audio.stream_id")' in source
+    assert 'readRequiredBool(*this, "qos.reliable")' in source

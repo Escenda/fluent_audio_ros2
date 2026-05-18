@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -43,6 +44,53 @@ void pushKeyValue(
   kv.value = value;
   status.values.push_back(kv);
 }
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
+}
 }  // namespace
 
 FaNetworkInNode::FaNetworkInNode(const rclcpp::NodeOptions & options)
@@ -72,9 +120,9 @@ void FaNetworkInNode::loadParameters()
   this->declare_parameter<std::string>("backend.name");
   this->declare_parameter<std::string>("endpoint.uri");
   this->declare_parameter<std::string>("transport.identity");
-  this->declare_parameter("output_topic", config_.output_topic);
-  this->declare_parameter("audio.source_id", config_.source_id);
-  this->declare_parameter("audio.stream_id", config_.stream_id);
+  this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("audio.source_id");
+  this->declare_parameter<std::string>("audio.stream_id");
   this->declare_parameter<int>("expected.sample_rate");
   this->declare_parameter<int>("expected.channels");
   this->declare_parameter<std::string>("expected.encoding");
@@ -82,27 +130,27 @@ void FaNetworkInNode::loadParameters()
   this->declare_parameter<std::string>("expected.layout");
   this->declare_parameter<int>("network.max_packet_bytes");
   this->declare_parameter<int>("polling.period_ms");
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.backend_name = this->get_parameter("backend.name").as_string();
-  config_.endpoint_uri = this->get_parameter("endpoint.uri").as_string();
-  config_.transport_identity = this->get_parameter("transport.identity").as_string();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.source_id = this->get_parameter("audio.source_id").as_string();
-  config_.stream_id = this->get_parameter("audio.stream_id").as_string();
-  config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
-  config_.expected_channels = this->get_parameter("expected.channels").as_int();
-  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
-  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
-  config_.expected_layout = this->get_parameter("expected.layout").as_string();
-  config_.max_packet_bytes = this->get_parameter("network.max_packet_bytes").as_int();
-  config_.polling_period_ms = this->get_parameter("polling.period_ms").as_int();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.backend_name = readRequiredString(*this, "backend.name");
+  config_.endpoint_uri = readRequiredString(*this, "endpoint.uri");
+  config_.transport_identity = readRequiredString(*this, "transport.identity");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.source_id = readRequiredString(*this, "audio.source_id");
+  config_.stream_id = readRequiredString(*this, "audio.stream_id");
+  config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
+  config_.expected_channels = readRequiredInt(*this, "expected.channels");
+  config_.expected_encoding = readRequiredString(*this, "expected.encoding");
+  config_.expected_bit_depth = readRequiredInt(*this, "expected.bit_depth");
+  config_.expected_layout = readRequiredString(*this, "expected.layout");
+  config_.max_packet_bytes = readRequiredInt(*this, "network.max_packet_bytes");
+  config_.polling_period_ms = readRequiredInt(*this, "polling.period_ms");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(
+    *this, "diagnostics.publish_period_ms");
 }
 
 void FaNetworkInNode::validateConfig() const

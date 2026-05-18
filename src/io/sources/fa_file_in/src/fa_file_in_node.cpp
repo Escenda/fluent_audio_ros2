@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -44,6 +45,53 @@ void pushKeyValue(
   kv.value = value;
   status.values.push_back(kv);
 }
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
+}
 }  // namespace
 
 FaFileInNode::FaFileInNode(const rclcpp::NodeOptions & options)
@@ -72,38 +120,38 @@ void FaFileInNode::loadParameters()
 {
   this->declare_parameter<std::string>("backend.name");
   this->declare_parameter<std::string>("file.path");
-  this->declare_parameter("output_topic", config_.output_topic);
-  this->declare_parameter("audio.source_id", config_.source_id);
-  this->declare_parameter("audio.stream_id", config_.stream_id);
+  this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("audio.source_id");
+  this->declare_parameter<std::string>("audio.stream_id");
   this->declare_parameter<int>("expected.sample_rate");
   this->declare_parameter<int>("expected.channels");
   this->declare_parameter<std::string>("expected.encoding");
   this->declare_parameter<int>("expected.bit_depth");
   this->declare_parameter<std::string>("expected.layout");
   this->declare_parameter<int>("audio.frames_per_chunk");
-  this->declare_parameter<bool>("playback.loop", config_.playback_loop);
+  this->declare_parameter<bool>("playback.loop");
   this->declare_parameter<int>("playback.publish_period_ms");
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.backend_name = this->get_parameter("backend.name").as_string();
-  config_.file_path = this->get_parameter("file.path").as_string();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.source_id = this->get_parameter("audio.source_id").as_string();
-  config_.stream_id = this->get_parameter("audio.stream_id").as_string();
-  config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
-  config_.expected_channels = this->get_parameter("expected.channels").as_int();
-  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
-  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
-  config_.expected_layout = this->get_parameter("expected.layout").as_string();
-  config_.frames_per_chunk = this->get_parameter("audio.frames_per_chunk").as_int();
-  config_.playback_loop = this->get_parameter("playback.loop").as_bool();
-  config_.playback_publish_period_ms = this->get_parameter("playback.publish_period_ms").as_int();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.backend_name = readRequiredString(*this, "backend.name");
+  config_.file_path = readRequiredString(*this, "file.path");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.source_id = readRequiredString(*this, "audio.source_id");
+  config_.stream_id = readRequiredString(*this, "audio.stream_id");
+  config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
+  config_.expected_channels = readRequiredInt(*this, "expected.channels");
+  config_.expected_encoding = readRequiredString(*this, "expected.encoding");
+  config_.expected_bit_depth = readRequiredInt(*this, "expected.bit_depth");
+  config_.expected_layout = readRequiredString(*this, "expected.layout");
+  config_.frames_per_chunk = readRequiredInt(*this, "audio.frames_per_chunk");
+  config_.playback_loop = readRequiredBool(*this, "playback.loop");
+  config_.playback_publish_period_ms = readRequiredInt(*this, "playback.publish_period_ms");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(
+    *this, "diagnostics.publish_period_ms");
 }
 
 void FaFileInNode::validateConfig() const
