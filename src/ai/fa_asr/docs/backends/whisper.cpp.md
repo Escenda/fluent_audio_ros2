@@ -1,8 +1,8 @@
-# whisper_cpp Backend
+# whisper.cpp Backend
 
 ## Backend Name
 
-`whisper_cpp`
+`whisper.cpp`
 
 ## Runtime
 

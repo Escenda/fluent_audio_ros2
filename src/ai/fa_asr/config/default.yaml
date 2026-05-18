@@ -19,7 +19,7 @@ fa_asr:
 
     # Supported backend.name values:
     # - local_command: generic local ASR process, requires backend.model_path
-    # - whisper_cpp: whisper.cpp process, requires backend.model_path
+    # - whisper.cpp: whisper.cpp process, requires backend.model_path
     # - parakeet_worker: external worker/process/container, requires backend.model
     # - openai_realtime: external OpenAI Realtime worker/process, requires backend.model
     #   and backend.openai_realtime.api_key_env

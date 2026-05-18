@@ -1016,7 +1016,7 @@ def test_backends_use_dedicated_classes(
     whisper_cpp = build_asr_backend(
         _settings(
             tmp_path,
-            backend_name="whisper_cpp",
+            backend_name="whisper.cpp",
             command=command,
             model="",
             model_path=str(model_path),
@@ -1055,6 +1055,23 @@ def test_backends_use_dedicated_classes(
     assert isinstance(parakeet_worker, ParakeetWorkerAsrBackend)
     assert isinstance(openai_realtime, OpenAiRealtimeAsrBackend)
     assert isinstance(openai_transcriptions, OpenAiTranscriptionsAsrBackend)
+
+
+def test_whisper_cpp_legacy_backend_name_is_not_supported(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="unsupported ASR backend.name: whisper_cpp"):
+        build_asr_backend(
+            _settings(
+                tmp_path,
+                backend_name="whisper_cpp",
+                command=command,
+                model="",
+                model_path=str(model_path),
+            )
+        )
 
 
 def test_whisper_cpp_uses_model_path_contract(tmp_path: Path) -> None:

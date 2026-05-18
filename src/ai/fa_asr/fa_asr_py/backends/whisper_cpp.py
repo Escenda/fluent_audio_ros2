@@ -17,7 +17,7 @@ class WhisperCppAsrConfig:
 
 
 class WhisperCppAsrBackend:
-    name = "whisper_cpp"
+    name = "whisper.cpp"
 
     def __init__(self, config: WhisperCppAsrConfig) -> None:
         self._runner = _CommandProcessRunner(config.process)
