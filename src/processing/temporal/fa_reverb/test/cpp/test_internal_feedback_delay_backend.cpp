@@ -127,3 +127,12 @@ TEST(InternalFeedbackDelayBackendContract, RejectsInvalidConfiguration)
       (fa_reverb::backends::InternalFeedbackDelayConfig{0, 1, 0.0, 0.0, 0.5, 0.5})),
     std::runtime_error);
 }
+
+TEST(InternalFeedbackDelayBackendContract, FailsClosedForUnhandledStatusMessage)
+{
+  EXPECT_THROW(
+    static_cast<void>(
+      fa_reverb::backends::processStatusMessage(
+        static_cast<fa_reverb::backends::ProcessStatus>(999))),
+    std::logic_error);
+}

@@ -29,10 +29,14 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     )
     params = config["fa_echo"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/buffered/mic"
-    assert params["output_topic"] == "audio/echo/mic"
+    assert params["input_topic"] == "fa_echo/input"
+    assert params["output_topic"] == "fa_echo/output"
     assert params["input_stream_id"] == "audio/buffered/mic"
     assert params["output"]["stream_id"] == "audio/echo/mic"
+    assert params["input_topic"] != params["input_stream_id"]
+    assert params["output_topic"] != params["output"]["stream_id"]
+    assert params["output_topic"] != params["input_stream_id"]
+    assert params["input_topic"] != params["output"]["stream_id"]
     assert params["echo"]["delay_ms"] == 250.0
     assert params["echo"]["feedback_gain"] == 0.35
     assert params["echo"]["wet_gain"] == 0.4
@@ -68,28 +72,44 @@ def test_echo_does_not_hide_other_processing_or_io_responsibilities() -> None:
             assert token not in source
 
 
-def test_echo_parameters_are_required_and_range_checked() -> None:
+def test_echo_parameters_are_required_without_runtime_defaults_and_range_checked() -> None:
     source = read_node_source()
     load_parameters = source.split("void FaEchoNode::loadParameters")[1].split(
         "void FaEchoNode::configureBackend"
     )[0]
 
-    assert 'this->declare_parameter("input_stream_id", config_.input_stream_id);' in load_parameters
-    assert 'this->declare_parameter("output.stream_id", config_.output_stream_id);' in load_parameters
-    assert 'this->declare_parameter<double>("echo.delay_ms", config_.delay_ms);' in load_parameters
-    assert 'this->declare_parameter<double>("echo.feedback_gain", config_.feedback_gain);' in load_parameters
-    assert 'this->declare_parameter<double>("echo.wet_gain", config_.wet_gain);' in load_parameters
-    assert 'this->declare_parameter<double>("echo.dry_gain", config_.dry_gain);' in load_parameters
+    assert 'this->declare_parameter<std::string>("input_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("input_stream_id");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output.stream_id");' in load_parameters
+    assert 'this->declare_parameter<double>("echo.delay_ms");' in load_parameters
+    assert 'this->declare_parameter<double>("echo.feedback_gain");' in load_parameters
+    assert 'this->declare_parameter<double>("echo.wet_gain");' in load_parameters
+    assert 'this->declare_parameter<double>("echo.dry_gain");' in load_parameters
+    assert "readRequiredString(*this, \"input_topic\")" in load_parameters
+    assert "readRequiredString(*this, \"input_stream_id\")" in load_parameters
+    assert "readRequiredString(*this, \"output.stream_id\")" in load_parameters
+    assert "readRequiredDouble(*this, \"echo.delay_ms\")" in load_parameters
+    assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert "config_.input_topic == config_.output_topic" in load_parameters
     assert "config_.input_stream_id.empty()" in load_parameters
     assert "config_.output_stream_id.empty()" in load_parameters
+    assert "config_.input_stream_id == config_.input_topic" in load_parameters
+    assert "config_.input_stream_id == config_.output_topic" in load_parameters
+    assert "config_.output_stream_id == config_.input_topic" in load_parameters
+    assert "config_.output_stream_id == config_.output_topic" in load_parameters
     assert "config_.input_stream_id == config_.output_stream_id" in load_parameters
     assert "!isFinite(config_.delay_ms) || config_.delay_ms <= 0.0" in load_parameters
     assert "!isFinite(config_.feedback_gain) || std::abs(config_.feedback_gain) >= 1.0" in load_parameters
     assert "!isFinite(config_.wet_gain)" in load_parameters
     assert "!isFinite(config_.dry_gain)" in load_parameters
     assert "config_.expected_sample_rate <= 0" in load_parameters
+    assert "config_.expected_sample_rate > kMaxExpectedSampleRate" in load_parameters
     assert "config_.expected_channels <= 0" in load_parameters
+    assert "config_.expected_channels > kMaxExpectedChannels" in load_parameters
     assert "config_.expected_encoding != kEncodingFloat32" in load_parameters
     assert "config_.expected_bit_depth != 32" in load_parameters
     assert "config_.expected_layout != kInterleavedLayout" in load_parameters

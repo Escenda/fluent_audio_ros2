@@ -1,7 +1,7 @@
 fa_echo:
   ros__parameters:
-    input_topic: "audio/buffered/mic"
-    output_topic: "audio/echo/mic"
+    input_topic: "fa_echo/input"
+    output_topic: "fa_echo/output"
     input_stream_id: "audio/buffered/mic"
 
     output:

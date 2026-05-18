@@ -7,8 +7,8 @@
 
 | 種別 | 既定 config 例 | Message |
 | --- | --- | --- |
-| input | `audio/echo/mic` | `fa_interfaces/msg/AudioFrame` |
-| output | `audio/reverb/mic` | `fa_interfaces/msg/AudioFrame` |
+| input | `fa_reverb/input` | `fa_interfaces/msg/AudioFrame` |
+| output | `fa_reverb/output` | `fa_interfaces/msg/AudioFrame` |
 | diagnostics | `diagnostics` | `diagnostic_msgs/msg/DiagnosticArray` |
 
 ## Parameters

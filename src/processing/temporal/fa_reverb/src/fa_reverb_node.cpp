@@ -159,11 +159,15 @@ void FaReverbNode::loadParameters()
   if (config_.output_stream_id.empty()) {
     throw std::runtime_error("output.stream_id is required");
   }
-  if (config_.input_stream_id == config_.input_topic) {
-    throw std::runtime_error("input_stream_id must be distinct from input_topic");
+  if (config_.input_stream_id == config_.input_topic ||
+      config_.input_stream_id == config_.output_topic)
+  {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
   }
-  if (config_.output_stream_id == config_.output_topic) {
-    throw std::runtime_error("output.stream_id must be distinct from output_topic");
+  if (config_.output_stream_id == config_.input_topic ||
+      config_.output_stream_id == config_.output_topic)
+  {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
   }
   if (config_.input_stream_id == config_.output_stream_id) {
     throw std::runtime_error("input_stream_id and output.stream_id must be distinct");

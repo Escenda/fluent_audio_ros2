@@ -35,6 +35,8 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     assert params["output"]["stream_id"] == "audio/reverb/mic"
     assert params["input_topic"] != params["input_stream_id"]
     assert params["output_topic"] != params["output"]["stream_id"]
+    assert params["output_topic"] != params["input_stream_id"]
+    assert params["input_topic"] != params["output"]["stream_id"]
     assert params["reverb"]["room_size"] == 0.72
     assert params["reverb"]["damping"] == 0.35
     assert params["reverb"]["wet_gain"] == 0.32
@@ -112,6 +114,8 @@ def test_reverb_parameters_are_range_checked() -> None:
     assert "config_.input_stream_id.empty()" in load_parameters
     assert "config_.output_stream_id.empty()" in load_parameters
     assert "config_.input_stream_id == config_.input_topic" in load_parameters
+    assert "config_.input_stream_id == config_.output_topic" in load_parameters
+    assert "config_.output_stream_id == config_.input_topic" in load_parameters
     assert "config_.output_stream_id == config_.output_topic" in load_parameters
     assert "config_.input_stream_id == config_.output_stream_id" in load_parameters
     assert "!isFinite(config_.room_size) || config_.room_size < 0.0 || config_.room_size > 1.0" in load_parameters

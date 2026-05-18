@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -147,4 +148,13 @@ TEST(InternalFeedbackEchoBackendContract, RejectsUnrepresentableOutput)
   EXPECT_EQ(
     backend.process("mic", float32LeBytes({1.0F}), output).status,
     fa_echo::backends::ProcessStatus::kNonFiniteOutput);
+}
+
+TEST(InternalFeedbackEchoBackendContract, FailsClosedForUnhandledStatusMessage)
+{
+  EXPECT_THROW(
+    static_cast<void>(
+      fa_echo::backends::processStatusMessage(
+        static_cast<fa_echo::backends::ProcessStatus>(999))),
+    std::logic_error);
 }

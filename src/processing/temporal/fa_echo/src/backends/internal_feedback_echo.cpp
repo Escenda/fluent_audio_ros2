@@ -224,7 +224,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "echo output or state is outside normalized FLOAT32LE range";
   }
-  return "unknown echo backend status";
+  throw std::logic_error("unhandled echo backend process status");
 }
 
 }  // namespace fa_echo::backends
