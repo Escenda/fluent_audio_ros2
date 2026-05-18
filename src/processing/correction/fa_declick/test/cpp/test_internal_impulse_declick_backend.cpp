@@ -117,6 +117,14 @@ TEST(InternalImpulseDeclickBackendContract, ReportsInputRejectionStatuses)
     fa_declick::backends::ProcessStatus::kOutOfRangeInput);
 }
 
+TEST(InternalImpulseDeclickBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    (void)fa_declick::backends::processStatusMessage(
+      static_cast<fa_declick::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(InternalImpulseDeclickBackendContract, RejectedFrameDoesNotOverwriteOutput)
 {
   fa_declick::backends::InternalImpulseDeclickBackend backend(

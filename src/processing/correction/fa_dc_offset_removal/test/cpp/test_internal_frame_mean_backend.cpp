@@ -88,6 +88,14 @@ TEST(InternalFrameMeanBackendContract, ReportsInputRejectionStatuses)
     fa_dc_offset_removal::backends::ProcessStatus::kNonFiniteInput);
 }
 
+TEST(InternalFrameMeanBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    (void)fa_dc_offset_removal::backends::processStatusMessage(
+      static_cast<fa_dc_offset_removal::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(InternalFrameMeanBackendContract, RejectedFrameDoesNotOverwriteOutput)
 {
   fa_dc_offset_removal::backends::InternalFrameMeanBackend backend(

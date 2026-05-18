@@ -163,4 +163,8 @@ TEST(InternalNotchCascadeBackendContract, BackendDoesNotExposeRosTypes)
     fa_hum::backends::processStatusMessage(
       fa_hum::backends::ProcessStatus::kStaleEpoch),
     "input epoch is older than active stream epoch");
+  EXPECT_THROW(
+    (void)fa_hum::backends::processStatusMessage(
+      static_cast<fa_hum::backends::ProcessStatus>(999)),
+    std::logic_error);
 }

@@ -100,3 +100,11 @@ TEST(InternalMonitorMixBackendTest, RejectsOutputRangeOverflowWithoutClamping)
   EXPECT_EQ(result.status, fa_monitor_mix::backends::ProcessStatus::kOutOfRangeOutput);
   EXPECT_TRUE(result.output.empty());
 }
+
+TEST(InternalMonitorMixBackendTest, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    (void)fa_monitor_mix::backends::processStatusMessage(
+      static_cast<fa_monitor_mix::backends::ProcessStatus>(999)),
+    std::logic_error);
+}

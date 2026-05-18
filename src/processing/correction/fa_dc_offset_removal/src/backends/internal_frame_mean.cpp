@@ -92,7 +92,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kNonFiniteOutput:
       return "output sample is not finite FLOAT32LE";
   }
-  return "unknown DC offset backend status";
+  throw std::logic_error("unhandled DC offset backend process status");
 }
 
 }  // namespace fa_dc_offset_removal::backends

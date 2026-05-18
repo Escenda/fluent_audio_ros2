@@ -22,6 +22,7 @@ def _run_fa_dc_offset_removal_launch(
             "launch",
             "fa_dc_offset_removal",
             "fa_dc_offset_removal.launch.py",
+            "node_name:=fa_dc_offset_removal",
             f"config_file:={config_path}",
         ],
         check=False,

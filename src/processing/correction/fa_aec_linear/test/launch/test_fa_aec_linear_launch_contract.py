@@ -20,6 +20,7 @@ def _run_fa_aec_linear_launch(config_path: Path) -> subprocess.CompletedProcess[
         "launch",
         "fa_aec_linear",
         "fa_aec_linear.launch.py",
+        "node_name:=fa_aec_linear",
         f"config_file:={config_path}",
     ]
     process = subprocess.Popen(

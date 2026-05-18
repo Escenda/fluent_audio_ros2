@@ -196,7 +196,7 @@ const char * processStatusMessage(const ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "output sample is outside normalized FLOAT32LE range [-1, 1]";
   }
-  return "unknown declick backend status";
+  throw std::logic_error("unhandled declick backend process status");
 }
 
 }  // namespace fa_declick::backends

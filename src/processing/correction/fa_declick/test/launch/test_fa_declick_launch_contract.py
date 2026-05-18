@@ -20,6 +20,7 @@ def _run_fa_declick_launch(config_path: Path) -> subprocess.CompletedProcess[str
             "launch",
             "fa_declick",
             "fa_declick.launch.py",
+            "node_name:=fa_declick",
             f"config_file:={config_path}",
         ],
         check=False,

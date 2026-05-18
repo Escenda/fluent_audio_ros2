@@ -76,6 +76,14 @@ TEST(DenoiseBackendContractTest, EncodeFloatToPcm16RejectsOverflowWithoutOverwri
   EXPECT_EQ(output, std::vector<uint8_t>{0x42U});
 }
 
+TEST(DenoiseBackendContractTest, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    (void)fa_denoise::backends::processStatusMessage(
+      static_cast<fa_denoise::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(DenoiseBackendContractTest, PassthroughRequiresMatchingFormat)
 {
   auto output_format = pcm16Mono();

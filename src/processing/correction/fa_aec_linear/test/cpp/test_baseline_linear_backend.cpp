@@ -140,6 +140,14 @@ TEST(BaselineLinearBackendContract, ReportsSampleCountMismatch)
     fa_aec_linear::backends::ProcessStatus::kSampleCountMismatch);
 }
 
+TEST(BaselineLinearBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    (void)fa_aec_linear::backends::processStatusMessage(
+      static_cast<fa_aec_linear::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(BaselineLinearBackendContract, RejectsOutOfRangeOutputWithoutOverwritingOutput)
 {
   fa_aec_linear::backends::BaselineLinearBackend backend(

@@ -243,7 +243,7 @@ const char * processStatusMessage(const ProcessStatus status)
     case ProcessStatus::kPcm16OutputOutOfRange:
       return "AEC linear output sample does not fit PCM16 after scaling";
   }
-  return "unknown AEC linear backend status";
+  throw std::logic_error("unhandled AEC linear backend process status");
 }
 
 }  // namespace fa_aec_linear::backends

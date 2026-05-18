@@ -42,9 +42,18 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("expected.bit_depth", static_cast<int>(kBitDepth)),
     rclcpp::Parameter("output.encoding", "PCM16LE"),
     rclcpp::Parameter("output.bit_depth", static_cast<int>(kBitDepth)),
+    rclcpp::Parameter("dtln.block_len", 512),
+    rclcpp::Parameter("dtln.block_shift", 128),
+    rclcpp::Parameter("dtln.model_1_path", ""),
+    rclcpp::Parameter("dtln.model_2_path", ""),
+    rclcpp::Parameter("dtln.intra_op_num_threads", 1),
+    rclcpp::Parameter("dtln.inter_op_num_threads", 1),
+    rclcpp::Parameter("dtln.enable_ort_optimizations", true),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   };
 }
 

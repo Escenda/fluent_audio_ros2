@@ -236,7 +236,7 @@ const char * processStatusMessage(const ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "output sample is outside normalized FLOAT32LE range [-1, 1]";
   }
-  return "unknown hum backend status";
+  throw std::logic_error("unhandled hum backend process status");
 }
 
 }  // namespace fa_hum::backends

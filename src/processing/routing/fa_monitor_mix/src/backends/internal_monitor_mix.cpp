@@ -170,7 +170,7 @@ const char * processStatusMessage(const ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "mixed output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown monitor mix backend status";
+  throw std::logic_error("unhandled monitor mix backend process status");
 }
 
 }  // namespace fa_monitor_mix::backends

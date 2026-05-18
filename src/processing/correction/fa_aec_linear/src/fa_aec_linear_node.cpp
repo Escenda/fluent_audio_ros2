@@ -129,7 +129,7 @@ const char * frameValidationStatusMessage(const FrameValidationStatus status)
     case FrameValidationStatus::kMisalignedData:
       return "data byte length is not aligned to frame size";
   }
-  return "unknown frame validation status";
+  throw std::logic_error("unhandled AEC linear frame validation status");
 }
 }  // namespace
 

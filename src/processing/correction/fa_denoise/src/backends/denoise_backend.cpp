@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 namespace fa_denoise::backends
@@ -186,7 +187,7 @@ const char * processStatusMessage(const ProcessStatus status)
     case ProcessStatus::kPassthroughFormatMismatch:
       return "passthrough backend requires output format to match expected input format";
   }
-  return "unknown denoise backend status";
+  throw std::logic_error("unhandled denoise backend process status");
 }
 
 }  // namespace fa_denoise::backends

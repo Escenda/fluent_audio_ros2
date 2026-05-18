@@ -42,6 +42,8 @@ def test_aec_linear_outputs_audio_frame_without_analysis_metadata() -> None:
     assert "FrameValidationStatus::kMissingSourceId" in source
     assert "FrameValidationStatus::kStreamIdMismatch" in source
     assert "FrameValidationStatus::kInvalidTimestamp" in source
+    assert 'throw std::logic_error("unhandled AEC linear frame validation status")' in source
+    assert "unknown frame validation status" not in source
     assert "fa_aec_linear received a null reference AudioFrame pointer" in source
     assert "fa_aec_linear received a null mic AudioFrame pointer" in source
     assert "fa_aec_linear publisher is not initialized" in source
