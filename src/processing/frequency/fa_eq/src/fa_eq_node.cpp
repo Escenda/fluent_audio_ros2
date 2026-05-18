@@ -4,15 +4,14 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_eq/backends/internal_three_band_eq.hpp"
 
 namespace fa_eq
 {
@@ -21,23 +20,10 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr double kPi = 3.14159265358979323846;
-constexpr float kNormalizedMin = -1.0F;
-constexpr float kNormalizedMax = 1.0F;
 
 bool isFinite(double value)
 {
   return std::isfinite(value);
-}
-
-bool isNormalizedSample(float value)
-{
-  return std::isfinite(value) && value >= kNormalizedMin && value <= kNormalizedMax;
-}
-
-double dbToLinear(double gain_db)
-{
-  return std::pow(10.0, gain_db / 20.0);
 }
 
 void pushKeyValue(
@@ -57,9 +43,11 @@ FaEqNode::FaEqNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA EQ node");
   loadParameters();
-  configureFilterState();
+  configureBackend();
   setupInterfaces();
 }
+
+FaEqNode::~FaEqNode() = default;
 
 void FaEqNode::loadParameters()
 {
@@ -143,40 +131,13 @@ void FaEqNode::loadParameters()
     throw std::runtime_error("gains.*_db must be finite");
   }
 
-  const double dt = 1.0 / static_cast<double>(config_.expected_sample_rate);
-  const double low_rc = 1.0 / (2.0 * kPi * config_.low_cutoff_hz);
-  const double high_rc = 1.0 / (2.0 * kPi * config_.high_cutoff_hz);
-  low_alpha_ = dt / (low_rc + dt);
-  high_alpha_ = high_rc / (high_rc + dt);
-  if (!isFinite(low_alpha_) || low_alpha_ <= 0.0 || low_alpha_ >= 1.0) {
-    throw std::runtime_error("low split coefficient alpha must be finite and in (0.0, 1.0)");
-  }
-  if (!isFinite(high_alpha_) || high_alpha_ <= 0.0 || high_alpha_ >= 1.0) {
-    throw std::runtime_error("high split coefficient alpha must be finite and in (0.0, 1.0)");
-  }
-
-  gain_low_linear_ = dbToLinear(config_.gain_low_db);
-  gain_mid_linear_ = dbToLinear(config_.gain_mid_db);
-  gain_high_linear_ = dbToLinear(config_.gain_high_db);
-  if (!isFinite(gain_low_linear_) ||
-      !isFinite(gain_mid_linear_) ||
-      !isFinite(gain_high_linear_) ||
-      gain_low_linear_ <= 0.0 ||
-      gain_mid_linear_ <= 0.0 ||
-      gain_high_linear_ <= 0.0)
-  {
-    throw std::runtime_error("linear gains derived from gains.*_db must be finite and > 0.0");
-  }
-
   RCLCPP_INFO(
     this->get_logger(),
-    "EQ config: input=%s output=%s low_cutoff=%fHz high_cutoff=%fHz low_alpha=%f high_alpha=%f gains_db=%f/%f/%f expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
+    "EQ config: input=%s output=%s low_cutoff=%fHz high_cutoff=%fHz gains_db=%f/%f/%f expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
     config_.low_cutoff_hz,
     config_.high_cutoff_hz,
-    low_alpha_,
-    high_alpha_,
     config_.gain_low_db,
     config_.gain_mid_db,
     config_.gain_high_db,
@@ -189,9 +150,17 @@ void FaEqNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
-void FaEqNode::configureFilterState()
+void FaEqNode::configureBackend()
 {
-  channel_states_.assign(static_cast<size_t>(config_.expected_channels), ChannelFilterState{});
+  backend_ = std::make_unique<backends::InternalThreeBandEqBackend>(
+    backends::InternalThreeBandEqConfig{
+      config_.expected_sample_rate,
+      config_.expected_channels,
+      config_.low_cutoff_hz,
+      config_.high_cutoff_hz,
+      config_.gain_low_db,
+      config_.gain_mid_db,
+      config_.gain_high_db});
 }
 
 void FaEqNode::setupInterfaces()
@@ -298,93 +267,20 @@ bool FaEqNode::applyEq(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
-  std::vector<ChannelFilterState> next_states = channel_states_;
-  bool source_changed = false;
-  if (active_source_id_.empty() || in.source_id != active_source_id_) {
-    source_changed = !active_source_id_.empty();
-    next_states.assign(static_cast<size_t>(config_.expected_channels), ChannelFilterState{});
-  }
+  const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;
 
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const size_t channel_count = static_cast<size_t>(config_.expected_channels);
-  const size_t sample_count = in.data.size() / sizeof(float);
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!isNormalizedSample(sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is not finite normalized FLOAT32LE");
-      return false;
-    }
-
-    ChannelFilterState & state = next_states.at(i % channel_count);
-    float low_sample = sample;
-    float high_sample = 0.0F;
-    if (state.initialized) {
-      const double low_split =
-        static_cast<double>(state.previous_low_output) +
-        low_alpha_ * (static_cast<double>(sample) - static_cast<double>(state.previous_low_output));
-      if (!isFinite(low_split)) {
-        RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 3000,
-          "Dropping frame because low split output is not finite");
-        return false;
-      }
-      low_sample = static_cast<float>(low_split);
-
-      const double high_split =
-        high_alpha_ * (static_cast<double>(state.previous_hp_output) +
-        static_cast<double>(sample) - static_cast<double>(state.previous_hp_input));
-      if (!isFinite(high_split)) {
-        RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 3000,
-          "Dropping frame because high split output is not finite");
-        return false;
-      }
-      high_sample = static_cast<float>(high_split);
-    }
-
-    const double mid_sample =
-      static_cast<double>(sample) - static_cast<double>(low_sample) - static_cast<double>(high_sample);
-    if (!isFinite(mid_sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because mid split output is not finite");
-      return false;
-    }
-
-    const double mixed =
-      (static_cast<double>(low_sample) * gain_low_linear_) +
-      (mid_sample * gain_mid_linear_) +
-      (static_cast<double>(high_sample) * gain_high_linear_);
-    if (!isFinite(mixed)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because EQ output is not finite");
-      return false;
-    }
-
-    const float out_sample = static_cast<float>(mixed);
-    if (!isNormalizedSample(out_sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because EQ output is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    state.previous_low_output = low_sample;
-    state.previous_hp_input = sample;
-    state.previous_hp_output = high_sample;
-    state.initialized = true;
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
+  const backends::ProcessStatus status = backend_->process(in.data, out.data, source_changed);
+  if (status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because EQ backend rejected input or output: %s",
+      backends::processStatusMessage(status));
+    return false;
   }
 
   active_source_id_ = in.source_id;
-  channel_states_ = next_states;
   if (source_changed) {
     source_resets_.fetch_add(1);
   }
@@ -403,14 +299,14 @@ void FaEqNode::publishDiagnostics()
   status.values.reserve(15);
   pushKeyValue(status, "low_cutoff_hz", std::to_string(config_.low_cutoff_hz));
   pushKeyValue(status, "high_cutoff_hz", std::to_string(config_.high_cutoff_hz));
-  pushKeyValue(status, "low_alpha", std::to_string(low_alpha_));
-  pushKeyValue(status, "high_alpha", std::to_string(high_alpha_));
+  pushKeyValue(status, "low_alpha", std::to_string(backend_->lowAlpha()));
+  pushKeyValue(status, "high_alpha", std::to_string(backend_->highAlpha()));
   pushKeyValue(status, "gain_low_db", std::to_string(config_.gain_low_db));
   pushKeyValue(status, "gain_mid_db", std::to_string(config_.gain_mid_db));
   pushKeyValue(status, "gain_high_db", std::to_string(config_.gain_high_db));
-  pushKeyValue(status, "gain_low_linear", std::to_string(gain_low_linear_));
-  pushKeyValue(status, "gain_mid_linear", std::to_string(gain_mid_linear_));
-  pushKeyValue(status, "gain_high_linear", std::to_string(gain_high_linear_));
+  pushKeyValue(status, "gain_low_linear", std::to_string(backend_->gainLowLinear()));
+  pushKeyValue(status, "gain_mid_linear", std::to_string(backend_->gainMidLinear()));
+  pushKeyValue(status, "gain_high_linear", std::to_string(backend_->gainHighLinear()));
   pushKeyValue(status, "state_source_id", active_source_id_);
   pushKeyValue(status, "source_resets", std::to_string(source_resets_.load()));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));

@@ -35,7 +35,12 @@ def test_default_config_requires_float32_interleaved_three_band_eq_contract() ->
 
 
 def test_eq_does_not_hide_other_processing_or_io_responsibilities() -> None:
-    source = read_source()
+    sources = [
+        read_source(),
+        (package_root() / "src" / "backends" / "internal_three_band_eq.cpp").read_text(
+            encoding="utf-8"
+        ),
+    ]
 
     forbidden = (
         "normalize(",
@@ -48,14 +53,15 @@ def test_eq_does_not_hide_other_processing_or_io_responsibilities() -> None:
         "limiter",
         "denoise",
     )
-    for token in forbidden:
-        assert token not in source
+    for source in sources:
+        for token in forbidden:
+            assert token not in source
 
 
 def test_eq_validates_startup_config_fail_closed() -> None:
     source = read_source()
     load_parameters = source.split("void FaEqNode::loadParameters")[1].split(
-        "void FaEqNode::configureFilterState"
+        "void FaEqNode::configureBackend"
     )[0]
 
     assert 'this->declare_parameter<double>("low.cutoff_hz", config_.low_cutoff_hz);' in load_parameters
@@ -112,11 +118,35 @@ def test_eq_preserves_source_identity_and_updates_stream_identity() -> None:
     assert ".vad" not in apply_eq
 
 
-def test_eq_uses_first_order_splits_mid_residual_and_db_gains_per_channel() -> None:
-    header = (package_root() / "include" / "fa_eq" / "fa_eq_node.hpp").read_text(encoding="utf-8")
+def test_eq_binds_source_only_after_backend_accepts_frame() -> None:
     source = read_source()
     apply_eq = source.split("bool FaEqNode::applyEq")[1].split(
         "void FaEqNode::publishDiagnostics"
+    )[0]
+
+    assert "const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;" in apply_eq
+    assert (
+        "const backends::ProcessStatus status = backend_->process(in.data, out.data, source_changed);"
+        in apply_eq
+    )
+    assert "if (status != backends::ProcessStatus::kOk)" in apply_eq
+    assert apply_eq.index("backend_->process") < apply_eq.index(
+        "if (status != backends::ProcessStatus::kOk)"
+    )
+    assert apply_eq.index("if (status != backends::ProcessStatus::kOk)") < apply_eq.index(
+        "active_source_id_ = in.source_id;"
+    )
+
+
+def test_eq_uses_first_order_splits_mid_residual_and_db_gains_per_channel() -> None:
+    header = (
+        package_root() / "include" / "fa_eq" / "backends" / "internal_three_band_eq.hpp"
+    ).read_text(encoding="utf-8")
+    source = (package_root() / "src" / "backends" / "internal_three_band_eq.cpp").read_text(
+        encoding="utf-8"
+    )
+    process = source.split("ProcessStatus InternalThreeBandEqBackend::process")[1].split(
+        "const char * processStatusMessage"
     )[0]
 
     assert "struct ChannelFilterState" in header
@@ -130,37 +160,44 @@ def test_eq_uses_first_order_splits_mid_residual_and_db_gains_per_channel() -> N
     assert "gain_low_linear_ = dbToLinear(config_.gain_low_db);" in source
     assert "gain_mid_linear_ = dbToLinear(config_.gain_mid_db);" in source
     assert "gain_high_linear_ = dbToLinear(config_.gain_high_db);" in source
-    assert "std::vector<ChannelFilterState> next_states = channel_states_;" in apply_eq
-    assert "ChannelFilterState & state = next_states.at(i % channel_count);" in apply_eq
-    assert "low_sample = sample;" in apply_eq
-    assert "high_sample = 0.0F;" in apply_eq
-    assert "static_cast<double>(state.previous_low_output) +" in apply_eq
-    assert "low_alpha_ * (static_cast<double>(sample) - static_cast<double>(state.previous_low_output))" in apply_eq
-    assert "high_alpha_ * (static_cast<double>(state.previous_hp_output) +" in apply_eq
-    assert "static_cast<double>(sample) - static_cast<double>(state.previous_hp_input)" in apply_eq
-    assert "static_cast<double>(sample) - static_cast<double>(low_sample) - static_cast<double>(high_sample)" in apply_eq
-    assert "static_cast<double>(low_sample) * gain_low_linear_" in apply_eq
-    assert "mid_sample * gain_mid_linear_" in apply_eq
-    assert "static_cast<double>(high_sample) * gain_high_linear_" in apply_eq
-    assert "state.previous_low_output = low_sample;" in apply_eq
-    assert "state.previous_hp_input = sample;" in apply_eq
-    assert "state.previous_hp_output = high_sample;" in apply_eq
-    assert "state.initialized = true;" in apply_eq
-    assert "channel_states_ = next_states;" in apply_eq
+    assert "reset_state ?" in process
+    assert "channel_states_;" in process
+    assert "ChannelFilterState & state =" in process
+    assert "next_channel_states.at(i % static_cast<size_t>(config_.channels));" in process
+    assert "low_sample = sample;" in process
+    assert "high_sample = 0.0F;" in process
+    assert "static_cast<double>(state.previous_low_output) +" in process
+    assert "low_alpha_ * (static_cast<double>(sample) -" in process
+    assert "high_alpha_ * (static_cast<double>(state.previous_hp_output) +" in process
+    assert "static_cast<double>(sample) - static_cast<double>(state.previous_hp_input)" in process
+    assert "static_cast<double>(sample) - static_cast<double>(low_sample) -" in process
+    assert "static_cast<double>(low_sample) * gain_low_linear_" in process
+    assert "mid_sample * gain_mid_linear_" in process
+    assert "static_cast<double>(high_sample) * gain_high_linear_" in process
+    assert "state.previous_low_output = low_sample;" in process
+    assert "state.previous_hp_input = sample;" in process
+    assert "state.previous_hp_output = high_sample;" in process
+    assert "state.initialized = true;" in process
+    assert "channel_states_ = std::move(next_channel_states);" in process
 
 
 def test_eq_rejects_non_finite_or_out_of_range_samples_without_clamping() -> None:
-    source = read_source()
-    apply_eq = source.split("bool FaEqNode::applyEq")[1].split(
-        "void FaEqNode::publishDiagnostics"
-    )[0]
+    source = (package_root() / "src" / "backends" / "internal_three_band_eq.cpp").read_text(
+        encoding="utf-8"
+    )
+    header = (
+        package_root() / "include" / "fa_eq" / "backends" / "internal_three_band_eq.hpp"
+    ).read_text(encoding="utf-8")
 
     assert "bool isNormalizedSample(float value)" in source
     assert "value >= kNormalizedMin && value <= kNormalizedMax" in source
-    assert "!isNormalizedSample(sample)" in apply_eq
-    assert "!isNormalizedSample(out_sample)" in apply_eq
-    assert "return false;" in apply_eq
-    assert "std::clamp" not in apply_eq
+    assert "kNonFiniteInput" in header
+    assert "kOutOfRangeInput" in header
+    assert "kNonFiniteOutput" in header
+    assert "kOutOfRangeOutput" in header
+    assert "return ProcessStatus::kOutOfRangeInput;" in source
+    assert "return ProcessStatus::kOutOfRangeOutput;" in source
+    assert "std::clamp" not in source
 
 
 def test_eq_resets_state_on_source_change() -> None:
@@ -169,8 +206,8 @@ def test_eq_resets_state_on_source_change() -> None:
         "void FaEqNode::publishDiagnostics"
     )[0]
 
-    assert "if (active_source_id_.empty() || in.source_id != active_source_id_)" in apply_eq
-    assert "next_states.assign(static_cast<size_t>(config_.expected_channels), ChannelFilterState{});" in apply_eq
+    assert "const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;" in apply_eq
+    assert "backend_->process(in.data, out.data, source_changed)" in apply_eq
     assert "source_resets_.fetch_add(1);" in apply_eq
 
 
@@ -181,8 +218,8 @@ def test_eq_diagnostics_include_filter_gain_state_and_counters() -> None:
     assert 'status.name = "fa_eq";' in diagnostics
     assert 'pushKeyValue(status, "low_cutoff_hz", std::to_string(config_.low_cutoff_hz));' in diagnostics
     assert 'pushKeyValue(status, "high_cutoff_hz", std::to_string(config_.high_cutoff_hz));' in diagnostics
-    assert 'pushKeyValue(status, "low_alpha", std::to_string(low_alpha_));' in diagnostics
-    assert 'pushKeyValue(status, "high_alpha", std::to_string(high_alpha_));' in diagnostics
+    assert 'pushKeyValue(status, "low_alpha", std::to_string(backend_->lowAlpha()));' in diagnostics
+    assert 'pushKeyValue(status, "high_alpha", std::to_string(backend_->highAlpha()));' in diagnostics
     assert 'pushKeyValue(status, "gain_low_db", std::to_string(config_.gain_low_db));' in diagnostics
     assert 'pushKeyValue(status, "gain_mid_db", std::to_string(config_.gain_mid_db));' in diagnostics
     assert 'pushKeyValue(status, "gain_high_db", std::to_string(config_.gain_high_db));' in diagnostics
@@ -203,7 +240,10 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_eq.launch.py",
         "include/fa_eq/fa_eq_node.hpp",
+        "include/fa_eq/backends/internal_three_band_eq.hpp",
         "src/fa_eq_node.cpp",
+        "src/backends/internal_three_band_eq.cpp",
+        "test/cpp/test_internal_three_band_eq_backend.cpp",
         "test/unit",
         "test/integration",
         "test/launch",
@@ -218,9 +258,12 @@ def test_colcon_runs_pytest_contracts() -> None:
     cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

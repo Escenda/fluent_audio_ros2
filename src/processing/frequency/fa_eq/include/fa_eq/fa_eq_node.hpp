@@ -2,8 +2,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -12,6 +12,11 @@
 
 namespace fa_eq
 {
+
+namespace backends
+{
+class InternalThreeBandEqBackend;
+}  // namespace backends
 
 struct EqConfig
 {
@@ -32,14 +37,6 @@ struct EqConfig
   int diagnostics_publish_period_ms{-1};
 };
 
-struct ChannelFilterState
-{
-  float previous_low_output{0.0F};
-  float previous_hp_input{0.0F};
-  float previous_hp_output{0.0F};
-  bool initialized{false};
-};
-
 /**
  * @brief FLOAT32LE interleaved AudioFrame に明示的な 3-band EQ を適用する node。
  */
@@ -47,26 +44,21 @@ class FaEqNode : public rclcpp::Node
 {
 public:
   FaEqNode();
-  ~FaEqNode() override = default;
+  ~FaEqNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
-  void configureFilterState();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyEq(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   EqConfig config_;
-  double low_alpha_{0.0};
-  double high_alpha_{0.0};
-  double gain_low_linear_{1.0};
-  double gain_mid_linear_{1.0};
-  double gain_high_linear_{1.0};
   std::string active_source_id_{};
-  std::vector<ChannelFilterState> channel_states_{};
+  std::unique_ptr<backends::InternalThreeBandEqBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
