@@ -6,7 +6,8 @@
 
 - 1つの `AudioFrame` input topic を購読する
 - `output_topics` に列挙された topic へ、入力 frame の copy を publish する
-- `stream_id` だけを publish 先 topic に更新する
+- 入力 `stream_id` は `input_stream_id` と一致する必要がある
+- `stream_id` だけを `output.stream_ids` の対応要素に更新する
 - `header`、`source_id`、format metadata、`data`、`epoch` は入力 frame から保持する
 - 起動時 config を fail closed で検証する
 - runtime frame が期待 format と一致しない場合は drop し、warning と diagnostics に反映する
@@ -23,8 +24,10 @@
 
 ## 既定設定
 
-- input: `audio/frame`
-- outputs: `audio/output/frame`
+- input topic: `fa_bus_router/input`
+- output topics: `fa_bus_router/output`
+- input stream: `audio/routing/input`
+- output streams: `audio/routing/output`
 - expected: `48000Hz`, `1ch`, `PCM16LE`, `16bit`, `interleaved`
 - qos: reliable, depth `10`
 - diagnostics: `1000ms`, `diagnostics.qos.depth=10`, `diagnostics.qos.reliable=true`

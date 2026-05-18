@@ -8,6 +8,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
@@ -98,6 +99,29 @@ bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
   }
   return parameter.as_bool();
 }
+
+void requireSameRouteCount(
+  const std::vector<std::string> & route_values,
+  size_t route_count,
+  const std::string & name)
+{
+  if (route_values.size() != route_count) {
+    throw std::runtime_error(name + " must have the same length as input_topics");
+  }
+}
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaPatchbayNode::FaPatchbayNode()
@@ -111,7 +135,9 @@ FaPatchbayNode::FaPatchbayNode()
 void FaPatchbayNode::loadParameters()
 {
   this->declare_parameter<std::vector<std::string>>("input_topics");
+  this->declare_parameter<std::vector<std::string>>("input_stream_ids");
   this->declare_parameter<std::vector<std::string>>("output_topics");
+  this->declare_parameter<std::vector<std::string>>("output_stream_ids");
   this->declare_parameter<int>("expected.sample_rate");
   this->declare_parameter<int>("expected.channels");
   this->declare_parameter<std::string>("expected.encoding");
@@ -124,7 +150,9 @@ void FaPatchbayNode::loadParameters()
   this->declare_parameter<bool>("diagnostics.qos.reliable");
 
   config_.input_topics = readRequiredStringArray(*this, "input_topics");
+  config_.input_stream_ids = readRequiredStringArray(*this, "input_stream_ids");
   config_.output_topics = readRequiredStringArray(*this, "output_topics");
+  config_.output_stream_ids = readRequiredStringArray(*this, "output_stream_ids");
   config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
   config_.expected_channels = readRequiredInt(*this, "expected.channels");
   config_.expected_encoding = readRequiredString(*this, "expected.encoding");
@@ -140,35 +168,114 @@ void FaPatchbayNode::loadParameters()
   if (config_.input_topics.empty()) {
     throw std::runtime_error("input_topics must contain at least one topic");
   }
-  if (config_.output_topics.empty()) {
-    throw std::runtime_error("output_topics must contain at least one topic");
-  }
-  if (config_.input_topics.size() != config_.output_topics.size()) {
-    throw std::runtime_error("input_topics and output_topics must have the same length");
-  }
+  const size_t route_count = config_.input_topics.size();
+  requireSameRouteCount(config_.input_stream_ids, route_count, "input_stream_ids");
+  requireSameRouteCount(config_.output_topics, route_count, "output_topics");
+  requireSameRouteCount(config_.output_stream_ids, route_count, "output_stream_ids");
 
-  std::set<std::pair<std::string, std::string>> unique_routes;
+  std::set<std::tuple<std::string, std::string, std::string, std::string>> unique_routes;
+  std::set<std::pair<std::string, std::string>> unique_output_ports;
+  std::set<std::string> input_topic_identities;
+  std::set<std::string> output_topic_identities;
+  std::set<std::string> unique_output_topics;
+  std::set<std::string> unique_resolved_output_topics;
+  std::set<std::string> topic_identities;
+  std::set<std::string> stream_identities;
   std::set<std::string> unique_inputs;
-  routes_.reserve(config_.input_topics.size());
-  for (size_t index = 0; index < config_.input_topics.size(); ++index) {
+  routes_.reserve(route_count);
+  for (size_t index = 0; index < route_count; ++index) {
     const std::string & input_topic = config_.input_topics[index];
+    const std::string & input_stream_id = config_.input_stream_ids[index];
     const std::string & output_topic = config_.output_topics[index];
+    const std::string & output_stream_id = config_.output_stream_ids[index];
     if (input_topic.empty()) {
       throw std::runtime_error("input_topics must not contain empty topic");
+    }
+    if (input_stream_id.empty()) {
+      throw std::runtime_error("input_stream_ids must not contain empty stream identity");
     }
     if (output_topic.empty()) {
       throw std::runtime_error("output_topics must not contain empty topic");
     }
+    if (output_stream_id.empty()) {
+      throw std::runtime_error("output_stream_ids must not contain empty stream identity");
+    }
     if (input_topic == output_topic) {
       throw std::runtime_error("route output topic must not equal its input topic");
     }
-    if (!unique_routes.insert(std::make_pair(input_topic, output_topic)).second) {
-      throw std::runtime_error("route pairs must be unique");
+    if (input_stream_id == output_stream_id) {
+      throw std::runtime_error(
+        "route output stream identity must not equal its input stream identity");
     }
-    routes_.push_back(PatchbayRoute{input_topic, output_topic, nullptr});
+    const std::string resolved_input_topic =
+      this->get_node_topics_interface()->resolve_topic_name(input_topic);
+    const std::string resolved_output_topic =
+      this->get_node_topics_interface()->resolve_topic_name(output_topic);
+    if (sameIdentityString(input_topic, output_topic) ||
+        sameIdentityString(resolved_input_topic, resolved_output_topic))
+    {
+      throw std::runtime_error("route output topic must not equal its input topic");
+    }
+    if (sameIdentityString(input_stream_id, input_topic) ||
+        sameIdentityString(input_stream_id, output_topic) ||
+        sameIdentityString(input_stream_id, resolved_input_topic) ||
+        sameIdentityString(input_stream_id, resolved_output_topic))
+    {
+      throw std::runtime_error("input_stream_ids must be distinct from ROS topics");
+    }
+    if (sameIdentityString(output_stream_id, input_topic) ||
+        sameIdentityString(output_stream_id, output_topic) ||
+        sameIdentityString(output_stream_id, resolved_input_topic) ||
+        sameIdentityString(output_stream_id, resolved_output_topic))
+    {
+      throw std::runtime_error("output_stream_ids must be distinct from ROS topics");
+    }
+    if (!unique_routes.insert(
+        std::make_tuple(input_topic, input_stream_id, output_topic, output_stream_id)).second)
+    {
+      throw std::runtime_error("route topic and stream identity tuples must be unique");
+    }
+    if (!unique_output_ports.insert(std::make_pair(output_topic, output_stream_id)).second) {
+      throw std::runtime_error("output topic and stream identity pairs must be unique");
+    }
+    if (!unique_output_topics.insert(output_topic).second) {
+      throw std::runtime_error("output_topics must not contain duplicate topic identities");
+    }
+    if (!unique_resolved_output_topics.insert(identityWithoutLeadingSlash(resolved_output_topic)).second) {
+      throw std::runtime_error("resolved output_topics must not contain duplicate topic identities");
+    }
+    input_topic_identities.insert(identityWithoutLeadingSlash(input_topic));
+    input_topic_identities.insert(identityWithoutLeadingSlash(resolved_input_topic));
+    output_topic_identities.insert(identityWithoutLeadingSlash(output_topic));
+    output_topic_identities.insert(identityWithoutLeadingSlash(resolved_output_topic));
+    topic_identities.insert(identityWithoutLeadingSlash(input_topic));
+    topic_identities.insert(identityWithoutLeadingSlash(resolved_input_topic));
+    topic_identities.insert(identityWithoutLeadingSlash(output_topic));
+    topic_identities.insert(identityWithoutLeadingSlash(resolved_output_topic));
+    stream_identities.insert(identityWithoutLeadingSlash(input_stream_id));
+    stream_identities.insert(identityWithoutLeadingSlash(output_stream_id));
+    routes_.push_back(
+      PatchbayRoute{
+        input_topic,
+        input_stream_id,
+        resolved_input_topic,
+        output_topic,
+        output_stream_id,
+        resolved_output_topic,
+        nullptr});
     route_indices_by_input_[input_topic].push_back(index);
     if (unique_inputs.insert(input_topic).second) {
       unique_input_topics_.push_back(input_topic);
+    }
+  }
+  for (const std::string & input_topic_identity : input_topic_identities) {
+    if (output_topic_identities.find(input_topic_identity) != output_topic_identities.end()) {
+      throw std::runtime_error("input and output topic identities must not collide");
+    }
+  }
+  for (const std::string & topic_identity : topic_identities) {
+    if (stream_identities.find(topic_identity) != stream_identities.end()) {
+      throw std::runtime_error("topic identities and stream identities must not collide");
     }
   }
 
@@ -286,12 +393,20 @@ bool FaPatchbayNode::validateFrame(
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != input_topic) {
+  const std::vector<size_t> & route_indices = route_indices_by_input_.at(input_topic);
+  bool configured_input_stream = false;
+  for (const size_t route_index : route_indices) {
+    if (msg.stream_id == routes_[route_index].input_stream_id) {
+      configured_input_stream = true;
+      break;
+    }
+  }
+  if (!configured_input_stream) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "AudioFrame stream_id mismatch: %s != %s",
-      msg.stream_id.c_str(),
-      input_topic.c_str());
+      "AudioFrame stream_id mismatch on input topic %s: %s is not a configured input stream identity",
+      input_topic.c_str(),
+      msg.stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -342,8 +457,11 @@ void FaPatchbayNode::publishCopies(
   const std::vector<size_t> & route_indices = route_indices_by_input_.at(input_topic);
   for (const size_t route_index : route_indices) {
     const PatchbayRoute & route = routes_[route_index];
+    if (msg.stream_id != route.input_stream_id) {
+      continue;
+    }
     fa_interfaces::msg::AudioFrame out = msg;
-    out.stream_id = route.output_topic;
+    out.stream_id = route.output_stream_id;
     route.publisher->publish(out);
     copies_out_.fetch_add(1);
   }
@@ -364,12 +482,22 @@ void FaPatchbayNode::publishDiagnostics()
   status.name = "fa_patchbay";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(14 + (routes_.size() * 2));
+  status.values.reserve(14 + (routes_.size() * 4));
   pushKeyValue(status, "route_count", std::to_string(routes_.size()));
   pushKeyValue(status, "unique_input_count", std::to_string(unique_input_topics_.size()));
   for (size_t index = 0; index < routes_.size(); ++index) {
     pushKeyValue(status, "input_topic." + std::to_string(index), routes_[index].input_topic);
+    pushKeyValue(
+      status, "input_stream_id." + std::to_string(index), routes_[index].input_stream_id);
+    pushKeyValue(
+      status, "resolved_input_topic." + std::to_string(index),
+      routes_[index].resolved_input_topic);
     pushKeyValue(status, "output_topic." + std::to_string(index), routes_[index].output_topic);
+    pushKeyValue(
+      status, "output_stream_id." + std::to_string(index), routes_[index].output_stream_id);
+    pushKeyValue(
+      status, "resolved_output_topic." + std::to_string(index),
+      routes_[index].resolved_output_topic);
   }
   pushKeyValue(status, "expected.sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected.channels", std::to_string(config_.expected_channels));

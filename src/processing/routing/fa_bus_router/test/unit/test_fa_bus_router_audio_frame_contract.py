@@ -11,10 +11,16 @@ def test_default_config_defines_explicit_bus_routing_contract() -> None:
     )
     params = config["fa_bus_router"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/frame"
-    assert params["output_topics"] == ["audio/output/frame"]
+    assert params["input_topic"] == "fa_bus_router/input"
+    assert params["output_topics"] == ["fa_bus_router/output"]
+    assert params["input_stream_id"] == "audio/routing/input"
+    assert params["output"]["stream_ids"] == ["audio/routing/output"]
     assert len(params["output_topics"]) == len(set(params["output_topics"]))
     assert params["input_topic"] not in params["output_topics"]
+    assert len(params["output"]["stream_ids"]) == len(params["output_topics"])
+    assert params["input_stream_id"] not in params["output"]["stream_ids"]
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_ids"][0] != params["output_topics"][0]
     assert params["expected"]["sample_rate"] == 48000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "PCM16LE"
@@ -40,6 +46,8 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
     assert "readRequiredString(*this, \"input_topic\")" in load_parameters
     assert "readRequiredStringArray(*this, \"output_topics\")" in load_parameters
+    assert "readRequiredString(*this, \"input_stream_id\")" in load_parameters
+    assert "readRequiredStringArray(*this, \"output.stream_ids\")" in load_parameters
     assert "readRequiredInt(*this, \"expected.sample_rate\")" in load_parameters
     assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
     assert "readRequiredInt(*this, \"diagnostics.qos.depth\")" in load_parameters
@@ -49,9 +57,20 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         if "declare_parameter" in line:
             assert ", config_." not in line
     assert "throw std::runtime_error(\"output_topics must contain at least one topic\")" in load_parameters
+    assert "throw std::runtime_error(\"input_stream_id is required\")" in load_parameters
+    assert (
+        "throw std::runtime_error(\"output.stream_ids must contain at least one stream identity\")"
+        in load_parameters
+    )
+    assert "output.stream_ids size must match output_topics size" in load_parameters
     assert "throw std::runtime_error(\"output_topics must not contain empty topic\")" in load_parameters
     assert "throw std::runtime_error(\"output_topics must not contain input_topic\")" in load_parameters
     assert "throw std::runtime_error(\"output_topics must be unique\")" in load_parameters
+    assert "resolved output_topics must not contain input_topic" in load_parameters
+    assert "resolved output_topics must be unique" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_ids must be distinct from ROS topics" in load_parameters
+    assert "output.stream_ids must be unique and distinct from input_stream_id" in load_parameters
     assert "expected.sample_rate must be > 0" in load_parameters
     assert "expected.channels must be > 0" in load_parameters
     assert "expected.encoding is required" in load_parameters
@@ -75,7 +94,7 @@ def test_runtime_frame_validation_drops_invalid_frames_before_routing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -93,7 +112,8 @@ def test_router_copies_frame_and_only_changes_stream_id() -> None:
     )[0]
 
     assert "fa_interfaces::msg::AudioFrame out = msg;" in publish_copies
-    assert "out.stream_id = config_.output_topics[index];" in publish_copies
+    assert "out.stream_id = config_.output_stream_ids[index];" in publish_copies
+    assert "out.stream_id = config_.output_topics[index];" not in publish_copies
     assert "audio_pubs_[index]->publish(out);" in publish_copies
     assert "out.data" not in publish_copies
     assert "out.sample_rate" not in publish_copies
@@ -137,8 +157,12 @@ def test_diagnostics_report_routing_state_and_counters() -> None:
     assert "std::atomic<uint64_t> frames_dropped_" in header
     assert "std::atomic<uint64_t> copies_out_" in header
     assert "input_topic" in diagnostics
+    assert "input_stream_id" in diagnostics
+    assert "resolved_input_topic" in diagnostics
     assert "output_count" in diagnostics
     assert "output_topic." in diagnostics
+    assert "resolved_output_topic." in diagnostics
+    assert "output_stream_id." in diagnostics
     assert "expected.sample_rate" in diagnostics
     assert "expected.channels" in diagnostics
     assert "expected.encoding" in diagnostics

@@ -9,15 +9,37 @@ def test_default_config_defines_explicit_patchbay_contract() -> None:
     launch_text = (package_root / "launch" / "fa_patchbay.launch.py").read_text(encoding="utf-8")
     params = config["fa_patchbay"]["ros__parameters"]
 
-    assert params["input_topics"] == ["audio/input/frame"]
-    assert params["output_topics"] == ["audio/output/frame"]
-    assert len(params["input_topics"]) == len(params["output_topics"])
-    route_pairs = list(zip(params["input_topics"], params["output_topics"]))
-    assert len(route_pairs) == len(set(route_pairs))
-    for input_topic, output_topic in route_pairs:
+    assert params["input_topics"] == ["fa_patchbay/input"]
+    assert params["input_stream_ids"] == ["audio/patchbay/input"]
+    assert params["output_topics"] == ["fa_patchbay/output"]
+    assert params["output_stream_ids"] == ["audio/patchbay/output"]
+    route_count = len(params["input_topics"])
+    assert len(params["input_stream_ids"]) == route_count
+    assert len(params["output_topics"]) == route_count
+    assert len(params["output_stream_ids"]) == route_count
+    route_tuples = list(
+        zip(
+            params["input_topics"],
+            params["input_stream_ids"],
+            params["output_topics"],
+            params["output_stream_ids"],
+        )
+    )
+    assert len(route_tuples) == len(set(route_tuples))
+    input_topic_identities = set(params["input_topics"])
+    output_topic_identities = set(params["output_topics"])
+    topic_identities = input_topic_identities | output_topic_identities
+    stream_identities = set(params["input_stream_ids"]) | set(params["output_stream_ids"])
+    assert input_topic_identities.isdisjoint(output_topic_identities)
+    assert topic_identities.isdisjoint(stream_identities)
+    assert len(params["output_topics"]) == len(set(params["output_topics"]))
+    for input_topic, input_stream_id, output_topic, output_stream_id in route_tuples:
         assert input_topic
+        assert input_stream_id
         assert output_topic
+        assert output_stream_id
         assert input_topic != output_topic
+        assert input_stream_id != output_stream_id
     assert params["expected"]["sample_rate"] == 48000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "PCM16LE"
@@ -41,7 +63,9 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     )[0]
 
     assert "readRequiredStringArray(*this, \"input_topics\")" in load_parameters
+    assert "readRequiredStringArray(*this, \"input_stream_ids\")" in load_parameters
     assert "readRequiredStringArray(*this, \"output_topics\")" in load_parameters
+    assert "readRequiredStringArray(*this, \"output_stream_ids\")" in load_parameters
     assert "readRequiredInt(*this, \"expected.sample_rate\")" in load_parameters
     assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
     assert "readRequiredInt(*this, \"diagnostics.qos.depth\")" in load_parameters
@@ -51,15 +75,25 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         if "declare_parameter" in line:
             assert ", config_." not in line
     assert "throw std::runtime_error(\"input_topics must contain at least one topic\")" in load_parameters
-    assert "throw std::runtime_error(\"output_topics must contain at least one topic\")" in load_parameters
-    assert (
-        "throw std::runtime_error(\"input_topics and output_topics must have the same length\")"
-        in load_parameters
-    )
+    assert "requireSameRouteCount(config_.input_stream_ids, route_count, \"input_stream_ids\")" in load_parameters
+    assert "requireSameRouteCount(config_.output_topics, route_count, \"output_topics\")" in load_parameters
+    assert "requireSameRouteCount(config_.output_stream_ids, route_count, \"output_stream_ids\")" in load_parameters
     assert "throw std::runtime_error(\"input_topics must not contain empty topic\")" in load_parameters
+    assert "throw std::runtime_error(\"input_stream_ids must not contain empty stream identity\")" in load_parameters
     assert "throw std::runtime_error(\"output_topics must not contain empty topic\")" in load_parameters
+    assert "throw std::runtime_error(\"output_stream_ids must not contain empty stream identity\")" in load_parameters
     assert "throw std::runtime_error(\"route output topic must not equal its input topic\")" in load_parameters
-    assert "throw std::runtime_error(\"route pairs must be unique\")" in load_parameters
+    assert "route output stream identity must not equal its input stream identity" in load_parameters
+    assert "resolve_topic_name(input_topic)" in load_parameters
+    assert "resolve_topic_name(output_topic)" in load_parameters
+    assert "input_stream_ids must be distinct from ROS topics" in load_parameters
+    assert "output_stream_ids must be distinct from ROS topics" in load_parameters
+    assert "route topic and stream identity tuples must be unique" in load_parameters
+    assert "output topic and stream identity pairs must be unique" in load_parameters
+    assert "output_topics must not contain duplicate topic identities" in load_parameters
+    assert "resolved output_topics must not contain duplicate topic identities" in load_parameters
+    assert "input and output topic identities must not collide" in load_parameters
+    assert "topic identities and stream identities must not collide" in load_parameters
     assert "expected.sample_rate must be > 0" in load_parameters
     assert "expected.channels must be > 0" in load_parameters
     assert "expected.encoding is required" in load_parameters
@@ -83,7 +117,9 @@ def test_runtime_frame_validation_drops_invalid_frames_before_routing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != input_topic" in validate_frame
+    assert "msg.stream_id == routes_[route_index].input_stream_id" in validate_frame
+    assert "configured_input_stream" in validate_frame
+    assert "is not a configured input stream identity" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -101,7 +137,8 @@ def test_patchbay_copies_frame_and_only_changes_stream_id() -> None:
     )[0]
 
     assert "fa_interfaces::msg::AudioFrame out = msg;" in publish_copies
-    assert "out.stream_id = route.output_topic;" in publish_copies
+    assert "msg.stream_id != route.input_stream_id" in publish_copies
+    assert "out.stream_id = route.output_stream_id;" in publish_copies
     assert "route.publisher->publish(out);" in publish_copies
     assert "out.data" not in publish_copies
     assert "out.sample_rate" not in publish_copies
@@ -166,7 +203,11 @@ def test_diagnostics_report_routing_state_and_counters() -> None:
     assert "route_count" in diagnostics
     assert "unique_input_count" in diagnostics
     assert "input_topic." in diagnostics
+    assert "input_stream_id." in diagnostics
+    assert "resolved_input_topic." in diagnostics
     assert "output_topic." in diagnostics
+    assert "output_stream_id." in diagnostics
+    assert "resolved_output_topic." in diagnostics
     assert "expected.sample_rate" in diagnostics
     assert "expected.channels" in diagnostics
     assert "expected.encoding" in diagnostics

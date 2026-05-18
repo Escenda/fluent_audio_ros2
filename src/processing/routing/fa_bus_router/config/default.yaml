@@ -1,8 +1,12 @@
 fa_bus_router:
   ros__parameters:
-    input_topic: "audio/frame"
+    input_topic: "fa_bus_router/input"
     output_topics:
-      - "audio/output/frame"
+      - "fa_bus_router/output"
+    input_stream_id: "audio/routing/input"
+    output:
+      stream_ids:
+        - "audio/routing/output"
 
     expected:
       sample_rate: 48000

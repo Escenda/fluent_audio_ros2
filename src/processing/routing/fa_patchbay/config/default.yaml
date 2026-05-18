@@ -1,9 +1,13 @@
 fa_patchbay:
   ros__parameters:
     input_topics:
-      - "audio/input/frame"
+      - "fa_patchbay/input"
+    input_stream_ids:
+      - "audio/patchbay/input"
     output_topics:
-      - "audio/output/frame"
+      - "fa_patchbay/output"
+    output_stream_ids:
+      - "audio/patchbay/output"
 
     expected:
       sample_rate: 48000

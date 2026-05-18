@@ -97,6 +97,19 @@ bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
   }
   return parameter.as_bool();
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaBusRouterNode::FaBusRouterNode()
@@ -111,6 +124,8 @@ void FaBusRouterNode::loadParameters()
 {
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::vector<std::string>>("output_topics");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::vector<std::string>>("output.stream_ids");
   this->declare_parameter<int>("expected.sample_rate");
   this->declare_parameter<int>("expected.channels");
   this->declare_parameter<std::string>("expected.encoding");
@@ -124,6 +139,8 @@ void FaBusRouterNode::loadParameters()
 
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topics = readRequiredStringArray(*this, "output_topics");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_ids = readRequiredStringArray(*this, "output.stream_ids");
   config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
   config_.expected_channels = readRequiredInt(*this, "expected.channels");
   config_.expected_encoding = readRequiredString(*this, "expected.encoding");
@@ -142,8 +159,22 @@ void FaBusRouterNode::loadParameters()
   if (config_.output_topics.empty()) {
     throw std::runtime_error("output_topics must contain at least one topic");
   }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_ids.empty()) {
+    throw std::runtime_error("output.stream_ids must contain at least one stream identity");
+  }
+  if (config_.output_stream_ids.size() != config_.output_topics.size()) {
+    throw std::runtime_error("output.stream_ids size must match output_topics size");
+  }
 
   std::set<std::string> unique_topics;
+  std::set<std::string> unique_resolved_topics;
+  config_.resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  config_.resolved_output_topics.clear();
+  config_.resolved_output_topics.reserve(config_.output_topics.size());
   for (const std::string & topic : config_.output_topics) {
     if (topic.empty()) {
       throw std::runtime_error("output_topics must not contain empty topic");
@@ -153,6 +184,50 @@ void FaBusRouterNode::loadParameters()
     }
     if (!unique_topics.insert(topic).second) {
       throw std::runtime_error("output_topics must be unique");
+    }
+    const std::string resolved_topic =
+      this->get_node_topics_interface()->resolve_topic_name(topic);
+    if (resolved_topic == config_.resolved_input_topic) {
+      throw std::runtime_error("resolved output_topics must not contain input_topic");
+    }
+    if (!unique_resolved_topics.insert(resolved_topic).second) {
+      throw std::runtime_error("resolved output_topics must be unique");
+    }
+    config_.resolved_output_topics.push_back(resolved_topic);
+  }
+
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.resolved_input_topic))
+  {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+
+  std::set<std::string> unique_stream_ids;
+  unique_stream_ids.insert(identityWithoutLeadingSlash(config_.input_stream_id));
+  for (size_t index = 0; index < config_.output_stream_ids.size(); ++index) {
+    const std::string & stream_id = config_.output_stream_ids[index];
+    if (stream_id.empty()) {
+      throw std::runtime_error("output.stream_ids must not contain empty stream identity");
+    }
+    if (!unique_stream_ids.insert(identityWithoutLeadingSlash(stream_id)).second) {
+      throw std::runtime_error("output.stream_ids must be unique and distinct from input_stream_id");
+    }
+    if (sameIdentityString(stream_id, config_.input_topic) ||
+        sameIdentityString(stream_id, config_.resolved_input_topic))
+    {
+      throw std::runtime_error("output.stream_ids must be distinct from ROS topics");
+    }
+    for (size_t topic_index = 0; topic_index < config_.output_topics.size(); ++topic_index) {
+      if (sameIdentityString(stream_id, config_.output_topics[topic_index]) ||
+          sameIdentityString(stream_id, config_.resolved_output_topics[topic_index]))
+      {
+        throw std::runtime_error("output.stream_ids must be distinct from ROS topics");
+      }
+    }
+    if (sameIdentityString(config_.input_stream_id, config_.output_topics[index]) ||
+        sameIdentityString(config_.input_stream_id, config_.resolved_output_topics[index]))
+    {
+      throw std::runtime_error("input_stream_id must be distinct from ROS topics");
     }
   }
 
@@ -190,8 +265,9 @@ void FaBusRouterNode::loadParameters()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Bus router config: input=%s outputs=%zu expected=%dHz/%d/%s/%d/%s qos_depth=%d reliable=%s diag=%dms",
+    "Bus router config: input=%s/%s outputs=%zu expected=%dHz/%d/%s/%d/%s qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topics.size(),
     config_.expected_sample_rate,
     config_.expected_channels,
@@ -260,12 +336,12 @@ bool FaBusRouterNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -313,7 +389,7 @@ void FaBusRouterNode::publishCopies(const fa_interfaces::msg::AudioFrame & msg)
 {
   for (size_t index = 0; index < audio_pubs_.size(); ++index) {
     fa_interfaces::msg::AudioFrame out = msg;
-    out.stream_id = config_.output_topics[index];
+    out.stream_id = config_.output_stream_ids[index];
     audio_pubs_[index]->publish(out);
     copies_out_.fetch_add(1);
   }
@@ -334,11 +410,21 @@ void FaBusRouterNode::publishDiagnostics()
   status.name = "fa_bus_router";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(12 + config_.output_topics.size());
+  status.values.reserve(14 + (config_.output_topics.size() * 3));
   pushKeyValue(status, "input_topic", config_.input_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "resolved_input_topic", config_.resolved_input_topic);
   pushKeyValue(status, "output_count", std::to_string(config_.output_topics.size()));
   for (size_t index = 0; index < config_.output_topics.size(); ++index) {
     pushKeyValue(status, "output_topic." + std::to_string(index), config_.output_topics[index]);
+    pushKeyValue(
+      status,
+      "resolved_output_topic." + std::to_string(index),
+      config_.resolved_output_topics[index]);
+    pushKeyValue(
+      status,
+      "output_stream_id." + std::to_string(index),
+      config_.output_stream_ids[index]);
   }
   pushKeyValue(status, "expected.sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected.channels", std::to_string(config_.expected_channels));

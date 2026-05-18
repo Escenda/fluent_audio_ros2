@@ -18,14 +18,20 @@ namespace fa_patchbay
 struct PatchbayRoute
 {
   std::string input_topic{};
+  std::string input_stream_id{};
+  std::string resolved_input_topic{};
   std::string output_topic{};
+  std::string output_stream_id{};
+  std::string resolved_output_topic{};
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr publisher{};
 };
 
 struct PatchbayConfig
 {
   std::vector<std::string> input_topics{};
+  std::vector<std::string> input_stream_ids{};
   std::vector<std::string> output_topics{};
+  std::vector<std::string> output_stream_ids{};
   int expected_sample_rate{-1};
   int expected_channels{-1};
   std::string expected_encoding{};

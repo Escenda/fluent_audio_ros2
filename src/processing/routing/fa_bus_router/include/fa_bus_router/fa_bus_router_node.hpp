@@ -18,6 +18,10 @@ struct BusRouterConfig
 {
   std::string input_topic{};
   std::vector<std::string> output_topics{};
+  std::string input_stream_id{};
+  std::vector<std::string> output_stream_ids{};
+  std::string resolved_input_topic{};
+  std::vector<std::string> resolved_output_topics{};
   int expected_sample_rate{-1};
   int expected_channels{-1};
   std::string expected_encoding{};

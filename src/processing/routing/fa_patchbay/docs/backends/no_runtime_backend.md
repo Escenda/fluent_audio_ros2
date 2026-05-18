@@ -20,7 +20,9 @@ node parameter の `expected.*` と一致する `AudioFrame` のみを扱う。
 
 ## 出力 format
 
-入力 frame と同一である。`stream_id` のみ route output topic へ更新する。
+入力 frame と同一である。`stream_id` のみ configured output stream identity へ更新する。
+
+ROS topic 名は backend contract に含めない。topic identity と `AudioFrame.stream_id` は別々に設定し、topic 名を stream identity として扱わない。
 
 ## failure policy
 

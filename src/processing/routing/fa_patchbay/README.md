@@ -1,13 +1,15 @@
 # fa_patchbay
 
 `fa_patchbay` は FluentAudio の `processing/routing` に属する静的 patchbay node です。
-設定された `input_topics[i] -> output_topics[i]` の route に従い、`AudioFrame` を複製して publish します。
+設定された `input_topics[i]` / `input_stream_ids[i]` から
+`output_topics[i]` / `output_stream_ids[i]` への route に従い、`AudioFrame` を複製して publish します。
 
 ## 責務
 
 - 明示された input topic から `AudioFrame` を subscribe する
-- 同じ input topic を共有する複数 route へ frame を複製する
-- frame の `stream_id` だけを output topic に更新する
+- topic 名とは独立した input stream identity で受信 frame を検証する
+- 同じ input topic を共有する複数 route のうち、`stream_id` が一致する route へ frame を複製する
+- frame の `stream_id` だけを configured output stream identity に更新する
 - 無効な config は起動時に fail closed する
 - 無効な runtime frame は warning と diagnostics counter を残して drop する
 
@@ -17,6 +19,7 @@
 - format conversion
 - gain / normalize
 - mixing
+- topic 名を `AudioFrame.stream_id` として扱うこと
 - fallback route 推定
 - device I/O
 
