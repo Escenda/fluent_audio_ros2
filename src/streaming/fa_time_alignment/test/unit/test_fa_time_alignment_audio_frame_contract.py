@@ -157,8 +157,9 @@ def test_ros2_node_name_and_executable_match_required_contract() -> None:
     assert 'rclcpp::Node("fa_time_alignment", options)' in source
     assert "explicit FaTimeAlignmentNode(const rclcpp::NodeOptions & options" in header
     assert "fa_time_alignment::FaTimeAlignmentNode" in main_source
-    assert 'default_value="fa_time_alignment"' in launch
     assert 'executable="fa_time_alignment_node"' in launch
+    assert "default_value" not in launch
+    assert "FindPackageShare" not in launch
     assert "add_executable(fa_time_alignment_node" in cmake
 
 

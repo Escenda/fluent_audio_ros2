@@ -12,7 +12,9 @@ def test_launch_exposes_only_node_name_and_config_file_arguments() -> None:
     assert "DeclareLaunchArgument" in launch_text
     assert '"node_name"' in launch_text
     assert '"config_file"' in launch_text
-    assert f'FindPackageShare("{package_name}")' in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
     assert f'package="{package_name}"' in launch_text
     assert f'executable="{package_name}_node"' in launch_text
     assert "parameters=[config_file]" in launch_text

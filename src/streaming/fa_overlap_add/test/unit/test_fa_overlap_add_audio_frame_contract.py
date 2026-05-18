@@ -51,8 +51,9 @@ def test_ros2_node_name_and_executable_match_required_contract() -> None:
     assert 'rclcpp::Node("fa_overlap_add_node", options)' in source
     assert "explicit FaOverlapAddNode(const rclcpp::NodeOptions & options" in header
     assert "fa_overlap_add::FaOverlapAddNode" in main_source
-    assert 'default_value="fa_overlap_add_node"' in launch
     assert 'executable="fa_overlap_add_node"' in launch
+    assert "default_value" not in launch
+    assert "FindPackageShare" not in launch
     assert "add_executable(fa_overlap_add_node" in cmake
 
 

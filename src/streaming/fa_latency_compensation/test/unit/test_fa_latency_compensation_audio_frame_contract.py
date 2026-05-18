@@ -68,7 +68,8 @@ def test_node_identity_matches_contract() -> None:
     assert "explicit FaLatencyCompensationNode(" in header
     assert "fa_latency_compensation::FaLatencyCompensationNode" in main_source
     assert 'executable="fa_latency_compensation_node"' in launch
-    assert 'default_value="fa_latency_compensation"' in launch
+    assert "default_value" not in launch
+    assert "FindPackageShare" not in launch
 
 
 def test_startup_validation_fails_closed_for_invalid_config() -> None:

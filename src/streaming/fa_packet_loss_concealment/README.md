@@ -15,7 +15,9 @@
 ## 起動例
 
 ```bash
-ros2 launch fa_packet_loss_concealment fa_packet_loss_concealment.launch.py
+ros2 launch fa_packet_loss_concealment fa_packet_loss_concealment.launch.py \
+  node_name:=fa_packet_loss_concealment_node \
+  config_file:=/path/to/fa_packet_loss_concealment.yaml
 ```
 
 ## 主要 config

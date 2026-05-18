@@ -1,8 +1,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -13,14 +12,11 @@ def generate_launch_description() -> LaunchDescription:
         [
             DeclareLaunchArgument(
                 "node_name",
-                default_value="fa_jitter_buffer_node",
                 description="ノード名",
             ),
             DeclareLaunchArgument(
                 "config_file",
-                default_value=PathJoinSubstitution(
-                    [FindPackageShare("fa_jitter_buffer"), "config", "default.yaml"]
-                ),
+                description="設定ファイルへのパス",
             ),
             Node(
                 package="fa_jitter_buffer",

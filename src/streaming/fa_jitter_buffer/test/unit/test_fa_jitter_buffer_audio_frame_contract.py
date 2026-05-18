@@ -74,7 +74,8 @@ def test_node_identity_matches_contract() -> None:
         package_root() / "src" / "main.cpp"
     ).read_text(encoding="utf-8")
     assert 'executable="fa_jitter_buffer_node"' in launch
-    assert 'default_value="fa_jitter_buffer_node"' in launch
+    assert "default_value" not in launch
+    assert "FindPackageShare" not in launch
 
 
 def test_startup_validation_fails_closed_for_invalid_config() -> None:

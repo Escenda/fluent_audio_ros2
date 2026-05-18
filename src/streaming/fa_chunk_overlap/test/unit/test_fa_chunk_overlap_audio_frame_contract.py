@@ -67,7 +67,8 @@ def test_node_identity_matches_contract() -> None:
     assert "explicit FaChunkOverlapNode(const rclcpp::NodeOptions & options" in header
     assert "fa_chunk_overlap::FaChunkOverlapNode" in main_source
     assert 'executable="fa_chunk_overlap_node"' in launch
-    assert 'default_value="fa_chunk_overlap"' in launch
+    assert "default_value" not in launch
+    assert "FindPackageShare" not in launch
 
 
 def test_startup_validation_fails_closed_for_invalid_config() -> None:
