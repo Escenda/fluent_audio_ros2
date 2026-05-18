@@ -34,6 +34,7 @@ def audio_frame_to_float_samples(
     data: bytes,
     source_id: str,
     stream_id: str,
+    expected_stream_id: str,
     encoding: str,
     layout: str,
     channels: int,
@@ -43,6 +44,10 @@ def audio_frame_to_float_samples(
         raise ValueError("AudioFrame data is required")
     if not source_id or not stream_id:
         raise ValueError("AudioFrame source_id and stream_id are required")
+    if not expected_stream_id:
+        raise ValueError("expected_stream_id is required")
+    if stream_id != expected_stream_id:
+        raise ValueError("AudioFrame stream_id must match input_topic")
     if layout != "interleaved":
         raise ValueError(f"AudioFrame layout must be interleaved, got {layout}")
     if int(channels) != 1:

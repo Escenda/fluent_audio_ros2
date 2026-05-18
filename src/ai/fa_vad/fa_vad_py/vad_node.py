@@ -118,18 +118,12 @@ class FaVadNode(Node):
         self._last_is_speech: Optional[bool] = None
 
         self.get_logger().info(
-            "FA VAD (Silero): input=%s output=%s vad_state=%s "
-            "target_sr=%d start=%.2f end=%.2f hangover=%dms provider=%s model_path=%s command=%s",
-            self._input_topic,
-            self._output_topic,
-            self._vad_state_topic if self._publish_vad_state else "(disabled)",
-            self._target_sample_rate,
-            threshold_start,
-            threshold_end,
-            hangover_ms,
-            execution_provider,
-            model_path,
-            command,
+            "FA VAD (Silero): "
+            f"input={self._input_topic} output={self._output_topic} "
+            f"vad_state={self._vad_state_topic if self._publish_vad_state else '(disabled)'} "
+            f"target_sr={self._target_sample_rate} start={threshold_start:.2f} "
+            f"end={threshold_end:.2f} hangover={hangover_ms}ms "
+            f"provider={execution_provider} model_path={model_path} command={command}"
         )
 
     def _load_backend(
@@ -205,12 +199,12 @@ class FaVadNode(Node):
                 )
             window = self._audio_to_window(msg)
         except ValueError as exc:
-            self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
+            self.get_logger().error(f"Dropping invalid AudioFrame: {exc}")
             return
         try:
             decision = self._vad.update(window)
         except Exception as exc:
-            self.get_logger().fatal("VAD backend failed: %s", exc)
+            self.get_logger().fatal(f"VAD backend failed: {exc}")
             rclpy.shutdown()
             raise
         if decision is None:
@@ -219,9 +213,9 @@ class FaVadNode(Node):
 
         if self._log_events:
             if start:
-                self.get_logger().info("Speech START (prob=%.2f)", probability)
+                self.get_logger().info(f"Speech START (prob={probability:.2f})")
             if end:
-                self.get_logger().info("Speech END (prob=%.2f)", probability)
+                self.get_logger().info(f"Speech END (prob={probability:.2f})")
 
         if self._vad_state_pub is not None:
             out = VadState()
@@ -243,13 +237,13 @@ class FaVadNode(Node):
             vad_msg.data = self._last_is_speech
             self._vad_pub.publish(vad_msg)
 
-    @staticmethod
-    def _audio_to_window(msg: AudioFrame) -> Float32MonoWindow:
+    def _audio_to_window(self, msg: AudioFrame) -> Float32MonoWindow:
         data = bytes(msg.data)
         audio_frame_to_float_samples(
             data=data,
             source_id=msg.source_id,
             stream_id=msg.stream_id,
+            expected_stream_id=self._input_topic,
             encoding=msg.encoding,
             layout=msg.layout,
             channels=int(msg.channels),

@@ -35,13 +35,13 @@ class _BackendCrash(Exception):
 
 class _FakeLogger:
     def __init__(self) -> None:
-        self.fatal_records: list[tuple[str, Exception]] = []
+        self.fatal_records: list[str] = []
 
-    def fatal(self, message: str, exc: Exception) -> None:
-        self.fatal_records.append((message, exc))
+    def fatal(self, message: str) -> None:
+        self.fatal_records.append(message)
 
-    def error(self, message: str, exc: Exception) -> None:
-        del message, exc
+    def error(self, message: str) -> None:
+        del message
 
 
 class _FakeNode:
@@ -316,6 +316,7 @@ def test_vad_frame_contract_accepts_canonical_float32_mono() -> None:
         data=expected.astype("<f4").tobytes(),
         source_id="mic0",
         stream_id="stream0",
+        expected_stream_id="stream0",
         encoding="FLOAT32LE",
         layout="interleaved",
         channels=1,
@@ -331,6 +332,7 @@ def test_vad_frame_contract_accepts_canonical_float32_mono() -> None:
         ({"data": b""}, "AudioFrame data is required"),
         ({"source_id": ""}, "AudioFrame source_id and stream_id are required"),
         ({"stream_id": ""}, "AudioFrame source_id and stream_id are required"),
+        ({"stream_id": "wrong_stream"}, "AudioFrame stream_id must match input_topic"),
         ({"layout": "planar"}, "AudioFrame layout must be interleaved"),
         ({"channels": 2}, "AudioFrame channels must be 1"),
         ({"encoding": "PCM32LE"}, "AudioFrame encoding must be FLOAT32LE"),
@@ -354,6 +356,7 @@ def test_vad_frame_contract_rejects_non_canonical_audio(
         "data": np.array([0.0], dtype=np.float32).tobytes(),
         "source_id": "mic0",
         "stream_id": "stream0",
+        "expected_stream_id": "stream0",
         "encoding": "FLOAT32LE",
         "layout": "interleaved",
         "channels": 1,
@@ -379,6 +382,11 @@ def test_vad_node_source_does_not_hide_format_conversion() -> None:
     assert "_float_to_pcm16" not in source
     assert "astype(np.int16)" not in source
     assert "AudioFrame sample_rate must match target_sample_rate" in source
+    assert "expected_stream_id=self._input_topic" in source
+    assert '"FA VAD (Silero): "' in source
+    assert "Dropping invalid AudioFrame: %s" not in source
+    assert "VAD backend failed: %s" not in source
+    assert "Speech START (prob=%.2f)" not in source
 
 
 def test_vad_node_backend_runtime_failure_is_fail_closed(
@@ -395,6 +403,7 @@ def test_vad_node_backend_runtime_failure_is_fail_closed(
         node = module.FaVadNode.__new__(module.FaVadNode)
         node._logger = _FakeLogger()
         node._target_sample_rate = 16000
+        node._input_topic = "stream0"
         node._vad = _FailingVadBackend()
 
         frame = _FakeAudioFrame(np.array([0.1], dtype=np.float32).tobytes())
@@ -403,10 +412,7 @@ def test_vad_node_backend_runtime_failure_is_fail_closed(
 
         assert shutdown_calls == [True]
         assert len(node._logger.fatal_records) == 1
-        fatal_message, fatal_exception = node._logger.fatal_records[0]
-        assert fatal_message == "VAD backend failed: %s"
-        assert isinstance(fatal_exception, _BackendCrash)
-        assert str(fatal_exception) == "vad backend down"
+        assert node._logger.fatal_records[0] == "VAD backend failed: vad backend down"
     finally:
         sys.modules.pop("fa_vad_py.vad_node", None)
 
