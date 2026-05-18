@@ -308,6 +308,23 @@ def test_all_ros_packages_use_standard_documented_layout() -> None:
     assert missing == []
 
 
+def test_declared_ros_package_readmes_do_not_claim_roadmap_only_status() -> None:
+    violations: list[str] = []
+    forbidden_phrases = (
+        "not a ROS 2 package yet",
+        "Roadmap directory",
+    )
+
+    for package_root in _package_roots():
+        readme = package_root / "README.md"
+        source = readme.read_text(encoding="utf-8")
+        for phrase in forbidden_phrases:
+            if phrase in source:
+                violations.append(f"{readme.relative_to(REPO_ROOT)} contains {phrase}")
+
+    assert violations == []
+
+
 def test_io_taxonomy_exposes_design_source_sink_utility_directories() -> None:
     missing: list[str] = []
 
