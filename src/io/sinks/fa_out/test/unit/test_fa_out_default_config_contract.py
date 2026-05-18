@@ -134,6 +134,8 @@ def test_alsa_playback_backend_rejects_negotiated_timing_changes() -> None:
 
     assert "size_t buffer_frames{0};" in backend_header
     assert "size_t period_frames{0};" in backend_header
+    assert "snd_pcm_hw_params_set_rate_resample(handle, hw_params, 0)" in backend_source
+    assert "Failed to disable ALSA software resampling" in backend_source
     assert backend_source.index("const snd_pcm_uframes_t requested_buffer_size") < backend_source.index(
         "snd_pcm_open"
     )
