@@ -56,6 +56,19 @@ def _patch_profile_package_shares(
     monkeypatch.setattr(config_schema, "_get_package_share_directory", package_share)
 
 
+def test_system_configs_do_not_enable_unmaterialized_fa_format_wrapper() -> None:
+    violations: list[str] = []
+    for config_path in sorted((PACKAGE_ROOT / "config").rglob("*.yaml")):
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        for group in config["groups"]:
+            for node in group["nodes"]:
+                if node["enable"] and node["package"] == "fa_format":
+                    relative_path = config_path.relative_to(PACKAGE_ROOT)
+                    violations.append(f"{relative_path}: {group['id']}/{node['id']}")
+
+    assert violations == []
+
+
 def test_valid_fixture_expands_enabled_nodes_and_remappings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
