@@ -25,6 +25,8 @@ def _settings(
         "{language}",
         "--sample-rate",
         "{sample_rate}",
+        "--expected-sample",
+        "0.125",
     ]
     if output_text_path:
         args.extend(["--output", "{output}"])

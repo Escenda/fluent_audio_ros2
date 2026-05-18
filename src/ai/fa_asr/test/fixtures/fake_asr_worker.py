@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import math
+import struct
 from pathlib import Path
 
 
@@ -11,6 +13,7 @@ def main() -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--language", required=True)
     parser.add_argument("--sample-rate", required=True, type=int)
+    parser.add_argument("--expected-sample", required=True, type=float)
     parser.add_argument("--output", default="")
     args = parser.parse_args()
 
@@ -30,6 +33,13 @@ def main() -> int:
         raise RuntimeError("empty audio")
     if len(audio_bytes) % 4 != 0:
         raise RuntimeError("expected float32le audio")
+    samples = [sample for (sample,) in struct.iter_unpack("<f", audio_bytes)]
+    if not samples:
+        raise RuntimeError("empty float32le audio")
+    if not all(math.isfinite(sample) for sample in samples):
+        raise RuntimeError("expected finite float32le audio")
+    if not all(abs(sample - args.expected_sample) <= 1.0e-7 for sample in samples):
+        raise RuntimeError("unexpected float32le sample values")
 
     transcript = model_path.read_text(encoding="utf-8").strip()
     if args.output:
