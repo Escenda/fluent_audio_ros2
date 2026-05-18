@@ -103,6 +103,9 @@ def test_playback_contract_is_pcm16_only_at_startup() -> None:
     assert "SND_PCM_FORMAT_S32_LE" not in backend_source
     assert "msg.encoding != config_.encoding" in source
     assert "AudioFrame source_id and stream_id are required" in source
+    assert 'constexpr const char * kInputTopic = "audio/output/frame";' in source
+    assert "msg.stream_id != kInputTopic" in source
+    assert "AudioFrame stream_id must match audio/output/frame" in source
     assert "Unsupported audio layout" in source
 
 

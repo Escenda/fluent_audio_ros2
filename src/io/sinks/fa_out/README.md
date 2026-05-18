@@ -13,6 +13,7 @@ ros2 run fa_out fa_out_node --ros-args --params-file install/fa_out/share/fa_out
 
 `config/default.yaml` は site 固有の sink id を空にしています。
 `audio.device_id` を明示しない起動は fail closed します。
+受信した `AudioFrame.stream_id` は `audio/output/frame` と一致する必要があります。topic subscription だけを根拠に、別 stream の frame を speaker sink へ流しません。
 
 主なパラメータ:
 - `audio.device_id`: ALSA raw hardware device id（例: `hw:1,0`）

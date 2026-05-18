@@ -14,6 +14,7 @@ namespace fa_out
 
 namespace
 {
+constexpr const char * kInputTopic = "audio/output/frame";
 constexpr const char * kEncodingPcm16 = "PCM16LE";
 constexpr const char * kInterleavedLayout = "interleaved";
 
@@ -56,7 +57,7 @@ FaOutNode::FaOutNode(const rclcpp::NodeOptions & options, BackendFactory backend
     audio_qos.best_effort();
   }
   audio_sub_ = this->create_subscription<fa_interfaces::msg::AudioFrame>(
-    "audio/output/frame", audio_qos,
+    kInputTopic, audio_qos,
     std::bind(&FaOutNode::handleFrame, this, std::placeholders::_1));
 
   // 停止リクエスト subscription
@@ -419,6 +420,12 @@ bool FaOutNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame source_id and stream_id are required");
+    return false;
+  }
+  if (msg.stream_id != kInputTopic) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "AudioFrame stream_id must match audio/output/frame");
     return false;
   }
   if (msg.layout != kInterleavedLayout) {

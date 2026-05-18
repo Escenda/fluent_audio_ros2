@@ -242,6 +242,16 @@ TEST_F(RclcppContractTest, WritesOnlyFramesMatchingTheConfiguredSinkContract)
   EXPECT_EQ(state->write_calls.load(), 0u);
   EXPECT_FALSE(node->hasFatalError());
 
+  auto wrong_stream = validFrame();
+  wrong_stream.stream_id = "audio/tts/frame";
+  for (int i = 0; i < 4; ++i) {
+    publisher->publish(wrong_stream);
+    executor.spin_some(10ms);
+    std::this_thread::sleep_for(10ms);
+  }
+  EXPECT_EQ(state->write_calls.load(), 0u);
+  EXPECT_FALSE(node->hasFatalError());
+
   publisher->publish(validFrame());
   EXPECT_TRUE(spinUntil(executor, [&state]() {
     return state->frames_written.load() == 2u;
