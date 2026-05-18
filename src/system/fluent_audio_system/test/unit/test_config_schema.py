@@ -406,6 +406,51 @@ def test_streaming_group_accepts_streaming_package(tmp_path: Path) -> None:
     assert spec.groups[0].nodes[0].package == "fa_frame_buffer"
 
 
+@pytest.mark.parametrize(
+    "package_name, executable_name",
+    [
+        ("fa_in", "fa_in_node"),
+        ("fa_file_in", "fa_file_in_node"),
+        ("fa_network_in", "fa_network_in_node"),
+        ("fa_out", "fa_out_node"),
+        ("fa_file_out", "fa_file_out_node"),
+        ("fa_network_out", "fa_network_out_node"),
+        ("fa_record", "fa_record_node"),
+        ("fa_stream", "fa_stream_node"),
+    ],
+)
+def test_io_group_accepts_source_sink_and_io_utility_packages(
+    tmp_path: Path,
+    package_name: str,
+    executable_name: str,
+) -> None:
+    params_file = tmp_path / f"{package_name}.yaml"
+    params_file.write_text(f"{package_name}:\n  ros__parameters: {{}}\n", encoding="utf-8")
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "io",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": package_name,
+                            "enable": True,
+                            "package": package_name,
+                            "exec": executable_name,
+                            "params_file": str(params_file),
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert spec.groups[0].nodes[0].package == package_name
+
+
 def test_format_group_rejects_ai_package_even_when_node_disabled() -> None:
     with pytest.raises(
         RuntimeError,

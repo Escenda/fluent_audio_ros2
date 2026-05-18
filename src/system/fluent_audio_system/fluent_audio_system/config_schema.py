@@ -39,7 +39,11 @@ _STREAMING_PACKAGE_NAMES = (
 )
 _PACKAGE_CATEGORIES = {
     "fa_in": frozenset(("io",)),
+    "fa_file_in": frozenset(("io",)),
+    "fa_network_in": frozenset(("io",)),
     "fa_out": frozenset(("io",)),
+    "fa_file_out": frozenset(("io",)),
+    "fa_network_out": frozenset(("io",)),
     "fa_record": frozenset(("io",)),
     "fa_stream": frozenset(("io",)),
     "fa_resample": frozenset(("format",)),
