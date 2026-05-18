@@ -20,6 +20,8 @@
   <test_depend>fa_file_out</test_depend>
   <test_depend>fa_network_in</test_depend>
   <test_depend>fa_network_out</test_depend>
+  <test_depend>fa_sample_format</test_depend>
+  <test_depend>fa_gain</test_depend>
   <test_depend>fa_interfaces</test_depend>
 
   <export>
