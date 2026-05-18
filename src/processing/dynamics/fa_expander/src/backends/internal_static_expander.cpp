@@ -24,6 +24,16 @@ bool isNormalizedSample(float value)
 }
 }  // namespace
 
+InternalStaticExpanderConfig::InternalStaticExpanderConfig(
+  int channels_value,
+  double threshold_linear_value,
+  double ratio_value)
+: channels(channels_value),
+  threshold_linear(threshold_linear_value),
+  ratio(ratio_value)
+{
+}
+
 InternalStaticExpanderBackend::InternalStaticExpanderBackend(
   const InternalStaticExpanderConfig & config)
 : config_(config)

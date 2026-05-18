@@ -83,6 +83,8 @@ TEST_F(RclcppFixture, PublishesExpandedFloat32Frame)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_expander_test/input"),
     rclcpp::Parameter("output_topic", "/fa_expander_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_expander_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_expander_test/output_stream"),
     rclcpp::Parameter("expander.threshold_linear", 0.5),
     rclcpp::Parameter("expander.ratio", 2.0),
     rclcpp::Parameter("expected.sample_rate", 16000),
@@ -92,6 +94,8 @@ TEST_F(RclcppFixture, PublishesExpandedFloat32Frame)
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 
@@ -117,7 +121,7 @@ TEST_F(RclcppFixture, PublishesExpandedFloat32Frame)
 
   const auto deadline = std::chrono::steady_clock::now() + 3s;
   while (!received.has_value() && std::chrono::steady_clock::now() < deadline) {
-    publisher->publish(makeFloat32Frame(*test_node, "/fa_expander_test/input", 51));
+    publisher->publish(makeFloat32Frame(*test_node, "fa_expander_test/input_stream", 51));
     executor.spin_some(20ms);
     std::this_thread::sleep_for(10ms);
   }
@@ -129,7 +133,7 @@ TEST_F(RclcppFixture, PublishesExpandedFloat32Frame)
 
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "test-mic");
-  EXPECT_EQ(received->stream_id, "/fa_expander_test/output");
+  EXPECT_EQ(received->stream_id, "fa_expander_test/output_stream");
   EXPECT_EQ(received->encoding, "FLOAT32LE");
   EXPECT_EQ(received->sample_rate, 16000U);
   EXPECT_EQ(received->channels, 1U);
@@ -149,6 +153,8 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_expander_drop_test/input"),
     rclcpp::Parameter("output_topic", "/fa_expander_drop_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_expander_drop_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_expander_drop_test/output_stream"),
     rclcpp::Parameter("expander.threshold_linear", 0.5),
     rclcpp::Parameter("expander.ratio", 2.0),
     rclcpp::Parameter("expected.sample_rate", 16000),
@@ -158,6 +164,8 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 
@@ -190,7 +198,7 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
   deadline = std::chrono::steady_clock::now() + 500ms;
   while (std::chrono::steady_clock::now() < deadline) {
     publisher->publish(
-      makeFloat32Frame(*test_node, "/fa_expander_drop_test/wrong_input", 52));
+      makeFloat32Frame(*test_node, "fa_expander_drop_test/wrong_input", 52));
     executor.spin_some(20ms);
     std::this_thread::sleep_for(10ms);
   }

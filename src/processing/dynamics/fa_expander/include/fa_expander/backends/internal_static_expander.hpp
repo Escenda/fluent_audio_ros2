@@ -9,9 +9,15 @@ namespace fa_expander::backends
 
 struct InternalStaticExpanderConfig
 {
-  int channels{-1};
-  double threshold_linear{0.05};
-  double ratio{2.0};
+  InternalStaticExpanderConfig() = delete;
+  InternalStaticExpanderConfig(
+    int channels_value,
+    double threshold_linear_value,
+    double ratio_value);
+
+  int channels;
+  double threshold_linear;
+  double ratio;
 };
 
 enum class ProcessStatus
