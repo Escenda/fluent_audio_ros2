@@ -1,7 +1,10 @@
 fa_high_pass:
   ros__parameters:
-    input_topic: "audio/resample16k/mic"
-    output_topic: "audio/high_pass/mic"
+    input_topic: "fa_high_pass/input"
+    output_topic: "fa_high_pass/output"
+    input_stream_id: "audio/resample16k/mic"
+    output:
+      stream_id: "audio/high_pass/mic"
 
     filter:
       cutoff_hz: 80.0

@@ -54,8 +54,13 @@ def test_default_launch_config_keeps_high_pass_as_frequency_node() -> None:
     )
     params = config["fa_high_pass"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/resample16k/mic"
-    assert params["output_topic"] == "audio/high_pass/mic"
+    assert params["input_topic"] == "fa_high_pass/input"
+    assert params["output_topic"] == "fa_high_pass/output"
+    assert params["input_stream_id"] == "audio/resample16k/mic"
+    assert params["output"]["stream_id"] == "audio/high_pass/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["filter"]["cutoff_hz"] == 80.0
     assert 0.0 < params["filter"]["cutoff_hz"] < params["expected"]["sample_rate"] / 2.0
     assert params["expected"]["sample_rate"] == 16000

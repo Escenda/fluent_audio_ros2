@@ -8,8 +8,13 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_high_pass"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/resample16k/mic"
-    assert params["output_topic"] == "audio/high_pass/mic"
+    assert params["input_topic"] == "fa_high_pass/input"
+    assert params["output_topic"] == "fa_high_pass/output"
+    assert params["input_stream_id"] == "audio/resample16k/mic"
+    assert params["output"]["stream_id"] == "audio/high_pass/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["filter"]["cutoff_hz"] == 80.0
     assert 0.0 < params["filter"]["cutoff_hz"] < params["expected"]["sample_rate"] / 2.0
     assert params["expected"]["sample_rate"] == 16000
@@ -58,7 +63,7 @@ def test_high_pass_validates_frame_contract_before_processing() -> None:
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
     assert "msg.source_id != active_source_id_" in validate_frame
     assert "msg.epoch <= *last_epoch_" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -89,7 +94,7 @@ def test_high_pass_preserves_source_identity_and_updates_stream_identity() -> No
 
     assert "active_source_id_ = in.source_id;" in apply_high_pass
     assert "out = in;" in apply_high_pass
-    assert "out.stream_id = config_.output_topic;" in apply_high_pass
+    assert "out.stream_id = config_.output_stream_id;" in apply_high_pass
     assert ".rms" not in apply_high_pass
     assert ".peak" not in apply_high_pass
     assert ".vad" not in apply_high_pass
@@ -204,12 +209,22 @@ def test_cutoff_parameter_is_required_and_range_checked() -> None:
     )[0]
 
     assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "output_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredDouble(*this, "filter.cutoff_hz")' in load_parameters
     assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
     assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in load_parameters
     assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in load_parameters
     assert "diagnostics.qos.depth must be > 0" in load_parameters
+    assert "input_stream_id is required" in load_parameters
+    assert "output.stream_id is required" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "rclcpp::SystemDefaultsQoS()" not in source
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
