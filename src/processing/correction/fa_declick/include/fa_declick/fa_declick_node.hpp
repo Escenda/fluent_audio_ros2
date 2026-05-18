@@ -1,10 +1,9 @@
 #pragma once
 
 #include <atomic>
-#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -14,10 +13,17 @@
 namespace fa_declick
 {
 
+namespace backends
+{
+class InternalImpulseDeclickBackend;
+}  // namespace backends
+
 struct DeclickConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string resolved_input_topic{};
+  std::string resolved_output_topic{};
   double threshold_delta{-1.0};
   int window_max_samples{-1};
   int expected_sample_rate{-1};
@@ -36,30 +42,21 @@ struct DeclickConfig
 class FaDeclickNode : public rclcpp::Node
 {
 public:
-  FaDeclickNode();
-  ~FaDeclickNode() override = default;
+  explicit FaDeclickNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~FaDeclickNode() override;
 
 private:
   void loadParameters();
+  void configureBackend();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
-  bool validateSamples(const fa_interfaces::msg::AudioFrame & msg);
-  bool applyDeclick(
-    const fa_interfaces::msg::AudioFrame & in,
-    fa_interfaces::msg::AudioFrame & out);
-  size_t detectClickRun(
-    const std::vector<float> & samples,
-    size_t frame_index,
-    size_t channel_index,
-    size_t frame_count,
-    size_t channel_count) const;
-  size_t bytesPerFrame() const;
+  bool applyDeclick(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   DeclickConfig config_;
-  size_t max_click_samples_{0};
+  std::unique_ptr<backends::InternalImpulseDeclickBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;

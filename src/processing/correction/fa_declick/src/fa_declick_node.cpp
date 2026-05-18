@@ -1,18 +1,17 @@
 #include "fa_declick/fa_declick_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_declick/backends/internal_impulse_declick.hpp"
 
 namespace fa_declick
 {
@@ -21,19 +20,10 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
 
-bool isFinite(double value)
+bool isFinite(const double value)
 {
   return std::isfinite(value);
-}
-
-bool isNormalizedSample(double value)
-{
-  return isFinite(value) &&
-    value >= static_cast<double>(kMinNormalizedSample) &&
-    value <= static_cast<double>(kMaxNormalizedSample);
 }
 
 void pushKeyValue(
@@ -46,32 +36,18 @@ void pushKeyValue(
   kv.value = value;
   status.values.push_back(kv);
 }
-
-size_t sampleIndex(size_t frame_index, size_t channel_index, size_t channel_count)
-{
-  return (frame_index * channel_count) + channel_index;
-}
-
-float readFloatSample(const std::vector<uint8_t> & data, size_t sample_index)
-{
-  float sample = 0.0F;
-  std::memcpy(&sample, data.data() + (sample_index * sizeof(float)), sizeof(float));
-  return sample;
-}
-
-void writeFloatSample(std::vector<uint8_t> & data, size_t sample_index, float sample)
-{
-  std::memcpy(data.data() + (sample_index * sizeof(float)), &sample, sizeof(float));
-}
 }  // namespace
 
-FaDeclickNode::FaDeclickNode()
-: rclcpp::Node("fa_declick")
+FaDeclickNode::FaDeclickNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_declick", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Declick node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaDeclickNode::~FaDeclickNode() = default;
 
 void FaDeclickNode::loadParameters()
 {
@@ -110,6 +86,13 @@ void FaDeclickNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
+  config_.resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  config_.resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (config_.resolved_input_topic == config_.resolved_output_topic) {
+    throw std::runtime_error("resolved input_topic and output_topic must be distinct");
+  }
   if (!isFinite(config_.threshold_delta) ||
       config_.threshold_delta <= 0.0 ||
       config_.threshold_delta > 2.0)
@@ -141,8 +124,6 @@ void FaDeclickNode::loadParameters()
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
 
-  max_click_samples_ = static_cast<size_t>(config_.window_max_samples);
-
   RCLCPP_INFO(
     this->get_logger(),
     "Declick config: input=%s output=%s threshold_delta=%f window_max_samples=%d "
@@ -161,9 +142,18 @@ void FaDeclickNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
+void FaDeclickNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalImpulseDeclickBackend>(
+    backends::InternalImpulseDeclickConfig{
+      config_.expected_channels,
+      config_.threshold_delta,
+      config_.window_max_samples});
+}
+
 void FaDeclickNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -189,17 +179,9 @@ void FaDeclickNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr 
   frames_in_.fetch_add(1);
 
   if (!msg) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Received null AudioFrame pointer");
-    frames_dropped_.fetch_add(1);
-    return;
+    throw std::logic_error("received null AudioFrame pointer");
   }
   if (!validateFrame(*msg)) {
-    frames_dropped_.fetch_add(1);
-    return;
-  }
-  if (!validateSamples(*msg)) {
     frames_dropped_.fetch_add(1);
     return;
   }
@@ -210,6 +192,9 @@ void FaDeclickNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr 
     return;
   }
 
+  if (!audio_pub_) {
+    throw std::logic_error("audio publisher is not initialized");
+  }
   audio_pub_->publish(out);
   frames_out_.fetch_add(1);
 }
@@ -262,7 +247,8 @@ bool FaDeclickNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       config_.expected_channels);
     return false;
   }
-  if (msg.data.empty() || (msg.data.size() % bytesPerFrame()) != 0) {
+  const size_t bytes_per_frame = static_cast<size_t>(config_.expected_channels) * sizeof(float);
+  if (msg.data.empty() || (msg.data.size() % bytes_per_frame) != 0) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame data size is invalid for FLOAT32LE interleaved samples");
@@ -271,141 +257,41 @@ bool FaDeclickNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
   return true;
 }
 
-bool FaDeclickNode::validateSamples(const fa_interfaces::msg::AudioFrame & msg)
-{
-  const size_t sample_count = msg.data.size() / sizeof(float);
-  for (size_t sample_index = 0; sample_index < sample_count; ++sample_index) {
-    const float sample = readFloatSample(msg.data, sample_index);
-    if (!isNormalizedSample(static_cast<double>(sample))) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is outside normalized FLOAT32LE range");
-      return false;
-    }
-  }
-  return true;
-}
-
 bool FaDeclickNode::applyDeclick(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
-  const size_t channel_count = static_cast<size_t>(config_.expected_channels);
-  const size_t sample_count = in.data.size() / sizeof(float);
-  const size_t frame_count = in.data.size() / bytesPerFrame();
-  std::vector<float> input_samples(sample_count, 0.0F);
-  std::vector<float> output_samples(sample_count, 0.0F);
-
-  for (size_t sample_index = 0; sample_index < sample_count; ++sample_index) {
-    const float sample = readFloatSample(in.data, sample_index);
-    input_samples.at(sample_index) = sample;
-    output_samples.at(sample_index) = sample;
+  if (!backend_) {
+    throw std::logic_error("declick backend is not initialized");
   }
 
-  uint64_t corrected_samples = 0;
-  uint64_t corrected_runs = 0;
-  if (frame_count >= 3) {
-    for (size_t channel_index = 0; channel_index < channel_count; ++channel_index) {
-      size_t frame_index = 1;
-      while (frame_index + 1 < frame_count) {
-        const size_t run_length = detectClickRun(
-          input_samples, frame_index, channel_index, frame_count, channel_count);
-        if (run_length == 0) {
-          ++frame_index;
-          continue;
-        }
-
-        const float previous = input_samples.at(
-          sampleIndex(frame_index - 1, channel_index, channel_count));
-        const float next = input_samples.at(
-          sampleIndex(frame_index + run_length, channel_index, channel_count));
-        const double corrected = (static_cast<double>(previous) + static_cast<double>(next)) / 2.0;
-        if (!isNormalizedSample(corrected)) {
-          RCLCPP_WARN_THROTTLE(
-            this->get_logger(), *this->get_clock(), 3000,
-            "Dropping frame because declick output is outside normalized FLOAT32LE range");
-          return false;
-        }
-
-        const float corrected_sample = static_cast<float>(corrected);
-        if (!isNormalizedSample(static_cast<double>(corrected_sample))) {
-          RCLCPP_WARN_THROTTLE(
-            this->get_logger(), *this->get_clock(), 3000,
-            "Dropping frame because declick output cannot be represented as normalized FLOAT32LE");
-          return false;
-        }
-
-        for (size_t offset = 0; offset < run_length; ++offset) {
-          output_samples.at(sampleIndex(frame_index + offset, channel_index, channel_count)) =
-            corrected_sample;
-        }
-        corrected_samples += run_length;
-        ++corrected_runs;
-        frame_index += run_length;
-      }
-    }
+  std::vector<uint8_t> processed_data;
+  const backends::ProcessResult result = backend_->process(in.data, processed_data);
+  if (result.status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because declick backend rejected input or output: %s",
+      backends::processStatusMessage(result.status));
+    return false;
   }
 
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-  for (size_t sample_index = 0; sample_index < sample_count; ++sample_index) {
-    writeFloatSample(out.data, sample_index, output_samples.at(sample_index));
-  }
-
-  samples_corrected_.fetch_add(corrected_samples);
-  click_runs_corrected_.fetch_add(corrected_runs);
+  out.data = std::move(processed_data);
+  samples_corrected_.fetch_add(result.samples_corrected);
+  click_runs_corrected_.fetch_add(result.click_runs_corrected);
   return true;
-}
-
-size_t FaDeclickNode::detectClickRun(
-  const std::vector<float> & samples,
-  size_t frame_index,
-  size_t channel_index,
-  size_t frame_count,
-  size_t channel_count) const
-{
-  if (frame_index == 0 || frame_index + 1 >= frame_count) {
-    return 0;
-  }
-
-  const double delta = config_.threshold_delta;
-  const size_t max_window = std::min(max_click_samples_, frame_count - frame_index - 1);
-  const float previous = samples.at(sampleIndex(frame_index - 1, channel_index, channel_count));
-  for (size_t run_length = 1; run_length <= max_window; ++run_length) {
-    const float next = samples.at(sampleIndex(frame_index + run_length, channel_index, channel_count));
-    if (std::abs(static_cast<double>(previous) - static_cast<double>(next)) > delta) {
-      continue;
-    }
-
-    bool all_samples_are_clicks = true;
-    for (size_t offset = 0; offset < run_length; ++offset) {
-      const float current = samples.at(sampleIndex(frame_index + offset, channel_index, channel_count));
-      const bool current_differs_from_previous =
-        std::abs(static_cast<double>(current) - static_cast<double>(previous)) > delta;
-      const bool current_differs_from_next =
-        std::abs(static_cast<double>(current) - static_cast<double>(next)) > delta;
-      if (!current_differs_from_previous || !current_differs_from_next) {
-        all_samples_are_clicks = false;
-        break;
-      }
-    }
-
-    if (all_samples_are_clicks) {
-      return run_length;
-    }
-  }
-
-  return 0;
-}
-
-size_t FaDeclickNode::bytesPerFrame() const
-{
-  return static_cast<size_t>(config_.expected_channels) * sizeof(float);
 }
 
 void FaDeclickNode::publishDiagnostics()
 {
+  if (!diag_pub_) {
+    throw std::logic_error("diagnostics publisher is not initialized");
+  }
+  if (!backend_) {
+    throw std::logic_error("declick backend is not initialized");
+  }
+
   diagnostic_msgs::msg::DiagnosticArray array_msg;
   array_msg.header.stamp = this->now();
 
@@ -413,36 +299,27 @@ void FaDeclickNode::publishDiagnostics()
   status.name = "fa_declick";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(11);
+  status.values.reserve(16);
   pushKeyValue(status, "threshold_delta", std::to_string(config_.threshold_delta));
   pushKeyValue(status, "window_max_samples", std::to_string(config_.window_max_samples));
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "resolved_input_topic", config_.resolved_input_topic);
+  pushKeyValue(status, "resolved_output_topic", config_.resolved_output_topic);
   pushKeyValue(status, "expected_sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected_channels", std::to_string(config_.expected_channels));
+  pushKeyValue(status, "expected_encoding", config_.expected_encoding);
+  pushKeyValue(status, "expected_bit_depth", std::to_string(config_.expected_bit_depth));
+  pushKeyValue(status, "expected_layout", config_.expected_layout);
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
   pushKeyValue(status, "samples_corrected", std::to_string(samples_corrected_.load()));
   pushKeyValue(status, "click_runs_corrected", std::to_string(click_runs_corrected_.load()));
+  pushKeyValue(status, "backend.name", backends::InternalImpulseDeclickBackend::kName);
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);
 }
 
 }  // namespace fa_declick
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_declick::FaDeclickNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_declick"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

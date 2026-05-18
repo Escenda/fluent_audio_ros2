@@ -2,7 +2,7 @@
 
 ## 1. 概要
 
-`internal_impulse_declick` は `fa_declick` ノード内で実行する C++ 実装 backend である。外部 process、device、file、network、モデル推論 backend は使わない。
+`internal_impulse_declick` は `fa_declick` ノードから呼ばれる C++ 実装 backend である。ROS2 topic、ROS2 message、parameter file は知らない。外部 process、device、file、network、モデル推論 backend は使わない。
 
 ## 2. 入力
 
@@ -12,6 +12,8 @@
 - sample range `[-1.0, 1.0]`
 - `channels > 0`
 - `data.size()` は `channels * sizeof(float)` の倍数
+- `threshold.delta` は finite かつ `(0.0, 2.0]`
+- `window.max_samples > 0`
 
 ## 3. 処理
 
@@ -25,7 +27,9 @@ output[current] = (previous + next) / 2
 
 ## 4. 安全境界
 
-この backend はサンプルの明示補正だけを行う。不正入力を検出した場合、呼び出し元は frame を drop する。正規化範囲外の出力を clamp して publish することはない。
+この backend はサンプルの明示補正だけを行う。不正入力を検出した場合は explicit `ProcessStatus` を返し、呼び出し元は frame を drop する。正規化範囲外の出力を clamp して publish することはない。
+
+reject 時は呼び出し元から渡された output buffer を上書きしない。
 
 ## 5. 非責務
 

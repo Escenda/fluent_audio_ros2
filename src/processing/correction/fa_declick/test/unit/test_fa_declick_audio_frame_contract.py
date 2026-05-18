@@ -7,8 +7,14 @@ def package_root() -> Path:
     return Path(__file__).parents[2]
 
 
-def read_source() -> str:
+def read_node_source() -> str:
     return (package_root() / "src" / "fa_declick_node.cpp").read_text(encoding="utf-8")
+
+
+def read_backend_source() -> str:
+    return (
+        package_root() / "src" / "backends" / "internal_impulse_declick.cpp"
+    ).read_text(encoding="utf-8")
 
 
 def test_default_config_requires_float32_interleaved_contract() -> None:
@@ -31,7 +37,7 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
 
 
 def test_declick_does_not_hide_other_processing_or_io_responsibilities() -> None:
-    source = read_source()
+    source = read_node_source() + read_backend_source()
 
     forbidden = (
         "SND_PCM",
@@ -57,15 +63,16 @@ def test_declick_does_not_hide_other_processing_or_io_responsibilities() -> None
 
 
 def test_startup_validation_fails_closed_for_invalid_config() -> None:
-    source = read_source()
+    source = read_node_source()
     load_parameters = source.split("void FaDeclickNode::loadParameters")[1].split(
-        "void FaDeclickNode::setupInterfaces"
+        "void FaDeclickNode::configureBackend"
     )[0]
 
-    assert 'this->declare_parameter<double>("threshold.delta", config_.threshold_delta);' in load_parameters
-    assert 'this->declare_parameter<int>("window.max_samples", config_.window_max_samples);' in load_parameters
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "config_.resolved_input_topic == config_.resolved_output_topic" in load_parameters
     assert "!isFinite(config_.threshold_delta)" in load_parameters
     assert "config_.threshold_delta <= 0.0" in load_parameters
     assert "config_.threshold_delta > 2.0" in load_parameters
@@ -80,10 +87,41 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "throw std::runtime_error" in load_parameters
 
 
-def test_declick_validates_frame_contract_before_processing() -> None:
-    source = read_source()
+def test_qos_uses_validated_depth_without_clamping_fallback() -> None:
+    source = read_node_source()
+    setup = source.split("void FaDeclickNode::setupInterfaces")[1].split(
+        "void FaDeclickNode::handleFrame"
+    )[0]
+
+    assert "rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));" in setup
+    assert "std::max" not in setup
+
+
+def test_backend_is_ros_free_and_node_owns_ros_boundary() -> None:
+    backend_header = (
+        package_root() / "include" / "fa_declick" / "backends" / "internal_impulse_declick.hpp"
+    ).read_text(encoding="utf-8")
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+
+    assert "InternalImpulseDeclickBackend" in backend_header
+    assert "ProcessStatus" in backend_header
+    assert "ProcessResult" in backend_header
+    assert "fa_interfaces/msg/audio_frame" not in backend_header
+    assert "rclcpp" not in backend_header
+    assert "AudioFrame" not in backend_source
+    assert "create_publisher" in node_source
+    assert "create_subscription" in node_source
+    assert "backend_->process(in.data, processed_data)" in node_source
+
+
+def test_declick_validates_frame_contract_before_backend_processing() -> None:
+    source = read_node_source()
     validate_frame = source.split("bool FaDeclickNode::validateFrame")[1].split(
-        "bool FaDeclickNode::validateSamples"
+        "bool FaDeclickNode::applyDeclick"
+    )[0]
+    handle_frame = source.split("void FaDeclickNode::handleFrame")[1].split(
+        "bool FaDeclickNode::validateFrame"
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
@@ -93,39 +131,34 @@ def test_declick_validates_frame_contract_before_processing() -> None:
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
     assert "msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)" in validate_frame
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in validate_frame
-    assert "msg.data.empty() || (msg.data.size() % bytesPerFrame()) != 0" in validate_frame
-    assert "return false;" in validate_frame
-
-
-def test_declick_drops_invalid_samples_before_processing() -> None:
-    source = read_source()
-    handle_frame = source.split("void FaDeclickNode::handleFrame")[1].split(
-        "bool FaDeclickNode::validateFrame"
-    )[0]
-    validate_samples = source.split("bool FaDeclickNode::validateSamples")[1].split(
-        "bool FaDeclickNode::applyDeclick"
-    )[0]
-
-    assert "if (!validateSamples(*msg))" in handle_frame
+    assert "msg.data.empty() || (msg.data.size() % bytes_per_frame) != 0" in validate_frame
+    assert "if (!validateFrame(*msg))" in handle_frame
     assert "if (!applyDeclick(*msg, out))" in handle_frame
-    assert handle_frame.index("if (!validateSamples(*msg))") < handle_frame.index(
+    assert handle_frame.index("if (!validateFrame(*msg))") < handle_frame.index(
         "if (!applyDeclick(*msg, out))"
     )
-    assert "readFloatSample(msg.data, sample_index)" in validate_samples
-    assert "!isNormalizedSample(static_cast<double>(sample))" in validate_samples
-    assert "return false;" in validate_samples
-    assert "std::clamp" not in validate_samples
+
+
+def test_backend_rejects_invalid_samples_instead_of_clamping_or_normalizing() -> None:
+    backend = read_backend_source()
+
+    assert "ProcessStatus::kNonFiniteInput" in backend
+    assert "ProcessStatus::kOutOfRangeInput" in backend
+    assert "ProcessStatus::kNonFiniteOutput" in backend
+    assert "ProcessStatus::kOutOfRangeOutput" in backend
+    assert "std::clamp" not in backend
+    assert "normalize(" not in backend
 
 
 def test_declick_preserves_metadata_and_updates_stream_identity() -> None:
-    source = read_source()
+    source = read_node_source()
     apply_declick = source.split("bool FaDeclickNode::applyDeclick")[1].split(
-        "size_t FaDeclickNode::detectClickRun"
+        "void FaDeclickNode::publishDiagnostics"
     )[0]
 
     assert "out = in;" in apply_declick
     assert "out.stream_id = config_.output_topic;" in apply_declick
-    assert "out.data.resize(in.data.size());" in apply_declick
+    assert "out.data = std::move(processed_data);" in apply_declick
     assert "out.encoding =" not in apply_declick
     assert "out.bit_depth =" not in apply_declick
     assert "out.sample_rate =" not in apply_declick
@@ -133,55 +166,8 @@ def test_declick_preserves_metadata_and_updates_stream_identity() -> None:
     assert "out.layout =" not in apply_declick
 
 
-def test_declick_algorithm_uses_per_channel_previous_current_next_delta_rule() -> None:
-    source = read_source()
-    detect_run = source.split("size_t FaDeclickNode::detectClickRun")[1].split(
-        "size_t FaDeclickNode::bytesPerFrame"
-    )[0]
-
-    assert "const double delta = config_.threshold_delta;" in detect_run
-    assert "const size_t max_window = std::min(max_click_samples_, frame_count - frame_index - 1);" in detect_run
-    assert "sampleIndex(frame_index - 1, channel_index, channel_count)" in detect_run
-    assert "sampleIndex(frame_index + run_length, channel_index, channel_count)" in detect_run
-    assert "std::abs(static_cast<double>(previous) - static_cast<double>(next)) > delta" in detect_run
-    assert "std::abs(static_cast<double>(current) - static_cast<double>(previous)) > delta" in detect_run
-    assert "std::abs(static_cast<double>(current) - static_cast<double>(next)) > delta" in detect_run
-    assert "return run_length;" in detect_run
-
-
-def test_declick_replaces_click_run_with_average_of_boundaries() -> None:
-    source = read_source()
-    apply_declick = source.split("bool FaDeclickNode::applyDeclick")[1].split(
-        "size_t FaDeclickNode::detectClickRun"
-    )[0]
-
-    assert "detectClickRun(" in apply_declick
-    assert "const float previous = input_samples.at(" in apply_declick
-    assert "const float next = input_samples.at(" in apply_declick
-    assert "(static_cast<double>(previous) + static_cast<double>(next)) / 2.0" in apply_declick
-    assert "output_samples.at(sampleIndex(frame_index + offset, channel_index, channel_count)) =" in apply_declick
-    assert "corrected_samples += run_length;" in apply_declick
-    assert "++corrected_runs;" in apply_declick
-    assert "samples_corrected_.fetch_add(corrected_samples);" in apply_declick
-    assert "click_runs_corrected_.fetch_add(corrected_runs);" in apply_declick
-
-
-def test_declick_drops_invalid_output_instead_of_clamping_or_normalizing() -> None:
-    source = read_source()
-    apply_declick = source.split("bool FaDeclickNode::applyDeclick")[1].split(
-        "size_t FaDeclickNode::detectClickRun"
-    )[0]
-
-    assert "if (!isNormalizedSample(corrected))" in apply_declick
-    assert "if (!isNormalizedSample(static_cast<double>(corrected_sample)))" in apply_declick
-    assert "Dropping frame because declick output is outside normalized FLOAT32LE range" in apply_declick
-    assert "return false;" in apply_declick
-    assert "std::clamp" not in apply_declick
-    assert "normalize(" not in apply_declick
-
-
-def test_diagnostics_publish_config_and_counters() -> None:
-    source = read_source()
+def test_diagnostics_publish_config_counters_backend_and_resolved_topics() -> None:
+    source = read_node_source()
     diagnostics = source.split("void FaDeclickNode::publishDiagnostics")[1].split(
         "}  // namespace fa_declick"
     )[0]
@@ -189,12 +175,17 @@ def test_diagnostics_publish_config_and_counters() -> None:
     assert 'status.name = "fa_declick";' in diagnostics
     assert '"threshold_delta"' in diagnostics
     assert '"window_max_samples"' in diagnostics
+    assert '"resolved_input_topic"' in diagnostics
+    assert '"resolved_output_topic"' in diagnostics
+    assert '"expected_encoding"' in diagnostics
+    assert '"expected_bit_depth"' in diagnostics
+    assert '"expected_layout"' in diagnostics
     assert '"frames_in"' in diagnostics
     assert '"frames_out"' in diagnostics
     assert '"frames_dropped"' in diagnostics
     assert '"samples_corrected"' in diagnostics
     assert '"click_runs_corrected"' in diagnostics
-    assert '"output_topic"' in diagnostics
+    assert '"backend.name"' in diagnostics
 
 
 def test_package_layout_matches_standard_processing_layout() -> None:
@@ -206,11 +197,16 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "docs/backends/internal_impulse_declick.md",
         "config/default.yaml",
         "launch/fa_declick.launch.py",
+        "include/fa_declick/backends/internal_impulse_declick.hpp",
         "include/fa_declick/fa_declick_node.hpp",
+        "src/backends/internal_impulse_declick.cpp",
         "src/fa_declick_node.cpp",
+        "src/main.cpp",
+        "test/cpp/test_internal_impulse_declick_backend.cpp",
+        "test/cpp/test_fa_declick_graph.cpp",
         "test/unit/test_fa_declick_audio_frame_contract.py",
+        "test/launch/test_fa_declick_launch_contract.py",
         "test/integration/.gitkeep",
-        "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
     )
 
@@ -218,13 +214,16 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         assert (package_root() / relative_path).exists()
 
 
-def test_colcon_runs_pytest_contracts() -> None:
+def test_colcon_runs_cpp_and_pytest_contracts() -> None:
     cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
-    assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_graph_smoke_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml

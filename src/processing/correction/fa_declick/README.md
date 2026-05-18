@@ -14,6 +14,8 @@
 - 出力 `stream_id` は `output_topic` に更新
 - 入力サンプルは有限な正規化 FLOAT32 `[-1.0, 1.0]`
 - 出力サンプルが正規化範囲外になる場合は clamp せず frame を drop
+- サンプル処理は ROS2 を知らない `internal_impulse_declick` backend に閉じる
+- resolved `input_topic` と `output_topic` が一致する設定は起動失敗
 
 ## パラメータ
 
@@ -39,5 +41,5 @@
 ## 検証
 
 ```bash
-env PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest -p no:cacheprovider src/processing/correction/fa_declick/test/unit -q
+env PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest -p no:cacheprovider src/processing/correction/fa_declick/test/unit src/processing/correction/fa_declick/test/launch -q
 ```
