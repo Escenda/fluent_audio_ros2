@@ -334,6 +334,80 @@ def test_smart_turn_backend_rejects_unsupported_execution_provider_before_worker
         )
 
 
+def test_smart_turn_backend_rejects_missing_execution_provider() -> None:
+    with pytest.raises(RuntimeError, match="backend.execution_provider is required"):
+        SmartTurnOnnxBackend._validate_execution_provider("")
+
+
+def test_smart_turn_backend_rejects_missing_or_invalid_model_file(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.model_path is required"):
+        SmartTurnOnnxBackend._validate_model_file("")
+
+    with pytest.raises(RuntimeError, match="Smart Turn model not found"):
+        SmartTurnOnnxBackend._validate_model_file(str(tmp_path / "missing.onnx"))
+
+    too_small_path = tmp_path / "too-small.onnx"
+    too_small_path.write_bytes(b"onnx")
+    with pytest.raises(RuntimeError, match="Smart Turn model file is too small"):
+        SmartTurnOnnxBackend._validate_model_file(str(too_small_path))
+
+    lfs_pointer_path = tmp_path / "lfs-pointer.onnx"
+    lfs_pointer_path.write_text(
+        "version https://git-lfs.github.com/spec/v1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="Git LFS pointer"):
+        SmartTurnOnnxBackend._validate_model_file(str(lfs_pointer_path))
+
+
+def test_smart_turn_backend_rejects_missing_or_invalid_command(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.command is required"):
+        SmartTurnOnnxBackend._validate_command("")
+
+    with pytest.raises(RuntimeError, match="backend.command not found on PATH"):
+        SmartTurnOnnxBackend._validate_command("fa-turn-detector-missing-worker")
+
+    worker_path = tmp_path / "worker.py"
+    worker_path.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    worker_path.chmod(0o644)
+    with pytest.raises(RuntimeError, match="backend.command is not executable"):
+        SmartTurnOnnxBackend._validate_command(str(worker_path))
+
+
+def test_smart_turn_backend_rejects_invalid_arg_format_contract() -> None:
+    allowed_fields = frozenset(("audio", "model", "provider"))
+    required_fields = frozenset(("audio", "model", "provider"))
+
+    with pytest.raises(RuntimeError, match="backend.args must not be empty"):
+        SmartTurnOnnxBackend._validate_args(
+            args=(),
+            allowed_fields=allowed_fields,
+            required_fields=required_fields,
+            field_label="backend.args",
+        )
+    with pytest.raises(RuntimeError, match="backend.args contains malformed format string"):
+        SmartTurnOnnxBackend._validate_args(
+            args=("{audio", "{model}", "{provider}"),
+            allowed_fields=allowed_fields,
+            required_fields=required_fields,
+            field_label="backend.args",
+        )
+    with pytest.raises(RuntimeError, match="placeholders must not use conversion or format spec"):
+        SmartTurnOnnxBackend._validate_args(
+            args=("{audio!r}", "{model}", "{provider}"),
+            allowed_fields=allowed_fields,
+            required_fields=required_fields,
+            field_label="backend.args",
+        )
+    with pytest.raises(RuntimeError, match="placeholders must not use conversion or format spec"):
+        SmartTurnOnnxBackend._validate_args(
+            args=("{audio:>8}", "{model}", "{provider}"),
+            allowed_fields=allowed_fields,
+            required_fields=required_fields,
+            field_label="backend.args",
+        )
+
+
 def test_turn_detector_node_parameter_helpers_reject_wrong_ros_parameter_types(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -467,6 +541,7 @@ def test_turn_detector_node_source_does_not_hide_parameter_type_conversion() -> 
     assert "float(self.get_parameter" not in source
     assert "str(self.get_parameter" not in source
     assert "tuple(str(" not in source
+    assert "if rclpy.ok():\n            rclpy.shutdown()" in source
 
 
 def test_frame_to_float_rejects_pcm32_payload_before_float_interpretation(
@@ -577,8 +652,12 @@ def test_smart_turn_backend_config_validation_rejects_type_coercion() -> None:
         SmartTurnOnnxBackend._validate_timeout("5.0")
     with pytest.raises(RuntimeError, match="backend.timeout_sec must be a double"):
         SmartTurnOnnxBackend._validate_timeout(5)
+    with pytest.raises(RuntimeError, match="backend.timeout_sec must be greater than zero"):
+        SmartTurnOnnxBackend._validate_timeout(0.0)
     with pytest.raises(RuntimeError, match="backend.cleanup_audio_files must be a bool"):
         SmartTurnOnnxBackend._validate_cleanup_audio_files("false")
+    with pytest.raises(RuntimeError, match="backend.workspace_dir is required"):
+        SmartTurnOnnxBackend._validate_workspace_dir("")
 
 
 def test_turn_detector_node_does_not_import_onnxruntime() -> None:
