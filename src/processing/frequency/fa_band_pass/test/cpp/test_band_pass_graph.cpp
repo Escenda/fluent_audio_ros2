@@ -17,6 +17,8 @@ namespace
 using namespace std::chrono_literals;
 
 constexpr double kPi = 3.14159265358979323846;
+constexpr const char * kInputStreamId = "audio/test/band_pass_input";
+constexpr const char * kOutputStreamId = "audio/test/band_pass_output";
 
 struct BandPassState
 {
@@ -101,7 +103,7 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(
   fa_interfaces::msg::AudioFrame frame;
   frame.header.stamp = node.now();
   frame.source_id = "test-mic";
-  frame.stream_id = "/fa_band_pass_test/input";
+  frame.stream_id = kInputStreamId;
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = 1000;
   frame.channels = 1;
@@ -168,6 +170,8 @@ rclcpp::NodeOptions bandPassNodeOptions()
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_band_pass_test/input"),
     rclcpp::Parameter("output_topic", "/fa_band_pass_test/output"),
+    rclcpp::Parameter("input_stream_id", kInputStreamId),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("filter.low_cut_hz", 100.0),
     rclcpp::Parameter("filter.high_cut_hz", 200.0),
     rclcpp::Parameter("expected.sample_rate", 1000),
@@ -234,7 +238,7 @@ TEST_F(RclcppFixture, PublishesBandPassFilteredFloat32Frame)
     applyBandPass({1.0F, 1.0F}, hp_alpha, lp_alpha, expected_state);
 
   EXPECT_EQ(received[0].source_id, "test-mic");
-  EXPECT_EQ(received[0].stream_id, "/fa_band_pass_test/output");
+  EXPECT_EQ(received[0].stream_id, kOutputStreamId);
   EXPECT_EQ(received[0].encoding, "FLOAT32LE");
   EXPECT_EQ(received[0].sample_rate, 1000U);
   EXPECT_EQ(received[0].channels, 1U);

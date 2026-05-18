@@ -92,6 +92,19 @@ bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
   }
   return parameter.as_bool();
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaBandPassNode::FaBandPassNode(const rclcpp::NodeOptions & options)
@@ -109,6 +122,8 @@ void FaBandPassNode::loadParameters()
 {
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<double>("filter.low_cut_hz");
   this->declare_parameter<double>("filter.high_cut_hz");
   this->declare_parameter<int>("expected.sample_rate");
@@ -124,6 +139,8 @@ void FaBandPassNode::loadParameters()
 
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.low_cut_hz = readRequiredDouble(*this, "filter.low_cut_hz");
   config_.high_cut_hz = readRequiredDouble(*this, "filter.high_cut_hz");
   config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
@@ -143,6 +160,31 @@ void FaBandPassNode::loadParameters()
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (config_.expected_sample_rate <= 0) {
     throw std::runtime_error("expected.sample_rate must be > 0");
@@ -182,9 +224,11 @@ void FaBandPassNode::loadParameters()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Band-pass config: input=%s output=%s low_cut=%fHz high_cut=%fHz expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
+    "Band-pass config: input=%s/%s output=%s/%s low_cut=%fHz high_cut=%fHz expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.low_cut_hz,
     config_.high_cut_hz,
     config_.expected_sample_rate,
@@ -291,12 +335,12 @@ bool FaBandPassNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       *last_epoch_);
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -350,7 +394,7 @@ bool FaBandPassNode::applyBandPass(
     last_epoch_.has_value() && in.epoch != (*last_epoch_ + 1U);
 
   out = in;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   const backends::ProcessStatus status = backend_->process(in.data, out.data, should_reset_state);
   if (status != backends::ProcessStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
@@ -384,7 +428,11 @@ void FaBandPassNode::publishDiagnostics()
   status.name = "fa_band_pass";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(10);
+  status.values.reserve(13);
+  pushKeyValue(status, "input_topic", config_.input_topic);
+  pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "filter_low_cut_hz", std::to_string(config_.low_cut_hz));
   pushKeyValue(status, "filter_high_cut_hz", std::to_string(config_.high_cut_hz));
   pushKeyValue(status, "hp_alpha", std::to_string(backend_->highPassAlpha()));
@@ -394,7 +442,6 @@ void FaBandPassNode::publishDiagnostics()
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
-  pushKeyValue(status, "output_topic", config_.output_topic);
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);

@@ -55,8 +55,13 @@ def test_default_launch_config_keeps_band_pass_as_frequency_node() -> None:
     )
     params = config["fa_band_pass"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/sample_format/mic"
-    assert params["output_topic"] == "audio/band_pass/mic"
+    assert params["input_topic"] == "fa_band_pass/input"
+    assert params["output_topic"] == "fa_band_pass/output"
+    assert params["input_stream_id"] == "audio/sample_format/mic"
+    assert params["output"]["stream_id"] == "audio/band_pass/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["filter"]["low_cut_hz"] == 80.0
     assert params["filter"]["high_cut_hz"] == 3400.0
     assert 0.0 < params["filter"]["low_cut_hz"] < params["filter"]["high_cut_hz"]

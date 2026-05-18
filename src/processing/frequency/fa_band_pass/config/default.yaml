@@ -1,7 +1,10 @@
 fa_band_pass:
   ros__parameters:
-    input_topic: "audio/sample_format/mic"
-    output_topic: "audio/band_pass/mic"
+    input_topic: "fa_band_pass/input"
+    output_topic: "fa_band_pass/output"
+    input_stream_id: "audio/sample_format/mic"
+    output:
+      stream_id: "audio/band_pass/mic"
 
     filter:
       low_cut_hz: 80.0

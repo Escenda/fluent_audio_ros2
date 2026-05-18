@@ -15,8 +15,13 @@ def test_default_config_requires_float32_interleaved_band_pass_contract() -> Non
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_band_pass"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/sample_format/mic"
-    assert params["output_topic"] == "audio/band_pass/mic"
+    assert params["input_topic"] == "fa_band_pass/input"
+    assert params["output_topic"] == "fa_band_pass/output"
+    assert params["input_stream_id"] == "audio/sample_format/mic"
+    assert params["output"]["stream_id"] == "audio/band_pass/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["filter"]["low_cut_hz"] == 80.0
     assert params["filter"]["high_cut_hz"] == 3400.0
     assert 0.0 < params["filter"]["low_cut_hz"] < params["filter"]["high_cut_hz"]
@@ -65,6 +70,9 @@ def test_band_pass_validates_startup_config_fail_closed() -> None:
     )[0]
 
     assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "output_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredDouble(*this, "filter.low_cut_hz")' in load_parameters
     assert 'readRequiredDouble(*this, "filter.high_cut_hz")' in load_parameters
     assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
@@ -78,6 +86,13 @@ def test_band_pass_validates_startup_config_fail_closed() -> None:
             assert ", config_." not in line
     assert 'throw std::runtime_error("input_topic is required");' in load_parameters
     assert 'throw std::runtime_error("output_topic is required");' in load_parameters
+    assert "input_stream_id is required" in load_parameters
+    assert "output.stream_id is required" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "const double nyquist_hz = static_cast<double>(config_.expected_sample_rate) / 2.0;" in load_parameters
     assert "!isFinite(config_.low_cut_hz)" in load_parameters
     assert "config_.low_cut_hz <= 0.0" in load_parameters
@@ -100,7 +115,7 @@ def test_band_pass_validates_frame_contract_before_processing() -> None:
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
     assert "msg.source_id != active_source_id_" in validate_frame
     assert "msg.epoch <= *last_epoch_" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -129,7 +144,7 @@ def test_band_pass_preserves_source_identity_and_updates_stream_identity() -> No
 
     assert "active_source_id_ = in.source_id;" in apply_band_pass
     assert "out = in;" in apply_band_pass
-    assert "out.stream_id = config_.output_topic;" in apply_band_pass
+    assert "out.stream_id = config_.output_stream_id;" in apply_band_pass
     assert ".rms" not in apply_band_pass
     assert ".peak" not in apply_band_pass
     assert ".vad" not in apply_band_pass
@@ -237,6 +252,10 @@ def test_band_pass_diagnostics_include_filter_state_and_counters() -> None:
     diagnostics = source.split("void FaBandPassNode::publishDiagnostics")[1]
 
     assert 'status.name = "fa_band_pass";' in diagnostics
+    assert 'pushKeyValue(status, "input_topic", config_.input_topic);' in diagnostics
+    assert 'pushKeyValue(status, "output_topic", config_.output_topic);' in diagnostics
+    assert 'pushKeyValue(status, "input_stream_id", config_.input_stream_id);' in diagnostics
+    assert 'pushKeyValue(status, "output_stream_id", config_.output_stream_id);' in diagnostics
     assert 'pushKeyValue(status, "filter_low_cut_hz", std::to_string(config_.low_cut_hz));' in diagnostics
     assert 'pushKeyValue(status, "filter_high_cut_hz", std::to_string(config_.high_cut_hz));' in diagnostics
     assert 'pushKeyValue(status, "hp_alpha", std::to_string(backend_->highPassAlpha()));' in diagnostics
