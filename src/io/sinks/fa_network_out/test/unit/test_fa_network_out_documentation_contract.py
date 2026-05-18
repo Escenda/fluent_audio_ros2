@@ -39,5 +39,9 @@ def test_fa_network_out_runtime_parameters_are_required_not_defaulted() -> None:
     assert 'declare_parameter("input_topic", config_.input_topic)' not in source
     assert 'declare_parameter<int>("qos.depth", config_.qos_depth)' not in source
     assert 'declare_parameter<bool>("qos.reliable", config_.qos_reliable)' not in source
+    assert "std::max<int>" not in source
+    assert "SystemDefaultsQoS" not in source
     assert 'readRequiredString(*this, "input_topic")' in source
     assert 'readRequiredBool(*this, "qos.reliable")' in source
+    assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in source
+    assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in source

@@ -1,6 +1,5 @@
 #include "fa_network_out/fa_network_out_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <limits>
 #include <stdexcept>
@@ -128,6 +127,8 @@ void FaNetworkOutNode::loadParameters()
   this->declare_parameter<int>("qos.depth");
   this->declare_parameter<bool>("qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
+  this->declare_parameter<int>("diagnostics.qos.depth");
+  this->declare_parameter<bool>("diagnostics.qos.reliable");
 
   config_.backend_name = readRequiredString(*this, "backend.name");
   config_.endpoint_uri = readRequiredString(*this, "endpoint.uri");
@@ -142,6 +143,8 @@ void FaNetworkOutNode::loadParameters()
   config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
   config_.diagnostics_publish_period_ms = readRequiredInt(
     *this, "diagnostics.publish_period_ms");
+  config_.diagnostics_qos_depth = readRequiredInt(*this, "diagnostics.qos.depth");
+  config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
 }
 
 void FaNetworkOutNode::validateConfig() const
@@ -167,6 +170,7 @@ void FaNetworkOutNode::validateConfig() const
   requirePositive("expected.bit_depth", config_.expected_bit_depth);
   requirePositive("qos.depth", config_.qos_depth);
   requirePositive("diagnostics.publish_period_ms", config_.diagnostics_publish_period_ms);
+  requirePositive("diagnostics.qos.depth", config_.diagnostics_qos_depth);
 
   if (config_.expected_layout != kInterleavedLayout) {
     throw std::runtime_error("expected.layout must be interleaved");
@@ -201,11 +205,18 @@ void FaNetworkOutNode::openEndpoint()
 
 void FaNetworkOutNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
     qos.best_effort();
+  }
+
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
   }
 
   audio_sub_ = this->create_subscription<fa_interfaces::msg::AudioFrame>(
@@ -214,7 +225,7 @@ void FaNetworkOutNode::setupInterfaces()
     std::bind(&FaNetworkOutNode::handleFrame, this, std::placeholders::_1));
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics",
-    rclcpp::SystemDefaultsQoS());
+    diagnostics_qos);
   diag_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.diagnostics_publish_period_ms),
     std::bind(&FaNetworkOutNode::publishDiagnostics, this));

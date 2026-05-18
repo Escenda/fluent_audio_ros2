@@ -1,6 +1,5 @@
 #include "fa_file_in/fa_file_in_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <limits>
 #include <stdexcept>
@@ -134,6 +133,8 @@ void FaFileInNode::loadParameters()
   this->declare_parameter<int>("qos.depth");
   this->declare_parameter<bool>("qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
+  this->declare_parameter<int>("diagnostics.qos.depth");
+  this->declare_parameter<bool>("diagnostics.qos.reliable");
 
   config_.backend_name = readRequiredString(*this, "backend.name");
   config_.file_path = readRequiredString(*this, "file.path");
@@ -152,6 +153,8 @@ void FaFileInNode::loadParameters()
   config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
   config_.diagnostics_publish_period_ms = readRequiredInt(
     *this, "diagnostics.publish_period_ms");
+  config_.diagnostics_qos_depth = readRequiredInt(*this, "diagnostics.qos.depth");
+  config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
 }
 
 void FaFileInNode::validateConfig() const
@@ -182,6 +185,7 @@ void FaFileInNode::validateConfig() const
   requirePositiveUint32("playback.publish_period_ms", config_.playback_publish_period_ms);
   requirePositiveUint32("qos.depth", config_.qos_depth);
   requirePositiveUint32("diagnostics.publish_period_ms", config_.diagnostics_publish_period_ms);
+  requirePositiveUint32("diagnostics.qos.depth", config_.diagnostics_qos_depth);
 
   if (config_.expected_layout != kInterleavedLayout) {
     throw std::runtime_error("expected.layout must be interleaved");
@@ -222,17 +226,24 @@ void FaFileInNode::openFile()
 
 void FaFileInNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
     qos.best_effort();
   }
 
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
+  }
+
   audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(config_.output_topic, qos);
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics",
-    rclcpp::SystemDefaultsQoS());
+    diagnostics_qos);
 
   publish_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.playback_publish_period_ms),

@@ -1,6 +1,5 @@
 #include "fa_network_in/fa_network_in_node.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <limits>
 #include <stdexcept>
@@ -133,6 +132,8 @@ void FaNetworkInNode::loadParameters()
   this->declare_parameter<int>("qos.depth");
   this->declare_parameter<bool>("qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
+  this->declare_parameter<int>("diagnostics.qos.depth");
+  this->declare_parameter<bool>("diagnostics.qos.reliable");
 
   config_.backend_name = readRequiredString(*this, "backend.name");
   config_.endpoint_uri = readRequiredString(*this, "endpoint.uri");
@@ -151,6 +152,8 @@ void FaNetworkInNode::loadParameters()
   config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
   config_.diagnostics_publish_period_ms = readRequiredInt(
     *this, "diagnostics.publish_period_ms");
+  config_.diagnostics_qos_depth = readRequiredInt(*this, "diagnostics.qos.depth");
+  config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
 }
 
 void FaNetworkInNode::validateConfig() const
@@ -184,6 +187,7 @@ void FaNetworkInNode::validateConfig() const
   requirePositive("polling.period_ms", config_.polling_period_ms);
   requirePositive("qos.depth", config_.qos_depth);
   requirePositive("diagnostics.publish_period_ms", config_.diagnostics_publish_period_ms);
+  requirePositive("diagnostics.qos.depth", config_.diagnostics_qos_depth);
 
   if (config_.expected_layout != kInterleavedLayout) {
     throw std::runtime_error("expected.layout must be interleaved");
@@ -224,17 +228,24 @@ void FaNetworkInNode::openEndpoint()
 
 void FaNetworkInNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
     qos.best_effort();
   }
 
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
+  }
+
   audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(config_.output_topic, qos);
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics",
-    rclcpp::SystemDefaultsQoS());
+    diagnostics_qos);
   poll_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.polling_period_ms),
     std::bind(&FaNetworkInNode::pollEndpoint, this));

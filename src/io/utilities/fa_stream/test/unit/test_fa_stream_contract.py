@@ -64,6 +64,10 @@ def test_required_parameters_have_no_runtime_defaults() -> None:
 
     assert "_required_string_parameter" in source
     assert "is required" in source
+    assert "Parameter.Type.NOT_SET" in source
+    assert "Parameter.Type.STRING" in source
+    assert "must be a string parameter" in source
+    assert "get_parameter(name).get_parameter_value().string_value" not in source
     assert "NetworkStreamerBackend" in source
 
 

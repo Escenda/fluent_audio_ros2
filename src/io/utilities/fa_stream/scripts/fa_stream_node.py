@@ -10,6 +10,7 @@ import sys
 
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 
 from fa_interfaces.msg import AudioFrame
 from fa_stream_py.backends.network_streamer import (
@@ -65,7 +66,12 @@ class FaStreamNode(Node):
         )
 
     def _required_string_parameter(self, name: str) -> str:
-        value = self.get_parameter(name).get_parameter_value().string_value.strip()
+        parameter = self.get_parameter(name)
+        if parameter.type_ == Parameter.Type.NOT_SET:
+            raise RuntimeError(f"{name} is required")
+        if parameter.type_ != Parameter.Type.STRING:
+            raise RuntimeError(f"{name} must be a string parameter")
+        value = parameter.get_parameter_value().string_value.strip()
         if not value:
             raise RuntimeError(f"{name} is required")
         return value
