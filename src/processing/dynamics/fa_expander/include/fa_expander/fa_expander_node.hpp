@@ -37,7 +37,7 @@ struct ExpanderConfig
 class FaExpanderNode : public rclcpp::Node
 {
 public:
-  FaExpanderNode();
+  explicit FaExpanderNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaExpanderNode() override;
 
 private:

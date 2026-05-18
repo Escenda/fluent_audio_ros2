@@ -12,7 +12,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "node_name",
-            default_value="fa_expander_node",
+            default_value="fa_expander",
             description="ノード名",
         ),
         DeclareLaunchArgument(

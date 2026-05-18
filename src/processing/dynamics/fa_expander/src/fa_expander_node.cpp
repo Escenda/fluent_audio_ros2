@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -37,8 +36,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaExpanderNode::FaExpanderNode()
-: rclcpp::Node("fa_expander")
+FaExpanderNode::FaExpanderNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_expander", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Expander node");
   loadParameters();
@@ -297,18 +296,3 @@ void FaExpanderNode::publishDiagnostics()
 }
 
 }  // namespace fa_expander
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_expander::FaExpanderNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_expander"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}
