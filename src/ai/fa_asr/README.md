@@ -9,6 +9,8 @@
 - Sub: `conversation/turn_context` (`fa_interfaces/msg/TurnContext`)
 - Pub: `voice/asr/result` (`fa_interfaces/msg/AsrResult`)
 
+`expected_source_id` / `expected_stream_id` は必須です。受信した `AudioFrame.source_id` は `expected_source_id`、`AudioFrame.stream_id` は `expected_stream_id` と一致する必要があります。別 source / stream の audio frame は ASR buffer に混ぜず reject します。
+
 ## バックエンド契約
 
 `backend.name` は必須です。対応する backend は `local_command`, `whisper_cpp`, `parakeet_worker`, `openai_realtime`, `openai_transcriptions` です。

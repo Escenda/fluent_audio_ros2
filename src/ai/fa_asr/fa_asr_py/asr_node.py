@@ -35,6 +35,8 @@ class FaAsrNode(Node):
         self.declare_parameter("vad_topic", "voice/vad_state")
         self.declare_parameter("turn_context_topic", "conversation/turn_context")
         self.declare_parameter("asr_result_topic", "voice/asr/result")
+        self.declare_parameter("expected_source_id", "")
+        self.declare_parameter("expected_stream_id", "")
         self.declare_parameter("target_sample_rate", 16000)
         self.declare_parameter("min_audio_sec", 0.3)
         self.declare_parameter("silence_timeout_sec", 10.0)
@@ -58,6 +60,12 @@ class FaAsrNode(Node):
         self.vad_topic = self._string_parameter("vad_topic")
         self.turn_context_topic = self._string_parameter("turn_context_topic")
         self.asr_result_topic = self._string_parameter("asr_result_topic")
+        self.expected_source_id = self._string_parameter("expected_source_id").strip()
+        if not self.expected_source_id:
+            raise RuntimeError("expected_source_id is required")
+        self.expected_stream_id = self._string_parameter("expected_stream_id").strip()
+        if not self.expected_stream_id:
+            raise RuntimeError("expected_stream_id is required")
         self.target_sample_rate = self._integer_parameter("target_sample_rate")
         self.min_audio_sec = self._double_parameter("min_audio_sec")
         self.silence_timeout_sec = self._double_parameter("silence_timeout_sec")
@@ -107,8 +115,10 @@ class FaAsrNode(Node):
         self._worker.start()
 
         self.get_logger().info(
-            "fa_asr started: audio=%s vad=%s turn_context=%s result=%s target_sr=%d backend.name=%s",
+            "fa_asr started: audio=%s expected_source_id=%s expected_stream_id=%s vad=%s turn_context=%s result=%s target_sr=%d backend.name=%s",
             self.audio_topic,
+            self.expected_source_id,
+            self.expected_stream_id,
             self.vad_topic,
             self.turn_context_topic,
             self.asr_result_topic,
@@ -221,7 +231,11 @@ class FaAsrNode(Node):
                     "AudioFrame sample_rate must match target_sample_rate "
                     f"{self.target_sample_rate}, got {msg.sample_rate}"
                 )
-            samples = self._frame_to_float(msg)
+            samples = self._frame_to_float(
+                msg,
+                expected_source_id=self.expected_source_id,
+                expected_stream_id=self.expected_stream_id,
+            )
         except ValueError as exc:
             self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
             return
@@ -318,11 +332,24 @@ class FaAsrNode(Node):
             )
 
     @staticmethod
-    def _frame_to_float(msg: AudioFrame) -> np.ndarray:
+    def _frame_to_float(
+        msg: AudioFrame,
+        *,
+        expected_source_id: str,
+        expected_stream_id: str,
+    ) -> np.ndarray:
         if not msg.data:
             raise ValueError("AudioFrame data is required")
         if not msg.source_id or not msg.stream_id:
             raise ValueError("AudioFrame source_id and stream_id are required")
+        if not expected_source_id:
+            raise ValueError("expected_source_id is required")
+        if not expected_stream_id:
+            raise ValueError("expected_stream_id is required")
+        if msg.source_id != expected_source_id:
+            raise ValueError("AudioFrame source_id must match expected_source_id")
+        if msg.stream_id != expected_stream_id:
+            raise ValueError("AudioFrame stream_id must match expected_stream_id")
         if msg.layout != "interleaved":
             raise ValueError(f"AudioFrame layout must be interleaved, got {msg.layout}")
         if int(msg.channels) != 1:

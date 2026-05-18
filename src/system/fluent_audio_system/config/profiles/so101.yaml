@@ -124,6 +124,7 @@ groups:
         remappings: {}
         parameters:
           audio_topic: "audio/resample16k/mic"
+          expected_stream_id: "audio/resample16k/mic"
 
       - id: fa_turn_detector
         enable: false

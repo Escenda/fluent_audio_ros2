@@ -278,6 +278,10 @@ def test_default_config_requires_explicit_backend_name() -> None:
     assert params["backend.openai_realtime.api_key_env"] == ""
     assert params["backend.openai_transcriptions.api_key_env"] == ""
     assert params["backend.args"] == []
+    assert params["expected_source_id"] == ""
+    assert params["expected_stream_id"] == ""
+    assert 'declare_parameter("expected_source_id", "")' in source
+    assert 'declare_parameter("expected_stream_id", "")' in source
     assert "ParameterUninitializedException" not in source
     assert "return tuple()" not in source
     assert "tuple(str(part) for part in args_value)" not in source
@@ -382,6 +386,9 @@ def test_asr_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame data is required" in source
     assert "AudioFrame channels must be 1" in source
     assert "AudioFrame source_id and stream_id are required" in source
+    assert "AudioFrame source_id must match expected_source_id" in source
+    assert "AudioFrame stream_id must match expected_stream_id" in source
+    assert "expected_stream_id=self.expected_stream_id" in source
     assert "AudioFrame layout must be interleaved" in source
     assert "AudioFrame encoding must be FLOAT32LE" in source
     assert "AudioFrame bit_depth must be 32" in source
@@ -397,7 +404,11 @@ def test_asr_node_rejects_empty_audio_data(monkeypatch: pytest.MonkeyPatch) -> N
     try:
         module = importlib.import_module("fa_asr_py.asr_node")
         with pytest.raises(ValueError, match="AudioFrame data is required"):
-            module.FaAsrNode._frame_to_float(_FakeAudioFrame(b""))
+            module.FaAsrNode._frame_to_float(
+                _FakeAudioFrame(b""),
+                expected_source_id="mic0",
+                expected_stream_id="stream0",
+            )
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
@@ -416,6 +427,8 @@ def test_asr_node_rejects_empty_audio_data_from_callback(
         node._context_active = True
         node._active_session_id = "session-1"
         node.target_sample_rate = 16000
+        node.expected_source_id = "mic0"
+        node.expected_stream_id = "stream0"
         node._samples = []
         node._samples_lock = threading.Lock()
 
@@ -443,7 +456,39 @@ def test_asr_node_rejects_non_float32le_encoding(
         frame.encoding = "PCM32LE"
 
         with pytest.raises(ValueError, match="AudioFrame encoding must be FLOAT32LE"):
-            module.FaAsrNode._frame_to_float(frame)
+            module.FaAsrNode._frame_to_float(
+                frame,
+                expected_source_id="mic0",
+                expected_stream_id="stream0",
+            )
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
+def test_asr_node_rejects_unbound_source_or_stream_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        frame = _FakeAudioFrame(np.zeros(160, dtype=np.float32).tobytes())
+
+        with pytest.raises(ValueError, match="AudioFrame source_id must match expected_source_id"):
+            module.FaAsrNode._frame_to_float(
+                frame,
+                expected_source_id="mic1",
+                expected_stream_id="stream0",
+            )
+
+        with pytest.raises(ValueError, match="AudioFrame stream_id must match expected_stream_id"):
+            module.FaAsrNode._frame_to_float(
+                frame,
+                expected_source_id="mic0",
+                expected_stream_id="audio/other",
+            )
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
