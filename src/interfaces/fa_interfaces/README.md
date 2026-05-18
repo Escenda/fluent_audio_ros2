@@ -9,6 +9,7 @@
 - `fa_interfaces/msg/LogMelFrame`
 - `fa_interfaces/msg/MfccFrame`
 - `fa_interfaces/msg/OnsetFrame`
+- `fa_interfaces/msg/PitchFrame`
 - `fa_interfaces/msg/AsrResult`
 - `fa_interfaces/msg/PlaybackDone`
 - `fa_interfaces/msg/TurnContext`

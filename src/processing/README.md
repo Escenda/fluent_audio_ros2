@@ -49,6 +49,6 @@ and must not be counted as implemented package coverage.
 | `temporal/` | `fa_delay`, `fa_echo`, `fa_reverb`, `fa_trim`, `fa_silence_removal`, `fa_fade`, `fa_window` | implemented packages |
 | `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise`, `fa_declick`, `fa_hum`, `fa_dc_offset_removal` | implemented packages |
 | `spatial/` | `fa_pan`, `fa_stereo_widening`, `fa_downmix`, `fa_upmix`, `fa_beamforming` | implemented packages |
-| `analysis/` | `fa_log_mel`, `fa_loudness`, `fa_mfcc`, `fa_onset`, `fa_stft` | implemented packages |
+| `analysis/` | `fa_log_mel`, `fa_loudness`, `fa_mfcc`, `fa_onset`, `fa_pitch`, `fa_stft` | implemented packages |
 | `generation/` | `fa_tts` | implemented package |
 | `routing/` | `fa_mix`, `fa_bus_router`, `fa_sidechain`, `fa_ducking`, `fa_monitor_mix`, `fa_loopback`, `fa_patchbay` | implemented packages |

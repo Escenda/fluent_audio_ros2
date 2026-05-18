@@ -1,0 +1,17 @@
+std_msgs/Header header
+string source_id
+string stream_id
+uint32 sample_rate
+uint32 input_sample_count
+uint32 n_fft
+uint32 hop_length
+uint32 frame_count
+float32 f_min_hz
+float32 f_max_hz
+float32 confidence_threshold
+string method
+string layout
+float32[] frame_times_sec
+float32[] frequencies_hz
+float32[] confidence
+bool[] voiced

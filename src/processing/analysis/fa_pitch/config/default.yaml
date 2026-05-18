@@ -1,0 +1,18 @@
+fa_pitch:
+  ros__parameters:
+    input_topic: "audio/features/input"
+    output_topic: "audio/features/pitch"
+    backend.name: "internal_autocorrelation"
+    expected.sample_rate: 16000
+    expected.channels: 1
+    expected.encoding: "FLOAT32LE"
+    expected.bit_depth: 32
+    expected.layout: "interleaved"
+    feature.n_fft: 400
+    feature.hop_length: 160
+    feature.method: "autocorrelation"
+    feature.f_min_hz: 80.0
+    feature.f_max_hz: 800.0
+    detector.confidence_threshold: 0.3
+    qos.depth: 10
+    qos.reliable: false

@@ -25,4 +25,5 @@ Only directories with `package.xml` are ROS 2 packages.
 | `fa_loudness/` | ROS 2 package |
 | `fa_mfcc/` | ROS 2 package |
 | `fa_onset/` | ROS 2 package |
+| `fa_pitch/` | ROS 2 package |
 | `fa_stft/` | ROS 2 package |

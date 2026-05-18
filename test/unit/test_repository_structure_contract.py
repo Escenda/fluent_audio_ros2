@@ -173,6 +173,7 @@ ANALYSIS_PACKAGE_NAMES = (
     "fa_loudness",
     "fa_mfcc",
     "fa_onset",
+    "fa_pitch",
     "fa_stft",
 )
 

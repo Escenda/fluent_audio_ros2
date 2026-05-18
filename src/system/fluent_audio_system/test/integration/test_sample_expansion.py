@@ -389,6 +389,7 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
         "fa_loudness",
         "fa_mfcc",
         "fa_onset",
+        "fa_pitch",
         "fa_stft",
     }
     assert analysis_nodes["fa_loudness"]["enable"] is False
@@ -420,6 +421,17 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
         "feature.n_fft": 320,
         "feature.hop_length": 160,
         "detector.threshold": 0.1,
+    }
+    assert analysis_nodes["fa_pitch"]["enable"] is False
+    assert analysis_nodes["fa_pitch"]["package"] == "fa_pitch"
+    assert analysis_nodes["fa_pitch"]["params_file"] == (
+        "${share:fa_pitch}/config/default.yaml"
+    )
+    assert analysis_nodes["fa_pitch"]["parameters"] == {
+        "input_topic": "audio/resample16k/mic",
+        "feature.n_fft": 320,
+        "feature.hop_length": 160,
+        "feature.f_min_hz": 80.0,
     }
 
 
