@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
@@ -11,6 +12,11 @@
 
 namespace fa_dc_offset_removal
 {
+
+namespace backends
+{
+class InternalFrameMeanBackend;
+}  // namespace backends
 
 struct DcOffsetRemovalConfig
 {
@@ -33,18 +39,20 @@ class FaDcOffsetRemovalNode : public rclcpp::Node
 {
 public:
   FaDcOffsetRemovalNode();
-  ~FaDcOffsetRemovalNode() override = default;
+  ~FaDcOffsetRemovalNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool removeDcOffset(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   DcOffsetRemovalConfig config_;
+  std::unique_ptr<backends::InternalFrameMeanBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;

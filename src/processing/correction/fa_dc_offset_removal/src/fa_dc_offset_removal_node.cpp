@@ -2,17 +2,15 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_dc_offset_removal/backends/internal_frame_mean.hpp"
 
 namespace fa_dc_offset_removal
 {
@@ -39,8 +37,11 @@ FaDcOffsetRemovalNode::FaDcOffsetRemovalNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA DC Offset Removal node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaDcOffsetRemovalNode::~FaDcOffsetRemovalNode() = default;
 
 void FaDcOffsetRemovalNode::loadParameters()
 {
@@ -112,6 +113,12 @@ void FaDcOffsetRemovalNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
+void FaDcOffsetRemovalNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalFrameMeanBackend>(
+    backends::InternalFrameMeanConfig{config_.expected_channels});
+}
+
 void FaDcOffsetRemovalNode::setupInterfaces()
 {
   rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
@@ -138,6 +145,14 @@ void FaDcOffsetRemovalNode::setupInterfaces()
 void FaDcOffsetRemovalNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   frames_in_.fetch_add(1);
+
+  if (!msg) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping null AudioFrame pointer");
+    frames_dropped_.fetch_add(1);
+    return;
+  }
 
   if (!validateFrame(*msg)) {
     frames_dropped_.fetch_add(1);
@@ -217,57 +232,15 @@ bool FaDcOffsetRemovalNode::removeDcOffset(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
-  const size_t channel_count = static_cast<size_t>(config_.expected_channels);
-  const size_t sample_count = in.data.size() / sizeof(float);
-  const size_t frame_count = sample_count / channel_count;
-  std::vector<double> channel_sums(channel_count, 0.0);
-  std::vector<float> samples(sample_count, 0.0F);
-
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!std::isfinite(sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is not finite");
-      return false;
-    }
-    samples.at(i) = sample;
-    channel_sums.at(i % channel_count) += static_cast<double>(sample);
-  }
-
-  std::vector<double> channel_means(channel_count, 0.0);
-  for (size_t channel = 0; channel < channel_count; ++channel) {
-    const double mean = channel_sums.at(channel) / static_cast<double>(frame_count);
-    if (!std::isfinite(mean)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because computed channel mean is not finite");
-      return false;
-    }
-    channel_means.at(channel) = mean;
-  }
-
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  for (size_t i = 0; i < sample_count; ++i) {
-    const double corrected = static_cast<double>(samples.at(i)) - channel_means.at(i % channel_count);
-    if (!std::isfinite(corrected)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because output sample is not finite");
-      return false;
-    }
-    const float out_sample = static_cast<float>(corrected);
-    if (!std::isfinite(out_sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because FLOAT32LE output sample is not finite");
-      return false;
-    }
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
+  const backends::ProcessResult result = backend_->process(in.data, out.data);
+  if (result.status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because DC offset backend rejected input or output: %s",
+      backends::processStatusMessage(result.status));
+    return false;
   }
 
   return true;
@@ -290,7 +263,7 @@ void FaDcOffsetRemovalNode::publishDiagnostics()
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
-  pushKeyValue(status, "backend.name", "internal_frame_mean");
+  pushKeyValue(status, "backend.name", backends::InternalFrameMeanBackend::kName);
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);
