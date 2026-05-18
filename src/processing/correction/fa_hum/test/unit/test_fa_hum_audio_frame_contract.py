@@ -7,12 +7,36 @@ def package_root() -> Path:
     return Path(__file__).parents[2]
 
 
-def read_source() -> str:
+def read_node_source() -> str:
     return (package_root() / "src" / "fa_hum_node.cpp").read_text(encoding="utf-8")
 
 
+def read_node_header() -> str:
+    return (package_root() / "include" / "fa_hum" / "fa_hum_node.hpp").read_text(
+        encoding="utf-8"
+    )
+
+
+def read_backend_header() -> str:
+    return (
+        package_root()
+        / "include"
+        / "fa_hum"
+        / "backends"
+        / "internal_notch_cascade.hpp"
+    ).read_text(encoding="utf-8")
+
+
+def read_backend_source() -> str:
+    return (
+        package_root() / "src" / "backends" / "internal_notch_cascade.cpp"
+    ).read_text(encoding="utf-8")
+
+
 def test_default_config_requires_float32_interleaved_contract() -> None:
-    config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
+    config = yaml.safe_load(
+        (package_root() / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
     params = config["fa_hum"]["ros__parameters"]
 
     assert params["input_topic"] == "audio/dc_offset_removed/mic"
@@ -34,7 +58,7 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
 
 
 def test_hum_removal_does_not_hide_other_processing_or_io_responsibilities() -> None:
-    source = read_source()
+    sources = [read_node_source(), read_backend_source()]
 
     forbidden = (
         "normalize(",
@@ -46,18 +70,23 @@ def test_hum_removal_does_not_hide_other_processing_or_io_responsibilities() -> 
         "threshold.linear",
         "std::clamp",
     )
-    for token in forbidden:
-        assert token not in source
+    for source in sources:
+        for token in forbidden:
+            assert token not in source
 
 
 def test_startup_validation_fails_closed_for_invalid_config() -> None:
-    source = read_source()
+    source = read_node_source()
+    backend_source = read_backend_source()
     load_parameters = source.split("void FaHumNode::loadParameters")[1].split(
-        "void FaHumNode::configureCascade"
+        "void FaHumNode::configureBackend"
     )[0]
 
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "config_.resolved_input_topic == config_.resolved_output_topic" in load_parameters
     assert "config_.expected_sample_rate <= 0" in load_parameters
     assert "!isFinite(config_.frequency_hz)" in load_parameters
     assert "config_.frequency_hz <= 0.0" in load_parameters
@@ -72,12 +101,13 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "config_.qos_depth <= 0" in load_parameters
     assert "config_.diagnostics_publish_period_ms <= 0" in load_parameters
     assert "throw std::runtime_error" in load_parameters
+    assert "throw std::runtime_error" in backend_source
 
 
 def test_hum_validates_frame_contract_before_processing() -> None:
-    source = read_source()
+    source = read_node_source()
     validate_frame = source.split("bool FaHumNode::validateFrame")[1].split(
-        "bool FaHumNode::applyHumRemoval"
+        "bool FaHumNode::isStaleFrame"
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
@@ -88,34 +118,40 @@ def test_hum_validates_frame_contract_before_processing() -> None:
     assert "msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)" in validate_frame
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in validate_frame
     assert "msg.data.empty() || (msg.data.size() % bytes_per_frame) != 0" in validate_frame
-    assert "msg.source_id != active_source_id_" not in validate_frame
+    assert "isStaleFrame(msg)" in validate_frame
 
 
-def test_source_change_resets_filter_state_instead_of_rejecting_frame() -> None:
-    source = read_source()
-    handle_frame = source.split("void FaHumNode::handleFrame")[1].split(
-        "void FaHumNode::resetFilterStateForSource"
-    )[0]
-    reset_source = source.split("void FaHumNode::resetFilterStateForSource")[1].split(
-        "bool FaHumNode::validateFrame"
-    )[0]
+def test_stateful_iir_stream_order_contract_is_explicit() -> None:
+    source = read_node_source()
+    header = read_node_header()
+    backend_header = read_backend_header()
+    backend_source = read_backend_source()
 
-    assert "active_source_id_ != msg->source_id" in handle_frame
-    assert "resetFilterStateForSource(msg->source_id);" in handle_frame
-    assert "active_source_id_ = source_id;" in reset_source
-    assert "channel_states_.assign(" in reset_source
-    assert "source_resets_.fetch_add(1);" in reset_source
+    assert "bool isStaleFrame(const fa_interfaces::msg::AudioFrame & msg) const;" in header
+    assert "void rememberAcceptedFrame(const fa_interfaces::msg::AudioFrame & msg);" in header
+    assert "last_source_id_" in header
+    assert "last_epoch_" in header
+    assert "last_stamp_sec_" in header
+    assert "last_stamp_nanosec_" in header
+    assert "msg.source_id != last_source_id_ || msg.epoch != last_epoch_" in source
+    assert "msg.header.stamp.sec < last_stamp_sec_" in source
+    assert "msg.header.stamp.nanosec < last_stamp_nanosec_" in source
+    assert "rememberAcceptedFrame(*msg);" in source
+    assert "uint32_t epoch" in backend_header
+    assert "kStaleEpoch" in backend_header
+    assert "epoch < active_epoch_" in backend_source
+    assert "epoch > active_epoch_" in backend_source
 
 
 def test_hum_preserves_metadata_and_updates_stream_identity_only() -> None:
-    source = read_source()
+    source = read_node_source()
     apply_hum = source.split("bool FaHumNode::applyHumRemoval")[1].split(
         "void FaHumNode::publishDiagnostics"
     )[0]
 
     assert "out = in;" in apply_hum
     assert "out.stream_id = config_.output_topic;" in apply_hum
-    assert "out.data.resize(in.data.size());" in apply_hum
+    assert "out.data = std::move(processed_data);" in apply_hum
     assert "out.encoding =" not in apply_hum
     assert "out.bit_depth =" not in apply_hum
     assert "out.sample_rate =" not in apply_hum
@@ -126,52 +162,66 @@ def test_hum_preserves_metadata_and_updates_stream_identity_only() -> None:
     assert ".vad" not in apply_hum
 
 
-def test_hum_uses_notch_biquad_cascade_for_harmonics_below_nyquist() -> None:
-    header = (package_root() / "include" / "fa_hum" / "fa_hum_node.hpp").read_text(encoding="utf-8")
-    source = read_source()
-    configure_cascade = source.split("void FaHumNode::configureCascade")[1].split(
+def test_hum_backend_owns_notch_biquad_cascade() -> None:
+    backend_header = read_backend_header()
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+    configure_backend = node_source.split("void FaHumNode::configureBackend")[1].split(
         "void FaHumNode::setupInterfaces"
     )[0]
-    apply_hum = source.split("bool FaHumNode::applyHumRemoval")[1].split(
-        "void FaHumNode::publishDiagnostics"
+
+    assert "class InternalNotchCascadeBackend" in backend_header
+    assert "enum class ProcessStatus" in backend_header
+    assert "struct BiquadCoefficients" in backend_header
+    assert "struct BiquadState" in backend_header
+    assert "for (int harmonic = 1; harmonic <= config_.harmonics; ++harmonic)" in backend_source
+    assert "const double center_hz = config_.frequency_hz * static_cast<double>(harmonic);" in backend_source
+    assert "const double alpha = std::sin(omega) / (2.0 * config_.q);" in backend_source
+    assert "coefficients.b0 = 1.0 / a0;" in backend_source
+    assert "coefficients.b1 = (-2.0 * cos_omega) / a0;" in backend_source
+    assert "coefficients.b2 = 1.0 / a0;" in backend_source
+    assert "coefficients.a1 = (-2.0 * cos_omega) / a0;" in backend_source
+    assert "coefficients.a2 = (1.0 - alpha) / a0;" in backend_source
+    assert "channel_states_ = std::move(next_states);" in backend_source
+    assert "std::make_unique<backends::InternalNotchCascadeBackend>" in configure_backend
+    assert "BiquadCoefficients" not in node_source
+    assert "std::memcpy" not in node_source
+
+
+def test_backend_rejects_bad_samples_without_clamping_or_output_overwrite() -> None:
+    backend_source = read_backend_source()
+    process = backend_source.split("ProcessResult InternalNotchCascadeBackend::process")[1].split(
+        "size_t InternalNotchCascadeBackend::stageCount"
     )[0]
 
-    assert "struct BiquadCoefficients" in header
-    assert "struct BiquadState" in header
-    assert "using ChannelCascadeState = std::vector<BiquadState>;" in header
-    assert "std::vector<BiquadCoefficients> cascade_coefficients_" in header
-    assert "std::vector<ChannelCascadeState> channel_states_" in header
-    assert "for (int harmonic = 1; harmonic <= config_.harmonics; ++harmonic)" in configure_cascade
-    assert "const double center_hz = config_.frequency_hz * static_cast<double>(harmonic);" in configure_cascade
-    assert "if (center_hz >= nyquist_hz)" in configure_cascade
-    assert "break;" in configure_cascade
-    assert "const double alpha = std::sin(omega) / (2.0 * config_.q);" in configure_cascade
-    assert "const double a0 = 1.0 + alpha;" in configure_cascade
-    assert "coefficients.b0 = 1.0 / a0;" in configure_cascade
-    assert "coefficients.b1 = (-2.0 * cos_omega) / a0;" in configure_cascade
-    assert "coefficients.b2 = 1.0 / a0;" in configure_cascade
-    assert "coefficients.a1 = (-2.0 * cos_omega) / a0;" in configure_cascade
-    assert "coefficients.a2 = (1.0 - alpha) / a0;" in configure_cascade
-    assert "cascade_coefficients_.empty()" in configure_cascade
-    assert "std::vector<ChannelCascadeState> next_states = channel_states_;" in apply_hum
-    assert "for (size_t stage = 0; stage < cascade_coefficients_.size(); ++stage)" in apply_hum
-    assert "BiquadState & state = channel_state.at(stage);" in apply_hum
-    assert "channel_states_ = next_states;" in apply_hum
+    assert "!std::isfinite(sample)" in process
+    assert "!isNormalized(static_cast<double>(sample))" in process
+    assert "!isFinite(stage_output)" in process
+    assert "!isNormalized(filtered)" in process
+    assert "!std::isfinite(out_sample)" in process
+    assert "!isNormalized(static_cast<double>(out_sample))" in process
+    assert "std::clamp" not in process
+    rejection_section = process.split("output = std::move(next_output);")[0]
+    assert "output = std::move(next_output);" not in rejection_section
+    assert "output = std::move(next_output);" in process
 
 
-def test_hum_drops_non_finite_and_out_of_range_samples_without_clamping() -> None:
-    source = read_source()
-    apply_hum = source.split("bool FaHumNode::applyHumRemoval")[1].split(
-        "void FaHumNode::publishDiagnostics"
-    )[0]
+def test_backend_reports_reason_and_keeps_ros_boundary() -> None:
+    backend_header = read_backend_header()
+    backend_source = read_backend_source()
 
-    assert "!std::isfinite(sample) || !isNormalized(static_cast<double>(sample))" in apply_hum
-    assert "!isFinite(stage_output)" in apply_hum
-    assert "!isNormalized(filtered)" in apply_hum
-    assert "!std::isfinite(out_sample) || !isNormalized(static_cast<double>(out_sample))" in apply_hum
-    assert "outside normalized FLOAT32LE range [-1, 1]" in apply_hum
-    assert "std::clamp" not in apply_hum
-    assert "return false;" in apply_hum
+    assert "kEmptySourceId" in backend_header
+    assert "kMisalignedInput" in backend_header
+    assert "kStaleEpoch" in backend_header
+    assert "kOutOfRangeInput" in backend_header
+    assert "kOutOfRangeOutput" in backend_header
+    assert "processStatusMessage(ProcessStatus status)" in backend_header
+    assert "ProcessStatus::kStaleEpoch" in backend_source
+
+    forbidden_backend_tokens = ("rclcpp", "fa_interfaces", "AudioFrame")
+    for token in forbidden_backend_tokens:
+        assert token not in backend_header
+        assert token not in backend_source
 
 
 def test_package_layout_matches_standard_processing_layout() -> None:
@@ -184,10 +234,15 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_hum.launch.py",
         "include/fa_hum/fa_hum_node.hpp",
+        "include/fa_hum/backends/internal_notch_cascade.hpp",
         "src/fa_hum_node.cpp",
+        "src/backends/internal_notch_cascade.cpp",
+        "src/main.cpp",
+        "test/cpp/test_internal_notch_cascade_backend.cpp",
+        "test/cpp/test_fa_hum_graph.cpp",
         "test/unit/test_fa_hum_audio_frame_contract.py",
+        "test/launch/test_fa_hum_launch_contract.py",
         "test/integration/.gitkeep",
-        "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
     )
 
@@ -195,13 +250,21 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         assert (package_root() / relative_path).exists()
 
 
-def test_colcon_runs_pytest_contracts() -> None:
+def test_colcon_runs_pytest_and_gtest_contracts() -> None:
     cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
+    assert "add_library(fa_hum_internal_notch_cascade STATIC" in cmake_text
+    assert "add_library(fa_hum_node_core" in cmake_text
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_graph_smoke_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<exec_depend>launch</exec_depend>" in package_xml
+    assert "<exec_depend>launch_ros</exec_depend>" in package_xml
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml

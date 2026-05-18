@@ -2,8 +2,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -13,10 +13,17 @@
 namespace fa_hum
 {
 
+namespace backends
+{
+class InternalNotchCascadeBackend;
+}  // namespace backends
+
 struct HumConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string resolved_input_topic{};
+  std::string resolved_output_topic{};
   double frequency_hz{-1.0};
   int harmonics{-1};
   double q{-1.0};
@@ -30,26 +37,6 @@ struct HumConfig
   int diagnostics_publish_period_ms{-1};
 };
 
-struct BiquadCoefficients
-{
-  double center_hz{0.0};
-  double b0{0.0};
-  double b1{0.0};
-  double b2{0.0};
-  double a1{0.0};
-  double a2{0.0};
-};
-
-struct BiquadState
-{
-  double previous_input_1{0.0};
-  double previous_input_2{0.0};
-  double previous_output_1{0.0};
-  double previous_output_2{0.0};
-};
-
-using ChannelCascadeState = std::vector<BiquadState>;
-
 /**
  * @brief FLOAT32LE interleaved AudioFrame に hum frequency と倍音の notch cascade を適用する
  * correction node。
@@ -57,24 +44,23 @@ using ChannelCascadeState = std::vector<BiquadState>;
 class FaHumNode : public rclcpp::Node
 {
 public:
-  FaHumNode();
-  ~FaHumNode() override = default;
+  explicit FaHumNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~FaHumNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
-  void configureCascade();
-  void resetFilterStateForSource(const std::string & source_id);
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
+  bool isStaleFrame(const fa_interfaces::msg::AudioFrame & msg) const;
+  void rememberAcceptedFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyHumRemoval(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   HumConfig config_;
-  std::vector<BiquadCoefficients> cascade_coefficients_{};
-  std::string active_source_id_{};
-  std::vector<ChannelCascadeState> channel_states_{};
+  std::unique_ptr<backends::InternalNotchCascadeBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
@@ -85,6 +71,13 @@ private:
   std::atomic<uint64_t> frames_out_{0};
   std::atomic<uint64_t> frames_dropped_{0};
   std::atomic<uint64_t> source_resets_{0};
+  std::atomic<uint64_t> epoch_resets_{0};
+
+  bool has_last_accepted_frame_{false};
+  std::string last_source_id_{};
+  uint32_t last_epoch_{0};
+  int32_t last_stamp_sec_{0};
+  uint32_t last_stamp_nanosec_{0};
 };
 
 }  // namespace fa_hum

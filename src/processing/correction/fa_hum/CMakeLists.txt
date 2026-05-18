@@ -13,18 +13,38 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
-add_executable(fa_hum_node
-  src/fa_hum_node.cpp
+add_library(fa_hum_internal_notch_cascade STATIC
+  src/backends/internal_notch_cascade.cpp
 )
 
-target_include_directories(fa_hum_node PRIVATE
+target_include_directories(fa_hum_internal_notch_cascade PUBLIC
   include
 )
 
-ament_target_dependencies(fa_hum_node
+add_library(fa_hum_node_core
+  src/fa_hum_node.cpp
+)
+
+target_include_directories(fa_hum_node_core PUBLIC
+  include
+)
+
+ament_target_dependencies(fa_hum_node_core
   rclcpp
   diagnostic_msgs
   fa_interfaces
+)
+
+target_link_libraries(fa_hum_node_core
+  fa_hum_internal_notch_cascade
+)
+
+add_executable(fa_hum_node
+  src/main.cpp
+)
+
+target_link_libraries(fa_hum_node
+  fa_hum_node_core
 )
 
 install(TARGETS fa_hum_node
@@ -42,8 +62,38 @@ install(DIRECTORY include/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  ament_add_gtest(${PROJECT_NAME}_backend_test
+    test/cpp/test_internal_notch_cascade_backend.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_backend_test)
+    target_include_directories(${PROJECT_NAME}_backend_test PRIVATE
+      include
+    )
+    target_link_libraries(${PROJECT_NAME}_backend_test
+      fa_hum_internal_notch_cascade
+    )
+  endif()
+
+  ament_add_gtest(${PROJECT_NAME}_graph_smoke_test
+    test/cpp/test_fa_hum_graph.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_graph_smoke_test)
+    target_include_directories(${PROJECT_NAME}_graph_smoke_test PRIVATE
+      include
+    )
+    target_link_libraries(${PROJECT_NAME}_graph_smoke_test
+      fa_hum_node_core
+    )
+    ament_target_dependencies(${PROJECT_NAME}_graph_smoke_test
+      rclcpp
+      diagnostic_msgs
+      fa_interfaces
+    )
+  endif()
 
   set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
   ament_add_pytest_test(${PROJECT_NAME}_pytest test

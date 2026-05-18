@@ -1,0 +1,91 @@
+from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
+import yaml
+
+
+PACKAGE_ROOT = Path(__file__).parents[2]
+
+
+def _run_fa_hum_launch(config_path: Path) -> subprocess.CompletedProcess[str]:
+    ros2 = shutil.which("ros2")
+    if ros2 is None:
+        pytest.skip("ros2 executable is required for launch fail-closed verification")
+
+    return subprocess.run(
+        [
+            ros2,
+            "launch",
+            "fa_hum",
+            "fa_hum.launch.py",
+            f"config_file:={config_path}",
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=8,
+    )
+
+
+def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
+    launch_text = (PACKAGE_ROOT / "launch" / "fa_hum.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
+    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
+    assert 'FindPackageShare("fa_hum"), "config", "default.yaml"' in launch_text
+    assert 'package="fa_hum"' in launch_text
+    assert 'executable="fa_hum_node"' in launch_text
+    assert "parameters=[config_file]" in launch_text
+    assert "hum.frequency_hz" not in launch_text
+    assert "expected.sample_rate" not in launch_text
+
+
+def test_launch_fails_closed_when_input_topic_is_missing(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    config["fa_hum"]["ros__parameters"]["input_topic"] = ""
+    config_path = tmp_path / "missing_input_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_hum_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "input_topic is required" in result.stdout
+
+
+def test_launch_fails_closed_when_resolved_input_and_output_topics_match(
+    tmp_path: Path,
+) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_hum"]["ros__parameters"]
+    params["input_topic"] = "audio/hum_same"
+    params["output_topic"] = "/audio/hum_same"
+    config_path = tmp_path / "same_resolved_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_hum_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "resolved input_topic and output_topic must be distinct" in result.stdout
+
+
+def test_launch_fails_closed_when_frequency_contract_is_wrong(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    config["fa_hum"]["ros__parameters"]["hum"]["frequency_hz"] = 9000.0
+    config_path = tmp_path / "bad_frequency.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_hum_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "hum.frequency_hz must produce at least one harmonic below Nyquist" in result.stdout
