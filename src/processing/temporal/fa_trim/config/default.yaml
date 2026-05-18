@@ -1,7 +1,11 @@
 fa_trim:
   ros__parameters:
-    input_topic: "audio/windowed/mic"
-    output_topic: "audio/trimmed/mic"
+    input_topic: "fa_trim/input"
+    output_topic: "fa_trim/output"
+    input_stream_id: "audio/windowed/mic"
+
+    output:
+      stream_id: "audio/trimmed/mic"
 
     trim:
       leading_frames: 16

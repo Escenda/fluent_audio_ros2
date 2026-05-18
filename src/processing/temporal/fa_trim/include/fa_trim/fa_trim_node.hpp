@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
@@ -13,10 +14,17 @@
 namespace fa_trim
 {
 
+namespace backends
+{
+class InternalFrameTrimBackend;
+}  // namespace backends
+
 struct TrimConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   int leading_frames{-1};
   int trailing_frames{-1};
   int expected_sample_rate{-1};
@@ -35,21 +43,22 @@ struct TrimConfig
 class FaTrimNode : public rclcpp::Node
 {
 public:
-  FaTrimNode();
-  ~FaTrimNode() override = default;
+  explicit FaTrimNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~FaTrimNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
-  bool validateSamples(const fa_interfaces::msg::AudioFrame & msg);
-  bool trimFrame(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
+  bool applyTrim(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
   size_t bytesPerFrame() const;
 
   TrimConfig config_;
+  std::unique_ptr<backends::InternalFrameTrimBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
