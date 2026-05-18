@@ -59,6 +59,17 @@ def test_backend_config_has_no_provider_default() -> None:
     assert "std::chrono::milliseconds{2000}" not in header_text
 
 
+def test_node_fails_closed_for_missing_or_unknown_backend_name() -> None:
+    node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
+
+    assert 'declare_parameter<std::string>("backend.name");' in node_text
+    assert "validateBackendOrThrow();" in node_text
+    assert "backend.name is required" in node_text
+    assert "unsupported fa_kws backend.name: " in node_text
+    assert 'backend_name_ != "sherpa_onnx_kws"' in node_text
+    assert 'declare_parameter<std::string>("backend.name", "sherpa_onnx_kws")' not in node_text
+
+
 def test_cmake_accepts_sherpa_prefix_from_environment() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 

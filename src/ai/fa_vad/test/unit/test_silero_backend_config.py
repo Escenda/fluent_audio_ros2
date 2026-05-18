@@ -293,6 +293,61 @@ def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     assert "tuple(str(item) for item in self.get_parameter" not in source
 
 
+def test_vad_node_backend_name_validation_rejects_missing_and_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = Path(__file__).parents[2]
+    shutdown_calls: list[bool] = []
+    _install_vad_node_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(package_root))
+    sys.modules.pop("fa_vad_py.vad_node", None)
+
+    try:
+        module = importlib.import_module("fa_vad_py.vad_node")
+        node = module.FaVadNode.__new__(module.FaVadNode)
+        node._target_sample_rate = 16000
+
+        def missing_backend_name(name: str) -> str:
+            assert name == "backend.name"
+            return ""
+
+        node._string_parameter = missing_backend_name
+        with pytest.raises(RuntimeError, match="backend.name is required"):
+            node._load_backend(
+                threshold_start=0.5,
+                threshold_end=0.1,
+                hangover_ms=300,
+                model_path="/tmp/model",
+                execution_provider="cpu",
+                command="/tmp/worker",
+                args=DEFAULT_ARGS,
+                timeout_sec=1.0,
+                workspace_dir="/tmp/work",
+                cleanup_audio_files=True,
+            )
+
+        def unknown_backend_name(name: str) -> str:
+            assert name == "backend.name"
+            return "bogus"
+
+        node._string_parameter = unknown_backend_name
+        with pytest.raises(RuntimeError, match="unsupported VAD backend.name: bogus"):
+            node._load_backend(
+                threshold_start=0.5,
+                threshold_end=0.1,
+                hangover_ms=300,
+                model_path="/tmp/model",
+                execution_provider="cpu",
+                command="/tmp/worker",
+                args=DEFAULT_ARGS,
+                timeout_sec=1.0,
+                workspace_dir="/tmp/work",
+                cleanup_audio_files=True,
+            )
+    finally:
+        sys.modules.pop("fa_vad_py.vad_node", None)
+
+
 def test_vad_node_parameter_helpers_reject_wrong_ros_parameter_types(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
