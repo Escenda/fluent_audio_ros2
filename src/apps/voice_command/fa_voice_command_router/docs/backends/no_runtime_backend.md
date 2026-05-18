@@ -15,6 +15,7 @@ publishes an output stop signal.
 
 ## Failure Policy
 
-If `announce_tts=true`, `tts_service` must be non-empty. If
+`tts_service` must be configured even when `announce_tts=false`; it is part of
+the fixed startup contract, not a fallback backend selector. If
 `stop_output_on_stop=true`, `output_stop_topic` must be non-empty. The router
 does not silently disable those behaviors to keep running.

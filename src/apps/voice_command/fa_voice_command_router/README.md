@@ -13,7 +13,9 @@
 
 ## 起動
 ```bash
-ros2 launch fa_voice_command_router fa_voice_command_router.launch.py
+ros2 launch fa_voice_command_router fa_voice_command_router.launch.py \
+  node_name:=fa_voice_command_router \
+  config_file:=$(ros2 pkg prefix fa_voice_command_router)/share/fa_voice_command_router/config/default.yaml
 ```
 
 ## コマンド例
