@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -37,8 +36,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaNoiseGateNode::FaNoiseGateNode()
-: rclcpp::Node("fa_noise_gate")
+FaNoiseGateNode::FaNoiseGateNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_noise_gate", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Noise Gate node");
   loadParameters();
@@ -294,18 +293,3 @@ void FaNoiseGateNode::publishDiagnostics()
 }
 
 }  // namespace fa_noise_gate
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_noise_gate::FaNoiseGateNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_noise_gate"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

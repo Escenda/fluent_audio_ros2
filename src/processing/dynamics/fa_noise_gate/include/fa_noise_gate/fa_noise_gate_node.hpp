@@ -40,7 +40,7 @@ struct NoiseGateConfig
 class FaNoiseGateNode : public rclcpp::Node
 {
 public:
-  FaNoiseGateNode();
+  explicit FaNoiseGateNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaNoiseGateNode() override;
 
 private:

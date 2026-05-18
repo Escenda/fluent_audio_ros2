@@ -21,22 +21,30 @@ target_include_directories(fa_noise_gate_internal_threshold_gate PUBLIC
   include
 )
 
-add_executable(fa_noise_gate_node
+add_library(fa_noise_gate_node_core
   src/fa_noise_gate_node.cpp
 )
 
-target_include_directories(fa_noise_gate_node PRIVATE
+target_include_directories(fa_noise_gate_node_core PUBLIC
   include
 )
 
-ament_target_dependencies(fa_noise_gate_node
+ament_target_dependencies(fa_noise_gate_node_core
   rclcpp
   diagnostic_msgs
   fa_interfaces
 )
 
-target_link_libraries(fa_noise_gate_node
+target_link_libraries(fa_noise_gate_node_core
   fa_noise_gate_internal_threshold_gate
+)
+
+add_executable(fa_noise_gate_node
+  src/main.cpp
+)
+
+target_link_libraries(fa_noise_gate_node
+  fa_noise_gate_node_core
 )
 
 install(TARGETS fa_noise_gate_node
@@ -67,6 +75,22 @@ if(BUILD_TESTING)
     )
     target_link_libraries(${PROJECT_NAME}_backend_test
       fa_noise_gate_internal_threshold_gate
+    )
+  endif()
+
+  ament_add_gtest(${PROJECT_NAME}_graph_smoke_test
+    test/cpp/test_noise_gate_graph.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_graph_smoke_test)
+    target_include_directories(${PROJECT_NAME}_graph_smoke_test PRIVATE
+      include
+    )
+    target_link_libraries(${PROJECT_NAME}_graph_smoke_test
+      fa_noise_gate_node_core
+    )
+    ament_target_dependencies(${PROJECT_NAME}_graph_smoke_test
+      rclcpp
+      fa_interfaces
     )
   endif()
 
