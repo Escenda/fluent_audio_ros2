@@ -8,7 +8,9 @@ def test_default_config_requires_explicit_source_identifier() -> None:
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     config_text = config_path.read_text(encoding="utf-8")
 
-    params = config["fa_in_node"]["ros__parameters"]
+    assert "fa_in" in config
+    assert "fa_in_node" not in config
+    params = config["fa_in"]["ros__parameters"]
     selector = params["audio"]["device_selector"]
 
     assert params["backend.name"] == "alsa_capture"
@@ -58,6 +60,20 @@ def test_source_backend_has_no_struct_default() -> None:
     assert "audio.sample_rate * audio.chunk_ms must produce an integer frame count" in validation_text
     assert "audio.chunk_ms produces zero capture frames" in validation_text
     assert "audio.channels * audio.bit_depth exceeds size_t range" in validation_text
+
+
+def test_launch_default_node_name_matches_config_root() -> None:
+    package_root = Path(__file__).parents[2]
+    launch_text = (package_root / "launch" / "fa_in.launch.py").read_text(encoding="utf-8")
+    config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
+    node_source = (package_root / "src" / "fa_in_node.cpp").read_text(encoding="utf-8")
+    main_source = (package_root / "src" / "main.cpp").read_text(encoding="utf-8")
+
+    assert 'default_value="fa_in"' in launch_text
+    assert 'rclcpp::Node("fa_in", options)' in node_source
+    assert 'status.name = "fa_in";' in node_source
+    assert 'get_logger("fa_in")' in main_source
+    assert set(config.keys()) == {"fa_in"}
 
 
 def test_publish_frame_sets_required_audio_frame_identity_without_analysis_fields() -> None:

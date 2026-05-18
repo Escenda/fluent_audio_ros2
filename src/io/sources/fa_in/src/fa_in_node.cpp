@@ -67,7 +67,7 @@ FaInNode::FaInNode(const rclcpp::NodeOptions & options)
 }
 
 FaInNode::FaInNode(const rclcpp::NodeOptions & options, BackendFactory backend_factory)
-: rclcpp::Node("fa_in_node", options), backend_factory_(std::move(backend_factory))
+: rclcpp::Node("fa_in", options), backend_factory_(std::move(backend_factory))
 {
   RCLCPP_INFO(this->get_logger(), "Initializing FA In node");
   if (!backend_factory_) {
@@ -336,7 +336,7 @@ void FaInNode::publishDiagnostics()
   diagnostic_msgs::msg::DiagnosticArray array_msg;
   array_msg.header.stamp = this->now();
   diagnostic_msgs::msg::DiagnosticStatus status;
-  status.name = "fa_in_node";
+  status.name = "fa_in";
   status.hardware_id = active_device_name_;
   status.level = capturing_.load() ? diagnostic_msgs::msg::DiagnosticStatus::OK
                                    : diagnostic_msgs::msg::DiagnosticStatus::WARN;

@@ -1,4 +1,4 @@
-fa_in_node:
+fa_in:
   ros__parameters:
     backend.name: "alsa_capture"
     audio:

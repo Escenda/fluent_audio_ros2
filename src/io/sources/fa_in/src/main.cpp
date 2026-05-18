@@ -16,7 +16,7 @@ int main(int argc, char ** argv)
     rclcpp::shutdown();
     return fatal_error ? EXIT_FAILURE : EXIT_SUCCESS;
   } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_in_node"), "Exception: %s", e.what());
+    RCLCPP_FATAL(rclcpp::get_logger("fa_in"), "Exception: %s", e.what());
     rclcpp::shutdown();
     return EXIT_FAILURE;
   }
