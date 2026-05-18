@@ -1,0 +1,15 @@
+std_msgs/Header header
+string source_id
+string stream_id
+uint32 sample_rate
+uint32 input_sample_count
+uint32 n_fft
+uint32 hop_length
+uint32 frame_count
+float32 threshold
+float32 min_interval_sec
+string method
+string layout
+float32[] frame_times_sec
+float32[] strengths
+bool[] detected

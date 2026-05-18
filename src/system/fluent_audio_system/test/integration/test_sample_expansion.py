@@ -384,7 +384,13 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
     groups = {group["id"]: group for group in raw["groups"]}
     analysis_nodes = {node["id"]: node for node in groups["analysis"]["nodes"]}
 
-    assert set(analysis_nodes) == {"fa_log_mel", "fa_loudness", "fa_mfcc", "fa_stft"}
+    assert set(analysis_nodes) == {
+        "fa_log_mel",
+        "fa_loudness",
+        "fa_mfcc",
+        "fa_onset",
+        "fa_stft",
+    }
     assert analysis_nodes["fa_loudness"]["enable"] is False
     assert analysis_nodes["fa_loudness"]["package"] == "fa_loudness"
     assert analysis_nodes["fa_loudness"]["params_file"] == (
@@ -403,6 +409,17 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
         "feature.n_fft": 320,
         "feature.hop_length": 160,
         "feature.n_mfcc": 13,
+    }
+    assert analysis_nodes["fa_onset"]["enable"] is False
+    assert analysis_nodes["fa_onset"]["package"] == "fa_onset"
+    assert analysis_nodes["fa_onset"]["params_file"] == (
+        "${share:fa_onset}/config/default.yaml"
+    )
+    assert analysis_nodes["fa_onset"]["parameters"] == {
+        "input_topic": "audio/resample16k/mic",
+        "feature.n_fft": 320,
+        "feature.hop_length": 160,
+        "detector.threshold": 0.1,
     }
 
 

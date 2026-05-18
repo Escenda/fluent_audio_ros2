@@ -12,6 +12,7 @@ set(message_files
   "msg/LoudnessFrame.msg"
   "msg/LogMelFrame.msg"
   "msg/MfccFrame.msg"
+  "msg/OnsetFrame.msg"
   "msg/PlaybackDone.msg"
   "msg/StftFrame.msg"
   "msg/TurnContext.msg"

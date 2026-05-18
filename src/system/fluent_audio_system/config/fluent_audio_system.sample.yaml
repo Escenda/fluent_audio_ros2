@@ -484,6 +484,20 @@ groups:
           feature.hop_length: 160
           feature.n_mfcc: 13
 
+      - id: fa_onset
+        enable: false
+        package: fa_onset
+        exec: fa_onset_node
+        node_name: fa_onset
+        namespace: ""
+        params_file: "${share:fa_onset}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/resample16k/mic"
+          feature.n_fft: 320
+          feature.hop_length: 160
+          detector.threshold: 0.1
+
       - id: fa_stft
         enable: false
         package: fa_stft

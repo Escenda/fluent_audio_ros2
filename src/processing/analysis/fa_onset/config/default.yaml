@@ -1,0 +1,17 @@
+fa_onset:
+  ros__parameters:
+    input_topic: "audio/features/input"
+    output_topic: "audio/features/onset"
+    backend.name: "internal_spectral_flux"
+    expected.sample_rate: 16000
+    expected.channels: 1
+    expected.encoding: "FLOAT32LE"
+    expected.bit_depth: 32
+    expected.layout: "interleaved"
+    feature.n_fft: 400
+    feature.hop_length: 160
+    feature.method: "spectral_flux"
+    detector.threshold: 0.1
+    detector.min_interval_sec: 0.05
+    qos.depth: 10
+    qos.reliable: false
