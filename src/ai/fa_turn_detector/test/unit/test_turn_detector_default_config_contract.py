@@ -9,6 +9,10 @@ import pytest
 import yaml
 
 from fa_turn_detector_py.backends.smart_turn_onnx import SmartTurnOnnxBackend
+from fa_turn_detector_py.backends.factory import (
+    TurnDetectorBackendSettings,
+    build_turn_detector_backend,
+)
 
 
 class _BackendError(Exception):
@@ -267,6 +271,41 @@ def test_default_config_requires_explicit_model_and_provider() -> None:
     assert "parameter_overrides: Iterable[Parameter] | None = None" in source
     assert "parameter_overrides=list(parameter_overrides)" in source
     assert "tuple(str(item) for item in value)" not in source
+    assert "from fa_turn_detector_py.backends.smart_turn_onnx import SmartTurnOnnxBackend" not in source
+    assert "build_turn_detector_backend(" in source
+
+
+def test_turn_detector_backend_factory_rejects_missing_and_unknown_backend() -> None:
+    settings = TurnDetectorBackendSettings(
+        name="",
+        model_path="",
+        threshold=0.5,
+        execution_provider="",
+        command="",
+        args=(),
+        health_args=(),
+        timeout_sec=1.0,
+        workspace_dir="/tmp/fa_turn_detector_test",
+        cleanup_audio_files=True,
+    )
+
+    with pytest.raises(RuntimeError, match="backend.name is required"):
+        build_turn_detector_backend(settings)
+
+    unknown_backend_settings = TurnDetectorBackendSettings(
+        name="bogus",
+        model_path="",
+        threshold=0.5,
+        execution_provider="",
+        command="",
+        args=(),
+        health_args=(),
+        timeout_sec=1.0,
+        workspace_dir="/tmp/fa_turn_detector_test",
+        cleanup_audio_files=True,
+    )
+    with pytest.raises(RuntimeError, match="unsupported turn detector backend.name: bogus"):
+        build_turn_detector_backend(unknown_backend_settings)
 
 
 def test_turn_detector_node_parameter_helpers_reject_wrong_ros_parameter_types(
@@ -336,6 +375,8 @@ def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
     assert "_resample_linear" not in source
     assert "_to_mono" not in source
     assert "np.frombuffer(bytes(msg.data), dtype=np.int16)" not in source
+    assert 'np.frombuffer(bytes(msg.data), dtype="<f4")' in source
+    assert 'np.dtype("<f4").itemsize' in source
     assert "AudioFrame channels must be 1" in source
     assert "AudioFrame source_id and stream_id are required" in source
     assert "AudioFrame source_id must match expected_source_id" in source

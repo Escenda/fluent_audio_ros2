@@ -5,15 +5,12 @@ PACKAGE_ROOT = Path(__file__).parents[2]
 
 
 def test_sherpa_backend_source_stays_ros_free() -> None:
-    backend_files = (
-        PACKAGE_ROOT / "include" / "fa_kws" / "backends" / "kws_backend.hpp",
-        PACKAGE_ROOT
-        / "include"
-        / "fa_kws"
-        / "backends"
-        / "sherpa_onnx_kws_backend.hpp",
-        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp",
+    backend_files = tuple(
+        sorted((PACKAGE_ROOT / "include" / "fa_kws" / "backends").glob("*.[hc]pp"))
+    ) + tuple(
+        sorted((PACKAGE_ROOT / "src" / "backends").glob("*.[hc]pp"))
     )
+    assert backend_files
     forbidden_tokens = (
         "rclcpp",
         "fa_interfaces",

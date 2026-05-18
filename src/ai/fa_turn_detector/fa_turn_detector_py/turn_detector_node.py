@@ -12,7 +12,10 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from fa_interfaces.msg import AudioFrame, TurnContext, TurnEnd, VadState
 from fa_turn_detector_py.backends.base import TurnDetectorBackend
-from fa_turn_detector_py.backends.smart_turn_onnx import SmartTurnOnnxBackend
+from fa_turn_detector_py.backends.factory import (
+    TurnDetectorBackendSettings,
+    build_turn_detector_backend,
+)
 
 
 class FaTurnDetectorNode(Node):
@@ -98,21 +101,19 @@ class FaTurnDetectorNode(Node):
         )
 
     def _load_backend(self) -> TurnDetectorBackend:
-        backend_name = self._string_parameter("backend.name").strip()
-        if not backend_name:
-            raise RuntimeError("backend.name is required")
-        if backend_name != SmartTurnOnnxBackend.name:
-            raise RuntimeError(f"unsupported turn detector backend.name: {backend_name}")
-        return SmartTurnOnnxBackend(
-            model_path=self._string_parameter("backend.model_path").strip(),
-            threshold=self._double_parameter("backend.threshold"),
-            execution_provider=self._string_parameter("backend.execution_provider").strip(),
-            command=self._string_parameter("backend.command").strip(),
-            args=self._string_tuple_parameter("backend.args"),
-            health_args=self._string_tuple_parameter("backend.health_args"),
-            timeout_sec=self._double_parameter("backend.timeout_sec"),
-            workspace_dir=self._string_parameter("backend.workspace_dir").strip(),
-            cleanup_audio_files=self._bool_parameter("backend.cleanup_audio_files"),
+        return build_turn_detector_backend(
+            TurnDetectorBackendSettings(
+                name=self._string_parameter("backend.name"),
+                model_path=self._string_parameter("backend.model_path"),
+                threshold=self._double_parameter("backend.threshold"),
+                execution_provider=self._string_parameter("backend.execution_provider"),
+                command=self._string_parameter("backend.command"),
+                args=self._string_tuple_parameter("backend.args"),
+                health_args=self._string_tuple_parameter("backend.health_args"),
+                timeout_sec=self._double_parameter("backend.timeout_sec"),
+                workspace_dir=self._string_parameter("backend.workspace_dir"),
+                cleanup_audio_files=self._bool_parameter("backend.cleanup_audio_files"),
+            )
         )
 
     def _string_tuple_parameter(self, name: str) -> tuple[str, ...]:
@@ -256,9 +257,9 @@ class FaTurnDetectorNode(Node):
             raise ValueError(f"AudioFrame encoding must be FLOAT32LE, got {msg.encoding}")
         if int(msg.bit_depth) != 32:
             raise ValueError(f"AudioFrame bit_depth must be 32, got {msg.bit_depth}")
-        if len(msg.data) % np.dtype(np.float32).itemsize != 0:
+        if len(msg.data) % np.dtype("<f4").itemsize != 0:
             raise ValueError("AudioFrame float32 data length is not byte-aligned")
-        samples = np.frombuffer(bytes(msg.data), dtype=np.float32)
+        samples = np.frombuffer(bytes(msg.data), dtype="<f4")
         if not np.all(np.isfinite(samples)):
             raise ValueError("AudioFrame contains non-finite samples")
         if np.any(samples < -1.0) or np.any(samples > 1.0):

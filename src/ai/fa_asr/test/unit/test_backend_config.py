@@ -383,6 +383,8 @@ def test_asr_node_rejects_non_canonical_audio_frames() -> None:
     assert "_resample_linear" not in source
     assert "_to_mono" not in source
     assert "np.frombuffer(bytes(msg.data), dtype=np.int16)" not in source
+    assert 'np.frombuffer(bytes(msg.data), dtype="<f4")' in source
+    assert 'np.dtype("<f4").itemsize' in source
     assert "AudioFrame data is required" in source
     assert "AudioFrame channels must be 1" in source
     assert "AudioFrame source_id and stream_id are required" in source
