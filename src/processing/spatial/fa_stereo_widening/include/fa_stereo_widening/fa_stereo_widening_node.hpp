@@ -18,7 +18,7 @@ struct StereoWideningConfig
 {
   std::string input_topic{};
   std::string output_topic{};
-  double width{1.0};
+  double width{-1.0};
   int expected_sample_rate{-1};
   int expected_channels{-1};
   std::string expected_encoding{};

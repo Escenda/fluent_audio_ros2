@@ -22,6 +22,20 @@ def test_default_config_requires_explicit_float32le_beamforming_contract() -> No
     assert params["diagnostics"]["publish_period_ms"] == 1000
 
 
+def test_launch_requires_explicit_node_name_and_config_file() -> None:
+    package_root = Path(__file__).parents[2]
+    launch_text = (package_root / "launch" / "fa_beamforming.launch.py").read_text(encoding="utf-8")
+
+    assert "DeclareLaunchArgument(" in launch_text
+    assert '"node_name"' in launch_text
+    assert '"config_file"' in launch_text
+    assert 'LaunchConfiguration("node_name")' in launch_text
+    assert 'LaunchConfiguration("config_file")' in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
+
+
 def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_beamforming_node.cpp").read_text(encoding="utf-8")

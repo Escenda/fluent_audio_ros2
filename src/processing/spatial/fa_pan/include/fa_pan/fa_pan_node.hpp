@@ -18,7 +18,7 @@ struct PanConfig
 {
   std::string input_topic{};
   std::string output_topic{};
-  double pan_position{0.0};
+  double pan_position{-2.0};
   int expected_sample_rate{-1};
   int expected_channels{-1};
   std::string expected_encoding{};

@@ -22,6 +22,20 @@ def test_default_config_requires_explicit_float32le_upmix_contract() -> None:
     assert params["diagnostics"]["publish_period_ms"] == 1000
 
 
+def test_launch_requires_explicit_node_name_and_config_file() -> None:
+    package_root = Path(__file__).parents[2]
+    launch_text = (package_root / "launch" / "fa_upmix.launch.py").read_text(encoding="utf-8")
+
+    assert "DeclareLaunchArgument(" in launch_text
+    assert '"node_name"' in launch_text
+    assert '"config_file"' in launch_text
+    assert 'LaunchConfiguration("node_name")' in launch_text
+    assert 'LaunchConfiguration("config_file")' in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
+
+
 def test_upmix_does_not_hide_unrelated_processing_or_io_responsibilities() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_upmix_node.cpp").read_text(encoding="utf-8")
@@ -74,6 +88,31 @@ def test_startup_validation_fails_closed_for_invalid_or_non_upmix_config() -> No
     assert "mode == kModeMonoDuplicate && input_channels == 1 && output_channels > 1" in supported
     assert "mode == kModeStereoDuplicatePairs && input_channels == 2" in supported
     assert "output_channels > 2 && (output_channels % 2) == 0" in supported
+
+
+def test_required_parameters_are_declared_without_runtime_defaults() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (package_root / "src" / "fa_upmix_node.cpp").read_text(encoding="utf-8")
+    load_parameters = source.split("void FaUpmixNode::loadParameters")[1].split(
+        "void FaUpmixNode::setupInterfaces"
+    )[0]
+
+    assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "output_topic")' in load_parameters
+    assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
+    assert 'readRequiredInt(*this, "expected.input_channels")' in load_parameters
+    assert 'readRequiredInt(*this, "output.channels")' in load_parameters
+    assert 'readRequiredString(*this, "expected.encoding")' in load_parameters
+    assert 'readRequiredInt(*this, "expected.bit_depth")' in load_parameters
+    assert 'readRequiredString(*this, "expected.layout")' in load_parameters
+    assert 'readRequiredString(*this, "mode")' in load_parameters
+    assert 'readRequiredInt(*this, "qos.depth")' in load_parameters
+    assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    assert "config_.diagnostics_publish_period_ms = readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert "config_." not in line
 
 
 def test_upmix_validates_frame_contract_before_processing() -> None:
