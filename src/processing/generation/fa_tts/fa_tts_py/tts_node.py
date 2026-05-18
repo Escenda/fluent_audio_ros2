@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import rclpy
+from builtin_interfaces.msg import Time
+from rclpy.exceptions import ParameterUninitializedException
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
 from fa_interfaces.msg import AudioFrame
@@ -29,33 +32,32 @@ class FaTtsNode(Node):
     def __init__(self) -> None:
         super().__init__("fa_tts")
 
-        self.declare_parameter("backend.name", "")
-        self.declare_parameter("backend.openjtalk_dict_dir", "")
-        self.declare_parameter("default_voice", "")
-        self.declare_parameter("output_topic", "audio/tts/frame")
-        self.declare_parameter("cache_dir", "")
+        self._declare_parameters()
+        self.backend_name = self._required_string_parameter("backend.name")
+        self.openjtalk_dict_dir = self._string_parameter("backend.openjtalk_dict_dir")
+        self.default_voice = self._string_parameter("default_voice")
+        self.output_topic = self._required_string_parameter("output_topic")
+        self.output_source_id = self._required_string_parameter("output.source_id")
+        self.output_stream_id = self._required_string_parameter("output.stream_id")
+        self._validate_identity_contract()
 
-        self.backend_name = self.get_parameter("backend.name").get_parameter_value().string_value
-        self.openjtalk_dict_dir = (
-            self.get_parameter("backend.openjtalk_dict_dir").get_parameter_value().string_value
-        )
-        self.default_voice = self.get_parameter("default_voice").get_parameter_value().string_value
-        self.output_topic = self.get_parameter("output_topic").get_parameter_value().string_value
-        if not self.output_topic:
-            raise RuntimeError("output_topic is required")
         self.backend = build_tts_backend(
             self.backend_name,
             openjtalk_dict_dir=self.openjtalk_dict_dir,
         )
 
-        cache_dir_param = self.get_parameter("cache_dir").get_parameter_value().string_value
+        cache_dir_param = self._string_parameter("cache_dir")
         self.cache_dir = Path(cache_dir_param).expanduser() if cache_dir_param else None
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # RELIABLE QoS でメッセージドロップを防ぐ
-        qos = QoSProfile(depth=10)
-        qos.reliability = ReliabilityPolicy.RELIABLE
+        qos_depth = self._positive_integer_parameter("qos.depth")
+        qos_reliable = self._bool_parameter("qos.reliable")
+
+        qos = QoSProfile(depth=qos_depth)
+        qos.reliability = (
+            ReliabilityPolicy.RELIABLE if qos_reliable else ReliabilityPolicy.BEST_EFFORT
+        )
         qos.durability = DurabilityPolicy.VOLATILE
         qos.history = HistoryPolicy.KEEP_LAST
 
@@ -64,6 +66,66 @@ class FaTtsNode(Node):
 
         self.cache: dict[str, SynthesizedAudio] = {}
         self.get_logger().info("Starting FA TTS node with backend.name=%s", self.backend.name)
+
+    def _declare_parameters(self) -> None:
+        self.declare_parameter("backend.name", Parameter.Type.STRING)
+        self.declare_parameter("backend.openjtalk_dict_dir", Parameter.Type.STRING)
+        self.declare_parameter("default_voice", Parameter.Type.STRING)
+        self.declare_parameter("output_topic", Parameter.Type.STRING)
+        self.declare_parameter("output.source_id", Parameter.Type.STRING)
+        self.declare_parameter("output.stream_id", Parameter.Type.STRING)
+        self.declare_parameter("cache_dir", Parameter.Type.STRING)
+        self.declare_parameter("qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("qos.reliable", Parameter.Type.BOOL)
+
+    def _validate_identity_contract(self) -> None:
+        if self._same_identity_string(self.output_stream_id, self.output_topic):
+            raise RuntimeError("output.stream_id must be distinct from output_topic")
+        if self._same_identity_string(self.output_stream_id, self.output_source_id):
+            raise RuntimeError("output.stream_id must be distinct from output.source_id")
+
+    @staticmethod
+    def _same_identity_string(left: str, right: str) -> bool:
+        return left == right or left.lstrip("/") == right.lstrip("/")
+
+    def _string_parameter(self, name: str) -> str:
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
+        if parameter.type_ != Parameter.Type.STRING:
+            raise RuntimeError(f"{name} must be a string")
+        return parameter.value
+
+    def _required_string_parameter(self, name: str) -> str:
+        value = self._string_parameter(name).strip()
+        if not value:
+            raise RuntimeError(f"{name} is required")
+        return value
+
+    def _bool_parameter(self, name: str) -> bool:
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
+        if parameter.type_ != Parameter.Type.BOOL:
+            raise RuntimeError(f"{name} must be a bool")
+        return parameter.value
+
+    def _integer_parameter(self, name: str) -> int:
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
+        if parameter.type_ != Parameter.Type.INTEGER:
+            raise RuntimeError(f"{name} must be an integer")
+        return parameter.value
+
+    def _positive_integer_parameter(self, name: str) -> int:
+        value = self._integer_parameter(name)
+        if value <= 0:
+            raise RuntimeError(f"{name} must be > 0")
+        return value
 
     def handle_speak(self, request: Speak.Request, response: Speak.Response) -> Speak.Response:
         text = request.text.strip()
@@ -137,13 +199,13 @@ class FaTtsNode(Node):
         self,
         cached: SynthesizedAudio,
         *,
-        stamp=None,
+        stamp: Time | None = None,
         epoch: int | None = None,
     ) -> AudioFrame:
         frame = AudioFrame()
         frame.header.stamp = stamp if stamp is not None else self.get_clock().now().to_msg()
-        frame.source_id = "fa_tts"
-        frame.stream_id = self.output_topic
+        frame.source_id = self.output_source_id
+        frame.stream_id = self.output_stream_id
         frame.encoding = cached.encoding
         frame.sample_rate = cached.sample_rate
         frame.channels = cached.channels

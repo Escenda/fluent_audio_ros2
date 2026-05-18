@@ -9,11 +9,9 @@
 
 ## 起動
 ```bash
-ros2 run fa_tts fa_tts_node --ros-args -p default_voice:=mei_normal
-```
-または
-```bash
-ros2 launch fa_tts fa_tts.launch.py
+ros2 launch fa_tts fa_tts.launch.py \
+  node_name:=fa_tts \
+  config_file:=/absolute/path/to/fa_tts.yaml
 ```
 
 ## サービス呼び出し例

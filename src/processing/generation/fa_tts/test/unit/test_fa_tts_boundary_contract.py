@@ -15,10 +15,52 @@ def test_default_config_has_no_playback_or_gain_parameters() -> None:
     assert params["backend.name"] == "pyopenjtalk"
     assert params["backend.openjtalk_dict_dir"] == ""
     assert params["output_topic"] == "audio/tts/frame"
+    assert params["output.source_id"] == "fa_tts"
+    assert params["output.stream_id"] == "tts_synthesis"
+    assert params["qos.depth"] == 10
+    assert params["qos.reliable"] is True
     assert "playback_topic" not in params
     assert "use_playback_topic" not in params
     assert "stop_topic" not in params
     assert "default_volume_db" not in params
+
+
+def test_tts_node_parameters_are_required_not_runtime_defaulted() -> None:
+    source_path = Path(__file__).parents[2] / "fa_tts_py" / "tts_node.py"
+    source = source_path.read_text(encoding="utf-8")
+
+    assert 'declare_parameter("backend.name", "")' not in source
+    assert 'declare_parameter("output_topic", "audio/tts/frame")' not in source
+    assert 'declare_parameter("cache_dir", "")' not in source
+    assert 'declare_parameter("qos.depth", 10)' not in source
+    assert 'declare_parameter("backend.name", Parameter.Type.STRING)' in source
+    assert 'declare_parameter("output_topic", Parameter.Type.STRING)' in source
+    assert 'declare_parameter("output.source_id", Parameter.Type.STRING)' in source
+    assert 'declare_parameter("output.stream_id", Parameter.Type.STRING)' in source
+    assert 'declare_parameter("qos.depth", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("qos.reliable", Parameter.Type.BOOL)' in source
+    assert "ParameterUninitializedException" in source
+
+
+def test_tts_production_python_has_no_ambiguous_types_or_import_fallbacks() -> None:
+    package_root = Path(__file__).parents[2]
+    production_files = [
+        package_root / "fa_tts_py" / "tts_node.py",
+        package_root / "fa_tts_py" / "backends" / "base.py",
+        package_root / "fa_tts_py" / "backends" / "factory.py",
+        package_root / "fa_tts_py" / "backends" / "pyopenjtalk_backend.py",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in production_files)
+
+    assert "ImportError" not in combined
+    assert "dict[str, Any]" not in combined
+    assert "from typing import Any" not in combined
+    assert ": Any" not in combined
+    assert "-> Any" not in combined
+    assert ": object" not in combined
+    assert "-> object" not in combined
+    assert "list[object]" not in combined
+    assert "dict[str, object]" not in combined
 
 
 def test_tts_node_does_not_publish_to_playback_topic() -> None:
@@ -40,8 +82,8 @@ def test_tts_publishes_audio_frame_identity_without_analysis_fields() -> None:
     source = source_path.read_text(encoding="utf-8")
     build_frame = source.split("def build_frame")[1].split("def make_cache_key")[0]
 
-    assert 'frame.source_id = "fa_tts"' in build_frame
-    assert "frame.stream_id = self.output_topic" in build_frame
+    assert "frame.source_id = self.output_source_id" in build_frame
+    assert "frame.stream_id = self.output_stream_id" in build_frame
     assert 'frame.layout = "interleaved"' in build_frame
     assert ".rms" not in source
     assert ".peak" not in source

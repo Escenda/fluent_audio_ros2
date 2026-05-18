@@ -1,8 +1,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
@@ -12,15 +11,11 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "node_name",
-            default_value="fa_tts",
-            description="ノード名",
+            description="Required ROS node name.",
         ),
         DeclareLaunchArgument(
             "config_file",
-            default_value=PathJoinSubstitution(
-                [FindPackageShare("fa_tts"), "config", "default.yaml"]
-            ),
-            description="設定ファイルへのパス",
+            description="Required absolute path to a fa_tts parameter YAML file.",
         ),
         Node(
             package="fa_tts",

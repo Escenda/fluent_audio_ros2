@@ -4,4 +4,8 @@ fa_tts:
     backend.openjtalk_dict_dir: ""
     default_voice: ""
     output_topic: "audio/tts/frame"
+    output.source_id: "fa_tts"
+    output.stream_id: "tts_synthesis"
     cache_dir: "~/.cache/fluent_audio/tts"
+    qos.depth: 10
+    qos.reliable: true
