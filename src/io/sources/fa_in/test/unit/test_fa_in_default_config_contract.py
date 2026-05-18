@@ -157,10 +157,18 @@ def test_alsa_name_selector_fails_closed_on_duplicate_display_names() -> None:
     backend_doc = (package_root / "docs" / "backends" / "alsa.md").read_text(
         encoding="utf-8"
     )
+    id_selector_block = backend_source.split('if (selector.mode == "id")')[1].split(
+        'if (selector.mode == "name")'
+    )[0]
+    name_selector_block = backend_source.split('if (selector.mode == "name")')[1].split(
+        'throw BackendError("unsupported audio.device_selector.mode'
+    )[0]
 
     assert 'selector.mode == "id"' in backend_source
     assert "Configured ALSA input source id was not found" in backend_source
-    assert "device.id == selector.identifier" in backend_source
+    assert "device.id == selector.identifier" in id_selector_block
+    assert "device.id == selector.identifier" not in name_selector_block
+    assert "displayName(device) == selector.identifier" in name_selector_block
     assert "display_name_matches.size() == 1" in backend_source
     assert "display_name_matches.size() > 1" in backend_source
     assert "Configured ALSA input source name is ambiguous" in backend_source

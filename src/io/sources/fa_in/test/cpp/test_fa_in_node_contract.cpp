@@ -93,7 +93,7 @@ public:
     }
     if (selector.mode == "name") {
       for (const auto & device : devices) {
-        if (device.id == selector.identifier || displayName(device) == selector.identifier) {
+        if (displayName(device) == selector.identifier) {
           return device;
         }
       }
@@ -299,6 +299,38 @@ TEST_F(RclcppContractTest, PublishesConfiguredMetadataAndRawSourcePayload)
   EXPECT_TRUE(std::equal(state->payload.begin(), state->payload.end(), received->data.begin()));
   EXPECT_GE(state->read_calls.load(), 1u);
   EXPECT_FALSE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, NameSelectorMatchesDisplayNameOnly)
+{
+  const auto state = std::make_shared<FakeSourceState>();
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("audio.device_selector.mode", "name"));
+  replaceParameter(parameters, rclcpp::Parameter("audio.device_selector.identifier", "Primary Mic"));
+
+  auto node = std::make_shared<fa_in::FaInNode>(
+    optionsWith(std::move(parameters)),
+    factoryFor(state));
+
+  EXPECT_EQ(openedDevice(state), "hw:0,0");
+  EXPECT_FALSE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, NameSelectorRejectsRawId)
+{
+  const auto state = std::make_shared<FakeSourceState>();
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("audio.device_selector.mode", "name"));
+  replaceParameter(parameters, rclcpp::Parameter("audio.device_selector.identifier", "hw:0,0"));
+
+  EXPECT_THROW(
+    {
+      auto node = std::make_shared<fa_in::FaInNode>(
+        optionsWith(std::move(parameters)),
+        factoryFor(state));
+    },
+    std::runtime_error);
+  EXPECT_TRUE(openedDevice(state).empty());
 }
 
 TEST_F(RclcppContractTest, ListDevicesSurfacesBackendEnumerationFailure)

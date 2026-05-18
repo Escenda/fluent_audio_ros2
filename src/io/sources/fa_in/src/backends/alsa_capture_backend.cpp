@@ -138,12 +138,6 @@ public:
     }
 
     if (selector.mode == "name") {
-      for (const auto& device : devices) {
-        if (device.id == selector.identifier) {
-          return device;
-        }
-      }
-
       std::vector<DeviceInfo> display_name_matches;
       for (const auto& device : devices) {
         if (displayName(device) == selector.identifier) {
