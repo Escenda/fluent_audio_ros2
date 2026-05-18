@@ -44,6 +44,8 @@ def test_sink_backend_has_no_struct_default() -> None:
     assert "std::string playback_control_service{};" in header_text
     assert "std::string device_id{};" in header_text
     assert "std::string file_path{};" in header_text
+    assert "std::string endpoint_uri{};" in header_text
+    assert "std::string transport_identity{};" in header_text
     assert "std::string encoding{};" in header_text
     assert "uint32_t sample_rate{0};" in header_text
     assert "uint32_t channels{0};" in header_text
@@ -57,6 +59,7 @@ def test_sink_backend_has_no_struct_default() -> None:
     assert "size_t qos_depth{0};" in header_text
     assert "size_t lifecycle_qos_depth{0};" in header_text
     assert "bool overwrite_enabled{false};" in header_text
+    assert "size_t network_max_packet_bytes{0};" in header_text
 
     source_path = package_root / "src" / "fa_out_node.cpp"
     source_text = source_path.read_text(encoding="utf-8")
@@ -66,6 +69,9 @@ def test_sink_backend_has_no_struct_default() -> None:
     assert 'declare_parameter<std::string>("playback_control_service")' in source_text
     assert 'declare_parameter("file.path", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
     assert 'declare_parameter("overwrite.enabled", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
+    assert 'declare_parameter("endpoint.uri", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
+    assert 'declare_parameter("transport.identity", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
+    assert 'declare_parameter("network.max_packet_bytes", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
     assert "readRequiredString(*this, \"input_topic\")" in source_text
     assert "requirePositiveUint32" in source_text
     assert "requirePositiveSize" in source_text
@@ -79,6 +85,7 @@ def test_sink_backend_has_no_struct_default() -> None:
     assert "audio.chunk_duration_ms produces zero playback frames" in validation_text
     assert "audio.channels * audio.bit_depth exceeds size_t range" in validation_text
     assert (package_root / "docs" / "backends" / "pcm_file_writer.md").is_file()
+    assert (package_root / "docs" / "backends" / "network_pcm_sender.md").is_file()
 
 
 def test_alsa_sink_rejects_plugin_pcm_devices() -> None:
@@ -145,7 +152,7 @@ def test_file_writer_backend_is_explicit_and_does_not_hide_processing() -> None:
         package_root / "src" / "backends" / "pcm_file_writer_backend.cpp"
     ).read_text(encoding="utf-8")
 
-    assert 'config_.backend_name != "alsa_playback" && config_.backend_name != "pcm_file_writer"' in source
+    assert "kBackendNetworkPcmSender" in source
     assert "std::make_unique<backends::PcmFileWriterBackend>" in source
     assert "file.path is required for backend.name=pcm_file_writer" in source
     assert "audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32" in source
@@ -153,6 +160,23 @@ def test_file_writer_backend_is_explicit_and_does_not_hide_processing() -> None:
     assert "resample" not in backend_source
     assert "gain" not in backend_source
     assert "stream_.write" in backend_source
+
+
+def test_network_sender_backend_is_explicit_and_preserves_packet_boundary() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (package_root / "src" / "fa_out_node.cpp").read_text(encoding="utf-8")
+    backend_source = (
+        package_root / "src" / "backends" / "network_pcm_sender_backend.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "std::make_unique<backends::NetworkPcmSenderBackend>" in source
+    assert "endpoint.uri is required for backend.name=network_pcm_sender" in source
+    assert "network.max_packet_bytes must be divisible by expected frame byte size" in source
+    assert "config_.backend_name == kBackendNetworkPcmSender ? total_bytes" in source
+    assert "sendto" in backend_source
+    assert "codec" not in backend_source
+    assert "resample" not in backend_source
+    assert "gain" not in backend_source
 
 
 def test_alsa_playback_backend_rejects_negotiated_timing_changes() -> None:

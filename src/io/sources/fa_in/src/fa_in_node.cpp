@@ -6,9 +6,11 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 #include "fa_in/backends/alsa_capture_backend.hpp"
+#include "fa_in/backends/network_pcm_receiver_backend.hpp"
 #include "fa_in/backends/pcm_file_reader_backend.hpp"
 
 namespace fa_in
@@ -20,12 +22,20 @@ constexpr const char * kEncodingPcm16 = "PCM16LE";
 constexpr const char * kEncodingPcm32 = "PCM32LE";
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
+constexpr const char * kBackendAlsaCapture = "alsa_capture";
+constexpr const char * kBackendPcmFileReader = "pcm_file_reader";
+constexpr const char * kBackendNetworkPcmReceiver = "network_pcm_receiver";
 
 bool isSupportedEncodingPair(const AudioConfig & config)
 {
   return (config.encoding == kEncodingPcm16 && config.bit_depth == 16) ||
          (config.encoding == kEncodingPcm32 && config.bit_depth == 32) ||
          (config.encoding == kEncodingFloat32 && config.bit_depth == 32);
+}
+
+bool isVariablePacketBackend(const std::string & backend_name)
+{
+  return backend_name == kBackendPcmFileReader || backend_name == kBackendNetworkPcmReceiver;
 }
 
 backends::AudioFormat backendFormatFromConfig(const AudioConfig & config)
@@ -205,8 +215,12 @@ void FaInNode::loadParameters()
   this->declare_parameter("audio.device_selector.identifier", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("audio.device_selector.index", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("file.path", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("endpoint.uri", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("transport.identity", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("audio.source_id", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("playback.loop", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("network.max_packet_bytes", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("polling.period_ms", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter<int>("audio.sample_rate");
   this->declare_parameter<int>("audio.channels");
   this->declare_parameter<int>("audio.bit_depth");
@@ -222,14 +236,24 @@ void FaInNode::loadParameters()
 
   config_.backend_name = readRequiredString(*this, "backend.name");
   config_.output_topic = readRequiredString(*this, "output_topic");
-  if (config_.backend_name == "alsa_capture") {
+  if (config_.backend_name == kBackendAlsaCapture) {
     config_.device_mode = readRequiredString(*this, "audio.device_selector.mode");
     config_.device_identifier = readRequiredString(*this, "audio.device_selector.identifier");
     config_.device_index = readRequiredInt(*this, "audio.device_selector.index");
-  } else if (config_.backend_name == "pcm_file_reader") {
+  } else if (config_.backend_name == kBackendPcmFileReader) {
     config_.file_path = readRequiredString(*this, "file.path");
     config_.source_id = readRequiredString(*this, "audio.source_id");
     config_.playback_loop = readRequiredBool(*this, "playback.loop");
+  } else if (config_.backend_name == kBackendNetworkPcmReceiver) {
+    config_.endpoint_uri = readRequiredString(*this, "endpoint.uri");
+    config_.transport_identity = readRequiredString(*this, "transport.identity");
+    config_.source_id = readRequiredString(*this, "audio.source_id");
+    config_.network_max_packet_bytes = validation::requirePositiveUint32(
+      "network.max_packet_bytes",
+      readRequiredInt(*this, "network.max_packet_bytes"));
+    config_.polling_period_ms = validation::requirePositiveUint32(
+      "polling.period_ms",
+      readRequiredInt(*this, "polling.period_ms"));
   }
   config_.sample_rate = validation::requirePositiveUint32(
     "audio.sample_rate", readRequiredInt(*this, "audio.sample_rate"));
@@ -257,18 +281,29 @@ void FaInNode::loadParameters()
   if (config_.backend_name.empty()) {
     throw std::runtime_error("backend.name is required");
   }
-  if (config_.backend_name != "alsa_capture" && config_.backend_name != "pcm_file_reader") {
+  if (config_.backend_name != kBackendAlsaCapture && config_.backend_name != kBackendPcmFileReader &&
+      config_.backend_name != kBackendNetworkPcmReceiver)
+  {
     throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
   }
-  if (config_.backend_name == "alsa_capture") {
+  if (config_.backend_name == kBackendAlsaCapture) {
     validation::requireDeviceSelector(
       config_.device_mode, config_.device_identifier, config_.device_index);
   }
-  if (config_.backend_name == "pcm_file_reader" && config_.file_path.empty()) {
+  if (config_.backend_name == kBackendPcmFileReader && config_.file_path.empty()) {
     throw std::runtime_error("file.path is required for backend.name=pcm_file_reader");
   }
-  if (config_.backend_name == "pcm_file_reader" && config_.source_id.empty()) {
+  if (config_.backend_name == kBackendPcmFileReader && config_.source_id.empty()) {
     throw std::runtime_error("audio.source_id is required for backend.name=pcm_file_reader");
+  }
+  if (config_.backend_name == kBackendNetworkPcmReceiver && config_.endpoint_uri.empty()) {
+    throw std::runtime_error("endpoint.uri is required for backend.name=network_pcm_receiver");
+  }
+  if (config_.backend_name == kBackendNetworkPcmReceiver && config_.transport_identity.empty()) {
+    throw std::runtime_error("transport.identity is required for backend.name=network_pcm_receiver");
+  }
+  if (config_.backend_name == kBackendNetworkPcmReceiver && config_.source_id.empty()) {
+    throw std::runtime_error("audio.source_id is required for backend.name=network_pcm_receiver");
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
@@ -291,10 +326,18 @@ void FaInNode::loadParameters()
       "audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32");
   }
 
-  frames_per_buffer_ = validation::captureFramesPerBuffer(config_.sample_rate, config_.chunk_ms);
   bytes_per_frame_ = validation::bytesPerFrame(config_.channels, config_.bit_depth);
-  bytes_per_buffer_ = validation::bytesForFrames(
-    "audio.chunk_ms", frames_per_buffer_, bytes_per_frame_);
+  if (config_.backend_name == kBackendNetworkPcmReceiver) {
+    if ((config_.network_max_packet_bytes % bytes_per_frame_) != 0) {
+      throw std::runtime_error("network.max_packet_bytes must be divisible by expected frame byte size");
+    }
+    frames_per_buffer_ = config_.network_max_packet_bytes / bytes_per_frame_;
+    bytes_per_buffer_ = config_.network_max_packet_bytes;
+  } else {
+    frames_per_buffer_ = validation::captureFramesPerBuffer(config_.sample_rate, config_.chunk_ms);
+    bytes_per_buffer_ = validation::bytesForFrames(
+      "audio.chunk_ms", frames_per_buffer_, bytes_per_frame_);
+  }
   last_frame_time_ = std::chrono::steady_clock::now();
 
   RCLCPP_INFO(this->get_logger(), "Audio configuration: backend.name=%s rate=%uHz channels=%u bits=%u chunk=%ums",
@@ -304,15 +347,19 @@ void FaInNode::loadParameters()
 
 void FaInNode::initializeBackend()
 {
-  if (config_.backend_name == "alsa_capture") {
+  if (config_.backend_name == kBackendAlsaCapture) {
     source_backend_ = backend_factory_();
     if (!source_backend_) {
       throw std::runtime_error("fa_in backend factory returned null backend");
     }
     return;
   }
-  if (config_.backend_name == "pcm_file_reader") {
+  if (config_.backend_name == kBackendPcmFileReader) {
     source_backend_ = std::make_unique<backends::PcmFileReaderBackend>();
+    return;
+  }
+  if (config_.backend_name == kBackendNetworkPcmReceiver) {
+    source_backend_ = std::make_unique<backends::NetworkPcmReceiverBackend>();
     return;
   }
   throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
@@ -356,7 +403,7 @@ bool FaInNode::configureDevice()
 
   active_device_name_ = displayName(device);
   active_device_id_ = device.id;
-  active_source_id_ = config_.backend_name == "pcm_file_reader" ? config_.source_id : active_device_id_;
+  active_source_id_ = config_.backend_name == kBackendAlsaCapture ? active_device_id_ : config_.source_id;
   RCLCPP_INFO(
     this->get_logger(),
     "Using input source: %s (%s)",
@@ -421,13 +468,21 @@ void FaInNode::captureLoop()
 
   while (rclcpp::ok() && capturing_.load()) {
     const auto read_result = source_backend_->read(buffer.data(), frames_per_buffer_);
-    if (read_result.status == backends::ReadStatus::kXrun) {
+    if (read_result.status == backends::ReadStatus::kNoData) {
+      if (config_.backend_name != kBackendNetworkPcmReceiver) {
+        failClosed("source backend returned no data on required input source " + active_device_id_);
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(config_.polling_period_ms));
+      continue;
+    } else if (read_result.status == backends::ReadStatus::kXrun) {
       xruns_.fetch_add(1);
       failClosed("ALSA capture XRUN on required input source " + active_device_id_);
       break;
     } else if (read_result.status == backends::ReadStatus::kError) {
-      failClosed(
-        "snd_pcm_readi failed on required input source " + active_device_id_ + ": " + read_result.message);
+      const std::string read_label =
+        config_.backend_name == kBackendAlsaCapture ? "snd_pcm_readi failed" : "source backend read failed";
+      failClosed(read_label + " on required input source " + active_device_id_ + ": " + read_result.message);
       break;
     } else if (read_result.status == backends::ReadStatus::kZeroFrames) {
       failClosed("snd_pcm_readi returned zero frames on required input source " + active_device_id_);
@@ -437,7 +492,7 @@ void FaInNode::captureLoop()
       break;
     }
 
-    if (read_result.frames != frames_per_buffer_ && config_.backend_name != "pcm_file_reader") {
+    if (read_result.frames != frames_per_buffer_ && !isVariablePacketBackend(config_.backend_name)) {
       failClosed(
         "snd_pcm_readi returned " + std::to_string(read_result.frames) +
         " frames, expected configured capture chunk " + std::to_string(frames_per_buffer_) +
@@ -524,8 +579,15 @@ backends::DeviceInfo FaInNode::determineDeviceFromConfig()
   if (!source_backend_) {
     throw backends::BackendError("source backend is not initialized");
   }
-  if (config_.backend_name == "pcm_file_reader") {
+  if (config_.backend_name == kBackendPcmFileReader) {
     return backends::DeviceInfo{config_.file_path, config_.source_id, config_.channels, config_.sample_rate};
+  }
+  if (config_.backend_name == kBackendNetworkPcmReceiver) {
+    return backends::DeviceInfo{
+      config_.endpoint_uri,
+      config_.transport_identity,
+      config_.channels,
+      config_.sample_rate};
   }
   return source_backend_->selectDevice(backendSelectorFromConfig(config_));
 }
@@ -581,9 +643,9 @@ void FaInNode::handleSwitchDevice(
   std::shared_ptr<fa_interfaces::srv::SwitchDevice::Response> response)
 {
   try {
-    if (config_.backend_name == "pcm_file_reader") {
+    if (config_.backend_name != kBackendAlsaCapture) {
       response->success = false;
-      response->message = "switch_device is not supported for backend.name=pcm_file_reader";
+      response->message = "switch_device is only supported for backend.name=alsa_capture";
       return;
     }
     validation::requireSwitchDeviceSelector(

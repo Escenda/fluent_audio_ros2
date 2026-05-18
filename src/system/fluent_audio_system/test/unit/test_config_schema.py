@@ -699,9 +699,7 @@ fa_in:
     "package_name, executable_name",
     [
         ("fa_in", "fa_in_node"),
-        ("fa_network_in", "fa_network_in_node"),
         ("fa_out", "fa_out_node"),
-        ("fa_network_out", "fa_network_out_node"),
         ("fa_record", "fa_record_node"),
         ("fa_stream", "fa_stream_node"),
     ],
@@ -739,7 +737,7 @@ def test_io_group_accepts_source_sink_and_io_utility_packages(
     assert spec.groups[0].nodes[0].package == package_name
 
 
-@pytest.mark.parametrize("package_name", ["fa_file_in", "fa_file_out"])
+@pytest.mark.parametrize("package_name", ["fa_file_in", "fa_file_out", "fa_network_in", "fa_network_out"])
 def test_system_config_rejects_removed_or_unknown_packages_even_when_disabled(
     package_name: str,
 ) -> None:

@@ -19,6 +19,7 @@ pkg_check_modules(ALSA REQUIRED alsa)
 
 add_library(fa_in_backends
   src/backends/alsa_capture_backend.cpp
+  src/backends/network_pcm_receiver_backend.cpp
   src/backends/pcm_file_reader_backend.cpp
 )
 

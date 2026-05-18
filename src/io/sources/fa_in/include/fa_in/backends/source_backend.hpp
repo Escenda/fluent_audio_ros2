@@ -40,6 +40,7 @@ struct DeviceInfo
 enum class ReadStatus
 {
   kOk,
+  kNoData,
   kXrun,
   kError,
   kZeroFrames,

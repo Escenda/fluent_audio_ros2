@@ -31,6 +31,8 @@ struct AudioConfig
   std::string device_identifier{};
   int device_index{};
   std::string file_path{};
+  std::string endpoint_uri{};
+  std::string transport_identity{};
   std::string source_id{};
   bool playback_loop{false};
   uint32_t sample_rate{0};
@@ -45,6 +47,8 @@ struct AudioConfig
   uint32_t diagnostics_qos_depth{0};
   bool diagnostics_qos_reliable{false};
   uint32_t diag_period_ms{0};
+  uint32_t network_max_packet_bytes{0};
+  uint32_t polling_period_ms{0};
 };
 
 class FaInNode : public rclcpp::Node

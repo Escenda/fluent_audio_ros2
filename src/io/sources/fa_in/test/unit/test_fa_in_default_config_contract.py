@@ -44,6 +44,8 @@ def test_source_backend_has_no_struct_default() -> None:
     assert "std::string output_topic{};" in header_text
     assert "std::string device_mode{};" in header_text
     assert "std::string file_path{};" in header_text
+    assert "std::string endpoint_uri{};" in header_text
+    assert "std::string transport_identity{};" in header_text
     assert "std::string source_id{};" in header_text
     assert "bool playback_loop{false};" in header_text
     assert "uint32_t sample_rate{0};" in header_text
@@ -56,6 +58,8 @@ def test_source_backend_has_no_struct_default() -> None:
     assert "uint32_t audio_qos_depth{0};" in header_text
     assert "bool audio_qos_reliable{false};" in header_text
     assert "uint32_t diag_period_ms{0};" in header_text
+    assert "uint32_t network_max_packet_bytes{0};" in header_text
+    assert "uint32_t polling_period_ms{0};" in header_text
     assert "size_t bytes_per_buffer_{0};" in header_text
     assert 'declare_parameter<std::string>("output_topic")' in source_text
     assert 'declare_parameter<int>("audio.sample_rate")' in source_text
@@ -65,6 +69,10 @@ def test_source_backend_has_no_struct_default() -> None:
     assert 'declare_parameter<std::string>("audio.encoding")' in source_text
     assert 'declare_parameter<std::string>("audio.stream_id")' in source_text
     assert 'declare_parameter<std::string>("audio.layout")' in source_text
+    assert 'declare_parameter("endpoint.uri", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
+    assert 'declare_parameter("transport.identity", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
+    assert 'declare_parameter("network.max_packet_bytes", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
+    assert 'declare_parameter("polling.period_ms", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
     assert 'declare_parameter<int>("audio.qos.depth")' in source_text
     assert 'declare_parameter<bool>("audio.qos.reliable")' in source_text
     assert 'declare_parameter<int>("diagnostics.qos.depth")' in source_text
@@ -170,10 +178,11 @@ def test_runtime_read_failure_fails_closed_without_prepare_retry() -> None:
 
     assert "failClosed(" in capture_loop
     assert "capture loop started without required source backend" in capture_loop
+    assert "ReadStatus::kNoData" in capture_loop
+    assert "std::this_thread::sleep_for" in capture_loop
     assert "read_result.frames != frames_per_buffer_" in capture_loop
     assert "expected configured capture chunk" in capture_loop
     assert "snd_pcm_prepare" not in capture_loop
-    assert "std::this_thread::sleep_for" not in capture_loop
     assert "rclcpp::shutdown()" in source
 
 
@@ -330,7 +339,7 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
 
 
-def test_source_adapter_exposes_file_backend_but_no_network_or_dsp_surface() -> None:
+def test_source_adapter_exposes_file_and_network_backends_but_no_dsp_surface() -> None:
     package_root = Path(__file__).parents[2]
     source_text = (package_root / "src" / "fa_in_node.cpp").read_text(encoding="utf-8")
     header_text = (package_root / "include" / "fa_in" / "fa_in_node.hpp").read_text(
@@ -345,7 +354,6 @@ def test_source_adapter_exposes_file_backend_but_no_network_or_dsp_surface() -> 
 
     forbidden_tokens = [
         "audio.file",
-        "network",
         "decode",
         "encoder",
         "gain",
@@ -360,6 +368,10 @@ def test_source_adapter_exposes_file_backend_but_no_network_or_dsp_surface() -> 
     for token in forbidden_tokens:
         assert token not in combined
     assert "pcm_file_reader" in combined
+    assert "network_pcm_receiver" in combined
     assert "file.path" in combined
+    assert "endpoint.uri" in combined
+    assert "network.max_packet_bytes" in combined
     assert "FA-IN-SPEC-023" in spec_text
     assert "FA-IN-SPEC-023" in test_plan_text
+    assert (package_root / "docs" / "backends" / "network_pcm_receiver.md").is_file()

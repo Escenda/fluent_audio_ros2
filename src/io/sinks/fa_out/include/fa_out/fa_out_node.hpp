@@ -36,6 +36,8 @@ struct OutputConfig
   std::string playback_control_service{};
   std::string device_id{};
   std::string file_path{};
+  std::string endpoint_uri{};
+  std::string transport_identity{};
   std::string encoding{};
   uint32_t sample_rate{0};
   uint32_t channels{0};
@@ -51,6 +53,7 @@ struct OutputConfig
   size_t lifecycle_qos_depth{0};
   bool lifecycle_qos_reliable{false};
   bool overwrite_enabled{false};
+  size_t network_max_packet_bytes{0};
 };
 
 struct QueuedFrame

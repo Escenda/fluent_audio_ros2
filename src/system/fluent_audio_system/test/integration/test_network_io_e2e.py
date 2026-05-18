@@ -43,9 +43,9 @@ def _write_network_io_params(
     topic = "audio/e2e/network_pcm"
     stream_id = "audio/e2e/network_pcm_stream"
     _write_yaml(
-        tmp_path / "fa_network_in.params.yaml",
+        tmp_path / "fa_in_network.params.yaml",
         {
-            "fa_network_in_e2e": {
+            "fa_in_network_e2e": {
                 "ros__parameters": {
                     "backend.name": "network_pcm_receiver",
                     "endpoint.uri": input_endpoint,
@@ -53,15 +53,16 @@ def _write_network_io_params(
                     "output_topic": topic,
                     "audio.source_id": "network_e2e_source",
                     "audio.stream_id": stream_id,
-                    "expected.sample_rate": 16000,
-                    "expected.channels": 1,
-                    "expected.encoding": "PCM16LE",
-                    "expected.bit_depth": 16,
-                    "expected.layout": "interleaved",
+                    "audio.sample_rate": 16000,
+                    "audio.channels": 1,
+                    "audio.encoding": "PCM16LE",
+                    "audio.bit_depth": 16,
+                    "audio.layout": "interleaved",
+                    "audio.chunk_ms": 10,
                     "network.max_packet_bytes": 1024,
                     "polling.period_ms": 10,
-                    "qos.depth": 10,
-                    "qos.reliable": True,
+                    "audio.qos.depth": 10,
+                    "audio.qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
                     "diagnostics.qos.depth": 10,
                     "diagnostics.qos.reliable": True,
@@ -70,24 +71,28 @@ def _write_network_io_params(
         },
     )
     _write_yaml(
-        tmp_path / "fa_network_out.params.yaml",
+        tmp_path / "fa_out_network.params.yaml",
         {
-            "fa_network_out_e2e": {
+            "fa_out_network_e2e": {
                 "ros__parameters": {
                     "backend.name": "network_pcm_sender",
                     "endpoint.uri": output_endpoint,
                     "transport.identity": "network_out_e2e",
                     "input_topic": topic,
-                    "expected.sample_rate": 16000,
-                    "expected.channels": 1,
-                    "expected.encoding": "PCM16LE",
-                    "expected.bit_depth": 16,
-                    "expected.layout": "interleaved",
-                    "qos.depth": 10,
-                    "qos.reliable": True,
-                    "diagnostics.publish_period_ms": 1000,
-                    "diagnostics.qos.depth": 10,
-                    "diagnostics.qos.reliable": True,
+                    "input_stream_id": stream_id,
+                    "playback_done_topic": "audio/e2e/network_pcm_done",
+                    "playback_control_service": "audio/e2e/network_pcm_control",
+                    "audio.sample_rate": 16000,
+                    "audio.channels": 1,
+                    "audio.encoding": "PCM16LE",
+                    "audio.bit_depth": 16,
+                    "audio.chunk_duration_ms": 10,
+                    "network.max_packet_bytes": 1024,
+                    "audio.qos.depth": 10,
+                    "audio.qos.reliable": True,
+                    "lifecycle.qos.depth": 10,
+                    "lifecycle.qos.reliable": True,
+                    "queue.max_frames": 8,
                 }
             }
         },
@@ -109,20 +114,20 @@ def _write_system_config(tmp_path: Path) -> Path:
                     "enable": True,
                     "nodes": [
                         {
-                            "id": "fa_network_out",
+                            "id": "fa_out_network",
                             "enable": True,
-                            "package": "fa_network_out",
-                            "exec": "fa_network_out_node",
-                            "node_name": "fa_network_out_e2e",
-                            "params_file": str(tmp_path / "fa_network_out.params.yaml"),
+                            "package": "fa_out",
+                            "exec": "fa_out_node",
+                            "node_name": "fa_out_network_e2e",
+                            "params_file": str(tmp_path / "fa_out_network.params.yaml"),
                         },
                         {
-                            "id": "fa_network_in",
+                            "id": "fa_in_network",
                             "enable": True,
-                            "package": "fa_network_in",
-                            "exec": "fa_network_in_node",
-                            "node_name": "fa_network_in_e2e",
-                            "params_file": str(tmp_path / "fa_network_in.params.yaml"),
+                            "package": "fa_in",
+                            "exec": "fa_in_node",
+                            "node_name": "fa_in_network_e2e",
+                            "params_file": str(tmp_path / "fa_in_network.params.yaml"),
                         },
                     ],
                 }

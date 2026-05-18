@@ -31,6 +31,8 @@ def test_system_launch_declares_site_binding_arguments() -> None:
     assert "_node_launch_parameters" in launch_text
     assert 'node.package == "fa_in"' in launch_text
     assert 'node.package == "fa_out"' in launch_text
+    assert 'node.package == "fa_in" and node.backend_name == "alsa_capture"' in launch_text
+    assert 'node.package == "fa_out" and node.backend_name == "alsa_playback"' in launch_text
     assert "_SOURCE_BOUND_AUDIO_AI_PACKAGES" in launch_text
     assert '"fa_asr"' in launch_text
     assert '"fa_audio_embedding"' in launch_text

@@ -39,9 +39,7 @@ _STREAMING_PACKAGE_NAMES = (
 )
 _PACKAGE_CATEGORIES = {
     "fa_in": frozenset(("io",)),
-    "fa_network_in": frozenset(("io",)),
     "fa_out": frozenset(("io",)),
-    "fa_network_out": frozenset(("io",)),
     "fa_record": frozenset(("io",)),
     "fa_stream": frozenset(("io",)),
     "fa_resample": frozenset(("format",)),
@@ -432,9 +430,7 @@ _FEATURE_ANALYSIS_PACKAGES = (
 )
 _PARAMETER_IDENTITY_CONTRACTS: dict[str, ParameterIdentityContract] = {
     "fa_in": _SOURCE_CONTRACT,
-    "fa_network_in": _SOURCE_CONTRACT,
     "fa_out": _FA_OUT_CONTRACT,
-    "fa_network_out": _SINK_CONTRACT,
     "fa_resample": _RESAMPLE_CONTRACT,
     "fa_encode": _SIMPLE_PROCESSING_CONTRACT,
     "fa_decode": _SIMPLE_PROCESSING_CONTRACT,

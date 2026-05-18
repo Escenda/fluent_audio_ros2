@@ -18,8 +18,6 @@
   <test_depend>python3-pytest</test_depend>
   <test_depend>fa_in</test_depend>
   <test_depend>fa_out</test_depend>
-  <test_depend>fa_network_in</test_depend>
-  <test_depend>fa_network_out</test_depend>
   <test_depend>fa_encode</test_depend>
   <test_depend>fa_decode</test_depend>
   <test_depend>fa_sample_format</test_depend>

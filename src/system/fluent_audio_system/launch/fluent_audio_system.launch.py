@@ -31,9 +31,9 @@ def _site_binding_overrides(context) -> SiteBindingOverrides:
 
 
 def _node_enabled_by_site_binding(node: AudioNodeSpec, overrides: SiteBindingOverrides) -> bool:
-    if node.package == "fa_in":
+    if node.package == "fa_in" and node.backend_name == "alsa_capture":
         return overrides.fa_in_enabled
-    if node.package == "fa_out":
+    if node.package == "fa_out" and node.backend_name == "alsa_playback":
         return overrides.fa_out_enabled
     return True
 

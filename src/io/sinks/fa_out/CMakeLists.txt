@@ -18,6 +18,7 @@ pkg_check_modules(ALSA REQUIRED alsa)
 
 add_library(fa_out_backends
   src/backends/alsa_playback_backend.cpp
+  src/backends/network_pcm_sender_backend.cpp
   src/backends/pcm_file_writer_backend.cpp
   src/backends/sink_backend.cpp
 )

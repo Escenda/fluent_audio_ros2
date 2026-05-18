@@ -2,6 +2,7 @@
 
 #include "fa_out/audio_config_validation.hpp"
 #include "fa_out/backends/alsa_playback_backend.hpp"
+#include "fa_out/backends/network_pcm_sender_backend.hpp"
 #include "fa_out/backends/pcm_file_writer_backend.hpp"
 
 #include <algorithm>
@@ -25,6 +26,9 @@ constexpr const char * kInterleavedLayout = "interleaved";
 constexpr const char * kPlaybackCommandStop = "stop";
 constexpr const char * kPlaybackCommandPause = "pause";
 constexpr const char * kPlaybackCommandResume = "resume";
+constexpr const char * kBackendAlsaPlayback = "alsa_playback";
+constexpr const char * kBackendPcmFileWriter = "pcm_file_writer";
+constexpr const char * kBackendNetworkPcmSender = "network_pcm_sender";
 
 FaOutNode::BackendFactory defaultBackendFactory()
 {
@@ -33,7 +37,7 @@ FaOutNode::BackendFactory defaultBackendFactory()
   };
 }
 
-bool isSupportedFileEncodingPair(const std::string & encoding, const uint32_t bit_depth)
+bool isSupportedRawEncodingPair(const std::string & encoding, const uint32_t bit_depth)
 {
   return (encoding == kEncodingPcm16 && bit_depth == 16u) ||
          (encoding == kEncodingPcm32 && bit_depth == 32u) ||
@@ -187,6 +191,9 @@ void FaOutNode::loadParameters()
   this->declare_parameter("audio.device_id", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("file.path", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("overwrite.enabled", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("endpoint.uri", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("transport.identity", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("network.max_packet_bytes", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("audio.alsa.buffer_frames", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("audio.alsa.period_frames", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter<std::string>("audio.encoding");
@@ -209,7 +216,9 @@ void FaOutNode::loadParameters()
   if (config_.backend_name.empty()) {
     throw std::invalid_argument("backend.name is required");
   }
-  if (config_.backend_name != "alsa_playback" && config_.backend_name != "pcm_file_writer") {
+  if (config_.backend_name != kBackendAlsaPlayback && config_.backend_name != kBackendPcmFileWriter &&
+      config_.backend_name != kBackendNetworkPcmSender)
+  {
     throw std::invalid_argument("unsupported fa_out backend.name: " + config_.backend_name);
   }
   if (config_.input_topic.empty()) {
@@ -245,7 +254,7 @@ void FaOutNode::loadParameters()
   config_.bit_depth = validation::requirePositiveUint32(
     "audio.bit_depth", readRequiredInt(*this, "audio.bit_depth"));
 
-  if (config_.backend_name == "alsa_playback") {
+  if (config_.backend_name == kBackendAlsaPlayback) {
     config_.device_id = readRequiredString(*this, "audio.device_id");
     if (config_.device_id.empty()) {
       throw std::invalid_argument("audio.device_id is required for backend.name=alsa_playback");
@@ -264,15 +273,35 @@ void FaOutNode::loadParameters()
     if (config_.alsa_period_frames > config_.alsa_buffer_frames) {
       throw std::invalid_argument("audio.alsa.period_frames must be <= audio.alsa.buffer_frames");
     }
-  } else if (config_.backend_name == "pcm_file_writer") {
+  } else if (config_.backend_name == kBackendPcmFileWriter) {
     config_.file_path = readRequiredString(*this, "file.path");
     config_.overwrite_enabled = readRequiredBool(*this, "overwrite.enabled");
     if (config_.file_path.empty()) {
       throw std::invalid_argument("file.path is required for backend.name=pcm_file_writer");
     }
-    if (!isSupportedFileEncodingPair(config_.encoding, config_.bit_depth)) {
+    if (!isSupportedRawEncodingPair(config_.encoding, config_.bit_depth)) {
       throw std::invalid_argument(
         "audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32");
+    }
+  } else if (config_.backend_name == kBackendNetworkPcmSender) {
+    config_.endpoint_uri = readRequiredString(*this, "endpoint.uri");
+    config_.transport_identity = readRequiredString(*this, "transport.identity");
+    config_.network_max_packet_bytes = validation::requirePositiveSize(
+      "network.max_packet_bytes", readRequiredInt(*this, "network.max_packet_bytes"));
+    if (config_.endpoint_uri.empty()) {
+      throw std::invalid_argument("endpoint.uri is required for backend.name=network_pcm_sender");
+    }
+    if (config_.transport_identity.empty()) {
+      throw std::invalid_argument("transport.identity is required for backend.name=network_pcm_sender");
+    }
+    if (!isSupportedRawEncodingPair(config_.encoding, config_.bit_depth)) {
+      throw std::invalid_argument(
+        "audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32");
+    }
+    const size_t expected_bytes_per_frame =
+      validation::bytesPerFrame(config_.channels, config_.bit_depth);
+    if ((config_.network_max_packet_bytes % expected_bytes_per_frame) != 0) {
+      throw std::invalid_argument("network.max_packet_bytes must be divisible by expected frame byte size");
     }
   }
   config_.max_queue_frames = validation::requirePositiveSize(
@@ -313,7 +342,7 @@ void FaOutNode::openBackend()
   closeBackend();
 
   std::unique_ptr<backends::SinkBackend> backend;
-  if (config_.backend_name == "alsa_playback") {
+  if (config_.backend_name == kBackendAlsaPlayback) {
     backends::AlsaPlaybackConfig backend_config;
     backend_config.device_id = config_.device_id;
     backend_config.encoding = config_.encoding;
@@ -323,7 +352,7 @@ void FaOutNode::openBackend()
     backend_config.buffer_frames = config_.alsa_buffer_frames;
     backend_config.period_frames = config_.alsa_period_frames;
     backend = backend_factory_(backend_config);
-  } else if (config_.backend_name == "pcm_file_writer") {
+  } else if (config_.backend_name == kBackendPcmFileWriter) {
     backends::PcmFileWriterConfig backend_config;
     backend_config.file_path = config_.file_path;
     backend_config.encoding = config_.encoding;
@@ -331,6 +360,14 @@ void FaOutNode::openBackend()
     backend_config.bit_depth = config_.bit_depth;
     backend_config.overwrite_enabled = config_.overwrite_enabled;
     backend = std::make_unique<backends::PcmFileWriterBackend>(backend_config);
+  } else if (config_.backend_name == kBackendNetworkPcmSender) {
+    backends::NetworkPcmSenderConfig backend_config;
+    backend_config.endpoint_uri = config_.endpoint_uri;
+    backend_config.encoding = config_.encoding;
+    backend_config.channels = config_.channels;
+    backend_config.bit_depth = config_.bit_depth;
+    backend_config.max_packet_bytes = config_.network_max_packet_bytes;
+    backend = std::make_unique<backends::NetworkPcmSenderBackend>(backend_config);
   } else {
     throw std::runtime_error("unsupported fa_out backend.name: " + config_.backend_name);
   }
@@ -370,8 +407,11 @@ size_t FaOutNode::writeBackendFrames(const uint8_t * data, size_t frame_count)
 
 std::string FaOutNode::configuredSinkLabel() const
 {
-  if (config_.backend_name == "pcm_file_writer") {
+  if (config_.backend_name == kBackendPcmFileWriter) {
     return config_.file_path;
+  }
+  if (config_.backend_name == kBackendNetworkPcmSender) {
+    return config_.endpoint_uri;
   }
   return config_.device_id;
 }
@@ -643,7 +683,8 @@ void FaOutNode::playbackThread()
         if (!running_.load()) {
           break;
         }
-        size_t write_bytes = std::min(chunk_bytes, total_bytes - bytes_written);
+        size_t write_bytes =
+          config_.backend_name == kBackendNetworkPcmSender ? total_bytes : std::min(chunk_bytes, total_bytes - bytes_written);
         size_t write_frames = write_bytes / bytes_per_frame_;
 
         try {

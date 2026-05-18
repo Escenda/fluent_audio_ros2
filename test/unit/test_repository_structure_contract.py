@@ -34,9 +34,7 @@ PACKAGE_TEST_CODE_SUFFIXES = (".py", ".cpp")
 
 IO_ROADMAP_PACKAGE_PATHS = (
     "io/sources/fa_in",
-    "io/sources/fa_network_in",
     "io/sinks/fa_out",
-    "io/sinks/fa_network_out",
     "io/utilities/fa_record",
     "io/utilities/fa_stream",
 )
@@ -829,6 +827,18 @@ def test_legacy_fa_capture_and_fa_output_paths_are_not_present() -> None:
     ]
 
     assert legacy_paths == []
+
+
+def test_source_sink_backend_packages_are_not_split_into_standalone_ros_packages() -> None:
+    forbidden_paths = [
+        "src/io/sources/fa_file_in",
+        "src/io/sources/fa_network_in",
+        "src/io/sinks/fa_file_out",
+        "src/io/sinks/fa_network_out",
+    ]
+    present = [path for path in forbidden_paths if (REPO_ROOT / path).exists()]
+
+    assert present == []
 
 
 def test_runtime_backends_do_not_import_ros2_or_audio_messages() -> None:
