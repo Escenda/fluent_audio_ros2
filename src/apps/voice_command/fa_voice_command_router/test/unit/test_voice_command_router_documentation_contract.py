@@ -23,6 +23,17 @@ def test_voice_command_router_has_standard_test_directories() -> None:
     assert (PACKAGE_ROOT / "test" / "fixtures").is_dir()
 
 
+def test_launch_requires_explicit_node_name_and_config_file() -> None:
+    launch_text = read_package_file("launch/fa_voice_command_router.launch.py")
+
+    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
+    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
+    assert "parameters=[config_file]" in launch_text
+
+
 def test_voice_command_router_runtime_backend_boundary_is_explicit() -> None:
     spec = read_package_file("docs/仕様書.md")
     backend = read_package_file("docs/backends/no_runtime_backend.md")
