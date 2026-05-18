@@ -5,7 +5,7 @@ fa_file_in:
     output_topic: audio/file_in
     audio:
       source_id: file_source
-      stream_id: audio/file_in
+      stream_id: audio/file_in/stream
       frames_per_chunk: 160
     expected:
       sample_rate: 16000

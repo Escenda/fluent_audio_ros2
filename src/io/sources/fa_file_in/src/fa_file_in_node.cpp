@@ -91,6 +91,19 @@ bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
   }
   return parameter.as_bool();
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaFileInNode::FaFileInNode(const rclcpp::NodeOptions & options)
@@ -157,7 +170,7 @@ void FaFileInNode::loadParameters()
   config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
 }
 
-void FaFileInNode::validateConfig() const
+void FaFileInNode::validateConfig()
 {
   if (config_.backend_name.empty()) {
     throw std::runtime_error("backend.name is required");
@@ -176,6 +189,12 @@ void FaFileInNode::validateConfig() const
   }
   if (config_.stream_id.empty()) {
     throw std::runtime_error("audio.stream_id is required");
+  }
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(config_.stream_id, config_.output_topic) ||
+      sameIdentityString(config_.stream_id, resolved_output_topic)) {
+    throw std::runtime_error("audio.stream_id must be distinct from output_topic");
   }
 
   requirePositiveUint32("expected.sample_rate", config_.expected_sample_rate);

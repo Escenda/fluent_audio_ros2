@@ -62,7 +62,8 @@ def test_default_launch_config_declares_raw_pcm_network_source_contract() -> Non
     assert params["transport.identity"] == ""
     assert params["output_topic"] == "audio/network_in"
     assert params["audio"]["source_id"] == "network_source"
-    assert params["audio"]["stream_id"] == "audio/network_in"
+    assert params["audio"]["stream_id"] == "audio/network_in/stream"
+    assert params["audio"]["stream_id"] != params["output_topic"]
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "PCM16LE"
@@ -98,3 +99,20 @@ def test_launch_fails_closed_when_transport_identity_is_missing(tmp_path: Path) 
 
     assert "process has died" in result.stdout
     assert "transport.identity is required" in result.stdout
+
+
+def test_launch_fails_closed_when_stream_id_matches_output_topic(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_network_in"]["ros__parameters"]
+    params["endpoint.uri"] = "udp://127.0.0.1:9"
+    params["transport.identity"] = "stream-id-contract"
+    params["audio"]["stream_id"] = params["output_topic"]
+    config_path = tmp_path / "stream_id_matches_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_network_in_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "audio.stream_id must be distinct from output_topic" in result.stdout

@@ -59,7 +59,8 @@ def test_default_launch_config_declares_raw_pcm_source_contract() -> None:
     assert params["file.path"] == ""
     assert params["output_topic"] == "audio/file_in"
     assert params["audio"]["source_id"] == "file_source"
-    assert params["audio"]["stream_id"] == "audio/file_in"
+    assert params["audio"]["stream_id"] == "audio/file_in/stream"
+    assert params["audio"]["stream_id"] != params["output_topic"]
     assert params["audio"]["frames_per_chunk"] == 160
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
@@ -95,3 +96,21 @@ def test_launch_fails_closed_when_backend_is_unknown(tmp_path: Path) -> None:
 
     assert "process has died" in result.stdout
     assert "unsupported fa_file_in backend.name: hidden_decoder" in result.stdout
+
+
+def test_launch_fails_closed_when_stream_id_matches_output_topic(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    fixture = tmp_path / "fixture.pcm"
+    fixture.write_bytes(b"\x00\x00")
+    params = config["fa_file_in"]["ros__parameters"]
+    params["file.path"] = str(fixture)
+    params["audio"]["stream_id"] = params["output_topic"]
+    config_path = tmp_path / "stream_id_matches_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_file_in_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "audio.stream_id must be distinct from output_topic" in result.stdout

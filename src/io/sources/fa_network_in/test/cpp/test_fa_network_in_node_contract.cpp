@@ -23,7 +23,7 @@ using namespace std::chrono_literals;
 
 constexpr const char * kOutputTopic = "audio/test/network_in";
 constexpr const char * kSourceId = "network_contract_source";
-constexpr const char * kStreamId = "audio/test/network_in";
+constexpr const char * kStreamId = "audio/test/network_in/stream";
 
 class LoopbackUdpPort
 {

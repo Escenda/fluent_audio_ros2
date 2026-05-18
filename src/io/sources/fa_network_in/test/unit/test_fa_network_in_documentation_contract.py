@@ -56,3 +56,6 @@ def test_fa_network_in_runtime_parameters_are_required_not_defaulted() -> None:
     assert 'readRequiredBool(*this, "qos.reliable")' in source
     assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in source
     assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in source
+    assert "sameIdentityString(config_.stream_id, config_.output_topic)" in source
+    assert "sameIdentityString(config_.stream_id, resolved_output_topic)" in source
+    assert "audio.stream_id must be distinct from output_topic" in source

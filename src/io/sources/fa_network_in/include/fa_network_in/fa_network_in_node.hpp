@@ -50,7 +50,7 @@ public:
 
 private:
   void loadParameters();
-  void validateConfig() const;
+  void validateConfig();
   void openEndpoint();
   void setupInterfaces();
   void pollEndpoint();

@@ -6,7 +6,7 @@ fa_network_in:
     output_topic: audio/network_in
     audio:
       source_id: network_source
-      stream_id: audio/network_in
+      stream_id: audio/network_in/stream
     expected:
       sample_rate: 16000
       channels: 1
