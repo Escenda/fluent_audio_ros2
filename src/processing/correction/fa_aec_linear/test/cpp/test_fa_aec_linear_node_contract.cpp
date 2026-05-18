@@ -35,6 +35,8 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("output_topic", kOutputTopic),
     rclcpp::Parameter("expected_sample_rate", static_cast<int>(kSampleRate)),
     rclcpp::Parameter("expected_channels", static_cast<int>(kChannels)),
+    rclcpp::Parameter("expected.encoding", "PCM16LE"),
+    rclcpp::Parameter("expected.bit_depth", static_cast<int>(kBitDepth)),
     rclcpp::Parameter("ref_timeout_ms", 500),
     rclcpp::Parameter("reference_failure_policy", "drop"),
     rclcpp::Parameter("cancel_gain", 1.0),
@@ -155,6 +157,17 @@ protected:
   }
 };
 
+TEST_F(RclcppContractTest, RejectsInvalidExpectedFormatAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("expected.encoding", "PCM32LE"));
+  replaceParameter(parameters, rclcpp::Parameter("expected.bit_depth", 32));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
 TEST_F(RclcppContractTest, PublishesSubtractedPcm16WhenMicAndReferenceAreBound)
 {
   auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(validParameters()));
@@ -196,6 +209,41 @@ TEST_F(RclcppContractTest, PublishesSubtractedPcm16WhenMicAndReferenceAreBound)
   EXPECT_EQ(received[0].layout, "interleaved");
   EXPECT_EQ(received[0].epoch, 3U);
   EXPECT_EQ(received[0].data, pcm16LeBytes({8192, 4096}));
+}
+
+TEST_F(RclcppContractTest, DropsMicFrameWhenDisabled)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("enabled", false));
+  auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(std::move(parameters)));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_disabled_contract_io");
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto mic_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kMicTopic, rclcpp::QoS(10).reliable());
+  auto ref_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kRefTopic, rclcpp::QoS(10).reliable());
+  auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    kOutputTopic, rclcpp::QoS(10).reliable(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+  ASSERT_NE(output_sub, nullptr);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&mic_pub, &ref_pub, &output_sub]() {
+    return mic_pub->get_subscription_count() > 0 &&
+      ref_pub->get_subscription_count() > 0 &&
+      output_sub->get_publisher_count() > 0;
+  }));
+
+  ref_pub->publish(frameWith(kRefTopic, {4096}, 2U));
+  spinFor(executor, 100ms);
+  mic_pub->publish(frameWith(kMicTopic, {8192}, 3U));
+  spinFor(executor, 250ms);
+
+  EXPECT_TRUE(received.empty());
 }
 
 TEST_F(RclcppContractTest, DropsMicFrameWithMismatchedStreamId)

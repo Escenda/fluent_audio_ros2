@@ -45,6 +45,8 @@ void FaAecLinearNode::loadParameters()
   this->declare_parameter("output_topic", config_.output_topic);
   this->declare_parameter<int>("expected_sample_rate", config_.expected_sample_rate);
   this->declare_parameter<int>("expected_channels", config_.expected_channels);
+  this->declare_parameter("expected.encoding", config_.expected_encoding);
+  this->declare_parameter<int>("expected.bit_depth", config_.expected_bit_depth);
   this->declare_parameter<int>("ref_timeout_ms", config_.ref_timeout_ms);
   this->declare_parameter("reference_failure_policy", config_.reference_failure_policy);
   this->declare_parameter<double>("cancel_gain", config_.cancel_gain);
@@ -60,6 +62,8 @@ void FaAecLinearNode::loadParameters()
   config_.output_topic = this->get_parameter("output_topic").as_string();
   config_.expected_sample_rate = this->get_parameter("expected_sample_rate").as_int();
   config_.expected_channels = this->get_parameter("expected_channels").as_int();
+  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
+  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
   config_.ref_timeout_ms = this->get_parameter("ref_timeout_ms").as_int();
   config_.reference_failure_policy = this->get_parameter("reference_failure_policy").as_string();
   config_.cancel_gain = this->get_parameter("cancel_gain").as_double();
@@ -85,6 +89,12 @@ void FaAecLinearNode::loadParameters()
   if (config_.expected_channels <= 0) {
     throw std::runtime_error("expected_channels must be > 0");
   }
+  if (!isSupportedAudioFormatPair(
+        config_.expected_encoding,
+        static_cast<uint32_t>(config_.expected_bit_depth)))
+  {
+    throw std::runtime_error("expected encoding/bit_depth must be PCM16LE/16 or FLOAT32LE/32");
+  }
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0 (set via YAML)");
   }
@@ -103,13 +113,15 @@ void FaAecLinearNode::loadParameters()
 
   RCLCPP_INFO(this->get_logger(),
     "AEC Linear config: enabled=%s mic=%s ref=%s output=%s expected_sr=%d expected_ch=%d "
-    "ref_timeout=%dms reference_failure_policy=%s cancel_gain=%.3f qos_depth=%d reliable=%s",
+    "expected=%s/%d ref_timeout=%dms reference_failure_policy=%s cancel_gain=%.3f qos_depth=%d reliable=%s",
     config_.enabled ? "true" : "false",
     config_.mic_topic.c_str(),
     config_.ref_topic.c_str(),
     config_.output_topic.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
+    config_.expected_encoding.c_str(),
+    config_.expected_bit_depth,
     config_.ref_timeout_ms,
     config_.reference_failure_policy.c_str(),
     config_.cancel_gain,
@@ -154,7 +166,9 @@ bool FaAecLinearNode::validateFrame(
   if (msg.channels == 0 || msg.sample_rate == 0) {
     return false;
   }
-  if (!isSupportedAudioFormatPair(msg.encoding, msg.bit_depth)) {
+  if (msg.encoding != config_.expected_encoding ||
+      msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth))
+  {
     return false;
   }
   if (msg.source_id.empty()) {
@@ -277,8 +291,7 @@ void FaAecLinearNode::onRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
 {
   ref_in_.fetch_add(1);
   if (!msg) {
-    ref_drop_.fetch_add(1);
-    return;
+    throw std::logic_error("fa_aec_linear received a null reference AudioFrame pointer");
   }
   if (!validateFrame(*msg, config_.ref_topic)) {
     ref_drop_.fetch_add(1);
@@ -293,18 +306,11 @@ void FaAecLinearNode::onRefFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
 void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   mic_in_.fetch_add(1);
-  if (!msg || !out_pub_) {
-    mic_drop_.fetch_add(1);
-    return;
+  if (!msg) {
+    throw std::logic_error("fa_aec_linear received a null mic AudioFrame pointer");
   }
-  if (!validateFrame(*msg, config_.mic_topic)) {
-    mic_drop_.fetch_add(1);
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping invalid mic frame: sr=%u ch=%u bits=%u bytes=%zu (expected sr=%d ch=%d)",
-      msg->sample_rate, msg->channels, msg->bit_depth, msg->data.size(),
-      config_.expected_sample_rate, config_.expected_channels);
-    return;
+  if (!out_pub_) {
+    throw std::logic_error("fa_aec_linear publisher is not initialized");
   }
 
   if (!config_.enabled) {
@@ -312,6 +318,16 @@ void FaAecLinearNode::onMicFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "Dropping mic frame because fa_aec_linear is disabled; disable the system node instead");
+    return;
+  }
+
+  if (!validateFrame(*msg, config_.mic_topic)) {
+    mic_drop_.fetch_add(1);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping invalid mic frame: sr=%u ch=%u bits=%u bytes=%zu (expected sr=%d ch=%d)",
+      msg->sample_rate, msg->channels, msg->bit_depth, msg->data.size(),
+      config_.expected_sample_rate, config_.expected_channels);
     return;
   }
 
@@ -440,6 +456,8 @@ void FaAecLinearNode::publishDiagnostics()
   push_kv("output_topic", config_.output_topic);
   push_kv("expected_sample_rate", std::to_string(config_.expected_sample_rate));
   push_kv("expected_channels", std::to_string(config_.expected_channels));
+  push_kv("expected.encoding", config_.expected_encoding);
+  push_kv("expected.bit_depth", std::to_string(config_.expected_bit_depth));
   push_kv("ref_timeout_ms", std::to_string(config_.ref_timeout_ms));
   push_kv("reference_failure_policy", config_.reference_failure_policy);
   push_kv("cancel_gain", std::to_string(config_.cancel_gain));

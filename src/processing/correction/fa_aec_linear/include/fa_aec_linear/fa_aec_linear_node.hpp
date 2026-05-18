@@ -24,6 +24,8 @@ struct AecLinearConfig
 
   int expected_sample_rate = -1;
   int expected_channels = -1;
+  std::string expected_encoding;
+  int expected_bit_depth = -1;
 
   int ref_timeout_ms = -1;
   std::string reference_failure_policy = "drop";

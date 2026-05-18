@@ -8,6 +8,9 @@ fa_aec_linear:
 
     expected_sample_rate: 16000
     expected_channels: 1
+    expected:
+      encoding: "PCM16LE"
+      bit_depth: 16
 
     ref_timeout_ms: 200
     reference_failure_policy: "drop"
