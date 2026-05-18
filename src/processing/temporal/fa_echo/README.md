@@ -7,7 +7,7 @@
 - 入力: `fa_interfaces/msg/AudioFrame`
 - 出力: `fa_interfaces/msg/AudioFrame`
 - 対応 format: `FLOAT32LE` / 32 bit / interleaved
-- 必須 parameter: `input_topic`, `output_topic`, `input_stream_id`, `output.stream_id`, `echo.delay_ms`, `echo.feedback_gain`, `echo.wet_gain`, `echo.dry_gain`, `expected.sample_rate`, `expected.channels`, `expected.encoding`, `expected.bit_depth`, `expected.layout`, `qos.depth`, `qos.reliable`, `diagnostics.publish_period_ms`
+- 必須 parameter: `input_topic`, `output_topic`, `input_stream_id`, `output.stream_id`, `echo.delay_ms`, `echo.feedback_gain`, `echo.wet_gain`, `echo.dry_gain`, `expected.sample_rate`, `expected.channels`, `expected.encoding`, `expected.bit_depth`, `expected.layout`, `qos.depth`, `qos.reliable`, `diagnostics.publish_period_ms`, `diagnostics.qos.depth`, `diagnostics.qos.reliable`
 - source が切り替わった場合は delay state をリセットします。
 
 ## Processing

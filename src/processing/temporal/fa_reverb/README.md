@@ -31,6 +31,8 @@
 - `qos.depth`
 - `qos.reliable`
 - `diagnostics.publish_period_ms`
+- `diagnostics.qos.depth`
+- `diagnostics.qos.reliable`
 
 ## Launch
 

@@ -106,6 +106,8 @@ TEST_F(RclcppFixture, PublishesEchoFrameWithSeparateStreamIdentity)
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
 
   auto echo_node = std::make_shared<fa_echo::FaEchoNode>(options);

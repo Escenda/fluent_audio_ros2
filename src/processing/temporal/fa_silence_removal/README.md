@@ -37,6 +37,8 @@ package launch の `config_file` は必須です。以下は `config/default.yam
 | `qos.depth` | `10` | AudioFrame QoS depth |
 | `qos.reliable` | `false` | `true` で reliable、`false` で best effort |
 | `diagnostics.publish_period_ms` | `1000` | diagnostics 発行周期 |
+| `diagnostics.qos.depth` | `10` | diagnostics QoS depth |
+| `diagnostics.qos.reliable` | `true` | diagnostics を reliable にするか |
 
 ## 非責務
 

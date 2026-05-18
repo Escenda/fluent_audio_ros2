@@ -44,6 +44,8 @@ def test_example_config_requires_float32_interleaved_contract() -> None:
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is False
     assert params["diagnostics"]["publish_period_ms"] == 1000
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is True
 
 
 def test_launch_requires_explicit_config_file_without_package_default() -> None:
@@ -103,6 +105,10 @@ def test_window_parameters_are_required_without_runtime_defaults_and_range_check
     assert "readRequiredString(*this, \"window.type\")" in load_parameters
     assert "readRequiredInt(*this, \"window.expected_frames\")" in load_parameters
     assert "readRequiredBool(*this, \"window.strict_frame_count\")" in load_parameters
+    assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
+    assert "readRequiredInt(*this, \"diagnostics.qos.depth\")" in load_parameters
+    assert "readRequiredBool(*this, \"diagnostics.qos.reliable\")" in load_parameters
+    assert "rclcpp::SystemDefaultsQoS()" not in source
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line
@@ -123,6 +129,9 @@ def test_window_parameters_are_required_without_runtime_defaults_and_range_check
     assert "config_.expected_encoding != kEncodingFloat32" in load_parameters
     assert "config_.expected_bit_depth != 32" in load_parameters
     assert "config_.expected_layout != kInterleavedLayout" in load_parameters
+    assert "config_.qos_depth <= 0" in load_parameters
+    assert "config_.diagnostics_publish_period_ms <= 0" in load_parameters
+    assert "config_.diagnostics_qos_depth <= 0" in load_parameters
 
 
 def test_window_validates_frame_contract_before_backend() -> None:

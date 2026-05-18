@@ -42,6 +42,8 @@ def test_example_config_requires_float32_interleaved_contract() -> None:
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is False
     assert params["diagnostics"]["publish_period_ms"] == 1000
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is True
 
 
 def test_launch_requires_explicit_config_file_without_package_default() -> None:
@@ -100,6 +102,9 @@ def test_delay_parameters_are_required_without_runtime_defaults_and_range_checke
     assert "readRequiredString(*this, \"output.stream_id\")" in load_parameters
     assert "readRequiredDouble(*this, \"delay.ms\")" in load_parameters
     assert "readRequiredBool(*this, \"qos.reliable\")" in load_parameters
+    assert "readRequiredInt(*this, \"diagnostics.qos.depth\")" in load_parameters
+    assert "readRequiredBool(*this, \"diagnostics.qos.reliable\")" in load_parameters
+    assert "rclcpp::SystemDefaultsQoS()" not in source
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line
@@ -119,6 +124,7 @@ def test_delay_parameters_are_required_without_runtime_defaults_and_range_checke
     assert "config_.expected_layout != kInterleavedLayout" in load_parameters
     assert "config_.qos_depth <= 0" in load_parameters
     assert "config_.diagnostics_publish_period_ms <= 0" in load_parameters
+    assert "config_.diagnostics_qos_depth <= 0" in load_parameters
 
 
 def test_delay_converts_ms_to_whole_samples_from_expected_sample_rate() -> None:

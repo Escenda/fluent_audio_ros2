@@ -37,6 +37,8 @@ struct ReverbConfig
   int qos_depth{0};
   bool qos_reliable{false};
   int diagnostics_publish_period_ms{0};
+  int diagnostics_qos_depth{0};
+  bool diagnostics_qos_reliable{false};
 };
 
 /**
