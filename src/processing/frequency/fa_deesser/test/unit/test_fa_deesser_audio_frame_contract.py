@@ -31,8 +31,13 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_deesser"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/normalized/mic"
-    assert params["output_topic"] == "audio/deessed/mic"
+    assert params["input_topic"] == "fa_deesser/input"
+    assert params["output_topic"] == "fa_deesser/output"
+    assert params["input_stream_id"] == "audio/normalized/mic"
+    assert params["output"]["stream_id"] == "audio/deessed/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["detector"]["cutoff_hz"] == 4500.0
     assert params["detector"]["threshold"] == 0.08
     assert params["detector"]["attenuation_db"] == -9.0
@@ -80,6 +85,9 @@ def test_startup_rejects_invalid_config_without_fallback() -> None:
     )[0]
 
     assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "output_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredDouble(*this, "detector.cutoff_hz")' in load_parameters
     assert 'readRequiredDouble(*this, "detector.threshold")' in load_parameters
     assert 'readRequiredDouble(*this, "detector.attenuation_db")' in load_parameters
@@ -93,6 +101,13 @@ def test_startup_rejects_invalid_config_without_fallback() -> None:
             assert ", config_." not in line
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "input_stream_id is required" in load_parameters
+    assert "output.stream_id is required" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "const double nyquist_hz" in load_parameters
     assert "!isFinite(config_.cutoff_hz)" in load_parameters
     assert "config_.cutoff_hz <= 0.0" in load_parameters
@@ -128,7 +143,7 @@ def test_deesser_validates_frame_contract_before_processing() -> None:
     assert "if (!msg)" in handle_frame
     assert "frames_dropped_.fetch_add(1);" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -145,7 +160,7 @@ def test_deesser_preserves_frame_identity_and_updates_stream_identity() -> None:
     )[0]
 
     assert "out = in;" in apply_deesser
-    assert "out.stream_id = config_.output_topic;" in apply_deesser
+    assert "out.stream_id = config_.output_stream_id;" in apply_deesser
     assert ".rms" not in apply_deesser
     assert ".peak" not in apply_deesser
     assert ".vad" not in apply_deesser
@@ -245,6 +260,10 @@ def test_diagnostics_publish_config_state_and_counters() -> None:
     )[0]
 
     assert 'status.name = "fa_deesser";' in diagnostics
+    assert '"input_topic"' in diagnostics
+    assert '"output_topic"' in diagnostics
+    assert '"input_stream_id"' in diagnostics
+    assert '"output_stream_id"' in diagnostics
     assert '"detector_cutoff_hz"' in diagnostics
     assert '"detector_alpha"' in diagnostics
     assert '"detector_threshold"' in diagnostics

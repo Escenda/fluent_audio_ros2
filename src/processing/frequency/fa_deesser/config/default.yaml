@@ -1,7 +1,10 @@
 fa_deesser:
   ros__parameters:
-    input_topic: "audio/normalized/mic"
-    output_topic: "audio/deessed/mic"
+    input_topic: "fa_deesser/input"
+    output_topic: "fa_deesser/output"
+    input_stream_id: "audio/normalized/mic"
+    output:
+      stream_id: "audio/deessed/mic"
 
     detector:
       cutoff_hz: 4500.0

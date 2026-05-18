@@ -8,6 +8,9 @@ The node does not open audio devices, resample, convert sample format, change
 channel count, normalize, compress, limit, denoise, or perform voice activity
 detection. It splits each channel into low and high bands, detects excessive
 high-band magnitude, attenuates only the high band, and recombines the bands.
+ROS topics are transport identities only. The accepted input
+`AudioFrame.stream_id` is configured by `input_stream_id`, and the published
+`AudioFrame.stream_id` is configured by `output.stream_id`.
 
 ```bash
 ros2 launch fa_deesser fa_deesser.launch.py
