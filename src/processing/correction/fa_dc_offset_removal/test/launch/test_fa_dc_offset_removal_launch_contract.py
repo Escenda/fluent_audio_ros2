@@ -83,6 +83,39 @@ def test_launch_fails_closed_when_input_topic_is_missing(tmp_path: Path) -> None
     assert "input_topic is required" in result.stdout
 
 
+def test_launch_fails_closed_when_input_and_output_topics_match(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_dc_offset_removal"]["ros__parameters"]
+    params["output_topic"] = params["input_topic"]
+    config_path = tmp_path / "same_input_output_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_dc_offset_removal_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "resolved input_topic and output_topic must be distinct" in result.stdout
+
+
+def test_launch_fails_closed_when_resolved_input_and_output_topics_match(
+    tmp_path: Path,
+) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_dc_offset_removal"]["ros__parameters"]
+    params["input_topic"] = "audio/resolved_same"
+    params["output_topic"] = "/audio/resolved_same"
+    config_path = tmp_path / "resolved_same_input_output_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_dc_offset_removal_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "resolved input_topic and output_topic must be distinct" in result.stdout
+
+
 def test_launch_fails_closed_when_encoding_contract_is_wrong(tmp_path: Path) -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")

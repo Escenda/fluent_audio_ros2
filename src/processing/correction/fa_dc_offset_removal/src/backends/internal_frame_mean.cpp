@@ -5,6 +5,11 @@
 #include <stdexcept>
 #include <utility>
 
+#if !defined(__BYTE_ORDER__) || !defined(__ORDER_LITTLE_ENDIAN__) || \
+  (__BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__)
+#error "fa_dc_offset_removal internal_frame_mean requires a little-endian target for FLOAT32LE"
+#endif
+
 namespace fa_dc_offset_removal::backends
 {
 

@@ -52,6 +52,27 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(const rclcpp::Node & node)
   return frame;
 }
 
+rclcpp::NodeOptions validNodeOptions(
+  const std::string & input_topic = "/fa_dc_offset_test/input",
+  const std::string & output_topic = "/fa_dc_offset_test/output",
+  const int qos_depth = 10)
+{
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    rclcpp::Parameter("input_topic", input_topic),
+    rclcpp::Parameter("output_topic", output_topic),
+    rclcpp::Parameter("expected.sample_rate", 16000),
+    rclcpp::Parameter("expected.channels", 2),
+    rclcpp::Parameter("expected.encoding", "FLOAT32LE"),
+    rclcpp::Parameter("expected.bit_depth", 32),
+    rclcpp::Parameter("expected.layout", "interleaved"),
+    rclcpp::Parameter("qos.depth", qos_depth),
+    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+  });
+  return options;
+}
+
 class RclcppFixture : public ::testing::Test
 {
 protected:
@@ -76,21 +97,8 @@ protected:
 
 TEST_F(RclcppFixture, PublishesDcOffsetRemovedFloat32Frame)
 {
-  rclcpp::NodeOptions options;
-  options.parameter_overrides({
-    rclcpp::Parameter("input_topic", "/fa_dc_offset_test/input"),
-    rclcpp::Parameter("output_topic", "/fa_dc_offset_test/output"),
-    rclcpp::Parameter("expected.sample_rate", 16000),
-    rclcpp::Parameter("expected.channels", 2),
-    rclcpp::Parameter("expected.encoding", "FLOAT32LE"),
-    rclcpp::Parameter("expected.bit_depth", 32),
-    rclcpp::Parameter("expected.layout", "interleaved"),
-    rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
-    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
-  });
-
-  auto dc_node = std::make_shared<fa_dc_offset_removal::FaDcOffsetRemovalNode>(options);
+  auto dc_node = std::make_shared<fa_dc_offset_removal::FaDcOffsetRemovalNode>(
+    validNodeOptions());
   auto test_node = std::make_shared<rclcpp::Node>("fa_dc_offset_graph_test");
 
   rclcpp::QoS qos(10);
@@ -136,4 +144,28 @@ TEST_F(RclcppFixture, PublishesDcOffsetRemovedFloat32Frame)
   EXPECT_FLOAT_EQ(readFloat32Le(received->data, 1), -2.0F);
   EXPECT_FLOAT_EQ(readFloat32Le(received->data, 2), 1.0F);
   EXPECT_FLOAT_EQ(readFloat32Le(received->data, 3), 2.0F);
+}
+
+TEST_F(RclcppFixture, RejectsSameInputAndOutputTopicAtStartup)
+{
+  EXPECT_THROW(
+    fa_dc_offset_removal::FaDcOffsetRemovalNode(
+      validNodeOptions("/fa_dc_offset_test/same", "/fa_dc_offset_test/same")),
+    std::runtime_error);
+}
+
+TEST_F(RclcppFixture, RejectsEquivalentResolvedInputAndOutputTopicAtStartup)
+{
+  EXPECT_THROW(
+    fa_dc_offset_removal::FaDcOffsetRemovalNode(
+      validNodeOptions("fa_dc_offset_test/expanded", "/fa_dc_offset_test/expanded")),
+    std::runtime_error);
+}
+
+TEST_F(RclcppFixture, RejectsInvalidQosDepthAtStartup)
+{
+  EXPECT_THROW(
+    fa_dc_offset_removal::FaDcOffsetRemovalNode(
+      validNodeOptions("/fa_dc_offset_test/input", "/fa_dc_offset_test/output", 0)),
+    std::runtime_error);
 }

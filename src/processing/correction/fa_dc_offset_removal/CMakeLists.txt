@@ -90,6 +90,7 @@ if(BUILD_TESTING)
     )
     ament_target_dependencies(${PROJECT_NAME}_graph_smoke_test
       rclcpp
+      diagnostic_msgs
       fa_interfaces
     )
   endif()

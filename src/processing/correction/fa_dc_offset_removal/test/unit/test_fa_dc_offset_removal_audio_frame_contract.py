@@ -79,6 +79,10 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
 
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "config_.resolved_input_topic =" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "config_.resolved_input_topic == config_.resolved_output_topic" in load_parameters
     assert "config_.expected_sample_rate <= 0" in load_parameters
     assert "config_.expected_channels <= 0" in load_parameters
     assert "config_.expected_encoding != kEncodingFloat32" in load_parameters
@@ -88,6 +92,17 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "config_.diagnostics_publish_period_ms <= 0" in load_parameters
     assert "throw std::runtime_error" in load_parameters
     assert "config_.channels <= 0" in backend_source
+
+
+def test_qos_depth_is_not_clamped_after_startup_validation() -> None:
+    node_source = read_node_source()
+    setup_interfaces = node_source.split("void FaDcOffsetRemovalNode::setupInterfaces")[1].split(
+        "void FaDcOffsetRemovalNode::handleFrame"
+    )[0]
+
+    assert "config_.qos_depth <= 0" in node_source
+    assert "rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));" in setup_interfaces
+    assert "std::max<int>(1, config_.qos_depth)" not in node_source
 
 
 def test_dc_offset_removal_validates_frame_contract_before_processing() -> None:
@@ -100,6 +115,7 @@ def test_dc_offset_removal_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "if (!msg)" in handle_frame
+    assert 'throw std::logic_error("received null AudioFrame pointer")' in handle_frame
     assert "frames_dropped_.fetch_add(1);" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
     assert "msg.stream_id != config_.input_topic" in validate_frame
@@ -151,6 +167,17 @@ def test_dc_offset_algorithm_is_backend_owned() -> None:
     assert "channel_sums" not in node_source
     assert "channel_means" not in node_source
     assert "std::memcpy" not in node_source
+
+
+def test_float32le_native_memcpy_is_little_endian_only() -> None:
+    backend_source = read_backend_source()
+
+    assert "#if !defined(__BYTE_ORDER__)" in backend_source
+    assert "__ORDER_LITTLE_ENDIAN__" in backend_source
+    assert (
+        '#error "fa_dc_offset_removal internal_frame_mean requires a little-endian target '
+        'for FLOAT32LE"'
+    ) in backend_source
 
 
 def test_dc_offset_removal_drops_non_finite_input_and_output_samples() -> None:
@@ -238,10 +265,32 @@ def test_colcon_runs_pytest_and_backend_gtest_contracts() -> None:
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_graph_smoke_test" in cmake_text
+    graph_deps = cmake_text.split(
+        "ament_target_dependencies(${PROJECT_NAME}_graph_smoke_test"
+    )[1]
+    assert "diagnostic_msgs" in graph_deps
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<exec_depend>launch</exec_depend>" in package_xml
+    assert "<exec_depend>launch_ros</exec_depend>" in package_xml
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
+
+
+def test_diagnostics_publish_resolved_topic_identity() -> None:
+    source = read_node_source()
+    publish_diagnostics = source.split("void FaDcOffsetRemovalNode::publishDiagnostics")[1]
+
+    assert 'pushKeyValue(status, "input_topic", config_.input_topic);' in publish_diagnostics
+    assert 'pushKeyValue(status, "output_topic", config_.output_topic);' in publish_diagnostics
+    assert (
+        'pushKeyValue(status, "resolved_input_topic", config_.resolved_input_topic);'
+        in publish_diagnostics
+    )
+    assert (
+        'pushKeyValue(status, "resolved_output_topic", config_.resolved_output_topic);'
+        in publish_diagnostics
+    )

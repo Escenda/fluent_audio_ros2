@@ -10,6 +10,8 @@
 - `data.size() % (channels * sizeof(float)) == 0`
 - 全 sample が finite
 
+`FLOAT32LE` の byte 解釈は little-endian target に限定する。non little-endian target は compile-time error とし、byteswap fallback は持たない。
+
 ## 出力契約
 
 - 入力と同じ sample 数の `FLOAT32LE` byte列

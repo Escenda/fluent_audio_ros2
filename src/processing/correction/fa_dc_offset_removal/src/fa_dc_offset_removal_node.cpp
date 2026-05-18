@@ -1,7 +1,7 @@
 #include "fa_dc_offset_removal/fa_dc_offset_removal_node.hpp"
 
-#include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdlib>
 #include <functional>
 #include <memory>
@@ -76,6 +76,13 @@ void FaDcOffsetRemovalNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
+  config_.resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  config_.resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (config_.resolved_input_topic == config_.resolved_output_topic) {
+    throw std::runtime_error("resolved input_topic and output_topic must be distinct");
+  }
   if (config_.expected_sample_rate <= 0) {
     throw std::runtime_error("expected.sample_rate must be > 0");
   }
@@ -121,7 +128,7 @@ void FaDcOffsetRemovalNode::configureBackend()
 
 void FaDcOffsetRemovalNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -147,11 +154,7 @@ void FaDcOffsetRemovalNode::handleFrame(const fa_interfaces::msg::AudioFrame::Sh
   frames_in_.fetch_add(1);
 
   if (!msg) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping null AudioFrame pointer");
-    frames_dropped_.fetch_add(1);
-    return;
+    throw std::logic_error("received null AudioFrame pointer");
   }
 
   if (!validateFrame(*msg)) {
@@ -165,6 +168,9 @@ void FaDcOffsetRemovalNode::handleFrame(const fa_interfaces::msg::AudioFrame::Sh
     return;
   }
 
+  if (!audio_pub_) {
+    throw std::logic_error("audio publisher is not initialized");
+  }
   audio_pub_->publish(out);
   frames_out_.fetch_add(1);
 }
@@ -248,6 +254,10 @@ bool FaDcOffsetRemovalNode::removeDcOffset(
 
 void FaDcOffsetRemovalNode::publishDiagnostics()
 {
+  if (!diag_pub_) {
+    throw std::logic_error("diagnostics publisher is not initialized");
+  }
+
   diagnostic_msgs::msg::DiagnosticArray array_msg;
   array_msg.header.stamp = this->now();
 
@@ -255,11 +265,16 @@ void FaDcOffsetRemovalNode::publishDiagnostics()
   status.name = "fa_dc_offset_removal";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(8);
+  status.values.reserve(13);
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "resolved_input_topic", config_.resolved_input_topic);
+  pushKeyValue(status, "resolved_output_topic", config_.resolved_output_topic);
   pushKeyValue(status, "expected_sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected_channels", std::to_string(config_.expected_channels));
+  pushKeyValue(status, "expected_encoding", config_.expected_encoding);
+  pushKeyValue(status, "expected_bit_depth", std::to_string(config_.expected_bit_depth));
+  pushKeyValue(status, "expected_layout", config_.expected_layout);
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
