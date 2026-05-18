@@ -18,6 +18,29 @@ namespace
 {
 constexpr const char * kInterleavedLayout = "interleaved";
 
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string parameter");
+  }
+  return parameter.as_string();
+}
+
 backends::AudioFormat formatFromFrame(const fa_interfaces::msg::AudioFrame &msg)
 {
   backends::AudioFormat fmt;
@@ -64,7 +87,7 @@ public:
     writer_(std::make_unique<backends::WavFileWriterBackend>())
   {
     this->declare_parameter<std::string>("input_topic");
-    input_topic_ = this->get_parameter("input_topic").as_string();
+    input_topic_ = readRequiredString(*this, "input_topic");
     if (input_topic_.empty()) {
       throw std::runtime_error("input_topic is required");
     }
