@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -11,6 +10,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_high_pass/backends/internal_high_pass.hpp"
 
 namespace fa_high_pass
 {
@@ -19,7 +19,6 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr double kPi = 3.14159265358979323846;
 
 bool isFinite(double value)
 {
@@ -43,9 +42,11 @@ FaHighPassNode::FaHighPassNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA High Pass node");
   loadParameters();
-  configureFilterState();
+  configureBackend();
   setupInterfaces();
 }
+
+FaHighPassNode::~FaHighPassNode() = default;
 
 void FaHighPassNode::loadParameters()
 {
@@ -108,17 +109,12 @@ void FaHighPassNode::loadParameters()
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
 
-  const double sample_interval_sec = 1.0 / static_cast<double>(config_.expected_sample_rate);
-  const double rc_sec = 1.0 / (2.0 * kPi * config_.cutoff_hz);
-  filter_alpha_ = rc_sec / (rc_sec + sample_interval_sec);
-
   RCLCPP_INFO(
     this->get_logger(),
-    "High-pass config: input=%s output=%s cutoff=%fHz alpha=%f expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
+    "High-pass config: input=%s output=%s cutoff=%fHz expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
     config_.cutoff_hz,
-    filter_alpha_,
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -128,9 +124,13 @@ void FaHighPassNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
-void FaHighPassNode::configureFilterState()
+void FaHighPassNode::configureBackend()
 {
-  channel_states_.assign(static_cast<size_t>(config_.expected_channels), ChannelFilterState{});
+  backend_ = std::make_unique<backends::InternalHighPassBackend>(
+    backends::InternalHighPassConfig{
+      config_.expected_sample_rate,
+      config_.expected_channels,
+      config_.cutoff_hz});
 }
 
 void FaHighPassNode::setupInterfaces()
@@ -243,45 +243,21 @@ bool FaHighPassNode::applyHighPass(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
-  if (active_source_id_.empty()) {
-    active_source_id_ = in.source_id;
-  }
+  const bool should_bind_source = active_source_id_.empty();
 
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
+  const backends::ProcessStatus status = backend_->process(in.data, out.data);
+  if (status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because high-pass backend rejected input or output: %s",
+      backends::processStatusMessage(status));
+    return false;
+  }
 
-  const size_t channel_count = static_cast<size_t>(config_.expected_channels);
-  const size_t sample_count = in.data.size() / sizeof(float);
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!std::isfinite(sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is not finite");
-      return false;
-    }
-
-    ChannelFilterState & state = channel_states_.at(i % channel_count);
-    float out_sample = 0.0F;
-    if (state.initialized) {
-      const double filtered =
-        filter_alpha_ * (static_cast<double>(state.previous_output) +
-        static_cast<double>(sample) - static_cast<double>(state.previous_input));
-      if (!isFinite(filtered)) {
-        RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 3000,
-          "Dropping frame because high-pass output is not finite");
-        return false;
-      }
-      out_sample = static_cast<float>(filtered);
-    }
-
-    state.previous_input = sample;
-    state.previous_output = out_sample;
-    state.initialized = true;
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
+  if (should_bind_source) {
+    active_source_id_ = in.source_id;
   }
 
   return true;
@@ -298,7 +274,7 @@ void FaHighPassNode::publishDiagnostics()
   status.message = "running";
   status.values.reserve(6);
   pushKeyValue(status, "filter_cutoff_hz", std::to_string(config_.cutoff_hz));
-  pushKeyValue(status, "filter_alpha", std::to_string(filter_alpha_));
+  pushKeyValue(status, "filter_alpha", std::to_string(backend_->alpha()));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));

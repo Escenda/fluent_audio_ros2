@@ -2,8 +2,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -12,6 +12,11 @@
 
 namespace fa_high_pass
 {
+
+namespace backends
+{
+class InternalHighPassBackend;
+}  // namespace backends
 
 struct HighPassConfig
 {
@@ -28,13 +33,6 @@ struct HighPassConfig
   int diagnostics_publish_period_ms{-1};
 };
 
-struct ChannelFilterState
-{
-  float previous_input{0.0F};
-  float previous_output{0.0F};
-  bool initialized{false};
-};
-
 /**
  * @brief FLOAT32LE AudioFrame に一次 high-pass filter を適用する processing node。
  */
@@ -42,22 +40,21 @@ class FaHighPassNode : public rclcpp::Node
 {
 public:
   FaHighPassNode();
-  ~FaHighPassNode() override = default;
+  ~FaHighPassNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
-  void configureFilterState();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyHighPass(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   HighPassConfig config_;
-  double filter_alpha_{0.0};
   std::string active_source_id_{};
-  std::vector<ChannelFilterState> channel_states_{};
+  std::unique_ptr<backends::InternalHighPassBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
