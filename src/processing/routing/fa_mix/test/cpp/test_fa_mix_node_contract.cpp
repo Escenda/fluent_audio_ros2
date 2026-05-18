@@ -109,6 +109,17 @@ fa_interfaces::msg::AudioFrame frameWith(
   return frame;
 }
 
+fa_interfaces::msg::AudioFrame frameWithTimestamp(
+  const std::string & stream_id,
+  const std::vector<int16_t> & samples,
+  const uint32_t epoch,
+  const int64_t timestamp_nanoseconds)
+{
+  auto frame = frameWith(stream_id, samples, epoch);
+  frame.header.stamp = stampFromNanoseconds(timestamp_nanoseconds);
+  return frame;
+}
+
 bool spinUntil(
   rclcpp::executors::SingleThreadedExecutor & executor,
   const std::function<bool()> & predicate)
@@ -223,6 +234,72 @@ TEST_F(RclcppContractTest, PublishesOnlyAfterAllInputsHaveFreshMatchingFrames)
   EXPECT_EQ(received[0].layout, "interleaved");
   EXPECT_EQ(received[0].epoch, 3U);
   EXPECT_EQ(received[0].data, pcm16LeBytes({16384, 16384}));
+}
+
+TEST_F(RclcppContractTest, DropsWholeMixWhenBufferedInputTimestampIsStale)
+{
+  auto node = std::make_shared<fa_mix::FaMixNode>(optionsWith(validParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_stale_timestamp_contract_io");
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto input_a = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopicA, rclcpp::QoS(10).reliable());
+  auto input_b = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopicB, rclcpp::QoS(10).reliable());
+  auto output = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    kOutputTopic, rclcpp::QoS(10).reliable(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+  ASSERT_NE(output, nullptr);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&input_a, &input_b, &output]() {
+    return input_a->get_subscription_count() > 0 &&
+      input_b->get_subscription_count() > 0 &&
+      output->get_publisher_count() > 0;
+  }));
+
+  input_b->publish(frameWithTimestamp(kInputTopicB, {8192, 8192}, 2U, 1000000000LL));
+  spinFor(executor, 100ms);
+  input_a->publish(frameWithTimestamp(kInputTopicA, {8192, 8192}, 3U, 2000000000LL));
+  spinFor(executor, 250ms);
+
+  EXPECT_TRUE(received.empty());
+}
+
+TEST_F(RclcppContractTest, RejectsZeroTimestampBeforeFrameCanRefreshInput)
+{
+  auto node = std::make_shared<fa_mix::FaMixNode>(optionsWith(validParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_zero_timestamp_contract_io");
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto input_a = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopicA, rclcpp::QoS(10).reliable());
+  auto input_b = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopicB, rclcpp::QoS(10).reliable());
+  auto output = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    kOutputTopic, rclcpp::QoS(10).reliable(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+  ASSERT_NE(output, nullptr);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&input_a, &input_b, &output]() {
+    return input_a->get_subscription_count() > 0 &&
+      input_b->get_subscription_count() > 0 &&
+      output->get_publisher_count() > 0;
+  }));
+
+  input_b->publish(frameWithTimestamp(kInputTopicB, {8192, 8192}, 2U, 0LL));
+  spinFor(executor, 100ms);
+  input_a->publish(frameWithTimestamp(kInputTopicA, {8192, 8192}, 3U, 1000000000LL));
+  spinFor(executor, 250ms);
+
+  EXPECT_TRUE(received.empty());
 }
 
 TEST_F(RclcppContractTest, DropsWholeMixWhenInputSampleCountDiffers)

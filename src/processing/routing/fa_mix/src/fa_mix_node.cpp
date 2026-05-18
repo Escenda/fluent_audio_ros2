@@ -20,6 +20,7 @@ namespace
 {
 constexpr const char * kEncodingPcm16Le = "PCM16LE";
 constexpr const char * kInterleavedLayout = "interleaved";
+constexpr uint32_t kNanosecondsPerSecond = 1000000000U;
 
 double dbToLinear(double db)
 {
@@ -28,6 +29,22 @@ double dbToLinear(double db)
 bool isFinite(double value)
 {
   return std::isfinite(value);
+}
+
+bool hasValidFrameStamp(const fa_interfaces::msg::AudioFrame & msg)
+{
+  if (msg.header.stamp.sec < 0) {
+    return false;
+  }
+  if (msg.header.stamp.nanosec >= kNanosecondsPerSecond) {
+    return false;
+  }
+  return msg.header.stamp.sec != 0 || msg.header.stamp.nanosec != 0;
+}
+
+rclcpp::Time frameStamp(const fa_interfaces::msg::AudioFrame & msg)
+{
+  return rclcpp::Time(msg.header.stamp, RCL_ROS_TIME);
 }
 }  // namespace
 
@@ -158,7 +175,6 @@ void FaMixNode::setupInterfaces()
 
   subs_.resize(config_.input_topics.size());
   latest_frames_.resize(config_.input_topics.size());
-  latest_frames_time_.resize(config_.input_topics.size(), rclcpp::Time(0, 0, RCL_ROS_TIME));
 
   for (size_t i = 0; i < config_.input_topics.size(); ++i) {
     const std::string topic = config_.input_topics[i];
@@ -194,6 +210,9 @@ bool FaMixNode::validateFrame(
     return false;
   }
   if (msg.stream_id != expected_stream_id) {
+    return false;
+  }
+  if (!hasValidFrameStamp(msg)) {
     return false;
   }
   if (msg.layout != kInterleavedLayout) {
@@ -288,11 +307,9 @@ void FaMixNode::onInputFrame(size_t index, const fa_interfaces::msg::AudioFrame:
     return;
   }
 
-  const rclcpp::Time now = this->now();
   {
     std::lock_guard<std::mutex> lock(frames_mutex_);
     latest_frames_[index] = msg;
-    latest_frames_time_[index] = now;
   }
 
   if (static_cast<int>(index) != config_.master_index) {
@@ -314,7 +331,7 @@ void FaMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & base)
     return;
   }
 
-  const rclcpp::Time now = this->now();
+  const rclcpp::Time base_time = frameStamp(base);
   uint32_t epoch = base.epoch;
   const size_t expected_sample_count = mixed.size();
 
@@ -328,11 +345,9 @@ void FaMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & base)
     }
 
     fa_interfaces::msg::AudioFrame::SharedPtr other;
-    rclcpp::Time other_time{0, 0, RCL_ROS_TIME};
     {
       std::lock_guard<std::mutex> lock(frames_mutex_);
       other = latest_frames_[i];
-      other_time = latest_frames_time_[i];
     }
     if (!other) {
       drop_.fetch_add(1);
@@ -341,7 +356,8 @@ void FaMixNode::mixAndPublish(const fa_interfaces::msg::AudioFrame & base)
         "Dropping mix because input %zu has no valid frame", i);
       return;
     }
-    const int64_t age_ms = (now - other_time).nanoseconds() / 1000000;
+    const rclcpp::Time other_time = frameStamp(*other);
+    const int64_t age_ms = (base_time - other_time).nanoseconds() / 1000000;
     if (age_ms < 0 || age_ms > config_.max_frame_age_ms) {
       drop_.fetch_add(1);
       RCLCPP_WARN_THROTTLE(

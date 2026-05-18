@@ -39,6 +39,10 @@ def test_mix_requires_all_configured_inputs_before_publish() -> None:
 
     assert "input %zu has no valid frame" in source
     assert "input %zu is stale" in source
+    assert "hasValidFrameStamp" in source
+    assert "frameStamp(base)" in source
+    assert "latest_frames_time_" not in source
+    assert "base_time - other_time" in source
     assert "sample count differs from master" in source
     assert "std::min" not in source
     assert "partial mix" in spec

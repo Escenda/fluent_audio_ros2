@@ -67,7 +67,6 @@ private:
 
   std::mutex frames_mutex_;
   std::vector<fa_interfaces::msg::AudioFrame::SharedPtr> latest_frames_;
-  std::vector<rclcpp::Time> latest_frames_time_;
 
   std::atomic<uint64_t> in_{0};
   std::atomic<uint64_t> out_{0};
