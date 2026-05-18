@@ -3,9 +3,28 @@ from pathlib import Path
 import yaml
 
 
+def package_root() -> Path:
+    return Path(__file__).parents[2]
+
+
+def read_node_source() -> str:
+    return (package_root() / "src" / "fa_limiter_node.cpp").read_text(encoding="utf-8")
+
+
+def read_backend_header() -> str:
+    return (
+        package_root() / "include" / "fa_limiter" / "backends" / "internal_limiter.hpp"
+    ).read_text(encoding="utf-8")
+
+
+def read_backend_source() -> str:
+    return (package_root() / "src" / "backends" / "internal_limiter.cpp").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_default_config_requires_float32_interleaved_contract() -> None:
-    package_root = Path(__file__).parents[2]
-    config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
+    config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_limiter"]["ros__parameters"]
 
     assert params["input_topic"] == "audio/gain/mic"
@@ -20,8 +39,7 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
 
 
 def test_limiter_does_not_hide_other_processing_or_io_responsibilities() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_limiter_node.cpp").read_text(encoding="utf-8")
+    sources = [read_node_source(), read_backend_source()]
 
     forbidden = (
         "normalize(",
@@ -32,17 +50,22 @@ def test_limiter_does_not_hide_other_processing_or_io_responsibilities() -> None
         "gain.linear",
         "gain_",
     )
-    for token in forbidden:
-        assert token not in source
+    for source in sources:
+        for token in forbidden:
+            assert token not in source
 
 
 def test_limiter_validates_frame_contract_before_processing() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_limiter_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
     validate_frame = source.split("bool FaLimiterNode::validateFrame")[1].split(
         "bool FaLimiterNode::applyLimiter"
     )[0]
+    handle_frame = source.split("void FaLimiterNode::handleFrame")[1].split(
+        "bool FaLimiterNode::validateFrame"
+    )[0]
 
+    assert "if (!msg)" in handle_frame
+    assert "frames_dropped_.fetch_add(1);" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
     assert "msg.stream_id != config_.input_topic" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
@@ -54,8 +77,7 @@ def test_limiter_validates_frame_contract_before_processing() -> None:
 
 
 def test_limiter_preserves_source_identity_and_updates_stream_identity() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_limiter_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
     apply_limiter = source.split("bool FaLimiterNode::applyLimiter")[1].split(
         "void FaLimiterNode::publishDiagnostics"
     )[0]
@@ -67,37 +89,66 @@ def test_limiter_preserves_source_identity_and_updates_stream_identity() -> None
     assert ".vad" not in apply_limiter
 
 
-def test_limiter_clamps_samples_to_explicit_threshold() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_limiter_node.cpp").read_text(encoding="utf-8")
-    apply_limiter = source.split("bool FaLimiterNode::applyLimiter")[1].split(
+def test_limiter_algorithm_uses_backend_for_explicit_threshold_limiting() -> None:
+    header = read_backend_header()
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+    process = backend_source.split("ProcessResult InternalLimiterBackend::process")[1].split(
+        "const char * processStatusMessage"
+    )[0]
+    apply_limiter = node_source.split("bool FaLimiterNode::applyLimiter")[1].split(
         "void FaLimiterNode::publishDiagnostics"
     )[0]
 
-    assert "const float threshold = static_cast<float>(config_.threshold_linear);" in apply_limiter
-    assert "if (sample > threshold)" in apply_limiter
-    assert "out_sample = threshold;" in apply_limiter
-    assert "else if (sample < -threshold)" in apply_limiter
-    assert "out_sample = -threshold;" in apply_limiter
-    assert "samples_limited_.fetch_add(limited_in_frame);" in apply_limiter
-    assert "std::clamp" not in apply_limiter
+    assert "class InternalLimiterBackend" in header
+    assert "struct ProcessResult" in header
+    assert "uint64_t samples_limited" in header
+    assert "enum class ProcessStatus" in header
+    assert "out_sample = threshold_;" in process
+    assert "out_sample = -threshold_;" in process
+    assert "++limited_in_frame;" in process
+    assert "output = std::move(next_output);" in process
+    assert "backend_->process(in.data, out.data)" in apply_limiter
+    assert "samples_limited_.fetch_add(result.samples_limited);" in apply_limiter
+    assert "std::clamp" not in process
+
+
+def test_limiter_backend_reports_rejection_reason_and_keeps_ros_boundary() -> None:
+    header = read_backend_header()
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+
+    assert "kEmptyInput" in header
+    assert "kMisalignedInput" in header
+    assert "kNonFiniteInput" in header
+    assert "kNonFiniteOutput" in header
+    assert "processStatusMessage(ProcessStatus status)" in header
+    assert "return ProcessResult{ProcessStatus::kMisalignedInput, 0};" in backend_source
+    assert "return ProcessResult{ProcessStatus::kNonFiniteInput, 0};" in backend_source
+    assert "backends::processStatusMessage(result.status)" in node_source
+
+    forbidden_backend_tokens = ("rclcpp", "fa_interfaces", "AudioFrame")
+    for token in forbidden_backend_tokens:
+        assert token not in header
+        assert token not in backend_source
 
 
 def test_threshold_parameter_is_required_and_range_checked() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_limiter_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
+    backend_source = read_backend_source()
     load_parameters = source.split("void FaLimiterNode::loadParameters")[1].split(
-        "void FaLimiterNode::setupInterfaces"
+        "void FaLimiterNode::configureBackend"
     )[0]
 
     assert 'this->declare_parameter<double>("threshold.linear", config_.threshold_linear);' in load_parameters
     assert "config_.threshold_linear <= 0.0" in load_parameters
     assert "config_.threshold_linear > 1.0" in load_parameters
     assert "threshold.linear must be finite and in (0.0, 1.0]" in load_parameters
+    assert "config_.threshold_linear <= 0.0" in backend_source
+    assert "config_.threshold_linear > 1.0" in backend_source
 
 
 def test_package_layout_matches_standard_processing_layout() -> None:
-    package_root = Path(__file__).parents[2]
     required_paths = (
         "README.md",
         "docs/仕様書.md",
@@ -107,25 +158,31 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_limiter.launch.py",
         "include/fa_limiter/fa_limiter_node.hpp",
+        "include/fa_limiter/backends/internal_limiter.hpp",
         "src/fa_limiter_node.cpp",
-        "test/unit",
+        "src/backends/internal_limiter.cpp",
+        "test/cpp/test_internal_limiter_backend.cpp",
+        "test/unit/test_fa_limiter_audio_frame_contract.py",
         "test/integration",
         "test/launch",
         "test/fixtures",
     )
 
     for relative_path in required_paths:
-        assert (package_root / relative_path).exists()
+        assert (package_root() / relative_path).exists()
 
 
-def test_colcon_runs_pytest_contracts() -> None:
-    package_root = Path(__file__).parents[2]
-    cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
-    package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
+def test_colcon_runs_pytest_and_backend_gtest_contracts() -> None:
+    cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
+    package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

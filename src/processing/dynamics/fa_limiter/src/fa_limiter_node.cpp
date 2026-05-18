@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -11,6 +10,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_limiter/backends/internal_limiter.hpp"
 
 namespace fa_limiter
 {
@@ -42,8 +42,11 @@ FaLimiterNode::FaLimiterNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Limiter node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaLimiterNode::~FaLimiterNode() = default;
 
 void FaLimiterNode::loadParameters()
 {
@@ -123,6 +126,14 @@ void FaLimiterNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
+void FaLimiterNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalLimiterBackend>(
+    backends::InternalLimiterConfig{
+      config_.expected_channels,
+      config_.threshold_linear});
+}
+
 void FaLimiterNode::setupInterfaces()
 {
   rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
@@ -149,6 +160,14 @@ void FaLimiterNode::setupInterfaces()
 void FaLimiterNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   frames_in_.fetch_add(1);
+
+  if (!msg) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping null AudioFrame pointer");
+    frames_dropped_.fetch_add(1);
+    return;
+  }
 
   if (!validateFrame(*msg)) {
     frames_dropped_.fetch_add(1);
@@ -227,33 +246,16 @@ bool FaLimiterNode::applyLimiter(
 {
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const float threshold = static_cast<float>(config_.threshold_linear);
-  const size_t sample_count = in.data.size() / sizeof(float);
-  uint64_t limited_in_frame = 0;
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!std::isfinite(sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is not finite");
-      return false;
-    }
-
-    float out_sample = sample;
-    if (sample > threshold) {
-      out_sample = threshold;
-      ++limited_in_frame;
-    } else if (sample < -threshold) {
-      out_sample = -threshold;
-      ++limited_in_frame;
-    }
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
+  const backends::ProcessResult result = backend_->process(in.data, out.data);
+  if (result.status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because limiter backend rejected input or output: %s",
+      backends::processStatusMessage(result.status));
+    return false;
   }
 
-  samples_limited_.fetch_add(limited_in_frame);
+  samples_limited_.fetch_add(result.samples_limited);
   return true;
 }
 
@@ -267,7 +269,7 @@ void FaLimiterNode::publishDiagnostics()
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
   status.values.reserve(6);
-  pushKeyValue(status, "threshold_linear", std::to_string(config_.threshold_linear));
+  pushKeyValue(status, "threshold_linear", std::to_string(backend_->thresholdLinear()));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
