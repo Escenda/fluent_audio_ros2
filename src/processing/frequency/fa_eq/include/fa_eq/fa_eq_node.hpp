@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
@@ -43,7 +44,7 @@ struct EqConfig
 class FaEqNode : public rclcpp::Node
 {
 public:
-  FaEqNode();
+  explicit FaEqNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaEqNode() override;
 
 private:
@@ -52,12 +53,14 @@ private:
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
   void configureBackend();
+  std::unique_ptr<backends::InternalThreeBandEqBackend> createBackend() const;
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyEq(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   EqConfig config_;
   std::string active_source_id_{};
+  std::optional<uint32_t> last_epoch_{};
   std::unique_ptr<backends::InternalThreeBandEqBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
@@ -68,7 +71,7 @@ private:
   std::atomic<uint64_t> frames_in_{0};
   std::atomic<uint64_t> frames_out_{0};
   std::atomic<uint64_t> frames_dropped_{0};
-  std::atomic<uint64_t> source_resets_{0};
+  std::atomic<uint64_t> state_resets_{0};
 };
 
 }  // namespace fa_eq

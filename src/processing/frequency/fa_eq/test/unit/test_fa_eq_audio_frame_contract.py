@@ -94,14 +94,27 @@ def test_eq_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
+    assert "msg.source_id != active_source_id_" in validate_frame
+    assert "msg.epoch <= *last_epoch_" in validate_frame
     assert "msg.stream_id != config_.input_topic" in validate_frame
-    assert "msg.source_id != active_source_id_" not in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
     assert "msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)" in validate_frame
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in validate_frame
     assert "msg.data.empty() || (msg.data.size() % bytes_per_frame) != 0" in validate_frame
+
+
+def test_eq_drops_null_frame_before_dereference() -> None:
+    source = read_source()
+    handle_frame = source.split("void FaEqNode::handleFrame")[1].split(
+        "bool FaEqNode::validateFrame"
+    )[0]
+
+    assert "if (!msg)" in handle_frame
+    assert '"Dropping null AudioFrame pointer"' in handle_frame
+    assert "frames_dropped_.fetch_add(1);" in handle_frame
+    assert handle_frame.index("if (!msg)") < handle_frame.index("validateFrame(*msg)")
 
 
 def test_eq_preserves_source_identity_and_updates_stream_identity() -> None:
@@ -124,9 +137,9 @@ def test_eq_binds_source_only_after_backend_accepts_frame() -> None:
         "void FaEqNode::publishDiagnostics"
     )[0]
 
-    assert "const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;" in apply_eq
+    assert "const bool should_bind_source = active_source_id_.empty();" in apply_eq
     assert (
-        "const backends::ProcessStatus status = backend_->process(in.data, out.data, source_changed);"
+        "const backends::ProcessStatus status = backend_->process(in.data, out.data, should_reset_state);"
         in apply_eq
     )
     assert "if (status != backends::ProcessStatus::kOk)" in apply_eq
@@ -135,6 +148,30 @@ def test_eq_binds_source_only_after_backend_accepts_frame() -> None:
     )
     assert apply_eq.index("if (status != backends::ProcessStatus::kOk)") < apply_eq.index(
         "active_source_id_ = in.source_id;"
+    )
+
+
+def test_eq_resets_filter_state_on_forward_epoch_gap_only_after_backend_accepts() -> None:
+    header = (package_root() / "include" / "fa_eq" / "fa_eq_node.hpp").read_text(
+        encoding="utf-8"
+    )
+    apply_eq = read_source().split("bool FaEqNode::applyEq")[1].split(
+        "void FaEqNode::publishDiagnostics"
+    )[0]
+
+    assert "#include <optional>" in header
+    assert "std::optional<uint32_t> last_epoch_" in header
+    assert "std::atomic<uint64_t> state_resets_" in header
+    assert "const bool should_reset_state =" in apply_eq
+    assert "last_epoch_.has_value() && in.epoch != (*last_epoch_ + 1U)" in apply_eq
+    assert "backend_->process(in.data, out.data, should_reset_state)" in apply_eq
+    assert "state_resets_.fetch_add(1);" in apply_eq
+    assert "last_epoch_ = in.epoch;" in apply_eq
+    assert apply_eq.index("if (status != backends::ProcessStatus::kOk)") < apply_eq.index(
+        "state_resets_.fetch_add(1);"
+    )
+    assert apply_eq.index("if (status != backends::ProcessStatus::kOk)") < apply_eq.index(
+        "last_epoch_ = in.epoch;"
     )
 
 
@@ -200,17 +237,6 @@ def test_eq_rejects_non_finite_or_out_of_range_samples_without_clamping() -> Non
     assert "std::clamp" not in source
 
 
-def test_eq_resets_state_on_source_change() -> None:
-    source = read_source()
-    apply_eq = source.split("bool FaEqNode::applyEq")[1].split(
-        "void FaEqNode::publishDiagnostics"
-    )[0]
-
-    assert "const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;" in apply_eq
-    assert "backend_->process(in.data, out.data, source_changed)" in apply_eq
-    assert "source_resets_.fetch_add(1);" in apply_eq
-
-
 def test_eq_diagnostics_include_filter_gain_state_and_counters() -> None:
     source = read_source()
     diagnostics = source.split("void FaEqNode::publishDiagnostics")[1]
@@ -224,7 +250,7 @@ def test_eq_diagnostics_include_filter_gain_state_and_counters() -> None:
     assert 'pushKeyValue(status, "gain_mid_db", std::to_string(config_.gain_mid_db));' in diagnostics
     assert 'pushKeyValue(status, "gain_high_db", std::to_string(config_.gain_high_db));' in diagnostics
     assert 'pushKeyValue(status, "state_source_id", active_source_id_);' in diagnostics
-    assert 'pushKeyValue(status, "source_resets", std::to_string(source_resets_.load()));' in diagnostics
+    assert 'pushKeyValue(status, "state_resets", std::to_string(state_resets_.load()));' in diagnostics
     assert 'pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));' in diagnostics
     assert 'pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));' in diagnostics
     assert 'pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));' in diagnostics
@@ -243,10 +269,14 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "include/fa_eq/backends/internal_three_band_eq.hpp",
         "src/fa_eq_node.cpp",
         "src/backends/internal_three_band_eq.cpp",
+        "src/main.cpp",
         "test/cpp/test_internal_three_band_eq_backend.cpp",
+        "test/cpp/test_eq_graph.cpp",
+        "test/unit/test_fa_eq_audio_frame_contract.py",
         "test/unit",
         "test/integration",
         "test/launch",
+        "test/launch/test_fa_eq_launch_contract.py",
         "test/fixtures",
     )
 
@@ -261,9 +291,12 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_graph_smoke_test" in cmake_text
+    assert "fa_eq_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
