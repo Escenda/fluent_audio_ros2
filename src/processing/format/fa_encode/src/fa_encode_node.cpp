@@ -93,6 +93,19 @@ bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
   return parameter.as_bool();
 }
 
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
+
 backends::PcmFrameContract frameContractFrom(const fa_interfaces::msg::AudioFrame & msg)
 {
   return backends::PcmFrameContract{
@@ -123,6 +136,8 @@ void FaEncodeNode::loadParameters()
   this->declare_parameter<int>("backend.command.max_output_bytes");
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<int>("input.sample_rate");
   this->declare_parameter<int>("input.channels");
   this->declare_parameter<std::string>("input.encoding");
@@ -145,6 +160,8 @@ void FaEncodeNode::loadParameters()
     *this, "backend.command.max_output_bytes");
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.input_sample_rate = readRequiredInt(*this, "input.sample_rate");
   config_.input_channels = readRequiredInt(*this, "input.channels");
   config_.input_encoding = readRequiredString(*this, "input.encoding");
@@ -172,6 +189,31 @@ void FaEncodeNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
+  }
   requirePositive("qos.depth", config_.qos_depth);
   requirePositive("diagnostics.publish_period_ms", config_.diagnostics_publish_period_ms);
   requirePositive("diagnostics.qos.depth", config_.diagnostics_qos_depth);
@@ -196,10 +238,12 @@ void FaEncodeNode::setupBackend()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Encode config: input=%s output=%s backend=%s command=%s expected=%dHz/%d/%s/%d/%s "
-    "encoded=%s/%s/%s qos_depth=%d reliable=%s diag=%dms",
+    "Encode config: input=%s/%s output=%s/%s backend=%s command=%s "
+    "expected=%dHz/%d/%s/%d/%s encoded=%s/%s/%s qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.backend_name.c_str(),
     config_.command_executable.c_str(),
     config_.input_sample_rate,
@@ -294,12 +338,12 @@ bool FaEncodeNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.header.stamp.sec == 0 && msg.header.stamp.nanosec == 0) {
@@ -373,7 +417,7 @@ bool FaEncodeNode::buildChunk(
 
   out.header = in.header;
   out.source_id = in.source_id;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   out.codec = result.codec;
   out.container = result.container;
   out.payload_format = result.payload_format;
@@ -420,10 +464,12 @@ void FaEncodeNode::publishDiagnostics()
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
 
-  status.values.reserve(11);
+  status.values.reserve(13);
   pushKeyValue(status, "backend.name", config_.backend_name);
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "input.encoding", config_.input_encoding);
   pushKeyValue(status, "input.bit_depth", std::to_string(config_.input_bit_depth));
   pushKeyValue(status, "output.codec", config_.output_codec);

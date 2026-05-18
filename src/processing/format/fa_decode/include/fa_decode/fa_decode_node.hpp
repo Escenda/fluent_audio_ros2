@@ -25,6 +25,8 @@ struct FaDecodeConfig
   int command_max_output_bytes{-1};
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   std::string input_codec{};
   std::string input_container{};
   std::string input_payload_format{};

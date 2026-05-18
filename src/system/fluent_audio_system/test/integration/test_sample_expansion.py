@@ -482,6 +482,8 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
         "backend.command.executable": "${env:FLUENT_AUDIO_CODEC_ENCODER}",
         "input_topic": "audio/resample16k/mic",
         "output_topic": "audio/encoded/mic",
+        "input_stream_id": "audio/preprocessed/mono16k",
+        "output.stream_id": "audio/encoded/mic/opus",
     }
     assert format_nodes["fa_decode"]["enable"] is False
     assert format_nodes["fa_decode"]["package"] == "fa_decode"
@@ -492,6 +494,8 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
         "backend.command.executable": "${env:FLUENT_AUDIO_CODEC_DECODER}",
         "input_topic": "audio/encoded/mic",
         "output_topic": "audio/decoded/mic",
+        "input_stream_id": "audio/encoded/mic/opus",
+        "output.stream_id": "audio/decoded/mic/pcm16",
     }
     assert format_nodes["fa_sample_format_tts"]["parameters"] == {
         "input_topic": "audio/tts/48k_float32",

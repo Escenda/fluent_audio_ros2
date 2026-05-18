@@ -8,6 +8,7 @@ fa_decode:
 
     input_topic: "audio/encoded/mic"
     output_topic: "audio/pcm16/mic"
+    input_stream_id: "audio/encoded/mic/opus"
 
     input:
       codec: "opus"
@@ -17,6 +18,7 @@ fa_decode:
       channels: 1
 
     output:
+      stream_id: "audio/decoded/mic/pcm16"
       sample_rate: 16000
       channels: 1
       encoding: "PCM16LE"

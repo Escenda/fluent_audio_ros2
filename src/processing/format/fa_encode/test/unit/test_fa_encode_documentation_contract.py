@@ -30,6 +30,10 @@ def test_fa_encode_default_config_requires_explicit_external_backend() -> None:
     assert params["backend.command.max_output_bytes"] > 0
     assert params["input_topic"] == "audio/pcm16/mic"
     assert params["output_topic"] == "audio/encoded/mic"
+    assert params["input_stream_id"] == "audio/pcm16/mic/stream"
+    assert params["output"]["stream_id"] == "audio/encoded/mic/opus"
+    assert params["input_topic"] != params["input_stream_id"]
+    assert params["output_topic"] != params["output"]["stream_id"]
     assert params["input"]["encoding"] == "PCM16LE"
     assert params["input"]["bit_depth"] == 16
     assert params["input"]["layout"] == "interleaved"
@@ -53,7 +57,7 @@ def test_backend_is_ros_free_and_node_owns_message_conversion() -> None:
 
     assert "fa_interfaces::msg::AudioFrame" in node_source
     assert "fa_interfaces::msg::EncodedAudioChunk" in node_source
-    assert "out.stream_id = config_.output_topic;" in node_source
+    assert "out.stream_id = config_.output_stream_id;" in node_source
     assert "out.codec = result.codec;" in node_source
     assert "out.media_time_ns = next_media_time_ns_;" in node_source
 
@@ -73,10 +77,16 @@ def test_launch_and_node_require_explicit_runtime_config() -> None:
     assert 'description="設定ファイルへのパス。必ず明示する。"' in launch_text
     assert 'readRequiredString(*this, "backend.name")' in load_parameters
     assert 'readRequiredStringArray(*this, "backend.command.arguments")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredInt(*this, "input.sample_rate")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
     assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in load_parameters
     assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line

@@ -8,6 +8,7 @@ fa_encode:
 
     input_topic: "audio/pcm16/mic"
     output_topic: "audio/encoded/mic"
+    input_stream_id: "audio/pcm16/mic/stream"
 
     input:
       sample_rate: 16000
@@ -17,6 +18,7 @@ fa_encode:
       layout: "interleaved"
 
     output:
+      stream_id: "audio/encoded/mic/opus"
       codec: "opus"
       container: "ogg"
       payload_format: "ogg_page"

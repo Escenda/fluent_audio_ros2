@@ -25,6 +25,8 @@ struct FaEncodeConfig
   int command_max_output_bytes{-1};
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   int input_sample_rate{-1};
   int input_channels{-1};
   std::string input_encoding{};

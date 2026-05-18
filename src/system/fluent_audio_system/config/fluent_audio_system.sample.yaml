@@ -70,6 +70,8 @@ groups:
           backend.command.executable: "${env:FLUENT_AUDIO_CODEC_ENCODER}"
           input_topic: "audio/resample16k/mic"
           output_topic: "audio/encoded/mic"
+          input_stream_id: "audio/preprocessed/mono16k"
+          output.stream_id: "audio/encoded/mic/opus"
 
       - id: fa_decode
         enable: false
@@ -83,6 +85,8 @@ groups:
           backend.command.executable: "${env:FLUENT_AUDIO_CODEC_DECODER}"
           input_topic: "audio/encoded/mic"
           output_topic: "audio/decoded/mic"
+          input_stream_id: "audio/encoded/mic/opus"
+          output.stream_id: "audio/decoded/mic/pcm16"
 
       - id: fa_resample_tts
         enable: false

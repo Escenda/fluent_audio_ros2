@@ -20,7 +20,7 @@ fa_interfaces::msg::AudioFrame makePcm16Frame(const rclcpp::Node & node)
   fa_interfaces::msg::AudioFrame frame;
   frame.header.stamp = node.now();
   frame.source_id = "test-mic";
-  frame.stream_id = "/fa_encode_test/input";
+  frame.stream_id = "fa_encode_test/input_stream";
   frame.encoding = "PCM16LE";
   frame.sample_rate = 16000;
   frame.channels = 1;
@@ -68,6 +68,8 @@ TEST_F(RclcppFixture, PublishesEncodedAudioChunkFromPcmInput)
     rclcpp::Parameter("backend.command.max_output_bytes", 1024),
     rclcpp::Parameter("input_topic", "/fa_encode_test/input"),
     rclcpp::Parameter("output_topic", "/fa_encode_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_encode_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_encode_test/output_stream"),
     rclcpp::Parameter("input.sample_rate", 16000),
     rclcpp::Parameter("input.channels", 1),
     rclcpp::Parameter("input.encoding", "PCM16LE"),
@@ -117,7 +119,7 @@ TEST_F(RclcppFixture, PublishesEncodedAudioChunkFromPcmInput)
 
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "test-mic");
-  EXPECT_EQ(received->stream_id, "/fa_encode_test/output");
+  EXPECT_EQ(received->stream_id, "fa_encode_test/output_stream");
   EXPECT_EQ(received->codec, "opus");
   EXPECT_EQ(received->container, "ogg");
   EXPECT_EQ(received->payload_format, "ogg_page");

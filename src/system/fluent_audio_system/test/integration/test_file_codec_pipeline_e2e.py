@@ -26,6 +26,11 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
     pcm16_decoded_topic = "audio/e2e/codec_pcm16_decoded"
     float32_topic = "audio/e2e/codec_float32"
     gained_topic = "audio/e2e/codec_gain_float32"
+    pcm16_input_stream_id = "audio/e2e/codec_pcm16_in_stream"
+    encoded_stream_id = "audio/e2e/codec_encoded_stream"
+    pcm16_decoded_stream_id = "audio/e2e/codec_pcm16_decoded_stream"
+    float32_stream_id = "audio/e2e/codec_float32_stream"
+    gained_stream_id = "audio/e2e/codec_gain_float32_stream"
 
     _write_yaml(
         tmp_path / "fa_file_in.params.yaml",
@@ -36,7 +41,7 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                     "file.path": str(input_pcm),
                     "output_topic": pcm16_input_topic,
                     "audio.source_id": "codec_e2e_source",
-                    "audio.stream_id": pcm16_input_topic,
+                    "audio.stream_id": pcm16_input_stream_id,
                     "audio.frames_per_chunk": 4,
                     "expected.sample_rate": 16000,
                     "expected.channels": 1,
@@ -48,6 +53,8 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -59,21 +66,26 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                 "ros__parameters": {
                     "backend.name": "external_codec_encoder",
                     "backend.command.executable": "/bin/cat",
+                    "backend.command.arguments": [],
                     "backend.command.timeout_ms": 3000,
                     "backend.command.max_output_bytes": 1048576,
                     "input_topic": pcm16_input_topic,
                     "output_topic": encoded_topic,
+                    "input_stream_id": pcm16_input_stream_id,
                     "input.sample_rate": 16000,
                     "input.channels": 1,
                     "input.encoding": "PCM16LE",
                     "input.bit_depth": 16,
                     "input.layout": "interleaved",
+                    "output.stream_id": encoded_stream_id,
                     "output.codec": "test-identity-codec",
                     "output.container": "raw",
                     "output.payload_format": "raw-bytes",
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -85,15 +97,18 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                 "ros__parameters": {
                     "backend.name": "external_codec_decoder",
                     "backend.command.executable": "/bin/cat",
+                    "backend.command.arguments": [],
                     "backend.command.timeout_ms": 3000,
                     "backend.command.max_output_bytes": 1048576,
                     "input_topic": encoded_topic,
                     "output_topic": pcm16_decoded_topic,
+                    "input_stream_id": encoded_stream_id,
                     "input.codec": "test-identity-codec",
                     "input.container": "raw",
                     "input.payload_format": "raw-bytes",
                     "input.sample_rate": 16000,
                     "input.channels": 1,
+                    "output.stream_id": pcm16_decoded_stream_id,
                     "output.sample_rate": 16000,
                     "output.channels": 1,
                     "output.encoding": "PCM16LE",
@@ -102,6 +117,8 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -113,8 +130,10 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                 "ros__parameters": {
                     "input_topic": pcm16_decoded_topic,
                     "output_topic": float32_topic,
+                    "input_stream_id": pcm16_decoded_stream_id,
                     "input.encoding": "PCM16LE",
                     "input.bit_depth": 16,
+                    "output.stream_id": float32_stream_id,
                     "output.encoding": "FLOAT32LE",
                     "output.bit_depth": 32,
                     "expected.sample_rate": 16000,
@@ -123,6 +142,8 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -134,6 +155,8 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                 "ros__parameters": {
                     "input_topic": float32_topic,
                     "output_topic": gained_topic,
+                    "input_stream_id": float32_stream_id,
+                    "output.stream_id": gained_stream_id,
                     "gain.linear": 2.0,
                     "expected.sample_rate": 16000,
                     "expected.channels": 1,
@@ -143,6 +166,8 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
@@ -164,6 +189,8 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                     "qos.depth": 10,
                     "qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
+                    "diagnostics.qos.depth": 10,
+                    "diagnostics.qos.reliable": True,
                 }
             }
         },
