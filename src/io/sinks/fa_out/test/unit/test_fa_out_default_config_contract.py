@@ -11,6 +11,9 @@ def test_default_config_requires_explicit_sink_device() -> None:
     params = config["fa_out"]["ros__parameters"]
 
     assert params["backend.name"] == "alsa_playback"
+    assert params["input_topic"] == "fa_out/input"
+    assert params["input_stream_id"] == "audio/playback/main"
+    assert params["input_topic"] != params["input_stream_id"]
     assert params["audio.device_id"] == ""
     assert params["audio.encoding"] == "PCM16LE"
     assert params["audio.bit_depth"] == 16
@@ -30,6 +33,8 @@ def test_sink_backend_has_no_struct_default() -> None:
     validation_text = validation_header_path.read_text(encoding="utf-8")
 
     assert "std::string backend_name{};" in header_text
+    assert "std::string input_topic{};" in header_text
+    assert "std::string input_stream_id{};" in header_text
     assert "std::string encoding{};" in header_text
     assert "uint32_t sample_rate{0};" in header_text
     assert "uint32_t channels{0};" in header_text
@@ -44,6 +49,9 @@ def test_sink_backend_has_no_struct_default() -> None:
 
     source_path = package_root / "src" / "fa_out_node.cpp"
     source_text = source_path.read_text(encoding="utf-8")
+    assert 'declare_parameter<std::string>("input_topic")' in source_text
+    assert 'declare_parameter<std::string>("input_stream_id")' in source_text
+    assert "readRequiredString(*this, \"input_topic\")" in source_text
     assert "requirePositiveUint32" in source_text
     assert "requirePositiveSize" in source_text
     assert "std::max<size_t>(1" not in source_text
@@ -76,6 +84,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     source_path = Path(__file__).parents[2] / "src" / "fa_out_node.cpp"
     source = source_path.read_text(encoding="utf-8")
 
+    assert 'declare_parameter<std::string>("input_topic")' in source
+    assert 'declare_parameter<std::string>("input_stream_id")' in source
     assert 'declare_parameter<std::string>("audio.encoding")' in source
     assert 'declare_parameter<int>("audio.sample_rate")' in source
     assert 'declare_parameter<int>("audio.channels")' in source
@@ -103,9 +113,8 @@ def test_playback_contract_is_pcm16_only_at_startup() -> None:
     assert "SND_PCM_FORMAT_S32_LE" not in backend_source
     assert "msg.encoding != config_.encoding" in source
     assert "AudioFrame source_id and stream_id are required" in source
-    assert 'constexpr const char * kInputTopic = "audio/output/frame";' in source
-    assert "msg.stream_id != kInputTopic" in source
-    assert "AudioFrame stream_id must match audio/output/frame" in source
+    assert "msg.stream_id != config_.input_stream_id" in source
+    assert "AudioFrame stream_id mismatch" in source
     assert "Unsupported audio layout" in source
 
 

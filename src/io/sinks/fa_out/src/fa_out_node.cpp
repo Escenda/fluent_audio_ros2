@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -14,7 +15,6 @@ namespace fa_out
 
 namespace
 {
-constexpr const char * kInputTopic = "audio/output/frame";
 constexpr const char * kEncodingPcm16 = "PCM16LE";
 constexpr const char * kInterleavedLayout = "interleaved";
 
@@ -23,6 +23,66 @@ FaOutNode::BackendFactory defaultBackendFactory()
   return [](const backends::AlsaPlaybackConfig & backend_config) {
     return std::make_unique<backends::AlsaPlaybackBackend>(backend_config);
   };
+}
+
+std::string removeLeadingSlashes(std::string value)
+{
+  while (!value.empty() && value.front() == '/') {
+    value.erase(value.begin());
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return left == right || removeLeadingSlashes(left) == removeLeadingSlashes(right);
+}
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::invalid_argument(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::invalid_argument(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::invalid_argument(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::invalid_argument(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::invalid_argument(name + " must be a bool");
+  }
+  return parameter.as_bool();
 }
 }
 
@@ -57,7 +117,7 @@ FaOutNode::FaOutNode(const rclcpp::NodeOptions & options, BackendFactory backend
     audio_qos.best_effort();
   }
   audio_sub_ = this->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, audio_qos,
+    config_.input_topic, audio_qos,
     std::bind(&FaOutNode::handleFrame, this, std::placeholders::_1));
 
   running_.store(true);
@@ -82,6 +142,8 @@ bool FaOutNode::hasFatalError() const
 void FaOutNode::loadParameters()
 {
   this->declare_parameter<std::string>("backend.name");
+  this->declare_parameter<std::string>("input_topic");
+  this->declare_parameter<std::string>("input_stream_id");
   this->declare_parameter<std::string>("audio.device_id");
   this->declare_parameter<std::string>("audio.encoding");
   this->declare_parameter<int>("audio.sample_rate");
@@ -94,14 +156,29 @@ void FaOutNode::loadParameters()
   this->declare_parameter<int>("audio.qos.depth");
   this->declare_parameter<bool>("audio.qos.reliable");
 
-  config_.backend_name = this->get_parameter("backend.name").as_string();
-  config_.device_id = this->get_parameter("audio.device_id").as_string();
-  config_.encoding = this->get_parameter("audio.encoding").as_string();
+  config_.backend_name = readRequiredString(*this, "backend.name");
+  config_.input_topic = readRequiredString(*this, "input_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.device_id = readRequiredString(*this, "audio.device_id");
+  config_.encoding = readRequiredString(*this, "audio.encoding");
   if (config_.backend_name.empty()) {
     throw std::invalid_argument("backend.name is required");
   }
   if (config_.backend_name != "alsa_playback") {
     throw std::invalid_argument("unsupported fa_out backend.name: " + config_.backend_name);
+  }
+  if (config_.input_topic.empty()) {
+    throw std::invalid_argument("input_topic is required");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::invalid_argument("input_stream_id is required");
+  }
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic))
+  {
+    throw std::invalid_argument("input_stream_id must be distinct from ROS input_topic");
   }
   if (config_.device_id.empty()) {
     throw std::invalid_argument("audio.device_id is required for backend.name=alsa_playback");
@@ -111,26 +188,26 @@ void FaOutNode::loadParameters()
   }
   validation::requireRawAlsaHardwareSink(config_.device_id);
   config_.sample_rate = validation::requirePositiveUint32(
-    "audio.sample_rate", this->get_parameter("audio.sample_rate").as_int());
+    "audio.sample_rate", readRequiredInt(*this, "audio.sample_rate"));
   config_.channels = validation::requirePositiveUint32(
-    "audio.channels", this->get_parameter("audio.channels").as_int());
+    "audio.channels", readRequiredInt(*this, "audio.channels"));
   config_.bit_depth = validation::requirePositiveUint32(
-    "audio.bit_depth", this->get_parameter("audio.bit_depth").as_int());
+    "audio.bit_depth", readRequiredInt(*this, "audio.bit_depth"));
   if (config_.bit_depth != 16) {
     throw std::invalid_argument("audio.bit_depth must be 16 for PCM16LE playback");
   }
   config_.alsa_buffer_frames = validation::requirePositiveSize(
-    "audio.alsa.buffer_frames", this->get_parameter("audio.alsa.buffer_frames").as_int());
+    "audio.alsa.buffer_frames", readRequiredInt(*this, "audio.alsa.buffer_frames"));
   config_.alsa_period_frames = validation::requirePositiveSize(
-    "audio.alsa.period_frames", this->get_parameter("audio.alsa.period_frames").as_int());
+    "audio.alsa.period_frames", readRequiredInt(*this, "audio.alsa.period_frames"));
   if (config_.alsa_period_frames > config_.alsa_buffer_frames) {
     throw std::invalid_argument("audio.alsa.period_frames must be <= audio.alsa.buffer_frames");
   }
   config_.max_queue_frames = validation::requirePositiveSize(
-    "queue.max_frames", this->get_parameter("queue.max_frames").as_int());
+    "queue.max_frames", readRequiredInt(*this, "queue.max_frames"));
 
   const int64_t chunk_duration_ms_param =
-    this->get_parameter("audio.chunk_duration_ms").as_int();
+    readRequiredInt(*this, "audio.chunk_duration_ms");
   config_.chunk_duration_ms = validation::requirePositiveUint32(
     "audio.chunk_duration_ms", chunk_duration_ms_param);
   if (chunk_duration_ms_param > 1000) {
@@ -140,14 +217,15 @@ void FaOutNode::loadParameters()
     config_.sample_rate, config_.chunk_duration_ms);
 
   config_.qos_depth = validation::requirePositiveSize(
-    "audio.qos.depth", this->get_parameter("audio.qos.depth").as_int());
-  config_.qos_reliable = this->get_parameter("audio.qos.reliable").as_bool();
+    "audio.qos.depth", readRequiredInt(*this, "audio.qos.depth"));
+  config_.qos_reliable = readRequiredBool(*this, "audio.qos.reliable");
 
   RCLCPP_INFO(this->get_logger(),
-    "Output config: backend.name=%s device=%s encoding=%s rate=%uHz channels=%u bits=%u queue=%zu "
+    "Output config: backend.name=%s input_topic=%s input_stream_id=%s device=%s encoding=%s rate=%uHz channels=%u bits=%u queue=%zu "
     "chunk=%ums chunk_frames=%zu alsa_buffer=%zu alsa_period=%zu qos_depth=%zu reliable=%s",
-    config_.backend_name.c_str(), config_.device_id.c_str(), config_.encoding.c_str(),
-    config_.sample_rate, config_.channels, config_.bit_depth, config_.max_queue_frames,
+    config_.backend_name.c_str(), config_.input_topic.c_str(), config_.input_stream_id.c_str(),
+    config_.device_id.c_str(), config_.encoding.c_str(), config_.sample_rate,
+    config_.channels, config_.bit_depth, config_.max_queue_frames,
     config_.chunk_duration_ms, config_.playback_chunk_frames, config_.alsa_buffer_frames,
     config_.alsa_period_frames, config_.qos_depth, config_.qos_reliable ? "true" : "false");
 }
@@ -289,10 +367,12 @@ bool FaOutNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != kInputTopic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "AudioFrame stream_id must match audio/output/frame");
+      "AudioFrame stream_id mismatch: %s != %s",
+      msg.stream_id.c_str(),
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != kInterleavedLayout) {

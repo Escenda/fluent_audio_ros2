@@ -1,6 +1,8 @@
 fa_out:
   ros__parameters:
     backend.name: "alsa_playback"
+    input_topic: "fa_out/input"
+    input_stream_id: "audio/playback/main"
     audio.device_id: ""
     audio.encoding: "PCM16LE"
     audio.sample_rate: 48000

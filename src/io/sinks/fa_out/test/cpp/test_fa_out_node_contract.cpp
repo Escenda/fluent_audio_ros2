@@ -85,6 +85,8 @@ std::vector<rclcpp::Parameter> validParameters()
 {
   return {
     rclcpp::Parameter("backend.name", "alsa_playback"),
+    rclcpp::Parameter("input_topic", "fa_out_contract/input"),
+    rclcpp::Parameter("input_stream_id", "audio/playback/main"),
     rclcpp::Parameter("audio.device_id", "hw:0,0"),
     rclcpp::Parameter("audio.encoding", "PCM16LE"),
     rclcpp::Parameter("audio.sample_rate", 48000),
@@ -134,7 +136,7 @@ fa_interfaces::msg::AudioFrame validFrame()
   msg.header.stamp = rclcpp::Clock().now();
   msg.header.frame_id = "test-request";
   msg.source_id = "test-source";
-  msg.stream_id = "audio/output/frame";
+  msg.stream_id = "audio/playback/main";
   msg.encoding = "PCM16LE";
   msg.sample_rate = 48000;
   msg.channels = 1;
@@ -215,6 +217,23 @@ TEST_F(RclcppContractTest, RejectsAlsaPluginSinkBeforeOpeningSink)
   EXPECT_EQ(state->open_calls.load(), 0u);
 }
 
+TEST_F(RclcppContractTest, RejectsStreamIdMatchingInputTopicBeforeOpeningSink)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("input_topic", "/fa_out_contract/input"));
+  replaceParameter(parameters, rclcpp::Parameter("input_stream_id", "fa_out_contract/input"));
+  const auto state = std::make_shared<FakeSinkState>();
+
+  EXPECT_THROW(
+    {
+      auto node = std::make_shared<fa_out::FaOutNode>(
+        optionsWith(std::move(parameters)),
+        factoryFor(state));
+    },
+    std::invalid_argument);
+  EXPECT_EQ(state->open_calls.load(), 0u);
+}
+
 TEST_F(RclcppContractTest, PassesExplicitConfigToSinkBackend)
 {
   const auto state = std::make_shared<FakeSinkState>();
@@ -240,7 +259,7 @@ TEST_F(RclcppContractTest, WritesOnlyFramesMatchingTheConfiguredSinkContract)
     factoryFor(state));
   auto publisher_node = std::make_shared<rclcpp::Node>("fa_out_contract_publisher");
   auto publisher = publisher_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    "audio/output/frame", rclcpp::QoS(10).reliable());
+    "fa_out_contract/input", rclcpp::QoS(10).reliable());
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
@@ -282,7 +301,7 @@ TEST_F(RclcppContractTest, WriteFailureFailsClosed)
     factoryFor(state));
   auto publisher_node = std::make_shared<rclcpp::Node>("fa_out_contract_failure_publisher");
   auto publisher = publisher_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    "audio/output/frame", rclcpp::QoS(10).reliable());
+    "fa_out_contract/input", rclcpp::QoS(10).reliable());
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);

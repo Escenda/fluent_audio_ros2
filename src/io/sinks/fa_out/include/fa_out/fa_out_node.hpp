@@ -27,6 +27,8 @@ struct AlsaPlaybackConfig;
 struct OutputConfig
 {
   std::string backend_name{};
+  std::string input_topic{};
+  std::string input_stream_id{};
   std::string device_id{};
   std::string encoding{};
   uint32_t sample_rate{0};

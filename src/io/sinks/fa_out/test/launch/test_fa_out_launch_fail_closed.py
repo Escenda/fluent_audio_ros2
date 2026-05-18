@@ -22,7 +22,11 @@ def _run_fa_out_launch(*launch_args: str) -> str:
 
 
 def test_default_launch_fails_closed_without_explicit_sink_binding() -> None:
-    output = _run_fa_out_launch()
+    default_config = Path(__file__).parents[2] / "config" / "default.yaml"
+    output = _run_fa_out_launch(
+        "node_name:=fa_out",
+        f"config_file:={default_config}",
+    )
 
     assert "process has died" in output
     assert "exit code 1" in output
@@ -31,7 +35,7 @@ def test_default_launch_fails_closed_without_explicit_sink_binding() -> None:
 
 def test_launch_fails_closed_when_params_file_is_missing(tmp_path: Path) -> None:
     missing_config = tmp_path / "missing.yaml"
-    output = _run_fa_out_launch(f"config_file:={missing_config}")
+    output = _run_fa_out_launch("node_name:=fa_out", f"config_file:={missing_config}")
 
     assert f"Parameter file path is not a file: {missing_config}" in output
     assert "process has died" in output
