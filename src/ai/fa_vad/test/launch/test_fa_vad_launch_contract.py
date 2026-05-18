@@ -11,6 +11,7 @@ def test_launch_uses_explicit_config_file_contract() -> None:
         encoding="utf-8"
     )
 
+    assert 'default_value="fa_vad"' in launch_text
     assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
     assert 'FindPackageShare("fa_vad"), "config", "default.yaml"' in launch_text
     assert "parameters=[config_file]" in launch_text
@@ -20,7 +21,9 @@ def test_default_config_requires_external_worker_command() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
-    params = config["fa_vad_node"]["ros__parameters"]
+    assert "fa_vad" in config
+    assert "fa_vad_node" not in config
+    params = config["fa_vad"]["ros__parameters"]
 
     assert params["backend.name"] == "silero"
     assert params["backend.command"] == ""

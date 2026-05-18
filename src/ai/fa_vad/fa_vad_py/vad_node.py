@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from typing import Iterable
 
 import rclpy
 from rclpy.node import Node
@@ -21,7 +21,7 @@ from fa_vad_py.contracts import (
 
 class FaVadNode(Node):
     def __init__(self) -> None:
-        super().__init__("fa_vad_node")
+        super().__init__("fa_vad")
 
         self.declare_parameter("input_topic", "audio/frame")
         self.declare_parameter("output_topic", "audio/vad")
@@ -94,11 +94,11 @@ class FaVadNode(Node):
         )
 
         self._vad_pub = self.create_publisher(Bool, self._output_topic, qos)
-        self._vad_state_pub: Optional[rclpy.publisher.Publisher] = None
+        self._vad_state_pub: rclpy.publisher.Publisher | None = None
         if self._publish_vad_state:
             self._vad_state_pub = self.create_publisher(VadState, self._vad_state_topic, qos)
 
-        self._prob_pub: Optional[rclpy.publisher.Publisher] = None
+        self._prob_pub: rclpy.publisher.Publisher | None = None
         if self._publish_probability:
             self._prob_pub = self.create_publisher(Float32, self._probability_topic, qos)
 
@@ -119,7 +119,7 @@ class FaVadNode(Node):
             cleanup_audio_files=cleanup_audio_files,
         )
 
-        self._last_is_speech: Optional[bool] = None
+        self._last_is_speech: bool | None = None
 
         self.get_logger().info(
             "FA VAD (Silero): "

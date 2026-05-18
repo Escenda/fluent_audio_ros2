@@ -192,6 +192,7 @@ def _silero_backend(
     args: tuple[str, ...] = DEFAULT_ARGS,
     timeout_sec: float = 1.0,
     workspace_dir: str = "/tmp/fluent_audio_fa_vad_test",
+    cleanup_audio_files: bool = True,
     sample_rate: int = 16000,
     frame_ms: int = 20,
     threshold_start: float = 0.5,
@@ -210,7 +211,7 @@ def _silero_backend(
         args=args,
         timeout_sec=timeout_sec,
         workspace_dir=workspace_dir,
-        cleanup_audio_files=True,
+        cleanup_audio_files=cleanup_audio_files,
     )
 
 
@@ -239,7 +240,9 @@ def test_default_config_requires_explicit_silero_model_path() -> None:
         encoding="utf-8"
     )
 
-    params = config["fa_vad_node"]["ros__parameters"]
+    assert "fa_vad" in config
+    assert "fa_vad_node" not in config
+    params = config["fa_vad"]["ros__parameters"]
 
     assert params["backend.name"] == "silero"
     assert params["backend.model_path"] == ""
@@ -377,6 +380,8 @@ def test_vad_node_source_does_not_hide_format_conversion() -> None:
     source_path = Path(__file__).parents[2] / "fa_vad_py" / "vad_node.py"
     source = source_path.read_text(encoding="utf-8")
 
+    assert 'super().__init__("fa_vad")' in source
+    assert 'super().__init__("fa_vad_node")' not in source
     assert "bool(self.get_parameter" not in source
     assert "int(self.get_parameter" not in source
     assert "float(self.get_parameter" not in source
@@ -460,6 +465,10 @@ def test_vad_node_rejects_invalid_qos_depth_without_fallback() -> None:
         validate_qos_depth(0)
     with pytest.raises(RuntimeError, match="qos.depth must be > 0"):
         validate_qos_depth(-1)
+    with pytest.raises(RuntimeError, match="qos.depth must be an integer"):
+        validate_qos_depth("1")
+    with pytest.raises(RuntimeError, match="qos.depth must be an integer"):
+        validate_qos_depth(True)
 
 
 def test_silero_backend_rejects_missing_model_path() -> None:
@@ -487,6 +496,28 @@ def test_silero_backend_rejects_unknown_execution_provider(tmp_path: Path) -> No
 def test_silero_backend_rejects_missing_command(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="backend.command is required"):
         _silero_backend(model_path=str(tmp_path), command="")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    (
+        ({"sample_rate": "16000"}, "sample_rate must be an integer"),
+        ({"sample_rate": True}, "sample_rate must be an integer"),
+        ({"frame_ms": "20"}, "frame_ms must be an integer"),
+        ({"threshold_start": "0.5"}, "threshold_start must be a float"),
+        ({"threshold_end": 0}, "threshold_end must be a float"),
+        ({"hangover_ms": "300"}, "hangover_ms must be an integer"),
+        ({"timeout_sec": "1.0"}, "backend.timeout_sec must be a float"),
+        ({"cleanup_audio_files": "true"}, "backend.cleanup_audio_files must be a bool"),
+    ),
+)
+def test_silero_backend_rejects_coerced_runtime_config_types(
+    tmp_path: Path,
+    kwargs: dict[str, str | bool | int],
+    message: str,
+) -> None:
+    with pytest.raises(RuntimeError, match=message):
+        _silero_backend(model_path=str(tmp_path), **kwargs)
 
 
 def test_silero_backend_rejects_missing_command_placeholders(tmp_path: Path) -> None:
@@ -593,6 +624,12 @@ def test_silero_backend_constructor_requires_explicit_vad_config() -> None:
     assert "threshold_end: float | None" not in source
     assert "VAD_THRESHOLD_START" not in source
     assert "VAD_THRESHOLD_END" not in source
+    assert "int(sample_rate)" not in source
+    assert "int(frame_ms)" not in source
+    assert "int(hangover_ms)" not in source
+    assert "float(threshold_start)" not in source
+    assert "float(threshold_end)" not in source
+    assert "bool(cleanup_audio_files)" not in source
 
 
 def test_silero_backend_is_external_process_boundary() -> None:

@@ -23,10 +23,11 @@ def validate_node_config(
 
 
 def validate_qos_depth(depth: int) -> int:
-    depth_value = int(depth)
-    if depth_value <= 0:
+    if type(depth) is not int:
+        raise RuntimeError("qos.depth must be an integer")
+    if depth <= 0:
         raise RuntimeError("qos.depth must be > 0")
-    return depth_value
+    return depth
 
 
 def audio_frame_to_float_samples(

@@ -23,7 +23,7 @@ PyTorch / Silero VAD は ROS package dependency ではなく、`backend.command`
 
 ## パラメータ例
 ```yaml
-fa_vad_node:
+fa_vad:
   ros__parameters:
     target_sample_rate: 16000
     threshold_start: 0.5

@@ -59,7 +59,7 @@ class SileroVAD:
         self._args = self._validate_args(args)
         self._timeout_sec = self._validate_timeout(timeout_sec)
         self._workspace_dir = self._validate_workspace_dir(workspace_dir)
-        self._cleanup_audio_files = bool(cleanup_audio_files)
+        self._cleanup_audio_files = self._validate_cleanup_audio_files(cleanup_audio_files)
         self._payload_encoding = _PAYLOAD_ENCODING
 
         self._triggered = False
@@ -155,17 +155,19 @@ class SileroVAD:
 
     @staticmethod
     def _validate_sample_rate(sample_rate: int) -> int:
-        sample_rate_value = int(sample_rate)
-        if sample_rate_value not in (8000, 16000):
+        if type(sample_rate) is not int:
+            raise RuntimeError("sample_rate must be an integer")
+        if sample_rate not in (8000, 16000):
             raise RuntimeError("sample_rate must be 8000 or 16000 for silero")
-        return sample_rate_value
+        return sample_rate
 
     @staticmethod
     def _validate_frame_ms(frame_ms: int) -> int:
-        frame_ms_value = int(frame_ms)
-        if frame_ms_value <= 0:
+        if type(frame_ms) is not int:
+            raise RuntimeError("frame_ms must be an integer")
+        if frame_ms <= 0:
             raise RuntimeError("frame_ms must be > 0")
-        return frame_ms_value
+        return frame_ms
 
     @staticmethod
     def _validate_thresholds(
@@ -173,29 +175,34 @@ class SileroVAD:
         threshold_start: float,
         threshold_end: float,
     ) -> tuple[float, float]:
-        start = float(threshold_start)
-        end = float(threshold_end)
-        if start < 0.0 or start > 1.0:
+        if type(threshold_start) is not float:
+            raise RuntimeError("threshold_start must be a float")
+        if type(threshold_end) is not float:
+            raise RuntimeError("threshold_end must be a float")
+        if threshold_start < 0.0 or threshold_start > 1.0:
             raise RuntimeError("threshold_start must be in [0.0, 1.0]")
-        if end < 0.0 or end > 1.0:
+        if threshold_end < 0.0 or threshold_end > 1.0:
             raise RuntimeError("threshold_end must be in [0.0, 1.0]")
-        if end > start:
+        if threshold_end > threshold_start:
             raise RuntimeError("threshold_end must be <= threshold_start")
-        return start, end
+        return threshold_start, threshold_end
 
     @staticmethod
     def _validate_hangover_frames(*, hangover_ms: int, frame_ms: int) -> int:
-        hangover_ms_value = int(hangover_ms)
-        if hangover_ms_value <= 0:
+        if type(hangover_ms) is not int:
+            raise RuntimeError("hangover_ms must be an integer")
+        if hangover_ms <= 0:
             raise RuntimeError("hangover_ms must be > 0")
-        if hangover_ms_value < frame_ms:
+        if hangover_ms < frame_ms:
             raise RuntimeError("hangover_ms must be >= frame_ms")
-        if hangover_ms_value % frame_ms != 0:
+        if hangover_ms % frame_ms != 0:
             raise RuntimeError("hangover_ms must be divisible by frame_ms")
-        return hangover_ms_value // frame_ms
+        return hangover_ms // frame_ms
 
     @staticmethod
     def _validate_model_path(model_path: str) -> Path:
+        if type(model_path) is not str:
+            raise RuntimeError("backend.model_path must be a string")
         path_value = model_path.strip()
         if not path_value:
             raise RuntimeError("backend.model_path is required")
@@ -211,6 +218,8 @@ class SileroVAD:
 
     @staticmethod
     def _validate_execution_provider(execution_provider: str) -> str:
+        if type(execution_provider) is not str:
+            raise RuntimeError("backend.execution_provider must be a string")
         provider = execution_provider.strip()
         if not provider:
             raise RuntimeError("backend.execution_provider is required")
@@ -227,6 +236,8 @@ class SileroVAD:
 
     @staticmethod
     def _validate_command(command: str) -> str:
+        if type(command) is not str:
+            raise RuntimeError("backend.command must be a string")
         command_value = command.strip()
         if not command_value:
             raise RuntimeError("backend.command is required")
@@ -248,11 +259,15 @@ class SileroVAD:
 
     @staticmethod
     def _validate_args(args: tuple[str, ...]) -> tuple[str, ...]:
+        if type(args) is not tuple:
+            raise RuntimeError("backend.args must be a tuple of strings")
         if not args:
             raise RuntimeError("backend.args must not be empty")
         fields: set[str] = set()
         formatter = string.Formatter()
         for part in args:
+            if type(part) is not str:
+                raise RuntimeError("backend.args must contain only strings")
             try:
                 parsed_parts = tuple(formatter.parse(part))
             except ValueError as exc:
@@ -279,18 +294,28 @@ class SileroVAD:
 
     @staticmethod
     def _validate_timeout(timeout_sec: float) -> float:
+        if type(timeout_sec) is not float:
+            raise RuntimeError("backend.timeout_sec must be a float")
         if timeout_sec <= 0.0:
             raise RuntimeError("backend.timeout_sec must be > 0")
         return timeout_sec
 
     @staticmethod
     def _validate_workspace_dir(workspace_dir: str) -> Path:
+        if type(workspace_dir) is not str:
+            raise RuntimeError("backend.workspace_dir must be a string")
         path_value = workspace_dir.strip()
         if not path_value:
             raise RuntimeError("backend.workspace_dir is required")
         path = Path(path_value).expanduser()
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    @staticmethod
+    def _validate_cleanup_audio_files(cleanup_audio_files: bool) -> bool:
+        if type(cleanup_audio_files) is not bool:
+            raise RuntimeError("backend.cleanup_audio_files must be a bool")
+        return cleanup_audio_files
 
     @staticmethod
     def _parse_probability(stdout_text: str) -> float:
