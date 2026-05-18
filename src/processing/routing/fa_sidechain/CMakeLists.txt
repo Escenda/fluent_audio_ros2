@@ -13,18 +13,44 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
-add_executable(fa_sidechain_node
+add_library(fa_sidechain_internal_sidechain_detector STATIC
+  src/backends/internal_sidechain_detector.cpp
+)
+
+target_include_directories(fa_sidechain_internal_sidechain_detector PUBLIC
+  include
+)
+
+add_library(fa_sidechain_node_core STATIC
   src/fa_sidechain_node.cpp
 )
 
-target_include_directories(fa_sidechain_node PRIVATE
+target_include_directories(fa_sidechain_node_core PUBLIC
   include
+)
+
+ament_target_dependencies(fa_sidechain_node_core
+  rclcpp
+  diagnostic_msgs
+  fa_interfaces
+)
+
+target_link_libraries(fa_sidechain_node_core
+  fa_sidechain_internal_sidechain_detector
+)
+
+add_executable(fa_sidechain_node
+  src/main.cpp
 )
 
 ament_target_dependencies(fa_sidechain_node
   rclcpp
   diagnostic_msgs
   fa_interfaces
+)
+
+target_link_libraries(fa_sidechain_node
+  fa_sidechain_node_core
 )
 
 install(TARGETS fa_sidechain_node
@@ -42,8 +68,21 @@ install(DIRECTORY include/
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  ament_add_gtest(${PROJECT_NAME}_backend_test
+    test/cpp/test_internal_sidechain_detector_backend.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_backend_test)
+    target_include_directories(${PROJECT_NAME}_backend_test PRIVATE
+      include
+    )
+    target_link_libraries(${PROJECT_NAME}_backend_test
+      fa_sidechain_internal_sidechain_detector
+    )
+  endif()
 
   set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
   ament_add_pytest_test(${PROJECT_NAME}_pytest test

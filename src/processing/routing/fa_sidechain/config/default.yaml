@@ -1,15 +1,16 @@
 fa_sidechain:
   ros__parameters:
-    sidechain_topic: "audio/sidechain/frame"
-    control_topic: "audio/sidechain/control"
+    sidechain_topic: "fa_sidechain/input"
+    control_topic: "fa_sidechain/control"
+    sidechain_stream_id: "audio/sidechain/frame"
+    control:
+      stream_id: "audio/sidechain/control"
+      sample_rate: 1000
 
     detector:
       threshold_rms: 0.05
       active_gain_db: -12.0
       inactive_gain_db: 0.0
-
-    control:
-      sample_rate: 1000
 
     expected:
       sample_rate: 16000
@@ -23,4 +24,7 @@ fa_sidechain:
       reliable: false
 
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000
