@@ -2,8 +2,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -12,6 +12,11 @@
 
 namespace fa_band_pass
 {
+
+namespace backends
+{
+class InternalFirstOrderBandPassBackend;
+}  // namespace backends
 
 struct BandPassConfig
 {
@@ -29,14 +34,6 @@ struct BandPassConfig
   int diagnostics_publish_period_ms{-1};
 };
 
-struct ChannelFilterState
-{
-  float previous_hp_input{0.0F};
-  float previous_hp_output{0.0F};
-  float previous_lp_output{0.0F};
-  bool initialized{false};
-};
-
 /**
  * @brief FLOAT32LE AudioFrame に一次 high-pass 後一次 low-pass の band-pass filter を適用する node。
  */
@@ -44,23 +41,21 @@ class FaBandPassNode : public rclcpp::Node
 {
 public:
   FaBandPassNode();
-  ~FaBandPassNode() override = default;
+  ~FaBandPassNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
-  void configureFilterState();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyBandPass(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   BandPassConfig config_;
-  double hp_alpha_{0.0};
-  double lp_alpha_{0.0};
   std::string active_source_id_{};
-  std::vector<ChannelFilterState> channel_states_{};
+  std::unique_ptr<backends::InternalFirstOrderBandPassBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;

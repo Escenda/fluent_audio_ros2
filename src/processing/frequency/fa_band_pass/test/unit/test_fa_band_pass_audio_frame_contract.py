@@ -32,7 +32,12 @@ def test_default_config_requires_float32_interleaved_band_pass_contract() -> Non
 
 
 def test_band_pass_does_not_hide_other_processing_or_io_responsibilities() -> None:
-    source = read_source()
+    sources = [
+        read_source(),
+        (package_root() / "src" / "backends" / "internal_first_order_band_pass.cpp").read_text(
+            encoding="utf-8"
+        ),
+    ]
 
     forbidden = (
         "normalize(",
@@ -46,14 +51,15 @@ def test_band_pass_does_not_hide_other_processing_or_io_responsibilities() -> No
         "limiter",
         "denoise",
     )
-    for token in forbidden:
-        assert token not in source
+    for source in sources:
+        for token in forbidden:
+            assert token not in source
 
 
 def test_band_pass_validates_startup_config_fail_closed() -> None:
     source = read_source()
     load_parameters = source.split("void FaBandPassNode::loadParameters")[1].split(
-        "void FaBandPassNode::configureFilterState"
+        "void FaBandPassNode::configureBackend"
     )[0]
 
     assert 'this->declare_parameter<double>("filter.low_cut_hz", config_.low_cut_hz);' in load_parameters
@@ -104,13 +110,35 @@ def test_band_pass_preserves_source_identity_and_updates_stream_identity() -> No
     assert ".vad" not in apply_band_pass
 
 
-def test_band_pass_uses_first_order_coefficients_and_recurrence_per_channel() -> None:
-    header = (package_root() / "include" / "fa_band_pass" / "fa_band_pass_node.hpp").read_text(
-        encoding="utf-8"
-    )
+def test_band_pass_binds_source_only_after_backend_accepts_frame() -> None:
     source = read_source()
     apply_band_pass = source.split("bool FaBandPassNode::applyBandPass")[1].split(
         "void FaBandPassNode::publishDiagnostics"
+    )[0]
+
+    assert "const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;" in apply_band_pass
+    assert (
+        "const backends::ProcessStatus status = backend_->process(in.data, out.data, source_changed);"
+        in apply_band_pass
+    )
+    assert "if (status != backends::ProcessStatus::kOk)" in apply_band_pass
+    assert apply_band_pass.index("backend_->process") < apply_band_pass.index(
+        "if (status != backends::ProcessStatus::kOk)"
+    )
+    assert apply_band_pass.index("if (status != backends::ProcessStatus::kOk)") < apply_band_pass.index(
+        "active_source_id_ = in.source_id;"
+    )
+
+
+def test_band_pass_uses_first_order_coefficients_and_recurrence_per_channel() -> None:
+    header = (
+        package_root() / "include" / "fa_band_pass" / "backends" / "internal_first_order_band_pass.hpp"
+    ).read_text(encoding="utf-8")
+    source = (package_root() / "src" / "backends" / "internal_first_order_band_pass.cpp").read_text(
+        encoding="utf-8"
+    )
+    process = source.split("ProcessStatus InternalFirstOrderBandPassBackend::process")[1].split(
+        "const char * processStatusMessage"
     )[0]
 
     assert "struct ChannelFilterState" in header
@@ -121,31 +149,38 @@ def test_band_pass_uses_first_order_coefficients_and_recurrence_per_channel() ->
     assert "std::vector<ChannelFilterState> channel_states_" in header
     assert "hp_alpha_ = rc_hp / (rc_hp + dt);" in source
     assert "lp_alpha_ = dt / (rc_lp + dt);" in source
-    assert "std::vector<ChannelFilterState> next_states = channel_states_;" in apply_band_pass
-    assert "ChannelFilterState & state = next_states.at(i % channel_count);" in apply_band_pass
-    assert "hp_alpha_ * (static_cast<double>(state.previous_hp_output) +" in apply_band_pass
-    assert "static_cast<double>(sample) - static_cast<double>(state.previous_hp_input)" in apply_band_pass
-    assert "static_cast<double>(state.previous_lp_output) +" in apply_band_pass
-    assert "lp_alpha_ * (static_cast<double>(hp_sample) - static_cast<double>(state.previous_lp_output))" in apply_band_pass
-    assert "state.previous_hp_input = sample;" in apply_band_pass
-    assert "state.previous_hp_output = hp_sample;" in apply_band_pass
-    assert "state.previous_lp_output = out_sample;" in apply_band_pass
-    assert "state.initialized = true;" in apply_band_pass
-    assert "channel_states_ = next_states;" in apply_band_pass
+    assert "reset_state ?" in process
+    assert "channel_states_;" in process
+    assert "ChannelFilterState & state =" in process
+    assert "next_channel_states.at(i % static_cast<size_t>(config_.channels));" in process
+    assert "hp_alpha_ * (static_cast<double>(state.previous_hp_output) +" in process
+    assert "static_cast<double>(sample) - static_cast<double>(state.previous_hp_input)" in process
+    assert "static_cast<double>(state.previous_lp_output) +" in process
+    assert "lp_alpha_ * (static_cast<double>(hp_sample) - static_cast<double>(state.previous_lp_output))" in process
+    assert "state.previous_hp_input = sample;" in process
+    assert "state.previous_hp_output = hp_sample;" in process
+    assert "state.previous_lp_output = out_sample;" in process
+    assert "state.initialized = true;" in process
+    assert "channel_states_ = std::move(next_channel_states);" in process
 
 
 def test_band_pass_rejects_non_finite_or_out_of_range_samples_without_clamping() -> None:
-    source = read_source()
-    apply_band_pass = source.split("bool FaBandPassNode::applyBandPass")[1].split(
-        "void FaBandPassNode::publishDiagnostics"
-    )[0]
+    source = (package_root() / "src" / "backends" / "internal_first_order_band_pass.cpp").read_text(
+        encoding="utf-8"
+    )
+    header = (
+        package_root() / "include" / "fa_band_pass" / "backends" / "internal_first_order_band_pass.hpp"
+    ).read_text(encoding="utf-8")
 
     assert "bool isNormalizedSample(float value)" in source
     assert "value >= kNormalizedMin && value <= kNormalizedMax" in source
-    assert "!isNormalizedSample(sample)" in apply_band_pass
-    assert "!isNormalizedSample(out_sample)" in apply_band_pass
-    assert "return false;" in apply_band_pass
-    assert "std::clamp" not in apply_band_pass
+    assert "kNonFiniteInput" in header
+    assert "kOutOfRangeInput" in header
+    assert "kNonFiniteOutput" in header
+    assert "kOutOfRangeOutput" in header
+    assert "return ProcessStatus::kOutOfRangeInput;" in source
+    assert "return ProcessStatus::kOutOfRangeOutput;" in source
+    assert "std::clamp" not in source
 
 
 def test_band_pass_resets_state_on_source_change() -> None:
@@ -154,8 +189,8 @@ def test_band_pass_resets_state_on_source_change() -> None:
         "void FaBandPassNode::publishDiagnostics"
     )[0]
 
-    assert "if (active_source_id_.empty() || in.source_id != active_source_id_)" in apply_band_pass
-    assert "next_states.assign(static_cast<size_t>(config_.expected_channels), ChannelFilterState{});" in apply_band_pass
+    assert "const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;" in apply_band_pass
+    assert "backend_->process(in.data, out.data, source_changed)" in apply_band_pass
     assert "source_resets_.fetch_add(1);" in apply_band_pass
 
 
@@ -166,8 +201,8 @@ def test_band_pass_diagnostics_include_filter_state_and_counters() -> None:
     assert 'status.name = "fa_band_pass";' in diagnostics
     assert 'pushKeyValue(status, "filter_low_cut_hz", std::to_string(config_.low_cut_hz));' in diagnostics
     assert 'pushKeyValue(status, "filter_high_cut_hz", std::to_string(config_.high_cut_hz));' in diagnostics
-    assert 'pushKeyValue(status, "hp_alpha", std::to_string(hp_alpha_));' in diagnostics
-    assert 'pushKeyValue(status, "lp_alpha", std::to_string(lp_alpha_));' in diagnostics
+    assert 'pushKeyValue(status, "hp_alpha", std::to_string(backend_->highPassAlpha()));' in diagnostics
+    assert 'pushKeyValue(status, "lp_alpha", std::to_string(backend_->lowPassAlpha()));' in diagnostics
     assert 'pushKeyValue(status, "state_source_id", active_source_id_);' in diagnostics
     assert 'pushKeyValue(status, "source_resets", std::to_string(source_resets_.load()));' in diagnostics
     assert 'pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));' in diagnostics
@@ -185,7 +220,10 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_band_pass.launch.py",
         "include/fa_band_pass/fa_band_pass_node.hpp",
+        "include/fa_band_pass/backends/internal_first_order_band_pass.hpp",
         "src/fa_band_pass_node.cpp",
+        "src/backends/internal_first_order_band_pass.cpp",
+        "test/cpp/test_internal_first_order_band_pass_backend.cpp",
         "test/unit",
         "test/integration",
         "test/launch",
@@ -200,9 +238,12 @@ def test_colcon_runs_pytest_contracts() -> None:
     cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

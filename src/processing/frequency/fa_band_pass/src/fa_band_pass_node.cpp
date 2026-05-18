@@ -4,15 +4,14 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_band_pass/backends/internal_first_order_band_pass.hpp"
 
 namespace fa_band_pass
 {
@@ -21,18 +20,10 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr double kPi = 3.14159265358979323846;
-constexpr float kNormalizedMin = -1.0F;
-constexpr float kNormalizedMax = 1.0F;
 
 bool isFinite(double value)
 {
   return std::isfinite(value);
-}
-
-bool isNormalizedSample(float value)
-{
-  return std::isfinite(value) && value >= kNormalizedMin && value <= kNormalizedMax;
 }
 
 void pushKeyValue(
@@ -52,9 +43,11 @@ FaBandPassNode::FaBandPassNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Band Pass node");
   loadParameters();
-  configureFilterState();
+  configureBackend();
   setupInterfaces();
 }
+
+FaBandPassNode::~FaBandPassNode() = default;
 
 void FaBandPassNode::loadParameters()
 {
@@ -126,27 +119,13 @@ void FaBandPassNode::loadParameters()
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
 
-  const double dt = 1.0 / static_cast<double>(config_.expected_sample_rate);
-  const double rc_hp = 1.0 / (2.0 * kPi * config_.low_cut_hz);
-  const double rc_lp = 1.0 / (2.0 * kPi * config_.high_cut_hz);
-  hp_alpha_ = rc_hp / (rc_hp + dt);
-  lp_alpha_ = dt / (rc_lp + dt);
-  if (!isFinite(hp_alpha_) || hp_alpha_ <= 0.0 || hp_alpha_ >= 1.0) {
-    throw std::runtime_error("high-pass coefficient alpha must be finite and in (0.0, 1.0)");
-  }
-  if (!isFinite(lp_alpha_) || lp_alpha_ <= 0.0 || lp_alpha_ >= 1.0) {
-    throw std::runtime_error("low-pass coefficient alpha must be finite and in (0.0, 1.0)");
-  }
-
   RCLCPP_INFO(
     this->get_logger(),
-    "Band-pass config: input=%s output=%s low_cut=%fHz high_cut=%fHz hp_alpha=%f lp_alpha=%f expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
+    "Band-pass config: input=%s output=%s low_cut=%fHz high_cut=%fHz expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
     config_.low_cut_hz,
     config_.high_cut_hz,
-    hp_alpha_,
-    lp_alpha_,
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -156,9 +135,14 @@ void FaBandPassNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
-void FaBandPassNode::configureFilterState()
+void FaBandPassNode::configureBackend()
 {
-  channel_states_.assign(static_cast<size_t>(config_.expected_channels), ChannelFilterState{});
+  backend_ = std::make_unique<backends::InternalFirstOrderBandPassBackend>(
+    backends::InternalFirstOrderBandPassConfig{
+      config_.expected_sample_rate,
+      config_.expected_channels,
+      config_.low_cut_hz,
+      config_.high_cut_hz});
 }
 
 void FaBandPassNode::setupInterfaces()
@@ -265,72 +249,20 @@ bool FaBandPassNode::applyBandPass(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
-  std::vector<ChannelFilterState> next_states = channel_states_;
-  bool source_changed = false;
-  if (active_source_id_.empty() || in.source_id != active_source_id_) {
-    source_changed = !active_source_id_.empty();
-    next_states.assign(static_cast<size_t>(config_.expected_channels), ChannelFilterState{});
-  }
+  const bool source_changed = !active_source_id_.empty() && in.source_id != active_source_id_;
 
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const size_t channel_count = static_cast<size_t>(config_.expected_channels);
-  const size_t sample_count = in.data.size() / sizeof(float);
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!isNormalizedSample(sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is not finite normalized FLOAT32LE");
-      return false;
-    }
-
-    ChannelFilterState & state = next_states.at(i % channel_count);
-    float hp_sample = 0.0F;
-    float out_sample = 0.0F;
-    if (state.initialized) {
-      const double high_passed =
-        hp_alpha_ * (static_cast<double>(state.previous_hp_output) +
-        static_cast<double>(sample) - static_cast<double>(state.previous_hp_input));
-      if (!isFinite(high_passed)) {
-        RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 3000,
-          "Dropping frame because high-pass output is not finite");
-        return false;
-      }
-      hp_sample = static_cast<float>(high_passed);
-
-      const double low_passed =
-        static_cast<double>(state.previous_lp_output) +
-        lp_alpha_ * (static_cast<double>(hp_sample) - static_cast<double>(state.previous_lp_output));
-      if (!isFinite(low_passed)) {
-        RCLCPP_WARN_THROTTLE(
-          this->get_logger(), *this->get_clock(), 3000,
-          "Dropping frame because low-pass output is not finite");
-        return false;
-      }
-      out_sample = static_cast<float>(low_passed);
-    }
-
-    if (!isNormalizedSample(out_sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because band-pass output is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    state.previous_hp_input = sample;
-    state.previous_hp_output = hp_sample;
-    state.previous_lp_output = out_sample;
-    state.initialized = true;
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
+  const backends::ProcessStatus status = backend_->process(in.data, out.data, source_changed);
+  if (status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because band-pass backend rejected input or output: %s",
+      backends::processStatusMessage(status));
+    return false;
   }
 
   active_source_id_ = in.source_id;
-  channel_states_ = next_states;
   if (source_changed) {
     source_resets_.fetch_add(1);
   }
@@ -349,8 +281,8 @@ void FaBandPassNode::publishDiagnostics()
   status.values.reserve(10);
   pushKeyValue(status, "filter_low_cut_hz", std::to_string(config_.low_cut_hz));
   pushKeyValue(status, "filter_high_cut_hz", std::to_string(config_.high_cut_hz));
-  pushKeyValue(status, "hp_alpha", std::to_string(hp_alpha_));
-  pushKeyValue(status, "lp_alpha", std::to_string(lp_alpha_));
+  pushKeyValue(status, "hp_alpha", std::to_string(backend_->highPassAlpha()));
+  pushKeyValue(status, "lp_alpha", std::to_string(backend_->lowPassAlpha()));
   pushKeyValue(status, "state_source_id", active_source_id_);
   pushKeyValue(status, "source_resets", std::to_string(source_resets_.load()));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
