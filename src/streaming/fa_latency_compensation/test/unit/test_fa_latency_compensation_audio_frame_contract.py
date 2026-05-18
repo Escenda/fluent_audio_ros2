@@ -87,6 +87,23 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert 'declare_parameter<bool>("qos.reliable");' in load_parameters
     assert 'declare_parameter<double>("compensation.offset_ms", config_.offset_ms)' not in load_parameters
     assert 'declare_parameter<bool>("qos.reliable", config_.qos_reliable)' not in load_parameters
+    required_reads = (
+        'readRequiredString(*this, "input_topic")',
+        'readRequiredString(*this, "output_topic")',
+        'readRequiredDouble(*this, "compensation.offset_ms")',
+        'readRequiredInt(*this, "expected.sample_rate")',
+        'readRequiredInt(*this, "expected.channels")',
+        'readRequiredString(*this, "expected.encoding")',
+        'readRequiredInt(*this, "expected.bit_depth")',
+        'readRequiredString(*this, "expected.layout")',
+        'readRequiredInt(*this, "qos.depth")',
+        'readRequiredBool(*this, "qos.reliable")',
+    )
+    for read in required_reads:
+        assert read in load_parameters
+    assert "readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "this->get_parameter(" not in load_parameters
     assert "std::isfinite(config_.offset_ms)" in load_parameters
     assert "compensation.offset_ms must be finite" in load_parameters
     assert "compensation.offset_ms exceeds int64 nanosecond range" in load_parameters

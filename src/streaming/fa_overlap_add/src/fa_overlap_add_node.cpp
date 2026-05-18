@@ -29,6 +29,53 @@ constexpr int64_t kNanosecondsPerSecond = 1000000000LL;
 constexpr int64_t kMaxBuiltinTimeNanoseconds = (2147483647LL * kNanosecondsPerSecond) + 999999999LL;
 constexpr long double kNanosecondsPerSampleRateUnit = 1000000000.0L;
 
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string parameter");
+  }
+  return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer parameter");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " must fit in a 32-bit signed integer");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool parameter");
+  }
+  return parameter.as_bool();
+}
+
 void pushKeyValue(
   diagnostic_msgs::msg::DiagnosticStatus & status,
   const std::string & key,
@@ -81,21 +128,22 @@ void FaOverlapAddNode::loadParameters()
   this->declare_parameter<bool>("qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.input_topic = this->get_parameter("input_topic").as_string();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
-  config_.expected_channels = this->get_parameter("expected.channels").as_int();
-  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
-  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
-  config_.expected_layout = this->get_parameter("expected.layout").as_string();
-  config_.frame_samples = this->get_parameter("window.frame_samples").as_int();
-  config_.hop_samples = this->get_parameter("window.hop_samples").as_int();
-  config_.window_type = this->get_parameter("window.type").as_string();
-  config_.max_buffered_chunks = this->get_parameter("overlap.max_buffered_chunks").as_int();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.input_topic = readRequiredString(*this, "input_topic");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
+  config_.expected_channels = readRequiredInt(*this, "expected.channels");
+  config_.expected_encoding = readRequiredString(*this, "expected.encoding");
+  config_.expected_bit_depth = readRequiredInt(*this, "expected.bit_depth");
+  config_.expected_layout = readRequiredString(*this, "expected.layout");
+  config_.frame_samples = readRequiredInt(*this, "window.frame_samples");
+  config_.hop_samples = readRequiredInt(*this, "window.hop_samples");
+  config_.window_type = readRequiredString(*this, "window.type");
+  config_.max_buffered_chunks = readRequiredInt(*this, "overlap.max_buffered_chunks");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(
+    *this,
+    "diagnostics.publish_period_ms");
 
   if (config_.input_topic.empty()) {
     throw std::runtime_error("input_topic is required");

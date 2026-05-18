@@ -63,6 +63,39 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "buffering.max_buffered_chunks must be > 0" in load_parameters
     assert "qos.depth must be > 0" in load_parameters
     assert "diagnostics.publish_period_ms must be > 0" in load_parameters
+    required_reads = (
+        'readRequiredString(*this, "input_topic")',
+        'readRequiredString(*this, "output_topic")',
+        'readRequiredInt(*this, "expected.sample_rate")',
+        'readRequiredInt(*this, "expected.channels")',
+        'readRequiredString(*this, "expected.encoding")',
+        'readRequiredInt(*this, "expected.bit_depth")',
+        'readRequiredString(*this, "expected.layout")',
+        'readRequiredInt(*this, "buffering.frames_per_chunk")',
+        'readRequiredInt(*this, "buffering.max_buffered_chunks")',
+        'readRequiredInt(*this, "qos.depth")',
+        'readRequiredBool(*this, "qos.reliable")',
+    )
+    for read in required_reads:
+        assert read in load_parameters
+    assert "readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "this->get_parameter(" not in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert "config_." not in line
+
+
+def test_qos_depth_is_not_clamped_after_startup_validation() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (package_root / "src" / "fa_frame_buffer_node.cpp").read_text(encoding="utf-8")
+    setup_interfaces = source.split("void FaFrameBufferNode::setupInterfaces")[1].split(
+        "void FaFrameBufferNode::handleFrame"
+    )[0]
+
+    assert "config_.qos_depth <= 0" in source
+    assert "rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));" in setup_interfaces
+    assert "std::max<int>(1, config_.qos_depth)" not in source
 
 
 def test_frame_buffer_validates_frame_contract_before_buffering() -> None:

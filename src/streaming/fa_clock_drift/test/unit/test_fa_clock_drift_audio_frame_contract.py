@@ -93,6 +93,26 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert 'declare_parameter<bool>("qos.reliable");' in load_parameters
     assert 'declare_parameter<double>("drift.ema_alpha", config_.drift_ema_alpha)' not in load_parameters
     assert 'declare_parameter<bool>("qos.reliable", config_.qos_reliable)' not in load_parameters
+    required_reads = (
+        'readRequiredString(*this, "input_topic")',
+        'readRequiredString(*this, "output_topic")',
+        'readRequiredInt(*this, "expected.sample_rate")',
+        'readRequiredInt(*this, "expected.channels")',
+        'readRequiredString(*this, "expected.encoding")',
+        'readRequiredInt(*this, "expected.bit_depth")',
+        'readRequiredString(*this, "expected.layout")',
+        'readRequiredDouble(*this, "drift.ema_alpha")',
+        'readRequiredDouble(',
+        '"drift.max_correction_ms_per_frame"',
+        'readRequiredDouble(*this, "drift.reset_threshold_ms")',
+        'readRequiredInt(*this, "qos.depth")',
+        'readRequiredBool(*this, "qos.reliable")',
+    )
+    for read in required_reads:
+        assert read in load_parameters
+    assert "readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "this->get_parameter(" not in load_parameters
     assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
     assert "throw std::runtime_error(\"output_topic is required\")" in load_parameters
     assert "expected.sample_rate must be > 0" in load_parameters

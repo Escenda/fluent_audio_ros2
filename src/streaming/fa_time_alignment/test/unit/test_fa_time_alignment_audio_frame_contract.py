@@ -64,6 +64,25 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert 'declare_parameter<double>("alignment.max_adjust_ms");' in load_parameters
     assert 'declare_parameter<bool>("qos.reliable");' in load_parameters
     assert 'declare_parameter<bool>("qos.reliable", config_.qos_reliable)' not in load_parameters
+    required_reads = (
+        'readRequiredString(*this, "input_topic")',
+        'readRequiredString(*this, "output_topic")',
+        'readRequiredInt(*this, "expected.sample_rate")',
+        'readRequiredInt(*this, "expected.channels")',
+        'readRequiredString(*this, "expected.encoding")',
+        'readRequiredInt(*this, "expected.bit_depth")',
+        'readRequiredString(*this, "expected.layout")',
+        'readRequiredDouble(*this, "alignment.period_ms")',
+        'readRequiredDouble(*this, "alignment.phase_ms")',
+        'readRequiredDouble(*this, "alignment.max_adjust_ms")',
+        'readRequiredInt(*this, "qos.depth")',
+        'readRequiredBool(*this, "qos.reliable")',
+    )
+    for read in required_reads:
+        assert read in load_parameters
+    assert "readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "this->get_parameter(" not in load_parameters
     assert "throw std::runtime_error" in load_parameters
 
 

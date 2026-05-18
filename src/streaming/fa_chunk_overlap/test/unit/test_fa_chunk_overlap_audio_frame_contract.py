@@ -93,6 +93,24 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert 'declare_parameter<int>("window.hop_samples");' in load_parameters
     assert 'declare_parameter<bool>("qos.reliable");' in load_parameters
     assert 'declare_parameter<bool>("qos.reliable", config_.qos_reliable)' not in load_parameters
+    required_reads = (
+        'readRequiredString(*this, "input_topic")',
+        'readRequiredString(*this, "output_topic")',
+        'readRequiredInt(*this, "expected.sample_rate")',
+        'readRequiredInt(*this, "expected.channels")',
+        'readRequiredString(*this, "expected.encoding")',
+        'readRequiredInt(*this, "expected.bit_depth")',
+        'readRequiredString(*this, "expected.layout")',
+        'readRequiredInt(*this, "window.frame_samples")',
+        'readRequiredInt(*this, "window.hop_samples")',
+        'readRequiredInt(*this, "qos.depth")',
+        'readRequiredBool(*this, "qos.reliable")',
+    )
+    for read in required_reads:
+        assert read in load_parameters
+    assert "readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "this->get_parameter(" not in load_parameters
 
 
 def test_runtime_validation_rejects_invalid_frames_before_buffer_mutation() -> None:
