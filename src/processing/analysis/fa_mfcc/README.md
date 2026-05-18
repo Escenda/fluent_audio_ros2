@@ -1,8 +1,5 @@
 # fa_mfcc
 
-Roadmap directory for the non-AI analysis node that extracts MFCC feature
-frames.
+`fa_mfcc` は `FLOAT32LE` mono `AudioFrame` から MFCC feature matrix を生成する非 AI analysis node です。
 
-This is not a ROS 2 package yet. Do not add `package.xml` until the package has
-its specification, algorithm notes, backend documentation, launch contract, and
-tests.
+この package は VAD、KWS、ASR、Turn Detector の推論を実行しません。model runtime は持たず、ROS-free な `internal_mfcc` backend で deterministic feature extraction だけを行います。

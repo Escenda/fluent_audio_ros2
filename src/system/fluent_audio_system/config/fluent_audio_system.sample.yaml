@@ -470,6 +470,20 @@ groups:
         parameters:
           input_topic: "audio/resample16k/mic"
 
+      - id: fa_mfcc
+        enable: false
+        package: fa_mfcc
+        exec: fa_mfcc_node
+        node_name: fa_mfcc
+        namespace: ""
+        params_file: "${share:fa_mfcc}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/resample16k/mic"
+          feature.n_fft: 320
+          feature.hop_length: 160
+          feature.n_mfcc: 13
+
       - id: fa_stft
         enable: false
         package: fa_stft

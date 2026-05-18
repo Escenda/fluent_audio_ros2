@@ -384,7 +384,7 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
     groups = {group["id"]: group for group in raw["groups"]}
     analysis_nodes = {node["id"]: node for node in groups["analysis"]["nodes"]}
 
-    assert set(analysis_nodes) == {"fa_log_mel", "fa_loudness", "fa_stft"}
+    assert set(analysis_nodes) == {"fa_log_mel", "fa_loudness", "fa_mfcc", "fa_stft"}
     assert analysis_nodes["fa_loudness"]["enable"] is False
     assert analysis_nodes["fa_loudness"]["package"] == "fa_loudness"
     assert analysis_nodes["fa_loudness"]["params_file"] == (
@@ -392,6 +392,17 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
     )
     assert analysis_nodes["fa_loudness"]["parameters"] == {
         "input_topic": "audio/resample16k/mic",
+    }
+    assert analysis_nodes["fa_mfcc"]["enable"] is False
+    assert analysis_nodes["fa_mfcc"]["package"] == "fa_mfcc"
+    assert analysis_nodes["fa_mfcc"]["params_file"] == (
+        "${share:fa_mfcc}/config/default.yaml"
+    )
+    assert analysis_nodes["fa_mfcc"]["parameters"] == {
+        "input_topic": "audio/resample16k/mic",
+        "feature.n_fft": 320,
+        "feature.hop_length": 160,
+        "feature.n_mfcc": 13,
     }
 
 
