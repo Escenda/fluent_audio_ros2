@@ -11,6 +11,9 @@ from fluent_audio_system.site_binding import (
 )
 
 
+_SOURCE_BOUND_AUDIO_AI_PACKAGES = frozenset(("fa_kws", "fa_turn_detector"))
+
+
 def _required_bool_launch_arg(context, name: str) -> bool:
     value = LaunchConfiguration(name).perform(context)
     return parse_bool_launch_arg_value(name, value)
@@ -42,6 +45,8 @@ def _node_launch_parameters(
     if node.package == "fa_in" and overrides.fa_in_source_id:
         override_params["audio.device_selector.mode"] = "name"
         override_params["audio.device_selector.identifier"] = overrides.fa_in_source_id
+    if node.package in _SOURCE_BOUND_AUDIO_AI_PACKAGES and overrides.fa_in_source_id:
+        override_params["expected_source_id"] = overrides.fa_in_source_id
     if node.package == "fa_out" and overrides.fa_out_sink_id:
         override_params["audio.device_id"] = overrides.fa_out_sink_id
     if override_params:

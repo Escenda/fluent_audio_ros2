@@ -28,6 +28,10 @@ def test_system_launch_declares_site_binding_arguments() -> None:
     assert "_node_launch_parameters" in launch_text
     assert 'node.package == "fa_in"' in launch_text
     assert 'node.package == "fa_out"' in launch_text
+    assert "_SOURCE_BOUND_AUDIO_AI_PACKAGES" in launch_text
+    assert '"fa_kws"' in launch_text
+    assert '"fa_turn_detector"' in launch_text
+    assert 'override_params["expected_source_id"] = overrides.fa_in_source_id' in launch_text
     assert 'node.id == "fa_in"' not in launch_text
     assert 'node.id == "fa_out"' not in launch_text
 
