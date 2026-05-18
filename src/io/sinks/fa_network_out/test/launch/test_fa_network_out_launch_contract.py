@@ -20,6 +20,7 @@ def _run_fa_network_out_launch(config_path: Path) -> subprocess.CompletedProcess
             "launch",
             "fa_network_out",
             "fa_network_out.launch.py",
+            "node_name:=fa_network_out",
             f"config_file:={config_path}",
         ],
         check=False,
@@ -37,7 +38,9 @@ def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
 
     assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
     assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert 'FindPackageShare("fa_network_out"), "config", "default.yaml"' in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
     assert 'package="fa_network_out"' in launch_text
     assert 'executable="fa_network_out_node"' in launch_text
     assert "parameters=[config_file]" in launch_text

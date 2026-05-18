@@ -10,7 +10,9 @@ format, or adjust gain. Those steps must be explicit processing nodes such as
 ## Launch
 
 ```bash
-ros2 launch fa_file_in fa_file_in.launch.py config_file:=/path/to/fa_file_in.yaml
+ros2 launch fa_file_in fa_file_in.launch.py \
+  node_name:=fa_file_in \
+  config_file:=/path/to/fa_file_in.yaml
 ```
 
 The default config intentionally leaves `file.path` empty, so direct default

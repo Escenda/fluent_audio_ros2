@@ -11,7 +11,9 @@ Those steps must be explicit processing or `src/streaming` nodes.
 ## Launch
 
 ```bash
-ros2 launch fa_network_out fa_network_out.launch.py config_file:=/path/to/fa_network_out.yaml
+ros2 launch fa_network_out fa_network_out.launch.py \
+  node_name:=fa_network_out \
+  config_file:=/path/to/fa_network_out.yaml
 ```
 
 The default config intentionally leaves `endpoint.uri` and `transport.identity`

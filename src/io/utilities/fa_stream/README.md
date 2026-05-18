@@ -6,7 +6,9 @@
 
 ## 起動
 ```bash
-ros2 launch fa_stream fa_stream.launch.py
+ros2 launch fa_stream fa_stream.launch.py \
+  node_name:=fa_stream \
+  config_file:=/path/to/fa_stream.yaml
 ```
 
 ## 主なパラメータ

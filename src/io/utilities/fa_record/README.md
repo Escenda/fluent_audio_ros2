@@ -4,7 +4,9 @@
 
 ## 起動
 ```bash
-ros2 launch fa_record fa_record.launch.py
+ros2 launch fa_record fa_record.launch.py \
+  node_name:=fa_record \
+  config_file:=/path/to/fa_record.yaml
 ```
 
 ## 録音開始/停止
@@ -15,4 +17,3 @@ ros2 service call /record fa_interfaces/srv/Record "{command: 'start', file_path
 # 停止
 ros2 service call /record fa_interfaces/srv/Record "{command: 'stop', file_path: ''}"
 ```
-

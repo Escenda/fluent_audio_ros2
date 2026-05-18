@@ -11,7 +11,9 @@ processing nodes such as `fa_encode`, `fa_resample`, `fa_channel_convert`,
 ## Launch
 
 ```bash
-ros2 launch fa_file_out fa_file_out.launch.py config_file:=/path/to/fa_file_out.yaml
+ros2 launch fa_file_out fa_file_out.launch.py \
+  node_name:=fa_file_out \
+  config_file:=/path/to/fa_file_out.yaml
 ```
 
 The default config intentionally leaves `file.path` empty, so direct default

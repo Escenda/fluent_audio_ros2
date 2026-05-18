@@ -28,6 +28,21 @@ def test_default_config_defines_required_stream_parameters() -> None:
     assert params["loglevel"] == "warning"
 
 
+def test_launch_requires_explicit_node_name_and_config_file() -> None:
+    launch_text = (PACKAGE_ROOT / "launch" / "fa_stream.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
+    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
+    assert 'package="fa_stream"' in launch_text
+    assert 'executable="fa_stream_node.py"' in launch_text
+    assert "parameters=[config_file]" in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
+
+
 def test_required_parameters_have_no_runtime_defaults() -> None:
     source = (PACKAGE_ROOT / "scripts" / "fa_stream_node.py").read_text(
         encoding="utf-8"

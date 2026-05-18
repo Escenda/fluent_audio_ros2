@@ -1,8 +1,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
@@ -12,14 +11,10 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "node_name",
-            default_value="fa_stream",
             description="ノード名",
         ),
         DeclareLaunchArgument(
             "config_file",
-            default_value=PathJoinSubstitution(
-                [FindPackageShare("fa_stream"), "config", "default.yaml"]
-            ),
             description="設定ファイルへのパス",
         ),
         Node(

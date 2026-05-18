@@ -15,6 +15,21 @@ def test_default_config_defines_explicit_input_topic() -> None:
     assert params["input_topic"] == "audio/frame"
 
 
+def test_launch_requires_explicit_node_name_and_config_file() -> None:
+    launch_text = (PACKAGE_ROOT / "launch" / "fa_record.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
+    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
+    assert 'package="fa_record"' in launch_text
+    assert 'executable="fa_record_node"' in launch_text
+    assert "parameters=[config_file]" in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
+
+
 def test_input_topic_has_no_runtime_default() -> None:
     source = (PACKAGE_ROOT / "src" / "fa_record_node.cpp").read_text(
         encoding="utf-8"

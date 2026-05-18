@@ -20,6 +20,7 @@ def _run_fa_file_out_launch(config_path: Path) -> subprocess.CompletedProcess[st
             "launch",
             "fa_file_out",
             "fa_file_out.launch.py",
+            "node_name:=fa_file_out",
             f"config_file:={config_path}",
         ],
         check=False,
@@ -37,7 +38,9 @@ def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
 
     assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
     assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert 'FindPackageShare("fa_file_out"), "config", "default.yaml"' in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
     assert 'package="fa_file_out"' in launch_text
     assert 'executable="fa_file_out_node"' in launch_text
     assert "parameters=[config_file]" in launch_text
