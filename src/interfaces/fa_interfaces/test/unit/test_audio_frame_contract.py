@@ -63,6 +63,38 @@ def test_encoded_audio_chunk_is_registered_for_rosidl_generation() -> None:
     assert '"msg/EncodedAudioChunk.msg"' in cmake_text
 
 
+def test_audio_embedding_frame_is_embedding_payload_only() -> None:
+    msg_path = Path(__file__).parents[2] / "msg" / "AudioEmbeddingFrame.msg"
+    fields = [
+        line.strip()
+        for line in msg_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+    assert fields == [
+        "std_msgs/Header header",
+        "string source_id",
+        "string stream_id",
+        "string model_id",
+        "uint32 sample_rate",
+        "uint32 input_sample_count",
+        "uint32 dimension",
+        "string payload_encoding",
+        "float32[] embedding",
+    ]
+    assert all("text" not in field for field in fields)
+    assert all("probability" not in field for field in fields)
+    assert all("detected" not in field for field in fields)
+    assert all("zero" not in field for field in fields)
+
+
+def test_audio_embedding_frame_is_registered_for_rosidl_generation() -> None:
+    cmake_path = Path(__file__).parents[2] / "CMakeLists.txt"
+    cmake_text = cmake_path.read_text(encoding="utf-8")
+
+    assert '"msg/AudioEmbeddingFrame.msg"' in cmake_text
+
+
 def test_log_mel_frame_is_feature_payload_only() -> None:
     msg_path = Path(__file__).parents[2] / "msg" / "LogMelFrame.msg"
     fields = [

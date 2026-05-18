@@ -182,6 +182,7 @@ ANALYSIS_PACKAGE_NAMES = (
 
 AI_PACKAGE_NAMES = (
     "fa_asr",
+    "fa_audio_embedding",
     "fa_kws",
     "fa_turn_detector",
     "fa_vad",
@@ -189,7 +190,6 @@ AI_PACKAGE_NAMES = (
 
 
 AI_PLACEHOLDER_NAMES = (
-    "fa_audio_embedding",
     "fa_sed",
     "fa_speaker",
 )

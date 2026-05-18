@@ -1,0 +1,9 @@
+std_msgs/Header header
+string source_id
+string stream_id
+string model_id
+uint32 sample_rate
+uint32 input_sample_count
+uint32 dimension
+string payload_encoding
+float32[] embedding

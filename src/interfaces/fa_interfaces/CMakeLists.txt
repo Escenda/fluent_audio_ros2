@@ -8,6 +8,7 @@ find_package(std_msgs REQUIRED)
 
 set(message_files
   "msg/AsrResult.msg"
+  "msg/AudioEmbeddingFrame.msg"
   "msg/AudioFrame.msg"
   "msg/CqtFrame.msg"
   "msg/EncodedAudioChunk.msg"

@@ -1,0 +1,23 @@
+fa_audio_embedding:
+  ros__parameters:
+    input_topic: "audio/embedding/input"
+    output_topic: "audio/embedding/frame"
+    expected_source_id: ""
+    expected_stream_id: ""
+    expected.sample_rate: 16000
+    expected.channels: 1
+    expected.encoding: "FLOAT32LE"
+    expected.bit_depth: 32
+    expected.layout: "interleaved"
+    embedding.dimension: 0
+    backend.name: ""
+    backend.command: ""
+    backend.model_id: ""
+    backend.model_path: ""
+    backend.args: []
+    backend.payload_encoding: "float32le_raw"
+    backend.timeout_sec: 30.0
+    backend.workspace_dir: "/tmp/fa_audio_embedding"
+    backend.cleanup_audio_files: true
+    qos.depth: 10
+    qos.reliable: false

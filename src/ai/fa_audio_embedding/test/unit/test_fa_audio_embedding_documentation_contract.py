@@ -12,7 +12,44 @@ def test_fa_audio_embedding_has_standard_design_documents() -> None:
     assert (PACKAGE_ROOT / "docs" / "backends" / "external_audio_embedding.md").is_file()
 
 
-def test_fa_audio_embedding_is_not_declared_as_ros_package_before_contract_completion() -> None:
-    assert not (PACKAGE_ROOT / "package.xml").exists()
-    assert not (PACKAGE_ROOT / "CMakeLists.txt").exists()
+def test_fa_audio_embedding_is_declared_as_ros_package() -> None:
+    assert (PACKAGE_ROOT / "package.xml").is_file()
+    assert (PACKAGE_ROOT / "CMakeLists.txt").is_file()
+    assert (PACKAGE_ROOT / "config" / "default.yaml").is_file()
+    assert (PACKAGE_ROOT / "launch" / "fa_audio_embedding.launch.py").is_file()
+    assert (PACKAGE_ROOT / "scripts" / "fa_audio_embedding_node").is_file()
 
+
+def test_fa_audio_embedding_readme_uses_current_package_contract() -> None:
+    readme = (PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "ROS 2 package" in readme
+    assert "AudioEmbeddingFrame" in readme
+    assert "現時点では ROS 2 package ではありません" not in readme
+    assert "package 化前" not in readme
+
+
+def test_fa_audio_embedding_docs_forbid_zero_or_stale_fallbacks() -> None:
+    spec = (PACKAGE_ROOT / "docs" / "仕様書.md").read_text(encoding="utf-8")
+    algorithm = (PACKAGE_ROOT / "docs" / "アルゴリズム詳細説明書.md").read_text(
+        encoding="utf-8"
+    )
+    backend_doc = (
+        PACKAGE_ROOT / "docs" / "backends" / "external_audio_embedding.md"
+    ).read_text(encoding="utf-8")
+
+    assert "fallback" in spec
+    assert "zero vector" in algorithm
+    assert "stale embedding" in algorithm
+    assert "zero vector fallback" in backend_doc
+    assert "stale embedding reuse" in backend_doc
+
+
+def test_fa_audio_embedding_backend_docs_forbid_ros_dependency() -> None:
+    backend_doc = (
+        PACKAGE_ROOT / "docs" / "backends" / "external_audio_embedding.md"
+    ).read_text(encoding="utf-8")
+
+    assert "ROS2 topic/message dependency inside backend" in backend_doc
+    assert "backend.command" in backend_doc
+    assert "backend.endpoint" not in backend_doc
