@@ -54,6 +54,8 @@ def test_default_launch_config_keeps_gain_as_dynamics_node() -> None:
 
     assert params["input_topic"] == "audio/resample16k/mic"
     assert params["output_topic"] == "audio/gain/mic"
+    assert params["input_stream_id"] == "audio/resample16k/mic"
+    assert params["output"]["stream_id"] == "audio/gain/mic"
     assert params["gain"]["linear"] == 1.0
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
@@ -91,3 +93,31 @@ def test_launch_fails_closed_when_encoding_contract_is_wrong(tmp_path: Path) -> 
 
     assert "process has died" in result.stdout
     assert "fa_gain requires expected.encoding=FLOAT32LE" in result.stdout
+
+
+def test_launch_fails_closed_when_topics_are_not_distinct(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    config["fa_gain"]["ros__parameters"]["output_topic"] = "audio/resample16k/mic"
+    config_path = tmp_path / "same_topics.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_gain_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "input_topic and output_topic must be distinct" in result.stdout
+
+
+def test_launch_fails_closed_when_stream_ids_are_not_distinct(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    config["fa_gain"]["ros__parameters"]["output"]["stream_id"] = "audio/resample16k/mic"
+    config_path = tmp_path / "same_stream_ids.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_gain_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "input_stream_id and output.stream_id must be distinct" in result.stdout

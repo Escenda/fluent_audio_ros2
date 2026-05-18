@@ -41,7 +41,7 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(const rclcpp::Node & node)
   fa_interfaces::msg::AudioFrame frame;
   frame.header.stamp = node.now();
   frame.source_id = "test-mic";
-  frame.stream_id = "/fa_gain_test/input";
+  frame.stream_id = "fa_gain_test/input_stream";
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = 16000;
   frame.channels = 1;
@@ -80,6 +80,8 @@ TEST_F(RclcppFixture, PublishesGainAdjustedFloat32Frame)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_gain_test/input"),
     rclcpp::Parameter("output_topic", "/fa_gain_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_gain_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_gain_test/output_stream"),
     rclcpp::Parameter("gain.linear", 2.0),
     rclcpp::Parameter("expected.sample_rate", 16000),
     rclcpp::Parameter("expected.channels", 1),
@@ -125,7 +127,7 @@ TEST_F(RclcppFixture, PublishesGainAdjustedFloat32Frame)
 
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "test-mic");
-  EXPECT_EQ(received->stream_id, "/fa_gain_test/output");
+  EXPECT_EQ(received->stream_id, "fa_gain_test/output_stream");
   EXPECT_EQ(received->encoding, "FLOAT32LE");
   EXPECT_EQ(received->sample_rate, 16000U);
   EXPECT_EQ(received->channels, 1U);

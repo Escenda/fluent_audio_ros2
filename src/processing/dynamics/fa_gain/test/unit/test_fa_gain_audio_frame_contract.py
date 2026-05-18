@@ -29,6 +29,8 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
 
     assert params["input_topic"] == "audio/resample16k/mic"
     assert params["output_topic"] == "audio/gain/mic"
+    assert params["input_stream_id"] == "audio/resample16k/mic"
+    assert params["output"]["stream_id"] == "audio/gain/mic"
     assert params["gain"]["linear"] == 1.0
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
@@ -64,9 +66,9 @@ def test_gain_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "if (!msg)" in handle_frame
-    assert "frames_dropped_.fetch_add(1);" in handle_frame
+    assert "throw std::logic_error(\"FaGainNode received null AudioFrame pointer\")" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -82,7 +84,7 @@ def test_gain_preserves_source_identity_and_updates_stream_identity() -> None:
     )[0]
 
     assert "out = in;" in apply_gain
-    assert "out.stream_id = config_.output_topic;" in apply_gain
+    assert "out.stream_id = config_.output_stream_id;" in apply_gain
     assert ".rms" not in apply_gain
     assert ".peak" not in apply_gain
     assert ".vad" not in apply_gain
@@ -129,6 +131,20 @@ def test_gain_drops_out_of_range_samples_instead_of_limiting() -> None:
     assert "return ProcessStatus::kOutOfRangeOutput;" in process
     assert "std::clamp" not in process
     assert "backends::processStatusMessage(status)" in node_source
+
+
+def test_gain_keeps_transport_topics_separate_from_stream_identity() -> None:
+    source = read_node_source()
+    config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
+    params = config["fa_gain"]["ros__parameters"]
+
+    assert "input_stream_id" in params
+    assert params["output"]["stream_id"]
+    assert "config_.input_topic == config_.output_topic" in source
+    assert "input_stream_id and output.stream_id must be distinct" in source
+    assert "msg.stream_id != config_.input_stream_id" in source
+    assert "out.stream_id = config_.output_stream_id;" in source
+    assert "std::max<int>(1, config_.qos_depth)" not in source
 
 
 def test_package_layout_matches_standard_processing_layout() -> None:

@@ -2,6 +2,8 @@
 
 `fa_gain` is a dedicated dynamics processing node. It applies explicit linear
 gain to normalized `FLOAT32LE` `AudioFrame` samples and publishes a new stream.
+ROS topic names and `AudioFrame.stream_id` are configured separately; topic
+wiring is transport, while stream identity is part of the audio contract.
 
 It does not resample, convert bit depth, normalize, limit, compress, gate, or
 open audio devices. Those responsibilities belong to separate processing or I/O

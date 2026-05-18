@@ -1,6 +1,5 @@
 #include "fa_gain/fa_gain_node.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <functional>
@@ -52,6 +51,8 @@ void FaGainNode::loadParameters()
 {
   this->declare_parameter("input_topic", config_.input_topic);
   this->declare_parameter("output_topic", config_.output_topic);
+  this->declare_parameter("input_stream_id", config_.input_stream_id);
+  this->declare_parameter("output.stream_id", config_.output_stream_id);
   this->declare_parameter<double>("gain.linear", config_.linear_gain);
   this->declare_parameter<int>("expected.sample_rate", config_.expected_sample_rate);
   this->declare_parameter<int>("expected.channels", config_.expected_channels);
@@ -66,6 +67,8 @@ void FaGainNode::loadParameters()
 
   config_.input_topic = this->get_parameter("input_topic").as_string();
   config_.output_topic = this->get_parameter("output_topic").as_string();
+  config_.input_stream_id = this->get_parameter("input_stream_id").as_string();
+  config_.output_stream_id = this->get_parameter("output.stream_id").as_string();
   config_.linear_gain = this->get_parameter("gain.linear").as_double();
   config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
   config_.expected_channels = this->get_parameter("expected.channels").as_int();
@@ -82,6 +85,18 @@ void FaGainNode::loadParameters()
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
+  }
+  if (config_.input_topic == config_.output_topic) {
+    throw std::runtime_error("input_topic and output_topic must be distinct");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  if (config_.input_stream_id == config_.output_stream_id) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (!isFinite(config_.linear_gain) || config_.linear_gain < 0.0) {
     throw std::runtime_error("gain.linear must be finite and >= 0.0");
@@ -110,9 +125,11 @@ void FaGainNode::loadParameters()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Gain config: input=%s output=%s gain=%f expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
+    "Gain config: input_topic=%s output_topic=%s input_stream_id=%s output_stream_id=%s gain=%f expected=%dHz/%d/%s/%d qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
+    config_.input_stream_id.c_str(),
+    config_.output_stream_id.c_str(),
     config_.linear_gain,
     config_.expected_sample_rate,
     config_.expected_channels,
@@ -133,7 +150,7 @@ void FaGainNode::configureBackend()
 
 void FaGainNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -159,11 +176,7 @@ void FaGainNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg
   frames_in_.fetch_add(1);
 
   if (!msg) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping null AudioFrame pointer");
-    frames_dropped_.fetch_add(1);
-    return;
+    throw std::logic_error("FaGainNode received null AudioFrame pointer");
   }
 
   if (!validateFrame(*msg)) {
@@ -177,6 +190,9 @@ void FaGainNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg
     return;
   }
 
+  if (!audio_pub_) {
+    throw std::logic_error("FaGainNode publisher is not initialized");
+  }
   audio_pub_->publish(out);
   frames_out_.fetch_add(1);
 }
@@ -189,12 +205,12 @@ bool FaGainNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -241,8 +257,11 @@ bool FaGainNode::applyGain(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
+  if (!backend_) {
+    throw std::logic_error("FaGainNode backend is not initialized");
+  }
   out = in;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   const backends::ProcessStatus status = backend_->process(in.data, out.data);
   if (status != backends::ProcessStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
@@ -270,6 +289,7 @@ void FaGainNode::publishDiagnostics()
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);

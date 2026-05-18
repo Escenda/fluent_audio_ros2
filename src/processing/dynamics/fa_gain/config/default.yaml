@@ -2,6 +2,10 @@ fa_gain:
   ros__parameters:
     input_topic: "audio/resample16k/mic"
     output_topic: "audio/gain/mic"
+    input_stream_id: "audio/resample16k/mic"
+
+    output:
+      stream_id: "audio/gain/mic"
 
     gain:
       linear: 1.0
