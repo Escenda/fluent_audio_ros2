@@ -10,6 +10,10 @@ def test_default_config_requires_explicit_pcm16_to_float32_interleaved_contract(
 
     assert params["input_topic"] == "audio/frame"
     assert params["output_topic"] == "audio/sample_format/mic"
+    assert params["input_stream_id"] == "audio/raw/mic"
+    assert params["output"]["stream_id"] == "audio/float32/mic"
+    assert params["input_topic"] != params["input_stream_id"]
+    assert params["output_topic"] != params["output"]["stream_id"]
     assert params["input"]["encoding"] == "PCM16LE"
     assert params["input"]["bit_depth"] == 16
     assert params["output"]["encoding"] == "FLOAT32LE"
@@ -64,6 +68,8 @@ def test_startup_rejects_unknown_or_implicit_conversion_config() -> None:
     assert "FLOAT32LE/32 to PCM16LE/16" in conversion
     assert "std::make_unique<backends::InternalFloat32LeBackend>" in source
     assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredString(*this, "input.encoding")' in load_parameters
     assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
@@ -83,7 +89,7 @@ def test_sample_format_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "backend_->validateContract(frameContractFrom(msg))" in validate_frame
     assert "FrameContractStatus::kOk" in validate_frame
     assert "frameContractStatusName(contract_status)" in validate_frame
@@ -111,7 +117,7 @@ def test_sample_format_preserves_identity_and_updates_format_metadata() -> None:
 
     assert "backend_->process(in.data, frameContractFrom(in), output_data)" in convert_frame
     assert "out = in;" in convert_frame
-    assert "out.stream_id = config_.output_topic;" in convert_frame
+    assert "out.stream_id = config_.output_stream_id;" in convert_frame
     assert "out.encoding = backend_->outputEncoding();" in convert_frame
     assert "out.bit_depth = static_cast<uint32_t>(backend_->outputBitDepth());" in convert_frame
     assert "out.sample_rate = in.sample_rate;" in convert_frame

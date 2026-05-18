@@ -17,9 +17,13 @@
 
 - subscribe: `input_topic`
 - publish: `output_topic`
+- 入力 `AudioFrame.stream_id`: `input_stream_id`
+- 出力 `AudioFrame.stream_id`: `output.stream_id`
 - 入力 metadata は `input.encoding`、`input.bit_depth`、`expected.sample_rate`、`expected.channels`、`expected.layout` と一致する必要があります。
 - `expected.layout` は `interleaved` のみ対応します。
 - 出力では `source_id`、`sample_rate`、`channels`、`layout`、`header`、`epoch` を保持します。
-- 出力では `stream_id` を `output_topic` に更新し、`encoding` / `bit_depth` を出力形式へ更新します。
+- 出力では `stream_id` を `output.stream_id` に更新し、`encoding` / `bit_depth` を出力形式へ更新します。
+
+`input_topic` / `output_topic` は ROS transport topic、`input_stream_id` / `output.stream_id` は frame identity です。topic 名を stream identity として代用する設定は起動失敗します。
 
 契約に合わない runtime frame は publish せず drop します。起動時に unsupported conversion が指定された場合は fail closed で起動失敗します。

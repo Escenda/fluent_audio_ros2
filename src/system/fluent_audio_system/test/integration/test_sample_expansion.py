@@ -178,6 +178,7 @@ def test_so101_profile_does_not_embed_turn_detector_model_artifact_path() -> Non
     assert turn_detector["enable"] is False
     assert turn_detector["parameters"] == {
         "audio_topic": "audio/resample16k/mic",
+        "expected_stream_id": "audio/preprocessed/mono16k",
     }
 
 
@@ -200,7 +201,7 @@ def test_audio_embedding_profiles_keep_backend_and_model_out_of_profile_config()
         )
         assert audio_embedding["parameters"] == {
             "input_topic": "audio/resample16k/mic",
-            "expected_stream_id": "audio/resample16k/mic",
+            "expected_stream_id": "audio/preprocessed/mono16k",
         }
         assert all(
             not key.startswith("backend.") and "model" not in key
@@ -243,6 +244,8 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
     assert sample_format.parameters == {
         "input_topic": "audio/frame",
         "output_topic": "audio/sample_format/mic",
+        "input_stream_id": "audio/raw/mic",
+        "output.stream_id": "audio/float32/mic",
         "expected.sample_rate": 48000,
     }
 
@@ -253,6 +256,8 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
     assert resample.parameters == {
         "mic.input_topic": "audio/sample_format/mic",
         "mic.output_topic": "audio/resample16k/mic",
+        "mic.input_stream_id": "audio/float32/mic",
+        "mic.output.stream_id": "audio/preprocessed/mono16k",
     }
 
 
@@ -272,13 +277,16 @@ def test_voice_frontend_profiles_bind_ai_consumers_to_resampled_mic_stream(
     group = next(group for group in config["groups"] if group["id"] == group_id)
     params_by_id = {node["id"]: node.get("parameters", {}) for node in group["nodes"]}
 
-    vad_stream_id = params_by_id["fa_vad"]["input_topic"]
+    vad_transport_topic = params_by_id["fa_vad"]["input_topic"]
+    vad_stream_id = params_by_id["fa_vad"]["input_stream_id"]
 
-    assert params_by_id["fa_kws"]["audio_topic"] == vad_stream_id
-    assert params_by_id["fa_turn_detector"]["audio_topic"] == vad_stream_id
-    assert params_by_id["fa_asr"]["audio_topic"] == vad_stream_id
+    assert params_by_id["fa_kws"]["audio_topic"] == vad_transport_topic
+    assert params_by_id["fa_kws"]["expected_stream_id"] == vad_stream_id
+    assert params_by_id["fa_turn_detector"]["audio_topic"] == vad_transport_topic
+    assert params_by_id["fa_turn_detector"]["expected_stream_id"] == vad_stream_id
+    assert params_by_id["fa_asr"]["audio_topic"] == vad_transport_topic
     assert params_by_id["fa_asr"]["expected_stream_id"] == vad_stream_id
-    assert params_by_id["fa_audio_embedding"]["input_topic"] == vad_stream_id
+    assert params_by_id["fa_audio_embedding"]["input_topic"] == vad_transport_topic
     assert params_by_id["fa_audio_embedding"]["expected_stream_id"] == vad_stream_id
 
 
@@ -353,6 +361,8 @@ def test_so101_tts_output_profile_expands_explicit_playback_pipeline(
         "mic.enabled": True,
         "mic.input_topic": "audio/tts/frame",
         "mic.output_topic": "audio/tts/48k_float32",
+        "mic.input_stream_id": "tts_synthesis",
+        "mic.output.stream_id": "tts_synthesis_48k",
         "ref.enabled": False,
     }
 
@@ -363,6 +373,8 @@ def test_so101_tts_output_profile_expands_explicit_playback_pipeline(
     assert sample_format.parameters == {
         "input_topic": "audio/tts/48k_float32",
         "output_topic": "audio/tts/pcm16",
+        "input_stream_id": "tts_synthesis_48k",
+        "output.stream_id": "tts_playback_pcm16",
         "input.encoding": "FLOAT32LE",
         "input.bit_depth": 32,
         "output.encoding": "PCM16LE",
@@ -378,9 +390,11 @@ def test_so101_tts_output_profile_expands_explicit_playback_pipeline(
     )
     assert mix.parameters == {
         "input_topics": ["audio/tts/pcm16"],
+        "input_stream_ids": ["tts_playback_pcm16"],
         "input_gains_db": [0.0],
         "master_index": 0,
         "output_topic": "audio/output/frame",
+        "output.stream_id": "audio/playback/main",
         "expected.sample_rate": 48000,
         "expected.channels": 1,
         "expected.bit_depth": 16,
@@ -428,11 +442,15 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
     assert enabled_nodes[2].parameters == {
         "input_topic": "audio/frame",
         "output_topic": "audio/sample_format/mic",
+        "input_stream_id": "audio/raw/mic",
+        "output.stream_id": "audio/float32/mic",
         "expected.sample_rate": 48000,
     }
     assert enabled_nodes[3].parameters == {
         "mic.input_topic": "audio/sample_format/mic",
         "mic.output_topic": "audio/resample16k/mic",
+        "mic.input_stream_id": "audio/float32/mic",
+        "mic.output.stream_id": "audio/preprocessed/mono16k",
     }
 
     raw = yaml.safe_load(
@@ -451,6 +469,8 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
         "mic.enabled": True,
         "mic.input_topic": "audio/tts/frame",
         "mic.output_topic": "audio/tts/48k_float32",
+        "mic.input_stream_id": "tts_synthesis",
+        "mic.output.stream_id": "tts_synthesis_48k",
         "ref.enabled": False,
     }
     assert format_nodes["fa_encode"]["enable"] is False
@@ -476,6 +496,8 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
     assert format_nodes["fa_sample_format_tts"]["parameters"] == {
         "input_topic": "audio/tts/48k_float32",
         "output_topic": "audio/tts/pcm16",
+        "input_stream_id": "tts_synthesis_48k",
+        "output.stream_id": "tts_playback_pcm16",
         "input.encoding": "FLOAT32LE",
         "input.bit_depth": 32,
         "output.encoding": "PCM16LE",
@@ -490,9 +512,11 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
     }
     assert generation_nodes["fa_mix"]["parameters"] == {
         "input_topics": ["audio/tts/pcm16"],
+        "input_stream_ids": ["tts_playback_pcm16"],
         "input_gains_db": [0.0],
         "master_index": 0,
         "output_topic": "audio/output/frame",
+        "output.stream_id": "audio/playback/main",
         "expected.sample_rate": 48000,
         "expected.channels": 1,
         "expected.bit_depth": 16,

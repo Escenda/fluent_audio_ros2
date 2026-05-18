@@ -40,6 +40,8 @@ groups:
         parameters:
           input_topic: "audio/frame"
           output_topic: "audio/sample_format/mic"
+          input_stream_id: "audio/raw/mic"
+          output.stream_id: "audio/float32/mic"
           expected.sample_rate: 48000
 
       - id: fa_resample
@@ -53,6 +55,8 @@ groups:
         parameters:
           mic.input_topic: "audio/sample_format/mic"
           mic.output_topic: "audio/resample16k/mic"
+          mic.input_stream_id: "audio/float32/mic"
+          mic.output.stream_id: "audio/preprocessed/mono16k"
 
   - id: audio_correction
     enable: true
@@ -102,6 +106,7 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
+          input_stream_id: "audio/preprocessed/mono16k"
 
       - id: fa_kws
         enable: false
@@ -113,6 +118,7 @@ groups:
         remappings: {}
         parameters:
           audio_topic: "audio/resample16k/mic"
+          expected_stream_id: "audio/preprocessed/mono16k"
 
       - id: fa_asr
         enable: false
@@ -124,7 +130,7 @@ groups:
         remappings: {}
         parameters:
           audio_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/resample16k/mic"
+          expected_stream_id: "audio/preprocessed/mono16k"
 
       - id: fa_audio_embedding
         enable: false
@@ -136,7 +142,7 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/resample16k/mic"
+          expected_stream_id: "audio/preprocessed/mono16k"
 
       - id: fa_turn_detector
         enable: false
@@ -148,3 +154,4 @@ groups:
         remappings: {}
         parameters:
           audio_topic: "audio/resample16k/mic"
+          expected_stream_id: "audio/preprocessed/mono16k"

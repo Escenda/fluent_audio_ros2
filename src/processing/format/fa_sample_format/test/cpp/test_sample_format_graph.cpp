@@ -29,7 +29,7 @@ fa_interfaces::msg::AudioFrame makePcm16Frame(const rclcpp::Node & node)
   fa_interfaces::msg::AudioFrame frame;
   frame.header.stamp = node.now();
   frame.source_id = "test-mic";
-  frame.stream_id = "/fa_sample_format_test/input";
+  frame.stream_id = "audio/test/raw";
   frame.encoding = "PCM16LE";
   frame.sample_rate = 16000;
   frame.channels = 1;
@@ -72,6 +72,8 @@ TEST_F(RclcppFixture, PublishesFloat32FrameFromPcm16Input)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_sample_format_test/input"),
     rclcpp::Parameter("output_topic", "/fa_sample_format_test/output"),
+    rclcpp::Parameter("input_stream_id", "audio/test/raw"),
+    rclcpp::Parameter("output.stream_id", "audio/test/float32"),
     rclcpp::Parameter("input.encoding", "PCM16LE"),
     rclcpp::Parameter("input.bit_depth", 16),
     rclcpp::Parameter("output.encoding", "FLOAT32LE"),
@@ -120,7 +122,7 @@ TEST_F(RclcppFixture, PublishesFloat32FrameFromPcm16Input)
 
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "test-mic");
-  EXPECT_EQ(received->stream_id, "/fa_sample_format_test/output");
+  EXPECT_EQ(received->stream_id, "audio/test/float32");
   EXPECT_EQ(received->encoding, "FLOAT32LE");
   EXPECT_EQ(received->sample_rate, 16000U);
   EXPECT_EQ(received->channels, 1U);

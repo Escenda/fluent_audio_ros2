@@ -39,6 +39,10 @@ def test_default_config_requires_float32le_output_contract() -> None:
     assert params["output"]["bit_depth"] == 32
     assert params["mic"]["input_topic"] == "audio/frame"
     assert params["mic"]["output_topic"] == "audio/resample16k/mic"
+    assert params["mic"]["input_stream_id"] == "audio/float32/mic"
+    assert params["mic"]["output"]["stream_id"] == "audio/preprocessed/mono16k"
+    assert params["mic"]["input_topic"] != params["mic"]["input_stream_id"]
+    assert params["mic"]["output_topic"] != params["mic"]["output"]["stream_id"]
 
 
 def test_resample_uses_validated_qos_depth_without_hidden_fallback() -> None:
@@ -54,6 +58,10 @@ def test_resample_uses_validated_qos_depth_without_hidden_fallback() -> None:
     assert 'readRequiredInt(*this, "target_sample_rate")' in load_parameters
     assert 'readRequiredString(*this, "input.encoding")' in load_parameters
     assert 'readRequiredBool(*this, "mic.enabled")' in load_parameters
+    assert 'readRequiredString(*this, "mic.input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "mic.output.stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "ref.input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "ref.output.stream_id")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
     assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in load_parameters
     assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in load_parameters

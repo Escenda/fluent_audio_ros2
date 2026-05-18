@@ -62,6 +62,10 @@ def test_default_launch_config_keeps_resample_as_explicit_format_node() -> None:
     assert params["mic"]["enabled"] is True
     assert params["mic"]["input_topic"] == "audio/frame"
     assert params["mic"]["output_topic"] == "audio/resample16k/mic"
+    assert params["mic"]["input_stream_id"] == "audio/float32/mic"
+    assert params["mic"]["output"]["stream_id"] == "audio/preprocessed/mono16k"
+    assert params["mic"]["input_topic"] != params["mic"]["input_stream_id"]
+    assert params["mic"]["output_topic"] != params["mic"]["output"]["stream_id"]
 
 
 def test_launch_fails_closed_when_target_sample_rate_is_invalid(tmp_path: Path) -> None:

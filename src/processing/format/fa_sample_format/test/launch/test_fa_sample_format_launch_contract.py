@@ -56,6 +56,10 @@ def test_default_launch_config_keeps_sample_format_as_explicit_format_node() -> 
 
     assert params["input_topic"] == "audio/frame"
     assert params["output_topic"] == "audio/sample_format/mic"
+    assert params["input_stream_id"] == "audio/raw/mic"
+    assert params["output"]["stream_id"] == "audio/float32/mic"
+    assert params["input_topic"] != params["input_stream_id"]
+    assert params["output_topic"] != params["output"]["stream_id"]
     assert params["input"]["encoding"] == "PCM16LE"
     assert params["input"]["bit_depth"] == 16
     assert params["output"]["encoding"] == "FLOAT32LE"

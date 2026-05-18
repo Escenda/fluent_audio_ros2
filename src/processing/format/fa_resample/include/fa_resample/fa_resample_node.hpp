@@ -30,10 +30,14 @@ struct ResampleConfig
   bool mic_enabled = false;
   std::string mic_input_topic;
   std::string mic_output_topic;
+  std::string mic_input_stream_id;
+  std::string mic_output_stream_id;
 
   bool ref_enabled = false;
   std::string ref_input_topic;
   std::string ref_output_topic;
+  std::string ref_input_stream_id;
+  std::string ref_output_stream_id;
 
   int qos_depth = -1;
   bool qos_reliable = false;

@@ -40,6 +40,8 @@ groups:
         parameters:
           input_topic: "audio/frame"
           output_topic: "audio/sample_format/mic"
+          input_stream_id: "audio/raw/mic"
+          output.stream_id: "audio/float32/mic"
           expected.sample_rate: 48000
 
       - id: fa_resample
@@ -53,6 +55,8 @@ groups:
         parameters:
           mic.input_topic: "audio/sample_format/mic"
           mic.output_topic: "audio/resample16k/mic"
+          mic.input_stream_id: "audio/float32/mic"
+          mic.output.stream_id: "audio/preprocessed/mono16k"
 
       - id: fa_encode
         enable: false
@@ -93,6 +97,8 @@ groups:
           mic.enabled: true
           mic.input_topic: "audio/tts/frame"
           mic.output_topic: "audio/tts/48k_float32"
+          mic.input_stream_id: "tts_synthesis"
+          mic.output.stream_id: "tts_synthesis_48k"
           ref.enabled: false
 
       - id: fa_sample_format_tts
@@ -106,6 +112,8 @@ groups:
         parameters:
           input_topic: "audio/tts/48k_float32"
           output_topic: "audio/tts/pcm16"
+          input_stream_id: "tts_synthesis_48k"
+          output.stream_id: "tts_playback_pcm16"
           input.encoding: "FLOAT32LE"
           input.bit_depth: 32
           output.encoding: "PCM16LE"
@@ -607,6 +615,7 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
+          input_stream_id: "audio/preprocessed/mono16k"
 
       - id: fa_kws
         enable: false
@@ -618,6 +627,7 @@ groups:
         remappings: {}
         parameters:
           audio_topic: "audio/resample16k/mic"
+          expected_stream_id: "audio/preprocessed/mono16k"
 
       - id: fa_asr
         enable: false
@@ -629,7 +639,7 @@ groups:
         remappings: {}
         parameters:
           audio_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/resample16k/mic"
+          expected_stream_id: "audio/preprocessed/mono16k"
 
       - id: fa_audio_embedding
         enable: false
@@ -641,7 +651,7 @@ groups:
         remappings: {}
         parameters:
           input_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/resample16k/mic"
+          expected_stream_id: "audio/preprocessed/mono16k"
 
       - id: fa_turn_detector
         enable: false
@@ -653,6 +663,7 @@ groups:
         remappings: {}
         parameters:
           audio_topic: "audio/resample16k/mic"
+          expected_stream_id: "audio/preprocessed/mono16k"
 
   - id: generation_routing
     enable: true
@@ -680,10 +691,13 @@ groups:
         parameters:
           input_topics:
             - "audio/tts/pcm16"
+          input_stream_ids:
+            - "tts_playback_pcm16"
           input_gains_db:
             - 0.0
           master_index: 0
           output_topic: "audio/output/frame"
+          output.stream_id: "audio/playback/main"
           expected.sample_rate: 48000
           expected.channels: 1
           expected.bit_depth: 16

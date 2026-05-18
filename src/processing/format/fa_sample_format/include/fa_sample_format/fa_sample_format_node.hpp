@@ -18,6 +18,8 @@ struct SampleFormatConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   std::string input_encoding{};
   int input_bit_depth{-1};
   std::string output_encoding{};

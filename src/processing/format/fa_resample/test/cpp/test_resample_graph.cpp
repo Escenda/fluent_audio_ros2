@@ -27,7 +27,7 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(const rclcpp::Node & node)
   fa_interfaces::msg::AudioFrame frame;
   frame.header.stamp = node.now();
   frame.source_id = "test-mic";
-  frame.stream_id = "/fa_resample_test/input";
+  frame.stream_id = "audio/test/float32";
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = 48000;
   frame.channels = 1;
@@ -73,9 +73,13 @@ TEST_F(RclcppFixture, PublishesResampledFloat32Frame)
     rclcpp::Parameter("mic.enabled", true),
     rclcpp::Parameter("mic.input_topic", "/fa_resample_test/input"),
     rclcpp::Parameter("mic.output_topic", "/fa_resample_test/output"),
+    rclcpp::Parameter("mic.input_stream_id", "audio/test/float32"),
+    rclcpp::Parameter("mic.output.stream_id", "audio/test/mono16k"),
     rclcpp::Parameter("ref.enabled", false),
     rclcpp::Parameter("ref.input_topic", "/fa_resample_test/ref_in"),
     rclcpp::Parameter("ref.output_topic", "/fa_resample_test/ref_out"),
+    rclcpp::Parameter("ref.input_stream_id", "audio/test/ref_float32"),
+    rclcpp::Parameter("ref.output.stream_id", "audio/test/ref16k"),
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
@@ -104,7 +108,7 @@ TEST_F(RclcppFixture, PublishesResampledFloat32Frame)
   executor.add_node(test_node);
 
   auto wrong_stream = makeFloat32Frame(*test_node);
-  wrong_stream.stream_id = "/fa_resample_test/other_input";
+  wrong_stream.stream_id = "audio/test/other";
   for (int i = 0; i < 4; ++i) {
     publisher->publish(wrong_stream);
     executor.spin_some(20ms);
@@ -126,7 +130,7 @@ TEST_F(RclcppFixture, PublishesResampledFloat32Frame)
 
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "test-mic");
-  EXPECT_EQ(received->stream_id, "/fa_resample_test/output");
+  EXPECT_EQ(received->stream_id, "audio/test/mono16k");
   EXPECT_EQ(received->encoding, "FLOAT32LE");
   EXPECT_EQ(received->sample_rate, 16000U);
   EXPECT_EQ(received->channels, 1U);

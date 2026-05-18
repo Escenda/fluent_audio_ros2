@@ -65,6 +65,19 @@ bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
   }
   return parameter.as_bool();
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaResampleNode::FaResampleNode(const rclcpp::NodeOptions & options)
@@ -90,10 +103,14 @@ void FaResampleNode::loadParameters()
   this->declare_parameter<bool>("mic.enabled");
   this->declare_parameter<std::string>("mic.input_topic");
   this->declare_parameter<std::string>("mic.output_topic");
+  this->declare_parameter<std::string>("mic.input_stream_id");
+  this->declare_parameter<std::string>("mic.output.stream_id");
 
   this->declare_parameter<bool>("ref.enabled");
   this->declare_parameter<std::string>("ref.input_topic");
   this->declare_parameter<std::string>("ref.output_topic");
+  this->declare_parameter<std::string>("ref.input_stream_id");
+  this->declare_parameter<std::string>("ref.output.stream_id");
 
   this->declare_parameter<int>("qos.depth");
   this->declare_parameter<bool>("qos.reliable");
@@ -112,10 +129,14 @@ void FaResampleNode::loadParameters()
   config_.mic_enabled = readRequiredBool(*this, "mic.enabled");
   config_.mic_input_topic = readRequiredString(*this, "mic.input_topic");
   config_.mic_output_topic = readRequiredString(*this, "mic.output_topic");
+  config_.mic_input_stream_id = readRequiredString(*this, "mic.input_stream_id");
+  config_.mic_output_stream_id = readRequiredString(*this, "mic.output.stream_id");
 
   config_.ref_enabled = readRequiredBool(*this, "ref.enabled");
   config_.ref_input_topic = readRequiredString(*this, "ref.input_topic");
   config_.ref_output_topic = readRequiredString(*this, "ref.output_topic");
+  config_.ref_input_stream_id = readRequiredString(*this, "ref.input_stream_id");
+  config_.ref_output_stream_id = readRequiredString(*this, "ref.output.stream_id");
 
   config_.qos_depth = readRequiredInt(*this, "qos.depth");
   config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
@@ -159,6 +180,31 @@ void FaResampleNode::loadParameters()
     if (config_.mic_output_topic.empty()) {
       throw std::runtime_error("mic.output_topic is required when mic.enabled=true");
     }
+    if (config_.mic_input_stream_id.empty()) {
+      throw std::runtime_error("mic.input_stream_id is required when mic.enabled=true");
+    }
+    if (config_.mic_output_stream_id.empty()) {
+      throw std::runtime_error("mic.output.stream_id is required when mic.enabled=true");
+    }
+    const std::string resolved_input_topic =
+      this->get_node_topics_interface()->resolve_topic_name(config_.mic_input_topic);
+    const std::string resolved_output_topic =
+      this->get_node_topics_interface()->resolve_topic_name(config_.mic_output_topic);
+    if (sameIdentityString(config_.mic_input_stream_id, config_.mic_input_topic) ||
+        sameIdentityString(config_.mic_input_stream_id, config_.mic_output_topic) ||
+        sameIdentityString(config_.mic_input_stream_id, resolved_input_topic) ||
+        sameIdentityString(config_.mic_input_stream_id, resolved_output_topic)) {
+      throw std::runtime_error("mic.input_stream_id must be distinct from ROS topics");
+    }
+    if (sameIdentityString(config_.mic_output_stream_id, config_.mic_input_topic) ||
+        sameIdentityString(config_.mic_output_stream_id, config_.mic_output_topic) ||
+        sameIdentityString(config_.mic_output_stream_id, resolved_input_topic) ||
+        sameIdentityString(config_.mic_output_stream_id, resolved_output_topic)) {
+      throw std::runtime_error("mic.output.stream_id must be distinct from ROS topics");
+    }
+    if (sameIdentityString(config_.mic_input_stream_id, config_.mic_output_stream_id)) {
+      throw std::runtime_error("mic.input_stream_id and mic.output.stream_id must be distinct");
+    }
   }
   if (config_.ref_enabled) {
     if (config_.ref_input_topic.empty()) {
@@ -167,19 +213,46 @@ void FaResampleNode::loadParameters()
     if (config_.ref_output_topic.empty()) {
       throw std::runtime_error("ref.output_topic is required when ref.enabled=true");
     }
+    if (config_.ref_input_stream_id.empty()) {
+      throw std::runtime_error("ref.input_stream_id is required when ref.enabled=true");
+    }
+    if (config_.ref_output_stream_id.empty()) {
+      throw std::runtime_error("ref.output.stream_id is required when ref.enabled=true");
+    }
+    const std::string resolved_input_topic =
+      this->get_node_topics_interface()->resolve_topic_name(config_.ref_input_topic);
+    const std::string resolved_output_topic =
+      this->get_node_topics_interface()->resolve_topic_name(config_.ref_output_topic);
+    if (sameIdentityString(config_.ref_input_stream_id, config_.ref_input_topic) ||
+        sameIdentityString(config_.ref_input_stream_id, config_.ref_output_topic) ||
+        sameIdentityString(config_.ref_input_stream_id, resolved_input_topic) ||
+        sameIdentityString(config_.ref_input_stream_id, resolved_output_topic)) {
+      throw std::runtime_error("ref.input_stream_id must be distinct from ROS topics");
+    }
+    if (sameIdentityString(config_.ref_output_stream_id, config_.ref_input_topic) ||
+        sameIdentityString(config_.ref_output_stream_id, config_.ref_output_topic) ||
+        sameIdentityString(config_.ref_output_stream_id, resolved_input_topic) ||
+        sameIdentityString(config_.ref_output_stream_id, resolved_output_topic)) {
+      throw std::runtime_error("ref.output.stream_id must be distinct from ROS topics");
+    }
+    if (sameIdentityString(config_.ref_input_stream_id, config_.ref_output_stream_id)) {
+      throw std::runtime_error("ref.input_stream_id and ref.output.stream_id must be distinct");
+    }
   }
 
   RCLCPP_INFO(this->get_logger(),
     "Resample config: target_sr=%dHz input=%s/%d/%s output=%s/%d qos_depth=%d reliable=%s "
-    "mic=%s (%s -> %s) ref=%s (%s -> %s) diag=%dms",
+    "mic=%s (%s/%s -> %s/%s) ref=%s (%s/%s -> %s/%s) diag=%dms",
     config_.target_sample_rate,
     config_.input_encoding.c_str(), config_.input_bit_depth, config_.input_layout.c_str(),
     config_.output_encoding.c_str(), config_.output_bit_depth,
     config_.qos_depth, config_.qos_reliable ? "true" : "false",
     config_.mic_enabled ? "on" : "off",
-    config_.mic_input_topic.c_str(), config_.mic_output_topic.c_str(),
+    config_.mic_input_topic.c_str(), config_.mic_input_stream_id.c_str(),
+    config_.mic_output_topic.c_str(), config_.mic_output_stream_id.c_str(),
     config_.ref_enabled ? "on" : "off",
-    config_.ref_input_topic.c_str(), config_.ref_output_topic.c_str(),
+    config_.ref_input_topic.c_str(), config_.ref_input_stream_id.c_str(),
+    config_.ref_output_topic.c_str(), config_.ref_output_stream_id.c_str(),
     config_.diagnostics_publish_period_ms);
 }
 
@@ -235,8 +308,8 @@ void FaResampleNode::handleMicFrame(const fa_interfaces::msg::AudioFrame::Shared
   processAndPublish(
     *msg,
     mic_pub_,
-    config_.mic_input_topic,
-    config_.mic_output_topic,
+    config_.mic_input_stream_id,
+    config_.mic_output_stream_id,
     mic_out_,
     mic_drop_);
 }
@@ -251,8 +324,8 @@ void FaResampleNode::handleRefFrame(const fa_interfaces::msg::AudioFrame::Shared
   processAndPublish(
     *msg,
     ref_pub_,
-    config_.ref_input_topic,
-    config_.ref_output_topic,
+    config_.ref_input_stream_id,
+    config_.ref_output_stream_id,
     ref_out_,
     ref_drop_);
 }
@@ -343,10 +416,14 @@ void FaResampleNode::publishDiagnostics()
       status.values.push_back(kv);
     };
 
-  status.values.reserve(12);
+  status.values.reserve(16);
   push_kv("target_sample_rate", std::to_string(backend_->targetSampleRate()));
   push_kv("output.encoding", config_.output_encoding);
   push_kv("output.bit_depth", std::to_string(config_.output_bit_depth));
+  push_kv("mic.input_stream_id", config_.mic_input_stream_id);
+  push_kv("mic.output_stream_id", config_.mic_output_stream_id);
+  push_kv("ref.input_stream_id", config_.ref_input_stream_id);
+  push_kv("ref.output_stream_id", config_.ref_output_stream_id);
   push_kv("mic.in", std::to_string(mic_in_.load()));
   push_kv("mic.out", std::to_string(mic_out_.load()));
   push_kv("mic.drop", std::to_string(mic_drop_.load()));

@@ -23,8 +23,14 @@ fa_resample:
       enabled: true
       input_topic: "audio/frame"
       output_topic: "audio/resample16k/mic"
+      input_stream_id: "audio/float32/mic"
+      output:
+        stream_id: "audio/preprocessed/mono16k"
 
     ref:
       enabled: false
       input_topic: "audio/output/frame"
       output_topic: "audio/resample16k/ref"
+      input_stream_id: "audio/playback/main"
+      output:
+        stream_id: "audio/preprocessed/ref16k"
