@@ -1,17 +1,17 @@
 #include "fa_window/fa_window_node.hpp"
 
-#include <algorithm>
 #include <chrono>
-#include <cmath>
-#include <cstdlib>
-#include <cstring>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_window/backends/internal_window_function.hpp"
 
 namespace fa_window
 {
@@ -22,9 +22,79 @@ constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
 constexpr const char * kWindowHann = "hann";
 constexpr const char * kWindowHamming = "hamming";
-constexpr double kPi = 3.141592653589793238462643383279502884;
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
+constexpr int kMaxExpectedSampleRate = 384000;
+constexpr int kMaxExpectedChannels = 64;
+
+std::string removeLeadingSlashes(std::string value)
+{
+  while (!value.empty() && value.front() == '/') {
+    value.erase(value.begin());
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return left == right || removeLeadingSlashes(left) == removeLeadingSlashes(right);
+}
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
+}
+
+backends::WindowType parseWindowType(const std::string & window_type)
+{
+  if (window_type == kWindowHann) {
+    return backends::WindowType::kHann;
+  }
+  if (window_type == kWindowHamming) {
+    return backends::WindowType::kHamming;
+  }
+  throw std::runtime_error("window.type must be one of hann, hamming");
+}
 
 void pushKeyValue(
   diagnostic_msgs::msg::DiagnosticStatus & status,
@@ -38,46 +108,50 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaWindowNode::FaWindowNode()
-: rclcpp::Node("fa_window")
+FaWindowNode::FaWindowNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_window", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Window node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
 
+FaWindowNode::~FaWindowNode() = default;
+
 void FaWindowNode::loadParameters()
 {
-  this->declare_parameter("input_topic", config_.input_topic);
-  this->declare_parameter("output_topic", config_.output_topic);
-  this->declare_parameter("window.type", config_.window_type);
-  this->declare_parameter<int>("window.expected_frames", config_.expected_frames);
-  this->declare_parameter<bool>("window.strict_frame_count", config_.strict_frame_count);
-  this->declare_parameter<int>("expected.sample_rate", config_.expected_sample_rate);
-  this->declare_parameter<int>("expected.channels", config_.expected_channels);
-  this->declare_parameter("expected.encoding", config_.expected_encoding);
-  this->declare_parameter<int>("expected.bit_depth", config_.expected_bit_depth);
-  this->declare_parameter("expected.layout", config_.expected_layout);
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
-  this->declare_parameter<int>(
-    "diagnostics.publish_period_ms",
-    config_.diagnostics_publish_period_ms);
+  this->declare_parameter<std::string>("input_topic");
+  this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
+  this->declare_parameter<std::string>("window.type");
+  this->declare_parameter<int>("window.expected_frames");
+  this->declare_parameter<bool>("window.strict_frame_count");
+  this->declare_parameter<int>("expected.sample_rate");
+  this->declare_parameter<int>("expected.channels");
+  this->declare_parameter<std::string>("expected.encoding");
+  this->declare_parameter<int>("expected.bit_depth");
+  this->declare_parameter<std::string>("expected.layout");
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
+  this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.input_topic = this->get_parameter("input_topic").as_string();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.window_type = this->get_parameter("window.type").as_string();
-  config_.expected_frames = this->get_parameter("window.expected_frames").as_int();
-  config_.strict_frame_count = this->get_parameter("window.strict_frame_count").as_bool();
-  config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
-  config_.expected_channels = this->get_parameter("expected.channels").as_int();
-  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
-  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
-  config_.expected_layout = this->get_parameter("expected.layout").as_string();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.input_topic = readRequiredString(*this, "input_topic");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
+  config_.window_type = readRequiredString(*this, "window.type");
+  config_.expected_frames = readRequiredInt(*this, "window.expected_frames");
+  config_.strict_frame_count = readRequiredBool(*this, "window.strict_frame_count");
+  config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
+  config_.expected_channels = readRequiredInt(*this, "expected.channels");
+  config_.expected_encoding = readRequiredString(*this, "expected.encoding");
+  config_.expected_bit_depth = readRequiredInt(*this, "expected.bit_depth");
+  config_.expected_layout = readRequiredString(*this, "expected.layout");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(*this, "diagnostics.publish_period_ms");
 
   if (config_.input_topic.empty()) {
     throw std::runtime_error("input_topic is required");
@@ -85,17 +159,45 @@ void FaWindowNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
-  if (config_.window_type != kWindowHann && config_.window_type != kWindowHamming) {
-    throw std::runtime_error("window.type must be one of hann, hamming");
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (resolved_input_topic == resolved_output_topic) {
+    throw std::runtime_error("input_topic and output_topic must resolve to distinct ROS topics");
   }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic))
+  {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic))
+  {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (config_.input_stream_id == config_.output_stream_id) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
+  }
+  parseWindowType(config_.window_type);
   if (config_.expected_frames <= 1) {
     throw std::runtime_error("window.expected_frames must be > 1");
   }
-  if (config_.expected_sample_rate <= 0) {
-    throw std::runtime_error("expected.sample_rate must be > 0");
+  if (config_.expected_sample_rate <= 0 || config_.expected_sample_rate > kMaxExpectedSampleRate) {
+    throw std::runtime_error("expected.sample_rate must satisfy 0 < value <= 384000");
   }
-  if (config_.expected_channels <= 0) {
-    throw std::runtime_error("expected.channels must be > 0");
+  if (config_.expected_channels <= 0 || config_.expected_channels > kMaxExpectedChannels) {
+    throw std::runtime_error("expected.channels must satisfy 0 < value <= 64");
   }
   if (config_.expected_encoding != kEncodingFloat32) {
     throw std::runtime_error("fa_window requires expected.encoding=FLOAT32LE");
@@ -115,10 +217,13 @@ void FaWindowNode::loadParameters()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Window config: input=%s output=%s type=%s expected_frames=%d strict=%s "
-    "expected=%dHz/%d/%s/%d/%s qos_depth=%d reliable=%s diag=%dms",
+    "Window config: input_topic=%s output_topic=%s input_stream_id=%s output_stream_id=%s "
+    "type=%s expected_frames=%d strict=%s expected=%dHz/%d/%s/%d/%s qos_depth=%d "
+    "reliable=%s diag=%dms",
     config_.input_topic.c_str(),
     config_.output_topic.c_str(),
+    config_.input_stream_id.c_str(),
+    config_.output_stream_id.c_str(),
     config_.window_type.c_str(),
     config_.expected_frames,
     config_.strict_frame_count ? "true" : "false",
@@ -132,9 +237,19 @@ void FaWindowNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
+void FaWindowNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalWindowFunctionBackend>(
+    backends::InternalWindowFunctionConfig{
+      config_.expected_channels,
+      parseWindowType(config_.window_type),
+      static_cast<size_t>(config_.expected_frames),
+      config_.strict_frame_count});
+}
+
 void FaWindowNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
@@ -160,8 +275,7 @@ void FaWindowNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr m
   frames_in_.fetch_add(1);
 
   if (!msg) {
-    frames_dropped_.fetch_add(1);
-    return;
+    throw std::logic_error("FaWindowNode received null AudioFrame pointer");
   }
   if (!validateFrame(*msg)) {
     frames_dropped_.fetch_add(1);
@@ -174,6 +288,9 @@ void FaWindowNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr m
     return;
   }
 
+  if (!audio_pub_) {
+    throw std::logic_error("FaWindowNode publisher is not initialized");
+  }
   audio_pub_->publish(out);
   frames_out_.fetch_add(1);
 }
@@ -186,12 +303,12 @@ bool FaWindowNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -232,25 +349,6 @@ bool FaWindowNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame data size is invalid for FLOAT32LE interleaved samples");
     return false;
   }
-
-  const size_t frame_count = msg.data.size() / bytesPerFrame();
-  if (config_.strict_frame_count &&
-      frame_count != static_cast<size_t>(config_.expected_frames))
-  {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "AudioFrame frame_count mismatch: %zu != %d",
-      frame_count,
-      config_.expected_frames);
-    return false;
-  }
-  if (!config_.strict_frame_count && frame_count <= 1U) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "AudioFrame frame_count must be > 1 when strict_frame_count is false");
-    return false;
-  }
-
   return true;
 }
 
@@ -258,68 +356,28 @@ bool FaWindowNode::applyWindow(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
+  if (!backend_) {
+    throw std::logic_error("FaWindowNode backend is not initialized");
+  }
+
+  std::vector<uint8_t> output_data;
+  const backends::ProcessResult result = backend_->process(in.data, output_data);
+  if (result.input_frame_count > 0U) {
+    last_frame_count_.store(static_cast<uint64_t>(result.input_frame_count));
+  }
+  if (result.status != backends::ProcessStatus::kOk) {
+    const char * status_message = backends::processStatusMessage(result.status);
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because window backend rejected input or output: %s",
+      status_message);
+    return false;
+  }
+
   out = in;
-  out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const size_t sample_count = in.data.size() / sizeof(float);
-  const size_t frame_count = in.data.size() / bytesPerFrame();
-  const std::vector<double> coefficients = computeCoefficients(frame_count);
-
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!std::isfinite(sample) || sample < kMinNormalizedSample || sample > kMaxNormalizedSample) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    const size_t frame_index = i / static_cast<size_t>(config_.expected_channels);
-    const double windowed = static_cast<double>(sample) * coefficients[frame_index];
-    if (!std::isfinite(windowed) ||
-        windowed < kMinNormalizedSample ||
-        windowed > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because window output would exceed normalized FLOAT32LE range");
-      return false;
-    }
-
-    const float out_sample = static_cast<float>(windowed);
-    if (!std::isfinite(out_sample)) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because window output is not finite FLOAT32LE");
-      return false;
-    }
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
-  }
-
-  last_frame_count_.store(static_cast<uint64_t>(frame_count));
+  out.stream_id = config_.output_stream_id;
+  out.data = std::move(output_data);
   return true;
-}
-
-std::vector<double> FaWindowNode::computeCoefficients(size_t frame_count) const
-{
-  std::vector<double> coefficients;
-  coefficients.reserve(frame_count);
-  for (size_t n = 0; n < frame_count; ++n) {
-    coefficients.push_back(coefficientAt(n, frame_count));
-  }
-  return coefficients;
-}
-
-double FaWindowNode::coefficientAt(size_t frame_index, size_t frame_count) const
-{
-  const double phase =
-    (2.0 * kPi * static_cast<double>(frame_index)) / static_cast<double>(frame_count - 1U);
-  if (config_.window_type == kWindowHann) {
-    return 0.5 * (1.0 - std::cos(phase));
-  }
-  return 0.54 - (0.46 * std::cos(phase));
 }
 
 size_t FaWindowNode::bytesPerFrame() const
@@ -329,6 +387,10 @@ size_t FaWindowNode::bytesPerFrame() const
 
 void FaWindowNode::publishDiagnostics()
 {
+  if (!backend_) {
+    throw std::logic_error("FaWindowNode backend is not initialized");
+  }
+
   diagnostic_msgs::msg::DiagnosticArray array_msg;
   array_msg.header.stamp = this->now();
 
@@ -336,13 +398,15 @@ void FaWindowNode::publishDiagnostics()
   status.name = "fa_window";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(10);
+  status.values.reserve(12);
   pushKeyValue(status, "window_type", config_.window_type);
   pushKeyValue(status, "expected_frames", std::to_string(config_.expected_frames));
   pushKeyValue(status, "strict_frame_count", config_.strict_frame_count ? "true" : "false");
   pushKeyValue(status, "last_frame_count", std::to_string(last_frame_count_.load()));
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
@@ -353,18 +417,3 @@ void FaWindowNode::publishDiagnostics()
 }
 
 }  // namespace fa_window
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_window::FaWindowNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_window"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

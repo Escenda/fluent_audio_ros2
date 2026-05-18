@@ -3,8 +3,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -14,10 +14,17 @@
 namespace fa_window
 {
 
+namespace backends
+{
+class InternalWindowFunctionBackend;
+}  // namespace backends
+
 struct WindowConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   std::string window_type{};
   int expected_frames{-1};
   bool strict_frame_count{true};
@@ -37,22 +44,23 @@ struct WindowConfig
 class FaWindowNode : public rclcpp::Node
 {
 public:
-  FaWindowNode();
-  ~FaWindowNode() override = default;
+  explicit FaWindowNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~FaWindowNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyWindow(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
-  std::vector<double> computeCoefficients(size_t frame_count) const;
-  double coefficientAt(size_t frame_index, size_t frame_count) const;
   size_t bytesPerFrame() const;
 
   WindowConfig config_;
+  std::unique_ptr<backends::InternalWindowFunctionBackend> backend_{};
+
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
