@@ -25,7 +25,7 @@ def test_fa_decode_default_config_requires_explicit_external_backend() -> None:
 
     assert params["backend.name"] == "external_codec_decoder"
     assert params["backend.command.executable"] == ""
-    assert "backend.command.arguments" not in params
+    assert params["backend.command.arguments"] == []
     assert params["backend.command.timeout_ms"] > 0
     assert params["backend.command.max_output_bytes"] > 0
     assert params["input_topic"] == "audio/encoded/mic"
@@ -56,6 +56,28 @@ def test_backend_is_ros_free_and_node_owns_message_conversion() -> None:
     assert "out.stream_id = config_.output_topic;" in node_source
     assert "out.encoding = result.encoding;" in node_source
     assert "out.epoch = in.epoch;" in node_source
+
+
+def test_launch_and_node_require_explicit_runtime_config() -> None:
+    launch_text = (PACKAGE_ROOT / "launch" / "fa_decode.launch.py").read_text(
+        encoding="utf-8"
+    )
+    node_source = (PACKAGE_ROOT / "src" / "fa_decode_node.cpp").read_text(encoding="utf-8")
+    load_parameters = node_source.split("void FaDecodeNode::loadParameters")[1].split(
+        "void FaDecodeNode::setupBackend"
+    )[0]
+
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
+    assert 'description="設定ファイルへのパス。必ず明示する。"' in launch_text
+    assert 'readRequiredString(*this, "backend.name")' in load_parameters
+    assert 'readRequiredStringArray(*this, "backend.command.arguments")' in load_parameters
+    assert 'readRequiredInt(*this, "output.sample_rate")' in load_parameters
+    assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
 
 
 def test_external_decoder_docs_do_not_claim_runtime_metadata_probe() -> None:

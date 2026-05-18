@@ -1,7 +1,9 @@
 #include "fa_sample_format/fa_sample_format_node.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -36,6 +38,53 @@ backends::FrameContract frameContractFrom(const fa_interfaces::msg::AudioFrame &
     msg.layout,
     msg.data.size()};
 }
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  const int64_t min_value = std::numeric_limits<int>::min();
+  const int64_t max_value = std::numeric_limits<int>::max();
+  if (value < min_value || value > max_value) {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
+}
 }  // namespace
 
 FaSampleFormatNode::FaSampleFormatNode(const rclcpp::NodeOptions & options)
@@ -48,34 +97,32 @@ FaSampleFormatNode::FaSampleFormatNode(const rclcpp::NodeOptions & options)
 
 void FaSampleFormatNode::loadParameters()
 {
-  this->declare_parameter("input_topic", config_.input_topic);
-  this->declare_parameter("output_topic", config_.output_topic);
-  this->declare_parameter("input.encoding", config_.input_encoding);
-  this->declare_parameter<int>("input.bit_depth", config_.input_bit_depth);
-  this->declare_parameter("output.encoding", config_.output_encoding);
-  this->declare_parameter<int>("output.bit_depth", config_.output_bit_depth);
-  this->declare_parameter<int>("expected.sample_rate", config_.expected_sample_rate);
-  this->declare_parameter<int>("expected.channels", config_.expected_channels);
-  this->declare_parameter("expected.layout", config_.expected_layout);
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
-  this->declare_parameter<int>(
-    "diagnostics.publish_period_ms",
-    config_.diagnostics_publish_period_ms);
+  this->declare_parameter<std::string>("input_topic");
+  this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input.encoding");
+  this->declare_parameter<int>("input.bit_depth");
+  this->declare_parameter<std::string>("output.encoding");
+  this->declare_parameter<int>("output.bit_depth");
+  this->declare_parameter<int>("expected.sample_rate");
+  this->declare_parameter<int>("expected.channels");
+  this->declare_parameter<std::string>("expected.layout");
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
+  this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.input_topic = this->get_parameter("input_topic").as_string();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.input_encoding = this->get_parameter("input.encoding").as_string();
-  config_.input_bit_depth = this->get_parameter("input.bit_depth").as_int();
-  config_.output_encoding = this->get_parameter("output.encoding").as_string();
-  config_.output_bit_depth = this->get_parameter("output.bit_depth").as_int();
-  config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
-  config_.expected_channels = this->get_parameter("expected.channels").as_int();
-  config_.expected_layout = this->get_parameter("expected.layout").as_string();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.input_topic = readRequiredString(*this, "input_topic");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_encoding = readRequiredString(*this, "input.encoding");
+  config_.input_bit_depth = readRequiredInt(*this, "input.bit_depth");
+  config_.output_encoding = readRequiredString(*this, "output.encoding");
+  config_.output_bit_depth = readRequiredInt(*this, "output.bit_depth");
+  config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
+  config_.expected_channels = readRequiredInt(*this, "expected.channels");
+  config_.expected_layout = readRequiredString(*this, "expected.layout");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(
+    *this, "diagnostics.publish_period_ms");
 
   if (config_.input_topic.empty()) {
     throw std::runtime_error("input_topic is required");

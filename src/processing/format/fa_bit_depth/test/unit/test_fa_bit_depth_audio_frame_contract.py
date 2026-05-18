@@ -80,9 +80,27 @@ def test_ros2_node_name_and_executable_match_required_contract() -> None:
     assert 'rclcpp::Node("fa_bit_depth", options)' in source
     assert "explicit FaBitDepthNode(const rclcpp::NodeOptions & options" in header
     assert "fa_bit_depth::FaBitDepthNode" in main_source
-    assert 'default_value="fa_bit_depth"' in launch
+    assert "default_value" not in launch
+    assert "FindPackageShare" not in launch
+    assert "PathJoinSubstitution" not in launch
     assert 'executable="fa_bit_depth_node"' in launch
     assert "add_executable(fa_bit_depth_node" in cmake
+
+
+def test_bit_depth_requires_explicit_runtime_config() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (package_root / "src" / "fa_bit_depth_node.cpp").read_text(encoding="utf-8")
+    load_parameters = source.split("void FaBitDepthNode::loadParameters")[1].split(
+        "void FaBitDepthNode::setupInterfaces"
+    )[0]
+
+    assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input.encoding")' in load_parameters
+    assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
+    assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
 
 
 def test_bit_depth_validates_frame_contract_before_processing() -> None:

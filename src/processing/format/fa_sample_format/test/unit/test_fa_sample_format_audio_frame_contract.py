@@ -44,6 +44,9 @@ def test_sample_format_does_not_hide_io_or_other_processing_responsibilities() -
 def test_startup_rejects_unknown_or_implicit_conversion_config() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_sample_format_node.cpp").read_text(encoding="utf-8")
+    load_parameters = source.split("void FaSampleFormatNode::loadParameters")[1].split(
+        "void FaSampleFormatNode::setupInterfaces"
+    )[0]
     conversion = (
         package_root / "src" / "backends" / "internal_float32le.cpp"
     ).read_text(encoding="utf-8")
@@ -60,6 +63,13 @@ def test_startup_rejects_unknown_or_implicit_conversion_config() -> None:
     assert "throw std::runtime_error(" in conversion
     assert "FLOAT32LE/32 to PCM16LE/16" in conversion
     assert "std::make_unique<backends::InternalFloat32LeBackend>" in source
+    assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input.encoding")' in load_parameters
+    assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
+    assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert "metadata" not in is_supported
 
 

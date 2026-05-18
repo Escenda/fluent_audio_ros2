@@ -9,7 +9,8 @@ def test_launch_file_runs_fa_encode_node_with_params_file() -> None:
         encoding="utf-8"
     )
 
-    assert 'FindPackageShare("fa_encode")' in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
     assert 'executable="fa_encode_node"' in launch_text
     assert "parameters=[config_file]" in launch_text
-    assert 'default_value="fa_encode"' in launch_text

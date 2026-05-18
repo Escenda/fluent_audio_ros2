@@ -47,6 +47,12 @@ def test_channel_convert_does_not_hide_unrelated_processing_responsibilities() -
 def test_startup_rejects_unsupported_or_implicit_channel_conversion() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_channel_convert_node.cpp").read_text(encoding="utf-8")
+    launch_text = (package_root / "launch" / "fa_channel_convert.launch.py").read_text(
+        encoding="utf-8"
+    )
+    load_parameters = source.split("void FaChannelConvertNode::loadParameters")[1].split(
+        "void FaChannelConvertNode::setupInterfaces"
+    )[0]
     backend_source = (
         package_root / "src" / "backends" / "internal_float32le_channel_convert.cpp"
     ).read_text(encoding="utf-8")
@@ -60,6 +66,16 @@ def test_startup_rejects_unsupported_or_implicit_channel_conversion() -> None:
     assert "throw std::runtime_error(" in backend_source
     assert "std::make_unique<backends::InternalFloat32LeChannelConvertBackend>" in source
     assert "std::max<int>(1, config_.qos_depth)" not in source
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
+    assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredInt(*this, "input.channels")' in load_parameters
+    assert 'readRequiredString(*this, "conversion.mode")' in load_parameters
+    assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
 
 
 def test_channel_convert_validates_frame_contract_before_processing() -> None:

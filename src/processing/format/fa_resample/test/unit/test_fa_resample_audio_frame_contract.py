@@ -43,10 +43,20 @@ def test_default_config_requires_float32le_output_contract() -> None:
 
 def test_resample_uses_validated_qos_depth_without_hidden_fallback() -> None:
     source = read_node_source()
+    load_parameters = source.split("void FaResampleNode::loadParameters")[1].split(
+        "void FaResampleNode::configureBackend"
+    )[0]
 
     assert "qos.depth must be > 0" in source
     assert "rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));" in source
     assert "std::max<int>(1, config_.qos_depth)" not in source
+    assert 'readRequiredInt(*this, "target_sample_rate")' in load_parameters
+    assert 'readRequiredString(*this, "input.encoding")' in load_parameters
+    assert 'readRequiredBool(*this, "mic.enabled")' in load_parameters
+    assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
 
 
 def test_resample_preserves_source_and_publishes_stream_identity() -> None:

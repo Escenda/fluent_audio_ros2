@@ -3,7 +3,9 @@
 #include "fa_resample/backends/internal_linear_resampler.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -14,6 +16,56 @@
 
 namespace fa_resample
 {
+
+namespace
+{
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  const int64_t min_value = std::numeric_limits<int>::min();
+  const int64_t max_value = std::numeric_limits<int>::max();
+  if (value < min_value || value > max_value) {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
+}
+}  // namespace
 
 FaResampleNode::FaResampleNode(const rclcpp::NodeOptions & options)
 : rclcpp::Node("fa_resample", options)
@@ -28,48 +80,46 @@ FaResampleNode::~FaResampleNode() = default;
 
 void FaResampleNode::loadParameters()
 {
-  this->declare_parameter<int>("target_sample_rate", config_.target_sample_rate);
-  this->declare_parameter("input.encoding", config_.input_encoding);
-  this->declare_parameter<int>("input.bit_depth", config_.input_bit_depth);
-  this->declare_parameter("input.layout", config_.input_layout);
-  this->declare_parameter("output.encoding", config_.output_encoding);
-  this->declare_parameter<int>("output.bit_depth", config_.output_bit_depth);
+  this->declare_parameter<int>("target_sample_rate");
+  this->declare_parameter<std::string>("input.encoding");
+  this->declare_parameter<int>("input.bit_depth");
+  this->declare_parameter<std::string>("input.layout");
+  this->declare_parameter<std::string>("output.encoding");
+  this->declare_parameter<int>("output.bit_depth");
 
-  this->declare_parameter<bool>("mic.enabled", config_.mic_enabled);
-  this->declare_parameter("mic.input_topic", config_.mic_input_topic);
-  this->declare_parameter("mic.output_topic", config_.mic_output_topic);
+  this->declare_parameter<bool>("mic.enabled");
+  this->declare_parameter<std::string>("mic.input_topic");
+  this->declare_parameter<std::string>("mic.output_topic");
 
-  this->declare_parameter<bool>("ref.enabled", config_.ref_enabled);
-  this->declare_parameter("ref.input_topic", config_.ref_input_topic);
-  this->declare_parameter("ref.output_topic", config_.ref_output_topic);
+  this->declare_parameter<bool>("ref.enabled");
+  this->declare_parameter<std::string>("ref.input_topic");
+  this->declare_parameter<std::string>("ref.output_topic");
 
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
 
-  this->declare_parameter<int>(
-    "diagnostics.publish_period_ms",
-    config_.diagnostics_publish_period_ms);
+  this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.target_sample_rate = this->get_parameter("target_sample_rate").as_int();
-  config_.input_encoding = this->get_parameter("input.encoding").as_string();
-  config_.input_bit_depth = this->get_parameter("input.bit_depth").as_int();
-  config_.input_layout = this->get_parameter("input.layout").as_string();
-  config_.output_encoding = this->get_parameter("output.encoding").as_string();
-  config_.output_bit_depth = this->get_parameter("output.bit_depth").as_int();
+  config_.target_sample_rate = readRequiredInt(*this, "target_sample_rate");
+  config_.input_encoding = readRequiredString(*this, "input.encoding");
+  config_.input_bit_depth = readRequiredInt(*this, "input.bit_depth");
+  config_.input_layout = readRequiredString(*this, "input.layout");
+  config_.output_encoding = readRequiredString(*this, "output.encoding");
+  config_.output_bit_depth = readRequiredInt(*this, "output.bit_depth");
 
-  config_.mic_enabled = this->get_parameter("mic.enabled").as_bool();
-  config_.mic_input_topic = this->get_parameter("mic.input_topic").as_string();
-  config_.mic_output_topic = this->get_parameter("mic.output_topic").as_string();
+  config_.mic_enabled = readRequiredBool(*this, "mic.enabled");
+  config_.mic_input_topic = readRequiredString(*this, "mic.input_topic");
+  config_.mic_output_topic = readRequiredString(*this, "mic.output_topic");
 
-  config_.ref_enabled = this->get_parameter("ref.enabled").as_bool();
-  config_.ref_input_topic = this->get_parameter("ref.input_topic").as_string();
-  config_.ref_output_topic = this->get_parameter("ref.output_topic").as_string();
+  config_.ref_enabled = readRequiredBool(*this, "ref.enabled");
+  config_.ref_input_topic = readRequiredString(*this, "ref.input_topic");
+  config_.ref_output_topic = readRequiredString(*this, "ref.output_topic");
 
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
 
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.diagnostics_publish_period_ms = readRequiredInt(
+    *this, "diagnostics.publish_period_ms");
 
   if (config_.target_sample_rate <= 0) {
     throw std::runtime_error("target_sample_rate must be > 0 (set via YAML)");

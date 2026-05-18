@@ -48,6 +48,12 @@ def test_interleave_does_not_hide_unrelated_processing_responsibilities() -> Non
 def test_startup_rejects_unsupported_or_implicit_layout_conversion_config() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_interleave_node.cpp").read_text(encoding="utf-8")
+    launch_text = (package_root / "launch" / "fa_interleave.launch.py").read_text(
+        encoding="utf-8"
+    )
+    load_parameters = source.split("void FaInterleaveNode::loadParameters")[1].split(
+        "void FaInterleaveNode::setupInterfaces"
+    )[0]
     backend_source = (
         package_root / "src" / "backends" / "internal_layout_reorder.cpp"
     ).read_text(encoding="utf-8")
@@ -66,6 +72,16 @@ def test_startup_rejects_unsupported_or_implicit_layout_conversion_config() -> N
     assert "encoding == kEncodingPcm32Le && bit_depth == 32" in format_support
     assert "std::make_unique<backends::InternalLayoutReorderBackend>" in source
     assert "throw std::runtime_error(" in backend_source
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
+    assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input.layout")' in load_parameters
+    assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
+    assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
 
 
 def test_interleave_validates_frame_contract_before_processing() -> None:

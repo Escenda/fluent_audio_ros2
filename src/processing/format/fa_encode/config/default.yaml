@@ -2,6 +2,7 @@ fa_encode:
   ros__parameters:
     backend.name: "external_codec_encoder"
     backend.command.executable: ""
+    backend.command.arguments: []
     backend.command.timeout_ms: 3000
     backend.command.max_output_bytes: 1048576
 

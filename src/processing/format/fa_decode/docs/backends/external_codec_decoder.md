@@ -25,7 +25,7 @@ backend は encoded payload を受け取り、decoded samples と startup config
 stdout は byte payload のみとして扱い、sample rate/channel count/encoding/bit depth/layout を stdout から推定しない。
 output contract が config と一致しない場合、node は publish しない。
 command は shell 経由では実行せず、executable と arguments を分離して起動する。
-追加引数が必要な backend だけ `backend.command.arguments` を string list として指定する。
+`backend.command.arguments` は string list として必ず指定する。追加引数が不要な場合も `[]` を明示する。
 引数なしの場合は ROS2 YAML の空配列型解決に依存せず、この parameter 自体を省略する。
 
 ## Forbidden

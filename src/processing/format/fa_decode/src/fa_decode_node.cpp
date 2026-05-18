@@ -1,10 +1,13 @@
 #include "fa_decode/fa_decode_node.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
@@ -30,6 +33,64 @@ void requirePositive(const std::string & name, const int value)
   if (value <= 0) {
     throw std::runtime_error(name + " must be > 0");
   }
+}
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+std::vector<std::string> readRequiredStringArray(
+  const rclcpp::Node & node,
+  const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING_ARRAY) {
+    throw std::runtime_error(name + " must be a string array");
+  }
+  return parameter.as_string_array();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  const int64_t min_value = std::numeric_limits<int>::min();
+  const int64_t max_value = std::numeric_limits<int>::max();
+  if (value < min_value || value > max_value) {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
 }
 
 backends::EncodedChunkContract chunkContractFrom(
@@ -59,13 +120,11 @@ void FaDecodeNode::loadParameters()
 {
   this->declare_parameter<std::string>("backend.name");
   this->declare_parameter<std::string>("backend.command.executable");
-  this->declare_parameter<std::vector<std::string>>(
-    "backend.command.arguments",
-    config_.command_arguments);
+  this->declare_parameter<std::vector<std::string>>("backend.command.arguments");
   this->declare_parameter<int>("backend.command.timeout_ms");
   this->declare_parameter<int>("backend.command.max_output_bytes");
-  this->declare_parameter("input_topic", config_.input_topic);
-  this->declare_parameter("output_topic", config_.output_topic);
+  this->declare_parameter<std::string>("input_topic");
+  this->declare_parameter<std::string>("output_topic");
   this->declare_parameter<std::string>("input.codec");
   this->declare_parameter<std::string>("input.container");
   this->declare_parameter<std::string>("input.payload_format");
@@ -76,34 +135,32 @@ void FaDecodeNode::loadParameters()
   this->declare_parameter<std::string>("output.encoding");
   this->declare_parameter<int>("output.bit_depth");
   this->declare_parameter<std::string>("output.layout");
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.backend_name = this->get_parameter("backend.name").as_string();
-  config_.command_executable =
-    this->get_parameter("backend.command.executable").as_string();
-  config_.command_arguments =
-    this->get_parameter("backend.command.arguments").as_string_array();
-  config_.command_timeout_ms = this->get_parameter("backend.command.timeout_ms").as_int();
-  config_.command_max_output_bytes =
-    this->get_parameter("backend.command.max_output_bytes").as_int();
-  config_.input_topic = this->get_parameter("input_topic").as_string();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.input_codec = this->get_parameter("input.codec").as_string();
-  config_.input_container = this->get_parameter("input.container").as_string();
-  config_.input_payload_format = this->get_parameter("input.payload_format").as_string();
-  config_.input_sample_rate = this->get_parameter("input.sample_rate").as_int();
-  config_.input_channels = this->get_parameter("input.channels").as_int();
-  config_.output_sample_rate = this->get_parameter("output.sample_rate").as_int();
-  config_.output_channels = this->get_parameter("output.channels").as_int();
-  config_.output_encoding = this->get_parameter("output.encoding").as_string();
-  config_.output_bit_depth = this->get_parameter("output.bit_depth").as_int();
-  config_.output_layout = this->get_parameter("output.layout").as_string();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.backend_name = readRequiredString(*this, "backend.name");
+  config_.command_executable = readRequiredString(*this, "backend.command.executable");
+  config_.command_arguments = readRequiredStringArray(*this, "backend.command.arguments");
+  config_.command_timeout_ms = readRequiredInt(*this, "backend.command.timeout_ms");
+  config_.command_max_output_bytes = readRequiredInt(
+    *this, "backend.command.max_output_bytes");
+  config_.input_topic = readRequiredString(*this, "input_topic");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_codec = readRequiredString(*this, "input.codec");
+  config_.input_container = readRequiredString(*this, "input.container");
+  config_.input_payload_format = readRequiredString(*this, "input.payload_format");
+  config_.input_sample_rate = readRequiredInt(*this, "input.sample_rate");
+  config_.input_channels = readRequiredInt(*this, "input.channels");
+  config_.output_sample_rate = readRequiredInt(*this, "output.sample_rate");
+  config_.output_channels = readRequiredInt(*this, "output.channels");
+  config_.output_encoding = readRequiredString(*this, "output.encoding");
+  config_.output_bit_depth = readRequiredInt(*this, "output.bit_depth");
+  config_.output_layout = readRequiredString(*this, "output.layout");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(
+    *this, "diagnostics.publish_period_ms");
 
   if (config_.backend_name.empty()) {
     throw std::runtime_error("backend.name is required");
