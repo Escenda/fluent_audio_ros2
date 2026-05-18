@@ -418,6 +418,7 @@ def test_analysis_category_contains_only_non_ai_feature_packages() -> None:
 
 def test_ai_ros_packages_live_under_src_ai() -> None:
     missing: list[str] = []
+    readme_source = (SRC_ROOT / "ai" / "README.md").read_text(encoding="utf-8")
 
     if not (SRC_ROOT / "ai" / "README.md").is_file():
         missing.append("src/ai/README.md")
@@ -426,6 +427,9 @@ def test_ai_ros_packages_live_under_src_ai() -> None:
         package_path = SRC_ROOT / "ai" / package_name
         if not (package_path / "package.xml").is_file():
             missing.append(f"src/ai/{package_name}/package.xml")
+        expected_row = f"| `{package_name}/` | ROS 2 package |"
+        if expected_row not in readme_source:
+            missing.append(f"src/ai/README.md status row for {package_name}")
 
     for placeholder_name in AI_PLACEHOLDER_NAMES:
         placeholder_path = SRC_ROOT / "ai" / placeholder_name
@@ -433,6 +437,11 @@ def test_ai_ros_packages_live_under_src_ai() -> None:
             missing.append(f"src/ai/{placeholder_name}/")
         if (placeholder_path / "package.xml").exists():
             missing.append(f"src/ai/{placeholder_name}/package.xml")
+        expected_row = (
+            f"| `{placeholder_name}/` | roadmap placeholder; not a ROS 2 package |"
+        )
+        if expected_row not in readme_source:
+            missing.append(f"src/ai/README.md placeholder row for {placeholder_name}")
 
     for package_root in _ai_package_roots():
         if package_root.name not in AI_PACKAGE_NAMES:

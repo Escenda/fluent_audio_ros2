@@ -20,6 +20,6 @@ Only directories with `package.xml` are ROS 2 packages.
 | `fa_kws/` | ROS 2 package |
 | `fa_asr/` | ROS 2 package |
 | `fa_turn_detector/` | ROS 2 package |
-| `fa_audio_embedding/` | roadmap placeholder; not a ROS 2 package |
+| `fa_audio_embedding/` | ROS 2 package |
 | `fa_sed/` | roadmap placeholder; not a ROS 2 package |
 | `fa_speaker/` | roadmap placeholder; not a ROS 2 package |
