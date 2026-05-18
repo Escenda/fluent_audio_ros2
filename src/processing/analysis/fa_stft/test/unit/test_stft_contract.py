@@ -103,6 +103,8 @@ def test_node_requires_explicit_ros_parameters_and_binds_stream_identity() -> No
 
     assert "ParameterUninitializedException" in node_text
     assert "Parameter.Type.STRING" in node_text
+    assert "must be a string parameter" in node_text
+    assert "get_parameter(name).get_parameter_value().string_value" not in node_text
     assert 'declare_parameter("input_topic", "audio/features/input")' not in node_text
     assert 'declare_parameter("feature.n_fft", 400)' not in node_text
     assert "msg.stream_id != self.input_topic" in node_text

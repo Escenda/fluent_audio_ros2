@@ -95,9 +95,12 @@ class FaLogMelNode(Node):
     def _required_string(self, name: str) -> str:
         self.declare_parameter(name, Parameter.Type.STRING)
         try:
-            value = self.get_parameter(name).get_parameter_value().string_value.strip()
+            parameter = self.get_parameter(name)
         except ParameterUninitializedException as exc:
             raise RuntimeError(f"{name} is required") from exc
+        if parameter.type_ != Parameter.Type.STRING:
+            raise RuntimeError(f"{name} must be a string parameter")
+        value = parameter.get_parameter_value().string_value.strip()
         if not value:
             raise RuntimeError(f"{name} is required")
         return value
