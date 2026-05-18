@@ -14,7 +14,7 @@ fa_interfaces::msg::AudioFrame makeCanonicalFrame()
 {
   fa_interfaces::msg::AudioFrame msg;
   msg.source_id = "mic";
-  msg.stream_id = "audio/frame";
+  msg.stream_id = "audio/raw/mic";
   msg.sample_rate = 16000;
   msg.channels = 1;
   msg.bit_depth = 32;
@@ -32,7 +32,7 @@ fa_interfaces::msg::AudioFrame makeCanonicalFrame()
 TEST(AudioUtilsContract, AcceptsCanonicalFloat32AudioFrame)
 {
   const auto samples = fa_kws::frameToCanonicalFloat(
-    makeCanonicalFrame(), "mic", "audio/frame");
+    makeCanonicalFrame(), "mic", "audio/raw/mic");
 
   ASSERT_EQ(samples.size(), 3U);
   EXPECT_FLOAT_EQ(samples[0], 0.0F);
@@ -47,7 +47,7 @@ TEST(AudioUtilsContract, RejectsPcm32PayloadBeforeFloatInterpretation)
 
   EXPECT_THROW(
     {
-      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/frame");
+      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/raw/mic");
     },
     std::invalid_argument);
 }
@@ -59,7 +59,7 @@ TEST(AudioUtilsContract, RejectsEmptyPayloadAfterMetadataValidation)
 
   EXPECT_THROW(
     {
-      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/frame");
+      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/raw/mic");
     },
     std::invalid_argument);
 }
@@ -72,7 +72,7 @@ TEST(AudioUtilsContract, RejectsBadMetadataBeforeEmptyPayloadPolicy)
 
   EXPECT_THROW(
     {
-      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/frame");
+      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/raw/mic");
     },
     std::invalid_argument);
 }
@@ -86,7 +86,7 @@ TEST(AudioUtilsContract, RejectsNonNormalizedFloatSamples)
 
   EXPECT_THROW(
     {
-      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/frame");
+      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/raw/mic");
     },
     std::invalid_argument);
 }
@@ -97,7 +97,7 @@ TEST(AudioUtilsContract, RejectsMissingExpectedSourceBinding)
 
   EXPECT_THROW(
     {
-      (void)fa_kws::frameToCanonicalFloat(msg, "", "audio/frame");
+      (void)fa_kws::frameToCanonicalFloat(msg, "", "audio/raw/mic");
     },
     std::invalid_argument);
 }
@@ -119,7 +119,7 @@ TEST(AudioUtilsContract, RejectsUnexpectedSourceIdentity)
 
   EXPECT_THROW(
     {
-      (void)fa_kws::frameToCanonicalFloat(msg, "system-audio", "audio/frame");
+      (void)fa_kws::frameToCanonicalFloat(msg, "system-audio", "audio/raw/mic");
     },
     std::invalid_argument);
 }
@@ -131,7 +131,7 @@ TEST(AudioUtilsContract, RejectsMissingFrameSourceIdentity)
 
   EXPECT_THROW(
     {
-      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/frame");
+      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/raw/mic");
     },
     std::invalid_argument);
 }
@@ -143,7 +143,7 @@ TEST(AudioUtilsContract, RejectsMissingFrameStreamIdentity)
 
   EXPECT_THROW(
     {
-      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/frame");
+      (void)fa_kws::frameToCanonicalFloat(msg, "mic", "audio/raw/mic");
     },
     std::invalid_argument);
 }

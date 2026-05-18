@@ -27,17 +27,16 @@ def test_sherpa_backend_source_stays_ros_free() -> None:
 
 def test_native_backend_is_explicit_runtime_boundary_not_dummy_fallback() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-    node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
     docs_text = (
         PACKAGE_ROOT / "docs" / "backends" / "sherpa_onnx_kws.md"
     ).read_text(encoding="utf-8")
 
-    assert 'set(FA_KWS_SHERPA_ONNX "AUTO"' in cmake_text
+    assert 'set(FA_KWS_SHERPA_ONNX "ON"' in cmake_text
+    assert 'FA_KWS_SHERPA_ONNX MATCHES "^(ON|OFF)$"' in cmake_text
     assert 'FA_KWS_SHERPA_ONNX STREQUAL "ON"' in cmake_text
+    assert "FA_KWS_SHERPA_ONNX=OFF explicitly disables fa_kws runtime targets" in cmake_text
     assert "message(FATAL_ERROR" in cmake_text
     assert "add_library(fa_kws_backends STATIC" in cmake_text
-    assert "fa_kws was built without sherpa-onnx support" in node_text
+    assert "install(TARGETS fa_kws_node fa_kws_wav_tool" in cmake_text
     assert "dummy" not in cmake_text.lower()
-    assert "dummy" not in node_text.lower()
-    assert "fail closed" in docs_text
     assert "別 model、別 backend、dummy backend へ暗黙に切り替えることはしない" in docs_text

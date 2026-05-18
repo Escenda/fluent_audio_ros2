@@ -8,13 +8,13 @@
 
 C++ / sherpa-onnx C API。
 
-CMake の `FA_KWS_SHERPA_ONNX` は `AUTO` / `ON` / `OFF` を取る。
+CMake の `FA_KWS_SHERPA_ONNX` は `ON` / `OFF` を取る。
 
-- `AUTO`: sherpa-onnx C API が見つかる場合だけ runtime backend と `kws_wav_tool` を組み込む。見つからない場合も `fa_kws_node` は build するが、`backend.name=sherpa_onnx_kws` を選んだ起動時に fail closed する。
-- `ON`: sherpa-onnx C API が見つからない場合は configure で失敗する。
-- `OFF`: sherpa-onnx runtime backend と `kws_wav_tool` を組み込まない。
+- `ON`: default。sherpa-onnx C API が見つからない場合は configure で失敗する。
+- `OFF`: contract test 用。`fa_kws_node` / `fa_kws_wav_tool` runtime target を build しない。
 
 sherpa-onnx が無い環境で別 model、別 backend、dummy backend へ暗黙に切り替えることはしない。
+sherpa-onnx が無い状態で runtime executable だけを build/install して、起動時失敗に先送りする構成も禁止です。
 
 ## Input
 

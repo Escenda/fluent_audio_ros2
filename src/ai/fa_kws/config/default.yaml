@@ -1,6 +1,7 @@
 fa_kws:
   ros__parameters:
     audio_topic: "audio/frame"
+    expected_stream_id: "audio/raw/mic"
     vad_topic: "voice/vad_state"
     output_topic: "voice/wake_word"
     # Required. Must match AudioFrame.source_id from the configured fa_in/source pipeline.

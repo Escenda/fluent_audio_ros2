@@ -32,7 +32,7 @@ std::vector<float> frameToCanonicalFloat(
     throw std::invalid_argument("AudioFrame source_id must match expected_source_id");
   }
   if (msg.stream_id != expected_stream_id) {
-    throw std::invalid_argument("AudioFrame stream_id must match audio_topic");
+    throw std::invalid_argument("AudioFrame stream_id must match expected_stream_id");
   }
   if (msg.channels != 1u) {
     throw std::invalid_argument(

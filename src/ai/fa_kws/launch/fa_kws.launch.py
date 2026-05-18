@@ -2,26 +2,25 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
-import os
 
 
 def generate_launch_description():
-    default_config = os.path.join(
-        get_package_share_directory("fa_kws"), "config", "default.yaml"
-    )
-    config_file = LaunchConfiguration("config_file", default=default_config)
+    node_name = LaunchConfiguration("node_name")
+    config_file = LaunchConfiguration("config_file")
     return LaunchDescription(
         [
             DeclareLaunchArgument(
+                "node_name",
+                description="fa_kws node name.",
+            ),
+            DeclareLaunchArgument(
                 "config_file",
-                default_value=default_config,
                 description="Path to fa_kws config file.",
             ),
             Node(
                 package="fa_kws",
                 executable="fa_kws_node",
-                name="fa_kws",
+                name=node_name,
                 output="screen",
                 parameters=[config_file],
             ),

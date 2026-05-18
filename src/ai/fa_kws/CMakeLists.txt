@@ -14,11 +14,11 @@ find_package(fa_interfaces REQUIRED)
 
 include_directories(include)
 
-set(FA_KWS_SHERPA_ONNX "AUTO" CACHE STRING "sherpa-onnx backend build mode: AUTO, ON, or OFF")
-set_property(CACHE FA_KWS_SHERPA_ONNX PROPERTY STRINGS AUTO ON OFF)
+set(FA_KWS_SHERPA_ONNX "ON" CACHE STRING "sherpa-onnx backend build mode: ON or OFF")
+set_property(CACHE FA_KWS_SHERPA_ONNX PROPERTY STRINGS ON OFF)
 
-if(NOT FA_KWS_SHERPA_ONNX MATCHES "^(AUTO|ON|OFF)$")
-  message(FATAL_ERROR "FA_KWS_SHERPA_ONNX must be AUTO, ON, or OFF")
+if(NOT FA_KWS_SHERPA_ONNX MATCHES "^(ON|OFF)$")
+  message(FATAL_ERROR "FA_KWS_SHERPA_ONNX must be ON or OFF")
 endif()
 
 set(SHERPA_ONNX_PREFIX "" CACHE PATH "sherpa-onnx install prefix")
@@ -28,7 +28,7 @@ endif()
 
 set(FA_KWS_WITH_SHERPA_ONNX OFF)
 
-if(NOT FA_KWS_SHERPA_ONNX STREQUAL "OFF")
+if(FA_KWS_SHERPA_ONNX STREQUAL "ON")
   find_path(SHERPA_ONNX_INCLUDE_DIR
     NAMES sherpa-onnx/c-api/c-api.h
     HINTS
@@ -47,30 +47,15 @@ if(NOT FA_KWS_SHERPA_ONNX STREQUAL "OFF")
 
   if(SHERPA_ONNX_INCLUDE_DIR AND SHERPA_ONNX_C_API_LIBRARY)
     set(FA_KWS_WITH_SHERPA_ONNX ON)
-  elseif(FA_KWS_SHERPA_ONNX STREQUAL "ON")
+  else()
     message(FATAL_ERROR
       "sherpa-onnx C API is required when FA_KWS_SHERPA_ONNX=ON. "
       "Set SHERPA_ONNX_PREFIX or install sherpa-onnx before building fa_kws.")
-  else()
-    message(STATUS
-      "sherpa-onnx C API not found; building fa_kws_node without sherpa_onnx_kws runtime. "
-      "Selecting backend.name=sherpa_onnx_kws will fail closed at node startup.")
   endif()
-endif()
-
-add_executable(fa_kws_node
-  src/fa_kws_node.cpp
-  src/audio_utils.cpp
-  src/vad_state_identity.cpp
-)
-
-ament_target_dependencies(fa_kws_node
-  rclcpp
-  fa_interfaces
-)
-
-if(FA_KWS_WITH_SHERPA_ONNX)
-  target_compile_definitions(fa_kws_node PRIVATE FA_KWS_WITH_SHERPA_ONNX=1)
+else()
+  message(STATUS
+    "FA_KWS_SHERPA_ONNX=OFF explicitly disables fa_kws runtime targets; "
+    "fa_kws_node and fa_kws_wav_tool will not be built.")
 endif()
 
 if(FA_KWS_WITH_SHERPA_ONNX)
@@ -89,6 +74,17 @@ if(FA_KWS_WITH_SHERPA_ONNX)
 
   add_executable(fa_kws_wav_tool
     src/kws_wav_tool.cpp
+  )
+
+  add_executable(fa_kws_node
+    src/fa_kws_node.cpp
+    src/audio_utils.cpp
+    src/vad_state_identity.cpp
+  )
+
+  ament_target_dependencies(fa_kws_node
+    rclcpp
+    fa_interfaces
   )
 
   target_link_libraries(fa_kws_node
@@ -111,10 +107,6 @@ if(FA_KWS_WITH_SHERPA_ONNX)
   )
 
   install(TARGETS fa_kws_node fa_kws_wav_tool
-    DESTINATION lib/${PROJECT_NAME}
-  )
-else()
-  install(TARGETS fa_kws_node
     DESTINATION lib/${PROJECT_NAME}
   )
 endif()

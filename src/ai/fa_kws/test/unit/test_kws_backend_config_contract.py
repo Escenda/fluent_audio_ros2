@@ -15,6 +15,9 @@ def test_default_config_requires_explicit_execution_provider() -> None:
     assert params["backend.name"] == "sherpa_onnx_kws"
     assert params["backend.execution_provider"] == ""
     assert params["expected_source_id"] == ""
+    assert params["audio_topic"] == "audio/frame"
+    assert params["expected_stream_id"] == "audio/raw/mic"
+    assert params["audio_topic"] != params["expected_stream_id"]
     assert params["vad.max_age_ms"] == 1000
     assert "model.provider" not in params
 
@@ -59,21 +62,22 @@ def test_cmake_accepts_sherpa_prefix_from_environment() -> None:
     assert '$ENV{SHERPA_ONNX_PREFIX}' in cmake_text
 
 
-def test_cmake_builds_node_without_sherpa_and_fails_closed_at_runtime() -> None:
+def test_cmake_requires_sherpa_for_runtime_targets() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
     node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
 
-    assert 'set(FA_KWS_SHERPA_ONNX "AUTO"' in cmake_text
-    assert 'FA_KWS_SHERPA_ONNX MATCHES "^(AUTO|ON|OFF)$"' in cmake_text
+    assert 'set(FA_KWS_SHERPA_ONNX "ON"' in cmake_text
+    assert 'FA_KWS_SHERPA_ONNX MATCHES "^(ON|OFF)$"' in cmake_text
     assert 'FA_KWS_SHERPA_ONNX STREQUAL "ON"' in cmake_text
     assert "FA_KWS_WITH_SHERPA_ONNX" in cmake_text
-    assert "Selecting backend.name=sherpa_onnx_kws will fail closed at node startup" in cmake_text
+    assert "FA_KWS_SHERPA_ONNX=OFF explicitly disables fa_kws runtime targets" in cmake_text
     assert "add_executable(fa_kws_node" in cmake_text
-    assert "fa_kws was built without sherpa-onnx support" in node_text
+    assert "fa_kws was built without sherpa-onnx support" not in node_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "message(FATAL_ERROR" in cmake_text
     assert "if(FA_KWS_WITH_SHERPA_ONNX)" in cmake_text
+    assert "install(TARGETS fa_kws_node fa_kws_wav_tool" in cmake_text
 
 
 def test_backend_builds_as_shared_runtime_boundary() -> None:
@@ -105,11 +109,12 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
 
     assert 'declare_parameter<std::string>("backend.execution_provider");' in node_text
     assert 'declare_parameter<std::string>("expected_source_id");' in node_text
+    assert 'declare_parameter<std::string>("expected_stream_id");' in node_text
     assert 'declare_parameter<std::string>("audio_topic");' in node_text
     assert 'declare_parameter<int>("target_sample_rate");' in node_text
     assert "expected_source_id is required" in node_text
     assert "validateTopicBindingsOrThrow();" in node_text
-    assert "frameToCanonicalFloat(*msg, expected_source_id_, audio_topic_)" in node_text
+    assert "frameToCanonicalFloat(*msg, expected_source_id_, expected_stream_id_)" in node_text
     assert 'declare_parameter<double>("vad.probability_gate");' in node_text
     assert "backend.execution_provider is required" in node_text
     assert 'declare_parameter<int>("vad.max_age_ms");' in node_text
@@ -126,7 +131,11 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     assert 'declare_parameter<int>("vad.max_age_ms", 1000)' not in node_text
     assert "vad.probability_gate must be finite and in (0.0, 1.0]" in node_text
     assert "vad.max_age_ms must be greater than zero" in node_text
-    assert "vadStateMatchesAudioBinding(*msg, expected_source_id_, audio_topic_)" in node_text
+    assert "expected_stream_id is required" in node_text
+    assert "expected_stream_id must be distinct from ROS audio_topic" in node_text
+    assert "expected_stream_id must be distinct from ROS vad_topic" in node_text
+    assert "expected_stream_id must be distinct from ROS output_topic" in node_text
+    assert "vadStateMatchesAudioBinding(*msg, expected_source_id_, expected_stream_id_)" in node_text
     assert "msg.source_id.empty() || msg.stream_id.empty()" in identity_text
     assert "expected_source_id.empty() || expected_stream_id.empty()" in identity_text
     assert "msg.source_id == expected_source_id && msg.stream_id == expected_stream_id" in identity_text
@@ -245,7 +254,7 @@ def test_kws_node_rejects_non_canonical_audio_frames() -> None:
     assert "expected_source_id is required" in audio_utils_text
     assert "expected_stream_id is required" in audio_utils_text
     assert "AudioFrame source_id must match expected_source_id" in audio_utils_text
-    assert "AudioFrame stream_id must match audio_topic" in audio_utils_text
+    assert "AudioFrame stream_id must match expected_stream_id" in audio_utils_text
     assert "AudioFrame layout must be interleaved" in audio_utils_text
     assert "AudioFrame encoding must be FLOAT32LE" in audio_utils_text
     assert "AudioFrame bit_depth must be 32" in audio_utils_text

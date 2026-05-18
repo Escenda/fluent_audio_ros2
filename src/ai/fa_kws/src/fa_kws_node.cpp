@@ -19,9 +19,7 @@
 #include "fa_kws/audio_utils.hpp"
 #include "fa_kws/backends/kws_backend.hpp"
 #include "fa_kws/vad_state_identity.hpp"
-#ifdef FA_KWS_WITH_SHERPA_ONNX
 #include "fa_kws/backends/sherpa_onnx_kws_backend.hpp"
-#endif
 #include "fa_kws/vad_gate.hpp"
 
 namespace fa_kws
@@ -55,6 +53,19 @@ void tracef(const char *fmt, ...)
   std::fflush(stderr);
 }
 
+std::string comparableIdentity(const std::string &value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string &left, const std::string &right)
+{
+  return comparableIdentity(left) == comparableIdentity(right);
+}
+
 }  // namespace
 
 class FaKwsNode : public rclcpp::Node
@@ -69,7 +80,6 @@ public:
     validateBackendOrThrow();
     validateVadInputOrThrow();
 
-#ifdef FA_KWS_WITH_SHERPA_ONNX
     validateExecutionProviderOrThrow();
     validateModelFilesOrThrow();
 
@@ -90,19 +100,16 @@ public:
     cfg.cooldown = std::chrono::milliseconds(cooldown_ms_);
 
     kws_backend_ = std::make_unique<SherpaOnnxKwsBackend>(cfg);
-#else
-    throw std::runtime_error(
-      "fa_kws was built without sherpa-onnx support (FA_KWS_WITH_SHERPA_ONNX=0)");
-#endif
 
     setupCommunication();
     setupDebug();
 
     RCLCPP_INFO(
       this->get_logger(),
-      "fa_kws initialized: audio_topic=%s expected_source_id=%s vad_topic=%s output_topic=%s target_sr=%d provider=%s",
+      "fa_kws initialized: audio_topic=%s expected_source_id=%s expected_stream_id=%s vad_topic=%s output_topic=%s target_sr=%d provider=%s",
       audio_topic_.c_str(),
       expected_source_id_.c_str(),
+      expected_stream_id_.c_str(),
       vad_topic_.c_str(),
       output_topic_.c_str(),
       target_sample_rate_,
@@ -136,6 +143,21 @@ private:
     }
     if (expected_source_id_.empty()) {
       throw std::runtime_error("expected_source_id is required");
+    }
+    if (expected_stream_id_.empty()) {
+      throw std::runtime_error("expected_stream_id is required");
+    }
+    if (sameIdentityString(expected_stream_id_, audio_topic_)) {
+      throw std::runtime_error("expected_stream_id must be distinct from ROS audio_topic");
+    }
+    if (sameIdentityString(expected_stream_id_, vad_topic_)) {
+      throw std::runtime_error("expected_stream_id must be distinct from ROS vad_topic");
+    }
+    if (sameIdentityString(expected_stream_id_, output_topic_)) {
+      throw std::runtime_error("expected_stream_id must be distinct from ROS output_topic");
+    }
+    if (sameIdentityString(audio_topic_, output_topic_)) {
+      throw std::runtime_error("audio_topic must be distinct from output_topic");
     }
   }
 
@@ -189,7 +211,6 @@ private:
     }
   }
 
-#ifdef FA_KWS_WITH_SHERPA_ONNX
   void validateExecutionProviderOrThrow() const
   {
     if (execution_provider_.empty()) {
@@ -201,11 +222,11 @@ private:
         "; supported providers: " + supportedSherpaOnnxExecutionProvidersForMessage());
     }
   }
-#endif
 
   void loadParameters()
   {
     audio_topic_ = this->declare_parameter<std::string>("audio_topic");
+    expected_stream_id_ = this->declare_parameter<std::string>("expected_stream_id");
     vad_topic_ = this->declare_parameter<std::string>("vad_topic");
     output_topic_ = this->declare_parameter<std::string>("output_topic");
     expected_source_id_ = this->declare_parameter<std::string>("expected_source_id");
@@ -293,7 +314,7 @@ private:
     if (!msg) {
       return;
     }
-    if (!vadStateMatchesAudioBinding(*msg, expected_source_id_, audio_topic_)) {
+    if (!vadStateMatchesAudioBinding(*msg, expected_source_id_, expected_stream_id_)) {
       clearVadState();
       RCLCPP_ERROR_THROTTLE(
         this->get_logger(),
@@ -303,7 +324,7 @@ private:
         msg->source_id.c_str(),
         expected_source_id_.c_str(),
         msg->stream_id.c_str(),
-        audio_topic_.c_str());
+        expected_stream_id_.c_str());
       return;
     }
     if (!isValidVadProbability(msg->probability)) {
@@ -389,7 +410,7 @@ private:
 
     std::vector<float> samples;
     try {
-      samples = frameToCanonicalFloat(*msg, expected_source_id_, audio_topic_);
+      samples = frameToCanonicalFloat(*msg, expected_source_id_, expected_stream_id_);
     } catch (const std::invalid_argument &e) {
       RCLCPP_ERROR(this->get_logger(), "Dropping invalid AudioFrame: %s", e.what());
       return;
@@ -448,6 +469,7 @@ private:
   std::string vad_topic_;
   std::string output_topic_;
   std::string expected_source_id_;
+  std::string expected_stream_id_;
   std::string backend_name_;
 
   int target_sample_rate_{};
