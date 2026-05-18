@@ -9,6 +9,7 @@ from typing import Iterable
 
 import numpy as np
 import rclpy
+from rclpy.exceptions import ParameterUninitializedException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -31,36 +32,12 @@ class FaAsrNode(Node):
     def __init__(self) -> None:
         super().__init__("fa_asr")
 
-        self.declare_parameter("audio_topic", "audio/frame")
-        self.declare_parameter("vad_topic", "voice/vad_state")
-        self.declare_parameter("turn_context_topic", "conversation/turn_context")
-        self.declare_parameter("asr_result_topic", "voice/asr/result")
-        self.declare_parameter("expected_source_id", "")
-        self.declare_parameter("expected_stream_id", "")
-        self.declare_parameter("target_sample_rate", 16000)
-        self.declare_parameter("min_audio_sec", 0.3)
-        self.declare_parameter("silence_timeout_sec", 10.0)
-        self.declare_parameter("finalize_on_vad_end", True)
-        self.declare_parameter("finalize_on_context_inactive", True)
-        self.declare_parameter("workspace_dir", "/tmp/fa_asr")
-        self.declare_parameter("cleanup_audio_files", True)
-        self.declare_parameter("backend.name", "")
-        self.declare_parameter("backend.model", "")
-        self.declare_parameter("backend.command", "")
-        self.declare_parameter("backend.model_path", "")
-        self.declare_parameter("backend.openai_realtime.api_key_env", "")
-        self.declare_parameter("backend.openai_transcriptions.api_key_env", "")
-        self.declare_parameter("backend.language", "ja")
-        self.declare_parameter("backend.timeout_sec", 120.0)
-        self.declare_parameter("backend.working_directory", "")
-        self.declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)
-        self.declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)
-        self.declare_parameter("backend.output_text_path", "")
+        self._declare_required_parameters()
 
-        self.audio_topic = self._string_parameter("audio_topic")
-        self.vad_topic = self._string_parameter("vad_topic")
-        self.turn_context_topic = self._string_parameter("turn_context_topic")
-        self.asr_result_topic = self._string_parameter("asr_result_topic")
+        self.audio_topic = self._string_parameter("audio_topic").strip()
+        self.vad_topic = self._string_parameter("vad_topic").strip()
+        self.turn_context_topic = self._string_parameter("turn_context_topic").strip()
+        self.asr_result_topic = self._string_parameter("asr_result_topic").strip()
         self.expected_source_id = self._string_parameter("expected_source_id").strip()
         if not self.expected_source_id:
             raise RuntimeError("expected_source_id is required")
@@ -76,6 +53,7 @@ class FaAsrNode(Node):
         )
         self.workspace_dir = Path(self._string_parameter("workspace_dir")).expanduser()
         self.cleanup_audio_files = self._bool_parameter("cleanup_audio_files")
+        self._validate_identity_contract()
 
         self.backend = self._load_backend()
 
@@ -127,6 +105,57 @@ class FaAsrNode(Node):
             self.backend.name,
         )
 
+    def _declare_required_parameters(self) -> None:
+        self.declare_parameter("audio_topic", Parameter.Type.STRING)
+        self.declare_parameter("vad_topic", Parameter.Type.STRING)
+        self.declare_parameter("turn_context_topic", Parameter.Type.STRING)
+        self.declare_parameter("asr_result_topic", Parameter.Type.STRING)
+        self.declare_parameter("expected_source_id", Parameter.Type.STRING)
+        self.declare_parameter("expected_stream_id", Parameter.Type.STRING)
+        self.declare_parameter("target_sample_rate", Parameter.Type.INTEGER)
+        self.declare_parameter("min_audio_sec", Parameter.Type.DOUBLE)
+        self.declare_parameter("silence_timeout_sec", Parameter.Type.DOUBLE)
+        self.declare_parameter("finalize_on_vad_end", Parameter.Type.BOOL)
+        self.declare_parameter("finalize_on_context_inactive", Parameter.Type.BOOL)
+        self.declare_parameter("workspace_dir", Parameter.Type.STRING)
+        self.declare_parameter("cleanup_audio_files", Parameter.Type.BOOL)
+        self.declare_parameter("backend.name", Parameter.Type.STRING)
+        self.declare_parameter("backend.model", Parameter.Type.STRING)
+        self.declare_parameter("backend.command", Parameter.Type.STRING)
+        self.declare_parameter("backend.model_path", Parameter.Type.STRING)
+        self.declare_parameter("backend.openai_realtime.api_key_env", Parameter.Type.STRING)
+        self.declare_parameter(
+            "backend.openai_transcriptions.api_key_env",
+            Parameter.Type.STRING,
+        )
+        self.declare_parameter("backend.language", Parameter.Type.STRING)
+        self.declare_parameter("backend.timeout_sec", Parameter.Type.DOUBLE)
+        self.declare_parameter("backend.working_directory", Parameter.Type.STRING)
+        self.declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)
+        self.declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)
+        self.declare_parameter("backend.output_text_path", Parameter.Type.STRING)
+
+    def _validate_identity_contract(self) -> None:
+        topics = (
+            ("audio_topic", self.audio_topic),
+            ("vad_topic", self.vad_topic),
+            ("turn_context_topic", self.turn_context_topic),
+            ("asr_result_topic", self.asr_result_topic),
+        )
+        for topic_name, topic_value in topics:
+            if not topic_value:
+                raise RuntimeError(f"{topic_name} is required")
+            if self._same_identity_string(self.expected_stream_id, topic_value):
+                raise RuntimeError(
+                    f"expected_stream_id must be distinct from ROS {topic_name}"
+                )
+        if self._same_identity_string(self.audio_topic, self.asr_result_topic):
+            raise RuntimeError("audio_topic must be distinct from asr_result_topic")
+
+    @staticmethod
+    def _same_identity_string(left: str, right: str) -> bool:
+        return left.lstrip("/") == right.lstrip("/")
+
     def _load_backend(self) -> AsrBackend:
         return build_asr_backend(
             AsrBackendSettings(
@@ -155,34 +184,57 @@ class FaAsrNode(Node):
         return self._string_array_parameter("backend.args")
 
     def _string_parameter(self, name: str) -> str:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+            value = parameter.value
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.STRING:
             raise RuntimeError(f"{name} must be a string")
-        return parameter.value
+        return value
 
     def _bool_parameter(self, name: str) -> bool:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+            value = parameter.value
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.BOOL:
             raise RuntimeError(f"{name} must be a bool")
-        return parameter.value
+        return value
 
     def _integer_parameter(self, name: str) -> int:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+            value = parameter.value
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.INTEGER:
             raise RuntimeError(f"{name} must be an integer")
-        return parameter.value
+        return value
 
     def _double_parameter(self, name: str) -> float:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+            value = parameter.value
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.DOUBLE:
             raise RuntimeError(f"{name} must be a double")
-        return parameter.value
+        return value
 
     def _string_array_parameter(self, name: str) -> tuple[str, ...]:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.STRING_ARRAY:
             raise RuntimeError(f"{name} must be a string array")
-        return tuple(parameter.get_parameter_value().string_array_value)
+        try:
+            array_value = parameter.get_parameter_value().string_array_value
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
+        return tuple(array_value)
 
     def on_turn_context(self, msg: TurnContext) -> None:
         if not msg.active or not msg.session_id:

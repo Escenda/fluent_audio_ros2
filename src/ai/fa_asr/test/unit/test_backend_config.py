@@ -194,6 +194,10 @@ class _BackendCrash(Exception):
     pass
 
 
+class _FakeParameterUninitializedException(Exception):
+    pass
+
+
 class _FailingAsrBackend:
     name = "failing"
 
@@ -223,6 +227,9 @@ def _install_asr_node_import_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
     parameter_module = ModuleType("rclpy.parameter")
     parameter_module.Parameter = _FakeParameter
 
+    exceptions_module = ModuleType("rclpy.exceptions")
+    exceptions_module.ParameterUninitializedException = _FakeParameterUninitializedException
+
     qos_module = ModuleType("rclpy.qos")
     qos_module.HistoryPolicy = _FakeHistoryPolicy
     qos_module.QoSProfile = _FakeQoSProfile
@@ -236,6 +243,7 @@ def _install_asr_node_import_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
     fa_interfaces_msg_module.VadState = _FakeVadState
 
     monkeypatch.setitem(sys.modules, "rclpy", rclpy_module)
+    monkeypatch.setitem(sys.modules, "rclpy.exceptions", exceptions_module)
     monkeypatch.setitem(sys.modules, "rclpy.node", node_module)
     monkeypatch.setitem(sys.modules, "rclpy.parameter", parameter_module)
     monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
@@ -304,10 +312,13 @@ def test_default_config_requires_explicit_backend_name() -> None:
     assert params["backend.health_args"] == []
     assert params["expected_source_id"] == ""
     assert params["expected_stream_id"] == ""
-    assert 'declare_parameter("expected_source_id", "")' in source
-    assert 'declare_parameter("expected_stream_id", "")' in source
+    assert 'declare_parameter("expected_source_id", Parameter.Type.STRING)' in source
+    assert 'declare_parameter("expected_stream_id", Parameter.Type.STRING)' in source
+    assert 'declare_parameter("target_sample_rate", 16000)' not in source
+    assert 'declare_parameter("backend.timeout_sec", 120.0)' not in source
+    assert 'declare_parameter("finalize_on_vad_end", True)' not in source
     assert 'declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)' in source
-    assert "ParameterUninitializedException" not in source
+    assert "ParameterUninitializedException" in source
     assert "return tuple()" not in source
     assert "tuple(str(part) for part in args_value)" not in source
 
@@ -434,6 +445,11 @@ def test_asr_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame source_id must match expected_source_id" in source
     assert "AudioFrame stream_id must match expected_stream_id" in source
     assert "expected_stream_id=self.expected_stream_id" in source
+    assert "expected_stream_id must be distinct from ROS" in source
+    assert '("audio_topic", self.audio_topic)' in source
+    assert '("vad_topic", self.vad_topic)' in source
+    assert '("turn_context_topic", self.turn_context_topic)' in source
+    assert '("asr_result_topic", self.asr_result_topic)' in source
     assert "AudioFrame layout must be interleaved" in source
     assert "AudioFrame encoding must be FLOAT32LE" in source
     assert "AudioFrame bit_depth must be 32" in source
