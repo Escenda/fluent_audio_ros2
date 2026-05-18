@@ -13,7 +13,7 @@
 ## Input
 
 - ALSA PCM source id。`hw:` で始まる raw hardware source のみ許可する
-- 表示名指定時は完全一致かつ 1 件だけに解決されること
+- 表示名指定時は完全一致かつ 1 件だけに解決されること。空表示名を raw id として扱う fallback はしない
 - sample rate
 - channels
 - encoding / bit depth pair。許可する組は `PCM16LE/16`, `PCM32LE/32`, `FLOAT32LE/32`
@@ -30,6 +30,7 @@
 - source enumeration failure
 - configured source missing
 - configured `id` が `hw:` raw hardware id ではない
+- configured `name` が raw `hw:` id である
 - configured display name が複数 source に一致する
 - configured source が ALSA plugin PCM (`default`, `plug*`, `plughw*`, `sysdefault`, `pulse`, `pipewire` など)
 - open failure

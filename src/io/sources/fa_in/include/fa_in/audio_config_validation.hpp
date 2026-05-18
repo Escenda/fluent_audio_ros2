@@ -45,6 +45,10 @@ inline void requireDeviceSelector(
       throw std::runtime_error(
         "audio.device_selector.identifier is required when audio.device_selector.mode=name");
     }
+    if (isRawAlsaHardwareSource(identifier)) {
+      throw std::runtime_error(
+        "audio.device_selector.identifier must be a display name, not a raw hw: source id, when audio.device_selector.mode=name");
+    }
     return;
   }
 
@@ -95,6 +99,10 @@ inline void requireSwitchDeviceSelector(
     if (target_identifier.empty()) {
       throw std::runtime_error(
         "switch_device target_identifier is required when target_selector_mode=name");
+    }
+    if (isRawAlsaHardwareSource(target_identifier)) {
+      throw std::runtime_error(
+        "switch_device target_identifier must be a display name, not a raw hw: source id, when target_selector_mode=name");
     }
     if (target_index >= 0) {
       throw std::runtime_error(

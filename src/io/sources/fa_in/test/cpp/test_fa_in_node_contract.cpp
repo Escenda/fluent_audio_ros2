@@ -43,9 +43,6 @@ struct FakeSourceState
 
 std::string displayName(const fa_in::backends::DeviceInfo & device)
 {
-  if (device.name.empty()) {
-    return device.id;
-  }
   return device.name;
 }
 
@@ -167,6 +164,7 @@ std::vector<rclcpp::Parameter> validParameters()
 {
   return {
     rclcpp::Parameter("backend.name", "alsa_capture"),
+    rclcpp::Parameter("output_topic", "fa_in_contract/output"),
     rclcpp::Parameter("audio.device_selector.mode", "id"),
     rclcpp::Parameter("audio.device_selector.identifier", "hw:0,0"),
     rclcpp::Parameter("audio.device_selector.index", -1),
@@ -175,8 +173,10 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("audio.bit_depth", 16),
     rclcpp::Parameter("audio.chunk_ms", 1),
     rclcpp::Parameter("audio.encoding", "PCM16LE"),
-    rclcpp::Parameter("audio.stream_id", "audio/frame"),
+    rclcpp::Parameter("audio.stream_id", "audio/raw/mic"),
     rclcpp::Parameter("audio.layout", "interleaved"),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   };
 }
@@ -269,6 +269,26 @@ TEST_F(RclcppContractTest, RejectsUnsupportedBackendBeforeCreatingBackend)
   EXPECT_EQ(factory_calls.load(), 0u);
 }
 
+TEST_F(RclcppContractTest, RejectsStreamIdMatchingOutputTopicBeforeCreatingBackend)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("output_topic", "/fa_in_contract/output"));
+  replaceParameter(parameters, rclcpp::Parameter("audio.stream_id", "fa_in_contract/output"));
+  std::atomic<size_t> factory_calls{0};
+
+  EXPECT_THROW(
+    {
+      auto node = std::make_shared<fa_in::FaInNode>(
+        optionsWith(std::move(parameters)),
+        [&factory_calls]() {
+          factory_calls.fetch_add(1);
+          return std::unique_ptr<fa_in::backends::SourceBackend>{};
+        });
+    },
+    std::runtime_error);
+  EXPECT_EQ(factory_calls.load(), 0u);
+}
+
 TEST_F(RclcppContractTest, PublishesConfiguredMetadataAndRawSourcePayload)
 {
   const auto state = std::make_shared<FakeSourceState>();
@@ -278,7 +298,7 @@ TEST_F(RclcppContractTest, PublishesConfiguredMetadataAndRawSourcePayload)
   auto subscriber_node = std::make_shared<rclcpp::Node>("fa_in_contract_subscriber");
   std::optional<fa_interfaces::msg::AudioFrame> received;
   auto subscription = subscriber_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    "audio/frame",
+    "fa_in_contract/output",
     rclcpp::SensorDataQoS(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received = *msg;
@@ -293,7 +313,7 @@ TEST_F(RclcppContractTest, PublishesConfiguredMetadataAndRawSourcePayload)
   }));
   ASSERT_TRUE(received.has_value());
   EXPECT_EQ(received->source_id, "hw:0,0");
-  EXPECT_EQ(received->stream_id, "audio/frame");
+  EXPECT_EQ(received->stream_id, "audio/raw/mic");
   EXPECT_EQ(received->encoding, "PCM16LE");
   EXPECT_EQ(received->sample_rate, 48000u);
   EXPECT_EQ(received->channels, 1u);
@@ -326,6 +346,26 @@ TEST_F(RclcppContractTest, NameSelectorRejectsRawId)
   auto parameters = validParameters();
   replaceParameter(parameters, rclcpp::Parameter("audio.device_selector.mode", "name"));
   replaceParameter(parameters, rclcpp::Parameter("audio.device_selector.identifier", "hw:0,0"));
+
+  EXPECT_THROW(
+    {
+      auto node = std::make_shared<fa_in::FaInNode>(
+        optionsWith(std::move(parameters)),
+        factoryFor(state));
+    },
+    std::runtime_error);
+  EXPECT_TRUE(openedDevice(state).empty());
+}
+
+TEST_F(RclcppContractTest, NameSelectorDoesNotFallbackToRawIdWhenDisplayNameIsEmpty)
+{
+  const auto state = std::make_shared<FakeSourceState>();
+  state->devices = {
+    fa_in::backends::DeviceInfo{"hw:2,0", "", 2, 48000},
+  };
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("audio.device_selector.mode", "name"));
+  replaceParameter(parameters, rclcpp::Parameter("audio.device_selector.identifier", "hw:2,0"));
 
   EXPECT_THROW(
     {

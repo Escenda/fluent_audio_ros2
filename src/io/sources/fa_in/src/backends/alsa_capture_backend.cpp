@@ -30,9 +30,6 @@ void silenceAlsaErrors(
 
 std::string displayName(const DeviceInfo& device)
 {
-  if (device.name.empty()) {
-    return device.id;
-  }
   return device.name;
 }
 

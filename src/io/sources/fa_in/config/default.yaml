@@ -1,6 +1,7 @@
 fa_in:
   ros__parameters:
     backend.name: "alsa_capture"
+    output_topic: "fa_in/output"
     audio:
       device_selector:
         mode: "id"          # id | index | name
@@ -11,7 +12,10 @@ fa_in:
       bit_depth: 16           # PCM16LE=16, PCM32LE/FLOAT32LE=32
       chunk_ms: 20
       encoding: "PCM16LE"     # PCM16LE | PCM32LE | FLOAT32LE
-      stream_id: "audio/frame"
+      stream_id: "audio/raw/mic"
       layout: "interleaved"
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000

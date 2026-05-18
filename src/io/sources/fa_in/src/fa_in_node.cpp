@@ -3,6 +3,7 @@
 #include "fa_in/audio_config_validation.hpp"
 
 #include <functional>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -47,9 +48,6 @@ backends::DeviceSelector backendSelectorFromConfig(const AudioConfig & config)
 
 std::string displayName(const backends::DeviceInfo & device)
 {
-  if (device.name.empty()) {
-    return device.id;
-  }
   return device.name;
 }
 
@@ -58,6 +56,66 @@ FaInNode::BackendFactory defaultBackendFactory()
   return []() {
     return std::make_unique<backends::AlsaCaptureBackend>();
   };
+}
+
+std::string removeLeadingSlashes(std::string value)
+{
+  while (!value.empty() && value.front() == '/') {
+    value.erase(value.begin());
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return left == right || removeLeadingSlashes(left) == removeLeadingSlashes(right);
+}
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
 }
 }  // namespace
 
@@ -75,8 +133,19 @@ FaInNode::FaInNode(const rclcpp::NodeOptions & options, BackendFactory backend_f
   }
   loadParameters();
 
-  audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>("audio/frame", rclcpp::SensorDataQoS());
-  diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("diagnostics", rclcpp::SystemDefaultsQoS());
+  audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(
+    config_.output_topic,
+    rclcpp::SensorDataQoS());
+
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
+  }
+  diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
+    "diagnostics",
+    diagnostics_qos);
 
   list_devices_srv_ = this->create_service<fa_interfaces::srv::ListDevices>(
     "list_devices",
@@ -111,9 +180,10 @@ bool FaInNode::hasFatalError() const
 void FaInNode::loadParameters()
 {
   this->declare_parameter<std::string>("backend.name");
+  this->declare_parameter<std::string>("output_topic");
   this->declare_parameter<std::string>("audio.device_selector.mode");
-  this->declare_parameter("audio.device_selector.identifier", config_.device_identifier);
-  this->declare_parameter<int>("audio.device_selector.index", config_.device_index);
+  this->declare_parameter<std::string>("audio.device_selector.identifier");
+  this->declare_parameter<int>("audio.device_selector.index");
   this->declare_parameter<int>("audio.sample_rate");
   this->declare_parameter<int>("audio.channels");
   this->declare_parameter<int>("audio.bit_depth");
@@ -121,26 +191,33 @@ void FaInNode::loadParameters()
   this->declare_parameter<std::string>("audio.encoding");
   this->declare_parameter<std::string>("audio.stream_id");
   this->declare_parameter<std::string>("audio.layout");
+  this->declare_parameter<int>("diagnostics.qos.depth");
+  this->declare_parameter<bool>("diagnostics.qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.backend_name = this->get_parameter("backend.name").as_string();
-  config_.device_mode = this->get_parameter("audio.device_selector.mode").as_string();
-  config_.device_identifier = this->get_parameter("audio.device_selector.identifier").as_string();
-  config_.device_index = this->get_parameter("audio.device_selector.index").as_int();
+  config_.backend_name = readRequiredString(*this, "backend.name");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.device_mode = readRequiredString(*this, "audio.device_selector.mode");
+  config_.device_identifier = readRequiredString(*this, "audio.device_selector.identifier");
+  config_.device_index = readRequiredInt(*this, "audio.device_selector.index");
   config_.sample_rate = validation::requirePositiveUint32(
-    "audio.sample_rate", this->get_parameter("audio.sample_rate").as_int());
+    "audio.sample_rate", readRequiredInt(*this, "audio.sample_rate"));
   config_.channels = validation::requirePositiveUint32(
-    "audio.channels", this->get_parameter("audio.channels").as_int());
+    "audio.channels", readRequiredInt(*this, "audio.channels"));
   config_.bit_depth = validation::requirePositiveUint32(
-    "audio.bit_depth", this->get_parameter("audio.bit_depth").as_int());
+    "audio.bit_depth", readRequiredInt(*this, "audio.bit_depth"));
   config_.chunk_ms = validation::requirePositiveUint32(
-    "audio.chunk_ms", this->get_parameter("audio.chunk_ms").as_int());
-  config_.encoding = this->get_parameter("audio.encoding").as_string();
-  config_.stream_id = this->get_parameter("audio.stream_id").as_string();
-  config_.layout = this->get_parameter("audio.layout").as_string();
+    "audio.chunk_ms", readRequiredInt(*this, "audio.chunk_ms"));
+  config_.encoding = readRequiredString(*this, "audio.encoding");
+  config_.stream_id = readRequiredString(*this, "audio.stream_id");
+  config_.layout = readRequiredString(*this, "audio.layout");
+  config_.diagnostics_qos_depth = validation::requirePositiveUint32(
+    "diagnostics.qos.depth",
+    readRequiredInt(*this, "diagnostics.qos.depth"));
+  config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
   config_.diag_period_ms = validation::requirePositiveUint32(
     "diagnostics.publish_period_ms",
-    this->get_parameter("diagnostics.publish_period_ms").as_int());
+    readRequiredInt(*this, "diagnostics.publish_period_ms"));
 
   validation::requireDeviceSelector(
     config_.device_mode, config_.device_identifier, config_.device_index);
@@ -151,8 +228,18 @@ void FaInNode::loadParameters()
   if (config_.backend_name != "alsa_capture") {
     throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
   }
+  if (config_.output_topic.empty()) {
+    throw std::runtime_error("output_topic is required");
+  }
   if (config_.stream_id.empty()) {
     throw std::runtime_error("audio.stream_id is required");
+  }
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(config_.stream_id, config_.output_topic) ||
+      sameIdentityString(config_.stream_id, resolved_output_topic))
+  {
+    throw std::runtime_error("audio.stream_id must be distinct from ROS output_topic");
   }
   if (config_.layout != kInterleavedLayout) {
     throw std::runtime_error("audio.layout must be interleaved for backend.name=alsa_capture");
@@ -353,13 +440,19 @@ void FaInNode::publishDiagnostics()
     status.values.push_back(kv);
   };
 
-  status.values.reserve(6);
+  status.values.reserve(11);
   push_kv("device_id", active_device_id_);
+  push_kv("output_topic", config_.output_topic);
+  push_kv("stream_id", config_.stream_id);
   push_kv("sample_rate", std::to_string(config_.sample_rate));
+  push_kv("channels", std::to_string(config_.channels));
+  push_kv("encoding", config_.encoding);
   push_kv("chunk_ms", std::to_string(config_.chunk_ms));
   push_kv("frames_published", std::to_string(frames_published_.load()));
   push_kv("xruns", std::to_string(xruns_.load()));
   push_kv("last_frame_age_ms", std::to_string(age_ms));
+  push_kv("diagnostics.qos.depth", std::to_string(config_.diagnostics_qos_depth));
+  push_kv("diagnostics.qos.reliable", config_.diagnostics_qos_reliable ? "true" : "false");
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);
@@ -506,7 +599,7 @@ void FaInNode::handleSwitchDevice(
   }
 
   active_device_id_ = device_id;
-  active_device_name_ = device_name.empty() ? device_id : device_name;
+  active_device_name_ = device_name;
 
   startCaptureThread();
   response->success = true;

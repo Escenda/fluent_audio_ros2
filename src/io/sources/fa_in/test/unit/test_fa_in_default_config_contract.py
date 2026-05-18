@@ -14,11 +14,15 @@ def test_default_config_requires_explicit_source_identifier() -> None:
     selector = params["audio"]["device_selector"]
 
     assert params["backend.name"] == "alsa_capture"
+    assert params["output_topic"] == "fa_in/output"
     assert "backend" not in params
     assert params["audio"]["encoding"] == "PCM16LE"
     assert params["audio"]["bit_depth"] == 16
-    assert params["audio"]["stream_id"] == "audio/frame"
+    assert params["audio"]["stream_id"] == "audio/raw/mic"
+    assert params["output_topic"] != params["audio"]["stream_id"]
     assert params["audio"]["layout"] == "interleaved"
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is False
     assert selector["mode"] == "id"
     assert selector["identifier"] == ""
     assert '"default"' not in config_text
@@ -35,6 +39,7 @@ def test_source_backend_has_no_struct_default() -> None:
     source_text = source_path.read_text(encoding="utf-8")
 
     assert "std::string backend_name{};" in header_text
+    assert "std::string output_topic{};" in header_text
     assert "std::string device_mode{};" in header_text
     assert "uint32_t sample_rate{0};" in header_text
     assert "uint32_t channels{0};" in header_text
@@ -45,6 +50,7 @@ def test_source_backend_has_no_struct_default() -> None:
     assert "std::string layout{};" in header_text
     assert "uint32_t diag_period_ms{0};" in header_text
     assert "size_t bytes_per_buffer_{0};" in header_text
+    assert 'declare_parameter<std::string>("output_topic")' in source_text
     assert 'declare_parameter<int>("audio.sample_rate")' in source_text
     assert 'declare_parameter<int>("audio.channels")' in source_text
     assert 'declare_parameter<int>("audio.bit_depth")' in source_text
@@ -52,7 +58,14 @@ def test_source_backend_has_no_struct_default() -> None:
     assert 'declare_parameter<std::string>("audio.encoding")' in source_text
     assert 'declare_parameter<std::string>("audio.stream_id")' in source_text
     assert 'declare_parameter<std::string>("audio.layout")' in source_text
+    assert 'declare_parameter<int>("diagnostics.qos.depth")' in source_text
+    assert 'declare_parameter<bool>("diagnostics.qos.reliable")' in source_text
     assert 'declare_parameter<int>("diagnostics.publish_period_ms")' in source_text
+    assert "readRequiredString(*this, \"output_topic\")" in source_text
+    assert "readRequiredBool(*this, \"diagnostics.qos.reliable\")" in source_text
+    forbidden_identifier_default = "declare_parameter(\"audio.device_selector.identifier\", "
+    forbidden_identifier_default += "config_"
+    assert forbidden_identifier_default not in source_text
     assert "requirePositiveUint32" in source_text
     assert "std::max<uint32_t>" not in source_text
     assert "validation::bytesPerFrame" in source_text
@@ -62,14 +75,18 @@ def test_source_backend_has_no_struct_default() -> None:
     assert "audio.channels * audio.bit_depth exceeds size_t range" in validation_text
 
 
-def test_launch_default_node_name_matches_config_root() -> None:
+def test_launch_requires_explicit_node_name_and_config_file() -> None:
     package_root = Path(__file__).parents[2]
     launch_text = (package_root / "launch" / "fa_in.launch.py").read_text(encoding="utf-8")
     config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
     node_source = (package_root / "src" / "fa_in_node.cpp").read_text(encoding="utf-8")
     main_source = (package_root / "src" / "main.cpp").read_text(encoding="utf-8")
 
-    assert 'default_value="fa_in"' in launch_text
+    assert ("default_" + "value") not in launch_text
+    assert ("FindPackage" + "Share") not in launch_text
+    assert ("PathJoin" + "Substitution") not in launch_text
+    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
+    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
     assert 'rclcpp::Node("fa_in", options)' in node_source
     assert 'status.name = "fa_in";' in node_source
     assert 'get_logger("fa_in")' in main_source
@@ -89,6 +106,24 @@ def test_publish_frame_sets_required_audio_frame_identity_without_analysis_field
     assert ".rms" not in publish_frame
     assert ".peak" not in publish_frame
     assert ".vad" not in publish_frame
+
+
+def test_publishers_use_explicit_output_topic_and_diagnostics_qos() -> None:
+    source_path = Path(__file__).parents[2] / "src" / "fa_in_node.cpp"
+    source = source_path.read_text(encoding="utf-8")
+
+    assert "create_publisher<fa_interfaces::msg::AudioFrame>(" in source
+    assert "config_.output_topic" in source
+    assert "diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth))" in source
+    assert "diagnostics_qos.reliable();" in source
+    assert "diagnostics_qos.best_effort();" in source
+    assert "System" + "Defaults" + "QoS" not in source
+    forbidden_hardcoded_audio_topic = (
+        "audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(\""
+    )
+    forbidden_hardcoded_audio_topic += "audio/"
+    forbidden_hardcoded_audio_topic += "frame\""
+    assert forbidden_hardcoded_audio_topic not in source
 
 
 def test_alsa_backend_filters_plugin_pcm_sources() -> None:
@@ -178,6 +213,15 @@ def test_alsa_name_selector_fails_closed_on_duplicate_display_names() -> None:
     backend_doc = (package_root / "docs" / "backends" / "alsa.md").read_text(
         encoding="utf-8"
     )
+    validation_header = (
+        package_root / "include" / "fa_in" / "audio_config_validation.hpp"
+    ).read_text(encoding="utf-8")
+    node_display_name = node_source.split("std::string displayName")[1].split(
+        "FaInNode::BackendFactory"
+    )[0]
+    backend_display_name = backend_source.split("std::string displayName")[1].split(
+        "snd_pcm_format_t"
+    )[0]
     id_selector_block = backend_source.split('if (selector.mode == "id")')[1].split(
         'if (selector.mode == "name")'
     )[0]
@@ -193,6 +237,11 @@ def test_alsa_name_selector_fails_closed_on_duplicate_display_names() -> None:
     assert "display_name_matches.size() == 1" in backend_source
     assert "display_name_matches.size() > 1" in backend_source
     assert "Configured ALSA input source name is ambiguous" in backend_source
+    assert "must be a display name, not a raw hw: source id" in validation_header
+    forbidden_display_name_fallback = "return device"
+    forbidden_display_name_fallback += ".id;"
+    assert forbidden_display_name_fallback not in node_display_name
+    assert forbidden_display_name_fallback not in backend_display_name
     assert "display_name_matches.size() == 1" in node_source
     assert "display_name_matches.size() > 1" in node_source
     assert "device name is ambiguous" in node_source

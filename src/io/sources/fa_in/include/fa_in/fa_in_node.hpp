@@ -26,9 +26,10 @@ namespace fa_in
 struct AudioConfig
 {
   std::string backend_name{};
+  std::string output_topic{};
   std::string device_mode{};
   std::string device_identifier{};
-  int device_index{-1};
+  int device_index{};
   uint32_t sample_rate{0};
   uint32_t channels{0};
   uint32_t bit_depth{0};
@@ -36,6 +37,8 @@ struct AudioConfig
   std::string encoding{};
   std::string stream_id{};
   std::string layout{};
+  uint32_t diagnostics_qos_depth{0};
+  bool diagnostics_qos_reliable{false};
   uint32_t diag_period_ms{0};
 };
 
