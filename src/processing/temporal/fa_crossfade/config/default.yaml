@@ -1,0 +1,31 @@
+fa_crossfade:
+  ros__parameters:
+    input_a_topic: "fa_crossfade/input_a"
+    input_b_topic: "fa_crossfade/input_b"
+    output_topic: "fa_crossfade/output"
+    input_a_stream_id: "audio/segment/a"
+    input_b_stream_id: "audio/segment/b"
+
+    output:
+      stream_id: "audio/crossfaded/segment"
+
+    crossfade:
+      overlap_frames: 1600
+      curve: "linear"
+
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: "FLOAT32LE"
+      bit_depth: 32
+      layout: "interleaved"
+
+    qos:
+      depth: 10
+      reliable: false
+
+    diagnostics:
+      qos:
+        depth: 10
+        reliable: false
+      publish_period_ms: 1000
