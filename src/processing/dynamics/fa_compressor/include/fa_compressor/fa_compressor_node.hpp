@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
@@ -11,6 +12,11 @@
 
 namespace fa_compressor
 {
+
+namespace backends
+{
+class InternalStaticCurveBackend;
+}  // namespace backends
 
 struct CompressorConfig
 {
@@ -36,18 +42,21 @@ class FaCompressorNode : public rclcpp::Node
 {
 public:
   FaCompressorNode();
-  ~FaCompressorNode() override = default;
+  ~FaCompressorNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyCompressor(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   CompressorConfig config_;
+  std::unique_ptr<backends::InternalStaticCurveBackend> backend_{};
+
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;

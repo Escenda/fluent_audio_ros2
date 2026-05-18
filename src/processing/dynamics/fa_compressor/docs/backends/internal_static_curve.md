@@ -2,14 +2,15 @@
 
 ## 1. Backend
 
-`fa_compressor` の backend は node 内部の static curve 実装である。外部 DSP library、device API、resampler、limiter、gate、normalize backend は使わない。
+`internal_static_curve` は `fa_compressor` package 内の ROS 非依存 deterministic backend
+である。外部 DSP library、device API、resampler、limiter、gate、normalize backend は使わない。
+ROS node は parameter、AudioFrame metadata 検証、diagnostics、publish/subscribe のみを持つ。
 
 ## 2. 入力
 
-- `fa_interfaces/msg/AudioFrame`
-- `FLOAT32LE`
-- `interleaved`
+- validated `FLOAT32LE` interleaved sample bytes
 - finite normalized sample
+- config: `channels`, `threshold_linear`, `ratio`, `makeup_gain_linear`
 
 ## 3. 処理
 
@@ -17,4 +18,8 @@ sample ごとに `threshold + (abs(sample) - threshold) / ratio` の knee なし
 
 ## 4. 出力
 
-`AudioFrame.data` を圧縮後 sample bytes に更新する。出力 sample が正規化範囲を超える場合は frame を publish しない。
+backend は `ProcessResult{status, samples_compressed}` を返す。出力 sample が正規化範囲を
+超える場合は `kOutOfRangeOutput` を返し、output buffer と compressed sample counter を
+commit しない。node は frame を publish せず drop counter で可視化する。
+
+backend は `rclcpp`、`fa_interfaces/msg/AudioFrame`、`diagnostic_msgs` に依存しない。

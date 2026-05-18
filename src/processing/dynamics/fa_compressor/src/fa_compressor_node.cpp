@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -11,6 +10,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_compressor/backends/internal_static_curve.hpp"
 
 namespace fa_compressor
 {
@@ -19,8 +19,6 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
 
 bool isFinite(double value)
 {
@@ -44,8 +42,11 @@ FaCompressorNode::FaCompressorNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Compressor node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaCompressorNode::~FaCompressorNode() = default;
 
 void FaCompressorNode::loadParameters()
 {
@@ -140,6 +141,16 @@ void FaCompressorNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
+void FaCompressorNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalStaticCurveBackend>(
+    backends::InternalStaticCurveConfig{
+      config_.expected_channels,
+      config_.threshold_linear,
+      config_.ratio,
+      config_.makeup_gain_linear});
+}
+
 void FaCompressorNode::setupInterfaces()
 {
   rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
@@ -166,6 +177,14 @@ void FaCompressorNode::setupInterfaces()
 void FaCompressorNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   frames_in_.fetch_add(1);
+
+  if (!msg) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping null AudioFrame pointer");
+    frames_dropped_.fetch_add(1);
+    return;
+  }
 
   if (!validateFrame(*msg)) {
     frames_dropped_.fetch_add(1);
@@ -244,56 +263,16 @@ bool FaCompressorNode::applyCompressor(
 {
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const double threshold = config_.threshold_linear;
-  const double ratio = config_.ratio;
-  const double makeup_gain = config_.makeup_gain_linear;
-  const size_t sample_count = in.data.size() / sizeof(float);
-  uint64_t compressed_in_frame = 0;
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!std::isfinite(sample) || sample < kMinNormalizedSample || sample > kMaxNormalizedSample) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    const double amplitude = std::abs(static_cast<double>(sample));
-    double compressed_abs = amplitude;
-    if (amplitude > threshold) {
-      compressed_abs = threshold + ((amplitude - threshold) / ratio);
-      ++compressed_in_frame;
-    }
-
-    const double signed_sample = std::signbit(sample) ? -compressed_abs : compressed_abs;
-    const double output = signed_sample * makeup_gain;
-    if (!isFinite(output) ||
-        output < kMinNormalizedSample ||
-        output > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because compressor output is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    const float out_sample = static_cast<float>(output);
-    if (!std::isfinite(out_sample) ||
-        out_sample < kMinNormalizedSample ||
-        out_sample > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because compressor output cannot be represented as normalized FLOAT32LE");
-      return false;
-    }
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
+  const backends::ProcessResult result = backend_->process(in.data, out.data);
+  if (result.status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because compressor backend rejected input or output: %s",
+      backends::processStatusMessage(result.status));
+    return false;
   }
 
-  samples_compressed_.fetch_add(compressed_in_frame);
+  samples_compressed_.fetch_add(result.samples_compressed);
   return true;
 }
 
@@ -307,9 +286,9 @@ void FaCompressorNode::publishDiagnostics()
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
   status.values.reserve(10);
-  pushKeyValue(status, "threshold_linear", std::to_string(config_.threshold_linear));
-  pushKeyValue(status, "ratio", std::to_string(config_.ratio));
-  pushKeyValue(status, "makeup_gain_linear", std::to_string(config_.makeup_gain_linear));
+  pushKeyValue(status, "threshold_linear", std::to_string(backend_->thresholdLinear()));
+  pushKeyValue(status, "ratio", std::to_string(backend_->ratio()));
+  pushKeyValue(status, "makeup_gain_linear", std::to_string(backend_->makeupGainLinear()));
   pushKeyValue(status, "expected_sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected_channels", std::to_string(config_.expected_channels));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
