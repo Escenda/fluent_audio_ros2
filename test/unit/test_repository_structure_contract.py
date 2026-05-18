@@ -260,6 +260,16 @@ def _package_roots() -> list[Path]:
     return sorted(path.parent for path in SRC_ROOT.rglob("package.xml"))
 
 
+def _roadmap_placeholder_roots() -> list[Path]:
+    return sorted(
+        path
+        for path in SRC_ROOT.rglob("fa_*")
+        if path.is_dir()
+        and (path / "README.md").is_file()
+        and not (path / "package.xml").exists()
+    )
+
+
 def _processing_package_roots() -> list[Path]:
     processing_root = SRC_ROOT / "processing"
     return sorted(path.parent for path in processing_root.rglob("package.xml"))
@@ -383,6 +393,36 @@ def test_declared_ros_package_readmes_do_not_claim_roadmap_only_status() -> None
         for phrase in forbidden_phrases:
             if phrase in source:
                 violations.append(f"{readme.relative_to(REPO_ROOT)} contains {phrase}")
+
+    assert violations == []
+
+
+def test_roadmap_placeholders_are_explicitly_not_buildable_ros_packages() -> None:
+    violations: list[str] = []
+    required_readme_markers = (
+        "not a ROS 2 package yet",
+        "ROS 2 package ではありません",
+    )
+    forbidden_buildable_paths = (
+        "package.xml",
+        "CMakeLists.txt",
+        "setup.py",
+        "setup.cfg",
+        "config",
+        "launch",
+    )
+
+    for placeholder_root in _roadmap_placeholder_roots():
+        readme_source = (placeholder_root / "README.md").read_text(encoding="utf-8")
+        if not any(marker in readme_source for marker in required_readme_markers):
+            violations.append(
+                f"{placeholder_root.relative_to(REPO_ROOT)}/README.md lacks roadmap marker"
+            )
+        for relative_path in forbidden_buildable_paths:
+            if (placeholder_root / relative_path).exists():
+                violations.append(
+                    f"{placeholder_root.relative_to(REPO_ROOT)}/{relative_path}"
+                )
 
     assert violations == []
 
