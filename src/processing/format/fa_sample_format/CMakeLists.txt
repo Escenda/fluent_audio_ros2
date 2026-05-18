@@ -13,6 +13,14 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
+add_library(fa_sample_format_internal_float32le
+  src/backends/internal_float32le.cpp
+)
+
+target_include_directories(fa_sample_format_internal_float32le PUBLIC
+  include
+)
+
 add_library(fa_sample_format_node_core
   src/fa_sample_format_node.cpp
 )
@@ -25,6 +33,10 @@ ament_target_dependencies(fa_sample_format_node_core
   rclcpp
   diagnostic_msgs
   fa_interfaces
+)
+
+target_link_libraries(fa_sample_format_node_core
+  fa_sample_format_internal_float32le
 )
 
 add_executable(fa_sample_format_node
@@ -54,11 +66,14 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
 
-  ament_add_gtest(${PROJECT_NAME}_conversion_test
-    test/cpp/test_sample_format_conversion.cpp
+  ament_add_gtest(${PROJECT_NAME}_backend_test
+    test/cpp/test_internal_float32le_backend.cpp
   )
-  target_include_directories(${PROJECT_NAME}_conversion_test PRIVATE
+  target_include_directories(${PROJECT_NAME}_backend_test PRIVATE
     include
+  )
+  target_link_libraries(${PROJECT_NAME}_backend_test
+    fa_sample_format_internal_float32le
   )
 
   ament_add_gtest(${PROJECT_NAME}_graph_smoke_test

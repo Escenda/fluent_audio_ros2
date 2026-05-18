@@ -2,12 +2,13 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "fa_sample_format/backends/internal_float32le.hpp"
 #include "fa_interfaces/msg/audio_frame.hpp"
 
 namespace fa_sample_format
@@ -51,6 +52,7 @@ private:
   bool convertFrame(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   SampleFormatConfig config_;
+  std::unique_ptr<backends::InternalFloat32LeBackend> backend_;
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;

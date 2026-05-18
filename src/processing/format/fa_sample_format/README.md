@@ -3,6 +3,7 @@
 `fa_sample_format` は `fa_interfaces/msg/AudioFrame` の sample representation だけを変換する FluentAudio processing package です。
 
 この package は IO node ではありません。device、file、network、codec decode/encode、resample、gain、loudness normalize、limit、filter、channel count 変更は扱いません。
+変換 engine は ROS2 topic/message を知らない `internal_float32le` backend に分離し、node は parameter、QoS、AudioFrame metadata、publish/drop、diagnostics だけを扱います。
 
 ## 初期対応変換
 

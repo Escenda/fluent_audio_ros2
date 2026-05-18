@@ -1,6 +1,7 @@
 # internal_float32le backend
 
-`fa_sample_format` の初期 backend は node 内部の PCM integer と `FLOAT32LE` の明示変換である。
+`fa_sample_format` の初期 backend は PCM integer と `FLOAT32LE` の明示変換である。
+ROS2 topic/message を知らず、byte列と `FrameContract` を受け取り、byte列と `ProcessResult` を返す。
 
 ## 責務
 
@@ -22,4 +23,5 @@
 
 ## 失敗条件
 
-入力 byte列が sample 幅で割り切れない場合は空の変換結果を返し、呼び出し元が frame を drop する。`FLOAT32LE -> PCM16LE` では non-finite または `[-1.0, 1.0]` 範囲外 sample も drop 対象であり、clamp しない。
+入力 byte列が sample 幅で割り切れない場合は `FrameContractStatus` で拒否し、呼び出し元が frame を drop する。`FLOAT32LE -> PCM16LE` では non-finite または `[-1.0, 1.0]` 範囲外 sample も drop 対象であり、clamp しない。
+backend は失敗時に出力 buffer を更新しないため、呼び出し元は古い変換結果を誤って publish しない。
