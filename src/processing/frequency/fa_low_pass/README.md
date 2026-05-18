@@ -8,6 +8,9 @@ It does not resample, convert bit depth, change channel count, normalize, apply
 gain, limit, denoise, or open audio devices. Startup configuration errors fail
 closed. Runtime frames that do not match the configured contract are dropped
 with a warning.
+ROS topic names are transport identities only. Input frames must carry
+`AudioFrame.stream_id == input_stream_id`, and output frames use
+`output.stream_id`.
 
 ```bash
 ros2 launch fa_low_pass fa_low_pass.launch.py

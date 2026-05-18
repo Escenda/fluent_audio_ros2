@@ -11,8 +11,8 @@
 
 ## 出力
 
-入力と同じ frame metadata を保持し、`stream_id` と `data` のみを更新する。出力 sample も
-finite normalized range に収まる必要がある。
+node は入力と同じ frame metadata を保持し、`stream_id` を `output.stream_id` に更新する。
+backend は metadata を扱わず、出力 sample が finite normalized range に収まることだけを保証する。
 
 ## 設計境界
 

@@ -17,6 +17,8 @@ namespace
 using namespace std::chrono_literals;
 
 constexpr double kPi = 3.14159265358979323846;
+constexpr const char * kInputStreamId = "audio/test/low_pass_input";
+constexpr const char * kOutputStreamId = "audio/test/low_pass_output";
 
 std::vector<uint8_t> float32LeBytes(const std::vector<float> & samples)
 {
@@ -53,7 +55,7 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(
   fa_interfaces::msg::AudioFrame frame;
   frame.header.stamp = node.now();
   frame.source_id = "test-mic";
-  frame.stream_id = "/fa_low_pass_test/input";
+  frame.stream_id = kInputStreamId;
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = 1000;
   frame.channels = 1;
@@ -122,6 +124,8 @@ TEST_F(RclcppFixture, PublishesFirstOrderLowPassFloat32Frame)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_low_pass_test/input"),
     rclcpp::Parameter("output_topic", "/fa_low_pass_test/output"),
+    rclcpp::Parameter("input_stream_id", kInputStreamId),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("filter.cutoff_hz", 100.0),
     rclcpp::Parameter("expected.sample_rate", 1000),
     rclcpp::Parameter("expected.channels", 1),
@@ -175,7 +179,7 @@ TEST_F(RclcppFixture, PublishesFirstOrderLowPassFloat32Frame)
   const double alpha = firstOrderLowPassAlpha(1000.0, 100.0);
 
   EXPECT_EQ(received[0].source_id, "test-mic");
-  EXPECT_EQ(received[0].stream_id, "/fa_low_pass_test/output");
+  EXPECT_EQ(received[0].stream_id, kOutputStreamId);
   EXPECT_EQ(received[0].encoding, "FLOAT32LE");
   EXPECT_EQ(received[0].sample_rate, 1000U);
   EXPECT_EQ(received[0].channels, 1U);
@@ -208,6 +212,8 @@ TEST_F(RclcppFixture, ResetsFilterStateOnForwardEpochGap)
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_low_pass_test/input"),
     rclcpp::Parameter("output_topic", "/fa_low_pass_test/output"),
+    rclcpp::Parameter("input_stream_id", kInputStreamId),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("filter.cutoff_hz", 100.0),
     rclcpp::Parameter("expected.sample_rate", 1000),
     rclcpp::Parameter("expected.channels", 1),
