@@ -3,9 +3,32 @@ from pathlib import Path
 import yaml
 
 
+def package_root() -> Path:
+    return Path(__file__).parents[2]
+
+
+def read_node_source() -> str:
+    return (package_root() / "src" / "fa_normalize_node.cpp").read_text(encoding="utf-8")
+
+
+def read_backend_header() -> str:
+    return (
+        package_root()
+        / "include"
+        / "fa_normalize"
+        / "backends"
+        / "internal_peak_normalize.hpp"
+    ).read_text(encoding="utf-8")
+
+
+def read_backend_source() -> str:
+    return (package_root() / "src" / "backends" / "internal_peak_normalize.cpp").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_default_config_requires_float32_interleaved_contract() -> None:
-    package_root = Path(__file__).parents[2]
-    config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
+    config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_normalize"]["ros__parameters"]
 
     assert params["input_topic"] == "audio/noise_gated/mic"
@@ -26,8 +49,7 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
 
 
 def test_normalize_does_not_hide_other_processing_or_io_responsibilities() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_normalize_node.cpp").read_text(encoding="utf-8")
+    sources = [read_node_source(), read_backend_source()]
 
     forbidden = (
         "SND_PCM",
@@ -47,18 +69,22 @@ def test_normalize_does_not_hide_other_processing_or_io_responsibilities() -> No
         "legacy",
         "compat",
     )
-    for token in forbidden:
-        assert token not in source
+    for source in sources:
+        for token in forbidden:
+            assert token not in source
 
 
 def test_startup_rejects_invalid_config_without_fallback() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_normalize_node.cpp").read_text(encoding="utf-8")
-    load_parameters = source.split("void FaNormalizeNode::loadParameters")[1].split(
-        "void FaNormalizeNode::setupInterfaces"
+    node_source = read_node_source()
+    backend_source = read_backend_source()
+    load_parameters = node_source.split("void FaNormalizeNode::loadParameters")[1].split(
+        "void FaNormalizeNode::configureBackend"
     )[0]
 
-    assert 'this->declare_parameter<double>("normalize.target_peak_linear", config_.target_peak_linear);' in load_parameters
+    assert (
+        'this->declare_parameter<double>("normalize.target_peak_linear", '
+        "config_.target_peak_linear);"
+    ) in load_parameters
     assert (
         'this->declare_parameter<double>("normalize.silence_threshold_linear", '
         "config_.silence_threshold_linear);"
@@ -73,15 +99,23 @@ def test_startup_rejects_invalid_config_without_fallback() -> None:
     assert "requires expected.encoding=FLOAT32LE" in load_parameters
     assert "requires expected.bit_depth=32" in load_parameters
     assert "requires expected.layout=interleaved" in load_parameters
+    assert "config_.channels <= 0" in backend_source
+    assert "config_.target_peak_linear <= 0.0" in backend_source
+    assert "config_.target_peak_linear > 1.0" in backend_source
+    assert "config_.silence_threshold_linear >= config_.target_peak_linear" in backend_source
 
 
 def test_normalize_validates_frame_contract_before_processing() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_normalize_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
+    handle_frame = source.split("void FaNormalizeNode::handleFrame")[1].split(
+        "bool FaNormalizeNode::validateFrame"
+    )[0]
     validate_frame = source.split("bool FaNormalizeNode::validateFrame")[1].split(
         "bool FaNormalizeNode::applyNormalize"
     )[0]
 
+    assert "if (!msg)" in handle_frame
+    assert "frames_dropped_.fetch_add(1);" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
     assert "msg.stream_id != config_.input_topic" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
@@ -94,69 +128,126 @@ def test_normalize_validates_frame_contract_before_processing() -> None:
 
 
 def test_normalize_preserves_frame_identity_and_updates_stream_identity() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_normalize_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
     apply_normalize = source.split("bool FaNormalizeNode::applyNormalize")[1].split(
         "void FaNormalizeNode::publishDiagnostics"
     )[0]
 
     assert "out = in;" in apply_normalize
     assert "out.stream_id = config_.output_topic;" in apply_normalize
-    assert "out.data.resize(in.data.size());" in apply_normalize
+    assert "backend_->process(in.data, out.data)" in apply_normalize
     assert ".rms" not in apply_normalize
     assert ".vad" not in apply_normalize
     assert ".epoch" not in apply_normalize
 
 
-def test_peak_normalize_algorithm_uses_frame_peak_and_target_gain() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_normalize_node.cpp").read_text(encoding="utf-8")
-    apply_normalize = source.split("bool FaNormalizeNode::applyNormalize")[1].split(
+def test_peak_normalize_algorithm_is_backend_owned() -> None:
+    header = read_backend_header()
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+    process = backend_source.split("ProcessResult InternalPeakNormalizeBackend::process")[1].split(
+        "const char * processStatusMessage"
+    )[0]
+    apply_normalize = node_source.split("bool FaNormalizeNode::applyNormalize")[1].split(
         "void FaNormalizeNode::publishDiagnostics"
     )[0]
 
-    assert "float peak = 0.0F;" in apply_normalize
-    assert "peak = std::max(peak, std::abs(sample));" in apply_normalize
-    assert "const double gain = config_.target_peak_linear / static_cast<double>(peak);" in apply_normalize
-    assert "const double normalized = static_cast<double>(samples[i]) * gain;" in apply_normalize
+    assert "class InternalPeakNormalizeBackend" in header
+    assert "enum class ProcessMode" in header
+    assert "struct ProcessResult" in header
+    assert "float peak = 0.0F;" in process
+    assert "peak = std::max(peak, std::abs(sample));" in process
+    assert "config_.target_peak_linear / static_cast<double>(peak)" in process
+    assert "const double normalized = static_cast<double>(samples[i]) * gain;" in process
+    assert "backend_->process(in.data, out.data)" in apply_normalize
     assert "frames_normalized_.fetch_add(1);" in apply_normalize
-    assert "last_gain_.store(gain);" in apply_normalize
-    assert "std::clamp" not in apply_normalize
+    assert "last_gain_.store(result.gain);" in apply_normalize
+    assert "std::max(peak, std::abs(sample))" not in node_source
+    assert "std::memcpy" not in node_source
+    assert "std::clamp" not in process
 
 
 def test_silence_pass_through_changes_only_stream_identity_and_does_not_amplify() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_normalize_node.cpp").read_text(encoding="utf-8")
-    apply_normalize = source.split("bool FaNormalizeNode::applyNormalize")[1].split(
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+    process = backend_source.split("ProcessResult InternalPeakNormalizeBackend::process")[1].split(
+        "const char * processStatusMessage"
+    )[0]
+    apply_normalize = node_source.split("bool FaNormalizeNode::applyNormalize")[1].split(
         "void FaNormalizeNode::publishDiagnostics"
     )[0]
 
-    assert "peak < static_cast<float>(config_.silence_threshold_linear)" in apply_normalize
-    assert "out.data = in.data;" in apply_normalize
+    assert "peak < static_cast<float>(config_.silence_threshold_linear)" in process
+    assert "output = input;" in process
+    assert "ProcessMode::kSilencePassthrough" in process
     assert "frames_silence_passthrough_.fetch_add(1);" in apply_normalize
     assert "last_gain_.store(1.0);" in apply_normalize
 
 
 def test_normalize_drops_invalid_samples_and_outputs_instead_of_clamping() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_normalize_node.cpp").read_text(encoding="utf-8")
-    apply_normalize = source.split("bool FaNormalizeNode::applyNormalize")[1].split(
+    backend_source = read_backend_source()
+    process = backend_source.split("ProcessResult InternalPeakNormalizeBackend::process")[1].split(
+        "const char * processStatusMessage"
+    )[0]
+
+    assert "!std::isfinite(sample)" in process
+    assert "!isNormalizedSample(sample)" in process
+    assert "!isFinite(gain)" in process
+    assert "!isFinite(normalized)" in process
+    assert "normalized < kNormalizedMin || normalized > kNormalizedMax" in process
+    assert "ProcessStatus::kNonFiniteInput" in process
+    assert "ProcessStatus::kOutOfRangeInput" in process
+    assert "ProcessStatus::kNonFiniteGain" in process
+    assert "ProcessStatus::kOutOfRangeOutput" in process
+    assert "std::clamp" not in process
+
+
+def test_normalize_backend_reports_rejection_reason_and_keeps_ros_boundary() -> None:
+    header = read_backend_header()
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+
+    assert "enum class ProcessStatus" in header
+    assert "kEmptyInput" in header
+    assert "kMisalignedInput" in header
+    assert "kNonFiniteInput" in header
+    assert "kOutOfRangeInput" in header
+    assert "kNonFiniteGain" in header
+    assert "kNonFiniteOutput" in header
+    assert "kOutOfRangeOutput" in header
+    assert "processStatusMessage(ProcessStatus status)" in header
+    assert "ProcessStatus::kMisalignedInput" in backend_source
+    assert "ProcessStatus::kNonFiniteInput" in backend_source
+    assert "ProcessStatus::kOutOfRangeInput" in backend_source
+    assert "backends::processStatusMessage(result.status)" in node_source
+
+    forbidden_backend_tokens = ("rclcpp", "fa_interfaces", "AudioFrame")
+    for token in forbidden_backend_tokens:
+        assert token not in header
+        assert token not in backend_source
+
+
+def test_rejected_frame_does_not_overwrite_output_or_commit_last_gain() -> None:
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+    process = backend_source.split("ProcessResult InternalPeakNormalizeBackend::process")[1].split(
+        "const char * processStatusMessage"
+    )[0]
+    apply_normalize = node_source.split("bool FaNormalizeNode::applyNormalize")[1].split(
         "void FaNormalizeNode::publishDiagnostics"
     )[0]
 
-    assert "!std::isfinite(sample)" in apply_normalize
-    assert "sample < kMinNormalizedSample || sample > kMaxNormalizedSample" in apply_normalize
-    assert "!isFinite(normalized)" in apply_normalize
-    assert "normalized < kMinNormalizedSample" in apply_normalize
-    assert "normalized > kMaxNormalizedSample" in apply_normalize
-    assert "!std::isfinite(out_sample)" in apply_normalize
-    assert "return false;" in apply_normalize
-    assert "std::clamp" not in apply_normalize
+    rejection_section = process.split("output = std::move(next_output);")[0]
+    assert "std::vector<uint8_t> next_output(input.size());" in rejection_section
+    assert "ProcessStatus::kOutOfRangeInput" in rejection_section
+    assert "ProcessStatus::kOutOfRangeOutput" in rejection_section
+    assert "output = std::move(next_output);" not in rejection_section
+    assert "last_gain_.store" not in apply_normalize.split("return false;")[0]
+    assert "last_gain_.store(result.gain);" in apply_normalize
 
 
 def test_diagnostics_publish_config_last_gain_and_counters() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_normalize_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
     diagnostics = source.split("void FaNormalizeNode::publishDiagnostics")[1].split(
         "}  // namespace fa_normalize"
     )[0]
@@ -164,6 +255,8 @@ def test_diagnostics_publish_config_last_gain_and_counters() -> None:
     assert 'status.name = "fa_normalize";' in diagnostics
     assert '"target_peak_linear"' in diagnostics
     assert '"silence_threshold_linear"' in diagnostics
+    assert "backend_->targetPeakLinear()" in diagnostics
+    assert "backend_->silenceThresholdLinear()" in diagnostics
     assert '"last_gain"' in diagnostics
     assert '"frames_in"' in diagnostics
     assert '"frames_out"' in diagnostics
@@ -174,7 +267,6 @@ def test_diagnostics_publish_config_last_gain_and_counters() -> None:
 
 
 def test_package_layout_matches_standard_processing_layout() -> None:
-    package_root = Path(__file__).parents[2]
     required_paths = (
         "README.md",
         "docs/仕様書.md",
@@ -184,7 +276,10 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_normalize.launch.py",
         "include/fa_normalize/fa_normalize_node.hpp",
+        "include/fa_normalize/backends/internal_peak_normalize.hpp",
         "src/fa_normalize_node.cpp",
+        "src/backends/internal_peak_normalize.cpp",
+        "test/cpp/test_internal_peak_normalize_backend.cpp",
         "test/unit/test_fa_normalize_audio_frame_contract.py",
         "test/integration/.gitkeep",
         "test/launch/.gitkeep",
@@ -192,17 +287,20 @@ def test_package_layout_matches_standard_processing_layout() -> None:
     )
 
     for relative_path in required_paths:
-        assert (package_root / relative_path).exists()
+        assert (package_root() / relative_path).exists()
 
 
-def test_colcon_runs_pytest_contracts() -> None:
-    package_root = Path(__file__).parents[2]
-    cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
-    package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
+def test_colcon_runs_pytest_and_backend_gtest_contracts() -> None:
+    cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
+    package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

@@ -3,15 +3,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_normalize/backends/internal_peak_normalize.hpp"
 
 namespace fa_normalize
 {
@@ -20,8 +19,6 @@ namespace
 {
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
-constexpr float kMinNormalizedSample = -1.0F;
-constexpr float kMaxNormalizedSample = 1.0F;
 
 bool isFinite(double value)
 {
@@ -45,8 +42,11 @@ FaNormalizeNode::FaNormalizeNode()
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Normalize node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
+
+FaNormalizeNode::~FaNormalizeNode() = default;
 
 void FaNormalizeNode::loadParameters()
 {
@@ -136,6 +136,15 @@ void FaNormalizeNode::loadParameters()
     config_.diagnostics_publish_period_ms);
 }
 
+void FaNormalizeNode::configureBackend()
+{
+  backend_ = std::make_unique<backends::InternalPeakNormalizeBackend>(
+    backends::InternalPeakNormalizeConfig{
+      config_.expected_channels,
+      config_.target_peak_linear,
+      config_.silence_threshold_linear});
+}
+
 void FaNormalizeNode::setupInterfaces()
 {
   rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
@@ -162,6 +171,14 @@ void FaNormalizeNode::setupInterfaces()
 void FaNormalizeNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   frames_in_.fetch_add(1);
+
+  if (!msg) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping null AudioFrame pointer");
+    frames_dropped_.fetch_add(1);
+    return;
+  }
 
   if (!validateFrame(*msg)) {
     frames_dropped_.fetch_add(1);
@@ -240,66 +257,23 @@ bool FaNormalizeNode::applyNormalize(
 {
   out = in;
   out.stream_id = config_.output_topic;
-  out.data.resize(in.data.size());
-
-  const size_t sample_count = in.data.size() / sizeof(float);
-  std::vector<float> samples(sample_count);
-  float peak = 0.0F;
-  for (size_t i = 0; i < sample_count; ++i) {
-    float sample = 0.0F;
-    std::memcpy(&sample, in.data.data() + (i * sizeof(float)), sizeof(float));
-    if (!std::isfinite(sample) || sample < kMinNormalizedSample || sample > kMaxNormalizedSample) {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because input sample is outside normalized FLOAT32LE range");
-      return false;
-    }
-    samples[i] = sample;
-    peak = std::max(peak, std::abs(sample));
+  const backends::ProcessResult result = backend_->process(in.data, out.data);
+  if (result.status != backends::ProcessStatus::kOk) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame because normalize backend rejected input or output: %s",
+      backends::processStatusMessage(result.status));
+    return false;
   }
 
-  if (peak < static_cast<float>(config_.silence_threshold_linear)) {
-    out.data = in.data;
+  if (result.mode == backends::ProcessMode::kSilencePassthrough) {
     frames_silence_passthrough_.fetch_add(1);
     last_gain_.store(1.0);
     return true;
   }
 
-  const double gain = config_.target_peak_linear / static_cast<double>(peak);
-  if (!isFinite(gain)) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping frame because normalize gain is not finite");
-    return false;
-  }
-
-  for (size_t i = 0; i < sample_count; ++i) {
-    const double normalized = static_cast<double>(samples[i]) * gain;
-    if (!isFinite(normalized) ||
-        normalized < kMinNormalizedSample ||
-        normalized > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because normalize output is outside normalized FLOAT32LE range");
-      return false;
-    }
-
-    const float out_sample = static_cast<float>(normalized);
-    if (!std::isfinite(out_sample) ||
-        out_sample < kMinNormalizedSample ||
-        out_sample > kMaxNormalizedSample)
-    {
-      RCLCPP_WARN_THROTTLE(
-        this->get_logger(), *this->get_clock(), 3000,
-        "Dropping frame because normalize output cannot be represented as normalized FLOAT32LE");
-      return false;
-    }
-    std::memcpy(out.data.data() + (i * sizeof(float)), &out_sample, sizeof(float));
-  }
-
   frames_normalized_.fetch_add(1);
-  last_gain_.store(gain);
+  last_gain_.store(result.gain);
   return true;
 }
 
@@ -313,8 +287,8 @@ void FaNormalizeNode::publishDiagnostics()
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
   status.values.reserve(10);
-  pushKeyValue(status, "target_peak_linear", std::to_string(config_.target_peak_linear));
-  pushKeyValue(status, "silence_threshold_linear", std::to_string(config_.silence_threshold_linear));
+  pushKeyValue(status, "target_peak_linear", std::to_string(backend_->targetPeakLinear()));
+  pushKeyValue(status, "silence_threshold_linear", std::to_string(backend_->silenceThresholdLinear()));
   pushKeyValue(status, "last_gain", std::to_string(last_gain_.load()));
   pushKeyValue(status, "expected_sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected_channels", std::to_string(config_.expected_channels));

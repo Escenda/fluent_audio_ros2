@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
@@ -11,6 +12,11 @@
 
 namespace fa_normalize
 {
+
+namespace backends
+{
+class InternalPeakNormalizeBackend;
+}  // namespace backends
 
 struct NormalizeConfig
 {
@@ -32,18 +38,21 @@ class FaNormalizeNode : public rclcpp::Node
 {
 public:
   FaNormalizeNode();
-  ~FaNormalizeNode() override = default;
+  ~FaNormalizeNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyNormalize(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   NormalizeConfig config_;
+  std::unique_ptr<backends::InternalPeakNormalizeBackend> backend_{};
+
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
