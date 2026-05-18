@@ -9,7 +9,7 @@ groups:
         enable: true
         package: fa_in
         exec: fa_in_node
-        node_name: fa_in_node
+        node_name: fa_in
         params_file: "${share:fluent_audio_system}/test/fixtures/fa_in.params.yaml"
         remappings:
           audio/frame: robot/audio/input

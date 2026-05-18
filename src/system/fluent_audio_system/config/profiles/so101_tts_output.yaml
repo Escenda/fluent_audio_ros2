@@ -10,7 +10,7 @@ groups:
         enable: false
         package: fa_in
         exec: fa_in_node
-        node_name: fa_in_node
+        node_name: fa_in
         namespace: ""
         params_file: "${share:fa_in}/config/default.yaml"
         remappings: {}

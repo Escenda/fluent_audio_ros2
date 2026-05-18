@@ -21,7 +21,7 @@ def _valid_system() -> dict[str, float]:
 
 def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
 
     spec = parse_system_config(
         {
@@ -737,7 +737,7 @@ def test_empty_params_file_fails() -> None:
 
 def test_nested_inline_parameters_fail(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="unsupported value type"):
         parse_system_config(
@@ -770,7 +770,7 @@ def test_load_missing_config_fails(tmp_path: Path) -> None:
 
 def test_from_to_sequence_remappings_fail(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="remappings"):
         parse_system_config(
@@ -800,7 +800,7 @@ def test_from_to_sequence_remappings_fail(tmp_path: Path) -> None:
 
 def test_pair_sequence_remappings_fail(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="remappings"):
         parse_system_config(
@@ -828,7 +828,7 @@ def test_pair_sequence_remappings_fail(tmp_path: Path) -> None:
 
 def test_invalid_pair_sequence_remappings_fail(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="remappings"):
         parse_system_config(
@@ -856,7 +856,7 @@ def test_invalid_pair_sequence_remappings_fail(tmp_path: Path) -> None:
 
 def test_invalid_remappings_fail(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="remapping target"):
         parse_system_config(
@@ -1124,7 +1124,7 @@ def test_group_enable_is_required() -> None:
 
 def test_node_enable_is_required(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="node fa_in.enable is required"):
         parse_system_config(
@@ -1150,7 +1150,7 @@ def test_node_enable_is_required(tmp_path: Path) -> None:
 
 def test_node_executable_field_name_is_rejected(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in_node:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="executable"):
         parse_system_config(

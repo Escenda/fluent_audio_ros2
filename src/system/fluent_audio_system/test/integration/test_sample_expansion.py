@@ -73,6 +73,29 @@ def test_system_configs_reference_only_declared_ros_packages() -> None:
     assert violations == []
 
 
+def test_system_configs_keep_runtime_node_identity_package_aligned() -> None:
+    violations: list[str] = []
+    expected_node_names = {
+        "fa_in": "fa_in",
+        "fa_vad": "fa_vad",
+    }
+    for config_path in sorted((PACKAGE_ROOT / "config").rglob("*.yaml")):
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        for group in config["groups"]:
+            for node in group["nodes"]:
+                expected = expected_node_names.get(node["package"])
+                if expected is None:
+                    continue
+                if node["node_name"] != expected:
+                    relative_path = config_path.relative_to(PACKAGE_ROOT)
+                    violations.append(
+                        f"{relative_path}: {group['id']}/{node['id']} "
+                        f"node_name={node['node_name']} expected={expected}"
+                    )
+
+    assert violations == []
+
+
 def test_valid_fixture_expands_enabled_nodes_and_remappings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -92,7 +115,7 @@ def test_valid_fixture_expands_enabled_nodes_and_remappings(
     assert node.params_file == str(FIXTURE_DIR / "fa_in.params.yaml")
     assert node.launch_remappings() == [("audio/frame", "robot/audio/input")]
 
-    params = _load_fixture_params("fa_in.params.yaml", "fa_in_node")
+    params = _load_fixture_params("fa_in.params.yaml", "fa_in")
     assert params["audio.stream_id"] == "audio/frame"
     assert params["audio.layout"] == "interleaved"
 
@@ -134,6 +157,7 @@ def test_so101_profile_config_expands_default_site_bound_nodes(
 
     assert [node.id for node in enabled_nodes] == ["fa_in", "fa_out"]
     assert [node.package for node in enabled_nodes] == ["fa_in", "fa_out"]
+    assert [node.node_name for node in enabled_nodes] == ["fa_in", "fa_out"]
     assert enabled_nodes[0].params_file == str(
         tmp_path / "fa_in" / "config" / "default.yaml"
     )
@@ -210,6 +234,7 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
         "fa_sample_format",
         "fa_resample",
     ]
+    assert enabled_nodes[0].node_name == "fa_in"
 
     sample_format = enabled_nodes[1]
     assert sample_format.params_file == str(
