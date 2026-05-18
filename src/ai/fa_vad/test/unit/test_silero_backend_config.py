@@ -245,6 +245,7 @@ def test_default_config_requires_explicit_silero_model_path() -> None:
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""
     assert params["backend.command"] == ""
+    assert params["expected_source_id"] == ""
     assert params["qos.depth"] == 10
     assert params["qos.reliable"] is False
     assert "{audio}" in params["backend.args"]
@@ -316,6 +317,7 @@ def test_vad_frame_contract_accepts_canonical_float32_mono() -> None:
         data=expected.astype("<f4").tobytes(),
         source_id="mic0",
         stream_id="stream0",
+        expected_source_id="mic0",
         expected_stream_id="stream0",
         encoding="FLOAT32LE",
         layout="interleaved",
@@ -332,6 +334,8 @@ def test_vad_frame_contract_accepts_canonical_float32_mono() -> None:
         ({"data": b""}, "AudioFrame data is required"),
         ({"source_id": ""}, "AudioFrame source_id and stream_id are required"),
         ({"stream_id": ""}, "AudioFrame source_id and stream_id are required"),
+        ({"expected_source_id": ""}, "expected_source_id is required"),
+        ({"source_id": "mic1"}, "AudioFrame source_id must match expected_source_id"),
         ({"stream_id": "wrong_stream"}, "AudioFrame stream_id must match input_topic"),
         ({"layout": "planar"}, "AudioFrame layout must be interleaved"),
         ({"channels": 2}, "AudioFrame channels must be 1"),
@@ -356,6 +360,7 @@ def test_vad_frame_contract_rejects_non_canonical_audio(
         "data": np.array([0.0], dtype=np.float32).tobytes(),
         "source_id": "mic0",
         "stream_id": "stream0",
+        "expected_source_id": "mic0",
         "expected_stream_id": "stream0",
         "encoding": "FLOAT32LE",
         "layout": "interleaved",
@@ -382,6 +387,7 @@ def test_vad_node_source_does_not_hide_format_conversion() -> None:
     assert "_float_to_pcm16" not in source
     assert "astype(np.int16)" not in source
     assert "AudioFrame sample_rate must match target_sample_rate" in source
+    assert "expected_source_id=self._expected_source_id" in source
     assert "expected_stream_id=self._input_topic" in source
     assert '"FA VAD (Silero): "' in source
     assert "Dropping invalid AudioFrame: %s" not in source
@@ -404,6 +410,7 @@ def test_vad_node_backend_runtime_failure_is_fail_closed(
         node._logger = _FakeLogger()
         node._target_sample_rate = 16000
         node._input_topic = "stream0"
+        node._expected_source_id = "mic0"
         node._vad = _FailingVadBackend()
 
         frame = _FakeAudioFrame(np.array([0.1], dtype=np.float32).tobytes())

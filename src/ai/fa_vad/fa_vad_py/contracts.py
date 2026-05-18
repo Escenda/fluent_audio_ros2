@@ -34,6 +34,7 @@ def audio_frame_to_float_samples(
     data: bytes,
     source_id: str,
     stream_id: str,
+    expected_source_id: str,
     expected_stream_id: str,
     encoding: str,
     layout: str,
@@ -44,8 +45,12 @@ def audio_frame_to_float_samples(
         raise ValueError("AudioFrame data is required")
     if not source_id or not stream_id:
         raise ValueError("AudioFrame source_id and stream_id are required")
+    if not expected_source_id:
+        raise ValueError("expected_source_id is required")
     if not expected_stream_id:
         raise ValueError("expected_stream_id is required")
+    if source_id != expected_source_id:
+        raise ValueError("AudioFrame source_id must match expected_source_id")
     if stream_id != expected_stream_id:
         raise ValueError("AudioFrame stream_id must match input_topic")
     if layout != "interleaved":

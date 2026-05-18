@@ -27,6 +27,7 @@ class FaVadNode(Node):
         self.declare_parameter("output_topic", "audio/vad")
         self.declare_parameter("vad_state_topic", "voice/vad_state")
         self.declare_parameter("probability_topic", "audio/vad/probability")
+        self.declare_parameter("expected_source_id", "")
         self.declare_parameter("publish_vad_state", True)
         self.declare_parameter("publish_probability", False)
 
@@ -56,6 +57,9 @@ class FaVadNode(Node):
         self._output_topic = self._string_parameter("output_topic")
         self._vad_state_topic = self._string_parameter("vad_state_topic")
         self._probability_topic = self._string_parameter("probability_topic")
+        self._expected_source_id = self._string_parameter("expected_source_id").strip()
+        if not self._expected_source_id:
+            raise RuntimeError("expected_source_id is required")
 
         self._publish_vad_state = self._bool_parameter("publish_vad_state")
         self._publish_probability = self._bool_parameter("publish_probability")
@@ -119,7 +123,8 @@ class FaVadNode(Node):
 
         self.get_logger().info(
             "FA VAD (Silero): "
-            f"input={self._input_topic} output={self._output_topic} "
+            f"input={self._input_topic} expected_source_id={self._expected_source_id} "
+            f"output={self._output_topic} "
             f"vad_state={self._vad_state_topic if self._publish_vad_state else '(disabled)'} "
             f"target_sr={self._target_sample_rate} start={threshold_start:.2f} "
             f"end={threshold_end:.2f} hangover={hangover_ms}ms "
@@ -243,6 +248,7 @@ class FaVadNode(Node):
             data=data,
             source_id=msg.source_id,
             stream_id=msg.stream_id,
+            expected_source_id=self._expected_source_id,
             expected_stream_id=self._input_topic,
             encoding=msg.encoding,
             layout=msg.layout,

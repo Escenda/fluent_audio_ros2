@@ -26,6 +26,7 @@ def test_default_config_requires_external_worker_command() -> None:
     assert params["backend.command"] == ""
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""
+    assert params["expected_source_id"] == ""
     assert params["backend.timeout_sec"] > 0
     assert params["backend.workspace_dir"]
     assert params["backend.cleanup_audio_files"] is True
