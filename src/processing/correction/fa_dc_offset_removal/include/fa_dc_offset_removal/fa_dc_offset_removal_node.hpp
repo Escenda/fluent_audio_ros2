@@ -38,7 +38,7 @@ struct DcOffsetRemovalConfig
 class FaDcOffsetRemovalNode : public rclcpp::Node
 {
 public:
-  FaDcOffsetRemovalNode();
+  explicit FaDcOffsetRemovalNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaDcOffsetRemovalNode() override;
 
 private:

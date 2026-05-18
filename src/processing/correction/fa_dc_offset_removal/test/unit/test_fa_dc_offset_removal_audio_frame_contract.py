@@ -217,10 +217,12 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "include/fa_dc_offset_removal/backends/internal_frame_mean.hpp",
         "src/fa_dc_offset_removal_node.cpp",
         "src/backends/internal_frame_mean.cpp",
+        "src/main.cpp",
         "test/cpp/test_internal_frame_mean_backend.cpp",
+        "test/cpp/test_dc_offset_removal_graph.cpp",
         "test/unit/test_fa_dc_offset_removal_audio_frame_contract.py",
+        "test/launch/test_fa_dc_offset_removal_launch_contract.py",
         "test/integration/.gitkeep",
-        "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
     )
 
@@ -235,6 +237,7 @@ def test_colcon_runs_pytest_and_backend_gtest_contracts() -> None:
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_graph_smoke_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml

@@ -32,8 +32,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaDcOffsetRemovalNode::FaDcOffsetRemovalNode()
-: rclcpp::Node("fa_dc_offset_removal")
+FaDcOffsetRemovalNode::FaDcOffsetRemovalNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_dc_offset_removal", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA DC Offset Removal node");
   loadParameters();
@@ -270,18 +270,3 @@ void FaDcOffsetRemovalNode::publishDiagnostics()
 }
 
 }  // namespace fa_dc_offset_removal
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_dc_offset_removal::FaDcOffsetRemovalNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_dc_offset_removal"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}
