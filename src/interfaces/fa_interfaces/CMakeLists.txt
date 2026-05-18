@@ -16,6 +16,7 @@ set(message_files
   "msg/PlaybackDone.msg"
   "msg/PitchFrame.msg"
   "msg/StftFrame.msg"
+  "msg/TempoFrame.msg"
   "msg/TurnContext.msg"
   "msg/TurnEnd.msg"
   "msg/VadState.msg"

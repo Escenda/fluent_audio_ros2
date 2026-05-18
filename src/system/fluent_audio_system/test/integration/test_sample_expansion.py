@@ -391,6 +391,7 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
         "fa_onset",
         "fa_pitch",
         "fa_stft",
+        "fa_tempo",
     }
     assert analysis_nodes["fa_loudness"]["enable"] is False
     assert analysis_nodes["fa_loudness"]["package"] == "fa_loudness"
@@ -432,6 +433,17 @@ def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
         "feature.n_fft": 320,
         "feature.hop_length": 160,
         "feature.f_min_hz": 80.0,
+    }
+    assert analysis_nodes["fa_tempo"]["enable"] is False
+    assert analysis_nodes["fa_tempo"]["package"] == "fa_tempo"
+    assert analysis_nodes["fa_tempo"]["params_file"] == (
+        "${share:fa_tempo}/config/default.yaml"
+    )
+    assert analysis_nodes["fa_tempo"]["parameters"] == {
+        "input_topic": "audio/resample16k/mic",
+        "feature.n_fft": 320,
+        "feature.hop_length": 160,
+        "tempo.bpm_min": 60.0,
     }
 
 

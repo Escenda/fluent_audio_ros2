@@ -175,6 +175,7 @@ ANALYSIS_PACKAGE_NAMES = (
     "fa_onset",
     "fa_pitch",
     "fa_stft",
+    "fa_tempo",
 )
 
 

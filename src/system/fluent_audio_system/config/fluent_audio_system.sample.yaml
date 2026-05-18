@@ -525,6 +525,20 @@ groups:
           feature.n_fft: 320
           feature.hop_length: 160
 
+      - id: fa_tempo
+        enable: false
+        package: fa_tempo
+        exec: fa_tempo_node
+        node_name: fa_tempo
+        namespace: ""
+        params_file: "${share:fa_tempo}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/resample16k/mic"
+          feature.n_fft: 320
+          feature.hop_length: 160
+          tempo.bpm_min: 60.0
+
   - id: ai
     enable: true
     nodes:

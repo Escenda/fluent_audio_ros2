@@ -173,6 +173,40 @@ def test_pitch_frame_is_measurement_payload_only() -> None:
     assert all("text" not in field for field in fields)
 
 
+def test_tempo_frame_is_measurement_payload_only() -> None:
+    msg_path = Path(__file__).parents[2] / "msg" / "TempoFrame.msg"
+    fields = [
+        line.strip()
+        for line in msg_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+    assert fields == [
+        "std_msgs/Header header",
+        "string source_id",
+        "string stream_id",
+        "uint32 sample_rate",
+        "uint32 input_sample_count",
+        "uint32 n_fft",
+        "uint32 hop_length",
+        "uint32 frame_count",
+        "float32 bpm_min",
+        "float32 bpm_max",
+        "float32 tempo_bpm",
+        "float32 confidence",
+        "float32 confidence_threshold",
+        "uint32 beat_period_frames",
+        "bool tempo_detected",
+        "string method",
+        "string layout",
+        "float32[] frame_times_sec",
+        "float32[] onset_envelope",
+        "bool[] beats",
+    ]
+    assert all("probability" not in field for field in fields)
+    assert all("text" not in field for field in fields)
+
+
 def test_stft_frame_is_feature_payload_only() -> None:
     msg_path = Path(__file__).parents[2] / "msg" / "StftFrame.msg"
     fields = [
