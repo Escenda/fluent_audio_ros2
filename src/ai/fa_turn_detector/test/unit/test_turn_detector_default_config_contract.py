@@ -308,6 +308,32 @@ def test_turn_detector_backend_factory_rejects_missing_and_unknown_backend() -> 
         build_turn_detector_backend(unknown_backend_settings)
 
 
+def test_smart_turn_backend_rejects_unsupported_execution_provider_before_worker(
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "smart_turn.onnx"
+    _write_fake_model(model_path)
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "backend.execution_provider must be one of: "
+            "CPUExecutionProvider, CUDAExecutionProvider, TensorrtExecutionProvider; got BogusProvider"
+        ),
+    ):
+        SmartTurnOnnxBackend(
+            model_path=str(model_path),
+            threshold=0.5,
+            execution_provider="BogusProvider",
+            command=sys.executable,
+            args=("--audio", "{audio}", "--model", "{model}", "--provider", "{provider}"),
+            health_args=("--model", "{model}", "--provider", "{provider}"),
+            timeout_sec=1.0,
+            workspace_dir=str(tmp_path / "workspace"),
+            cleanup_audio_files=True,
+        )
+
+
 def test_turn_detector_node_parameter_helpers_reject_wrong_ros_parameter_types(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

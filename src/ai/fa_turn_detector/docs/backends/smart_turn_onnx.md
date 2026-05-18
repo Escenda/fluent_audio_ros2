@@ -14,7 +14,7 @@ External Python / ONNX Runtime worker。
 
 - mono float32 samples serialized as `.npy`
 - sample rate
-- explicit ONNX Runtime execution provider
+- explicit ONNX Runtime execution provider。adapter 境界で `CPUExecutionProvider`、`CUDAExecutionProvider`、`TensorrtExecutionProvider` だけを受け付ける
 - model path passed as `{model}`
 - audio payload path passed as `{audio}`
 - execution provider passed as `{provider}`
@@ -27,6 +27,7 @@ External Python / ONNX Runtime worker。
 
 - model path missing
 - execution provider missing / unavailable in worker
+- unsupported execution provider name
 - command missing / not executable
 - `backend.args` missing `{audio}`, `{model}`, `{provider}`
 - `backend.health_args` missing `{model}`, `{provider}`

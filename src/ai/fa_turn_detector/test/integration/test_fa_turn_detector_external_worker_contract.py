@@ -71,6 +71,9 @@ def test_smart_turn_ros_adapter_does_not_import_onnxruntime_or_ros_messages() ->
     assert "onnxruntime" not in adapter_text
     assert "onnxruntime" not in worker_text
     assert "onnxruntime" in runtime_text
+    assert "CPUExecutionProvider" in adapter_text
+    assert "CUDAExecutionProvider" in adapter_text
+    assert "TensorrtExecutionProvider" in adapter_text
     forbidden_ros_tokens = (
         "rclpy",
         "fa_interfaces",

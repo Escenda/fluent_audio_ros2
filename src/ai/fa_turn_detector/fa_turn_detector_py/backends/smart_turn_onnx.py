@@ -18,6 +18,11 @@ _ALLOWED_ARG_FIELDS = frozenset(("audio", "model", "provider"))
 _ALLOWED_HEALTH_ARG_FIELDS = frozenset(("model", "provider"))
 _REQUIRED_ARG_FIELDS = frozenset(("audio", "model", "provider"))
 _REQUIRED_HEALTH_ARG_FIELDS = frozenset(("model", "provider"))
+_SUPPORTED_EXECUTION_PROVIDERS = frozenset((
+    "CPUExecutionProvider",
+    "CUDAExecutionProvider",
+    "TensorrtExecutionProvider",
+))
 
 
 class SmartTurnOnnxBackend:
@@ -189,6 +194,12 @@ class SmartTurnOnnxBackend:
         provider = execution_provider.strip()
         if not provider:
             raise RuntimeError("backend.execution_provider is required")
+        if provider not in _SUPPORTED_EXECUTION_PROVIDERS:
+            supported = ", ".join(sorted(_SUPPORTED_EXECUTION_PROVIDERS))
+            raise RuntimeError(
+                "backend.execution_provider must be one of: "
+                f"{supported}; got {provider}"
+            )
         return provider
 
     @staticmethod
