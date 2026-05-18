@@ -84,6 +84,7 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "config_.expected_layout != kInterleavedLayout" in load_parameters
     assert "config_.qos_depth <= 0" in load_parameters
     assert "config_.diagnostics_publish_period_ms <= 0" in load_parameters
+    assert "config_.diagnostics_qos_depth <= 0" in load_parameters
     assert "throw std::runtime_error" in load_parameters
 
 
@@ -104,7 +105,9 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
         'readRequiredInt(*this, "expected.bit_depth")',
         'readRequiredString(*this, "expected.layout")',
         'readRequiredInt(*this, "qos.depth")',
+        'readRequiredInt(*this, "diagnostics.qos.depth")',
         'readRequiredBool(*this, "qos.reliable")',
+        'readRequiredBool(*this, "diagnostics.qos.reliable")',
     )
     for read in required_reads:
         assert read in load_parameters
@@ -112,6 +115,7 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     assert "readRequiredInt(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
     assert "this->get_parameter(" not in load_parameters
+    assert "SystemDefaultsQoS" not in source
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert "config_." not in line

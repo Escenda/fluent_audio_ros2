@@ -73,7 +73,9 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
         'readRequiredString(*this, "reference_failure_policy")',
         'readRequiredDouble(*this, "cancel_gain")',
         'readRequiredInt(*this, "qos.depth")',
+        'readRequiredInt(*this, "diagnostics.qos.depth")',
         'readRequiredBool(*this, "qos.reliable")',
+        'readRequiredBool(*this, "diagnostics.qos.reliable")',
     )
     for read in required_reads:
       assert read in load_parameters
@@ -81,6 +83,7 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     assert "readRequiredInt(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
     assert "this->get_parameter(" not in load_parameters
+    assert "SystemDefaultsQoS" not in source
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert "config_." not in line
