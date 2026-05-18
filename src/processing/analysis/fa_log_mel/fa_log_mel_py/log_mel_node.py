@@ -5,7 +5,10 @@ from typing import Iterable
 
 import numpy as np
 import rclpy
+from rclpy.exceptions import ParameterUninitializedException
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from fa_interfaces.msg import AudioFrame, LogMelFrame
@@ -47,48 +50,28 @@ class FaLogMelNode(Node):
         )
 
         self.get_logger().info(
-            "fa_log_mel started: input=%s output=%s n_fft=%d hop=%d n_mels=%d",
-            self.input_topic,
-            self.output_topic,
-            self.n_fft,
-            self.hop_length,
-            self.n_mels,
+            "fa_log_mel started: "
+            f"input={self.input_topic} output={self.output_topic} "
+            f"n_fft={self.n_fft} hop={self.hop_length} n_mels={self.n_mels}"
         )
 
     def _load_parameters(self) -> None:
-        self.declare_parameter("input_topic", "audio/features/input")
-        self.declare_parameter("output_topic", "audio/features/log_mel")
-        self.declare_parameter("backend.name", "")
-        self.declare_parameter("expected.sample_rate", 16000)
-        self.declare_parameter("expected.channels", 1)
-        self.declare_parameter("expected.encoding", "FLOAT32LE")
-        self.declare_parameter("expected.bit_depth", 32)
-        self.declare_parameter("expected.layout", "interleaved")
-        self.declare_parameter("feature.n_fft", 400)
-        self.declare_parameter("feature.hop_length", 160)
-        self.declare_parameter("feature.n_mels", 80)
-        self.declare_parameter("feature.f_min_hz", 0.0)
-        self.declare_parameter("feature.f_max_hz", 8000.0)
-        self.declare_parameter("feature.log_floor", 1.0e-10)
-        self.declare_parameter("qos.depth", 10)
-        self.declare_parameter("qos.reliable", False)
-
-        self.input_topic = str(self.get_parameter("input_topic").value).strip()
-        self.output_topic = str(self.get_parameter("output_topic").value).strip()
-        self.backend_name = str(self.get_parameter("backend.name").value).strip()
-        self.expected_sample_rate = int(self.get_parameter("expected.sample_rate").value)
-        self.expected_channels = int(self.get_parameter("expected.channels").value)
-        self.expected_encoding = str(self.get_parameter("expected.encoding").value).strip()
-        self.expected_bit_depth = int(self.get_parameter("expected.bit_depth").value)
-        self.expected_layout = str(self.get_parameter("expected.layout").value).strip()
-        self.n_fft = int(self.get_parameter("feature.n_fft").value)
-        self.hop_length = int(self.get_parameter("feature.hop_length").value)
-        self.n_mels = int(self.get_parameter("feature.n_mels").value)
-        self.f_min_hz = float(self.get_parameter("feature.f_min_hz").value)
-        self.f_max_hz = float(self.get_parameter("feature.f_max_hz").value)
-        self.log_floor = float(self.get_parameter("feature.log_floor").value)
-        self.qos_depth = int(self.get_parameter("qos.depth").value)
-        self.qos_reliable = bool(self.get_parameter("qos.reliable").value)
+        self.input_topic = self._required_string("input_topic")
+        self.output_topic = self._required_string("output_topic")
+        self.backend_name = self._required_string("backend.name")
+        self.expected_sample_rate = self._required_integer("expected.sample_rate")
+        self.expected_channels = self._required_integer("expected.channels")
+        self.expected_encoding = self._required_string("expected.encoding")
+        self.expected_bit_depth = self._required_integer("expected.bit_depth")
+        self.expected_layout = self._required_string("expected.layout")
+        self.n_fft = self._required_integer("feature.n_fft")
+        self.hop_length = self._required_integer("feature.hop_length")
+        self.n_mels = self._required_integer("feature.n_mels")
+        self.f_min_hz = self._required_double("feature.f_min_hz")
+        self.f_max_hz = self._required_double("feature.f_max_hz")
+        self.log_floor = self._required_double("feature.log_floor")
+        self.qos_depth = self._required_integer("qos.depth")
+        self.qos_reliable = self._required_bool("qos.reliable")
 
         if not self.input_topic:
             raise RuntimeError("input_topic is required")
@@ -109,13 +92,47 @@ class FaLogMelNode(Node):
         if self.qos_depth <= 0:
             raise RuntimeError("qos.depth must be > 0")
 
+    def _required_string(self, name: str) -> str:
+        self.declare_parameter(name, Parameter.Type.STRING)
+        try:
+            value = self.get_parameter(name).get_parameter_value().string_value.strip()
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
+        if not value:
+            raise RuntimeError(f"{name} is required")
+        return value
+
+    def _required_integer(self, name: str) -> int:
+        self.declare_parameter(name, Parameter.Type.INTEGER)
+        try:
+            return int(self.get_parameter(name).get_parameter_value().integer_value)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
+
+    def _required_double(self, name: str) -> float:
+        self.declare_parameter(name, Parameter.Type.DOUBLE)
+        try:
+            return float(self.get_parameter(name).get_parameter_value().double_value)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
+
+    def _required_bool(self, name: str) -> bool:
+        self.declare_parameter(name, Parameter.Type.BOOL)
+        try:
+            return bool(self.get_parameter(name).get_parameter_value().bool_value)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
+
     def on_audio(self, msg: AudioFrame) -> None:
         try:
             samples = self._frame_to_float(msg)
             result = self.backend.compute(samples)
-        except (RuntimeError, ValueError) as exc:
-            self.get_logger().warning("Dropping AudioFrame before log-mel publish: %s", exc)
+        except ValueError as exc:
+            self.get_logger().warning(f"Dropping AudioFrame before log-mel publish: {exc}")
             return
+        except RuntimeError as exc:
+            self.get_logger().error(f"fa_log_mel backend failure: {exc}")
+            raise
 
         out = LogMelFrame()
         out.header = msg.header
@@ -139,6 +156,8 @@ class FaLogMelNode(Node):
             raise ValueError("AudioFrame data is required")
         if not msg.source_id or not msg.stream_id:
             raise ValueError("AudioFrame source_id and stream_id are required")
+        if msg.stream_id != self.input_topic:
+            raise ValueError("AudioFrame stream_id must match input_topic")
         if msg.layout != self.expected_layout:
             raise ValueError(f"AudioFrame layout must be {self.expected_layout}")
         if msg.encoding != self.expected_encoding:
@@ -167,11 +186,12 @@ def main(args: Iterable[str] | None = None) -> None:
     node = FaLogMelNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

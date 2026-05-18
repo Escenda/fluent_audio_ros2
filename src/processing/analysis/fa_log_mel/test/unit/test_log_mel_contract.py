@@ -41,7 +41,7 @@ def test_default_config_uses_internal_backend_and_canonical_audio() -> None:
 
 def test_backend_computes_finite_frames_by_mels_matrix() -> None:
     backend = InternalLogMelBackend(_config())
-    samples = np.sin(np.linspace(0.0, 1.0, 1600, dtype=np.float32))
+    samples = np.sin(np.linspace(0.0, 1.0, 1520, dtype=np.float32))
 
     result = backend.compute(samples)
 
@@ -49,6 +49,15 @@ def test_backend_computes_finite_frames_by_mels_matrix() -> None:
     assert result.values.shape == (8, 80)
     assert result.values.dtype == np.float32
     assert np.all(np.isfinite(result.values))
+
+
+def test_backend_zero_signal_matches_log_floor_golden_vector() -> None:
+    backend = InternalLogMelBackend(_config())
+    result = backend.compute(np.zeros(400, dtype=np.float32))
+
+    assert result.frame_count == 1
+    assert result.values.shape == (1, 80)
+    assert np.allclose(result.values, np.log(1.0e-10), rtol=0.0, atol=1.0e-6)
 
 
 def test_backend_rejects_non_canonical_audio_without_hidden_conversion() -> None:
@@ -62,6 +71,8 @@ def test_backend_rejects_non_canonical_audio_without_hidden_conversion() -> None
         backend.compute(np.full(400, 2.0, dtype=np.float32))
     with pytest.raises(ValueError, match="feature.n_fft"):
         backend.compute(np.zeros(399, dtype=np.float32))
+    with pytest.raises(ValueError, match="align"):
+        backend.compute(np.zeros(401, dtype=np.float32))
 
 
 def test_backend_config_rejects_invalid_feature_contract() -> None:
@@ -107,3 +118,34 @@ def test_backend_is_ros_free_and_not_ai_runtime() -> None:
     assert "非 AI analysis node" in spec
     assert "model runtime は持たず" in readme
     assert "resample" not in backend_text
+
+
+def test_node_requires_explicit_ros_parameters_and_binds_stream_identity() -> None:
+    node_path = PACKAGE_ROOT / "fa_log_mel_py" / "log_mel_node.py"
+    node_text = node_path.read_text(encoding="utf-8")
+
+    assert "ParameterUninitializedException" in node_text
+    assert "Parameter.Type.STRING" in node_text
+    assert 'declare_parameter("input_topic", "audio/features/input")' not in node_text
+    assert 'declare_parameter("feature.n_fft", 400)' not in node_text
+    assert "msg.stream_id != self.input_topic" in node_text
+    assert "except ValueError as exc:" in node_text
+    assert "except RuntimeError as exc:" in node_text
+    assert "raise" in node_text
+
+
+def test_system_sample_aligns_log_mel_window_with_default_mic_chunk() -> None:
+    sample_path = (
+        PACKAGE_ROOT.parents[2]
+        / "system"
+        / "fluent_audio_system"
+        / "config"
+        / "fluent_audio_system.sample.yaml"
+    )
+    config = yaml.safe_load(sample_path.read_text(encoding="utf-8"))
+    analysis_group = next(group for group in config["groups"] if group["id"] == "analysis")
+    log_mel_node = next(node for node in analysis_group["nodes"] if node["id"] == "fa_log_mel")
+
+    assert log_mel_node["parameters"]["input_topic"] == "audio/resample16k/mic"
+    assert log_mel_node["parameters"]["feature.n_fft"] == 320
+    assert log_mel_node["parameters"]["feature.hop_length"] == 160

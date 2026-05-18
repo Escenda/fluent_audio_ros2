@@ -87,6 +87,8 @@ def _validate_samples(samples: np.ndarray) -> np.ndarray:
 def _frame_count(sample_count: int, n_fft: int, hop_length: int) -> int:
     if sample_count < n_fft:
         raise ValueError("log-mel input sample count must be >= feature.n_fft")
+    if (sample_count - n_fft) % hop_length != 0:
+        raise ValueError("log-mel input sample count must align to feature.n_fft and feature.hop_length")
     return 1 + ((sample_count - n_fft) // hop_length)
 
 
