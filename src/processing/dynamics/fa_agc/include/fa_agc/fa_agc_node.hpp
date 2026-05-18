@@ -43,7 +43,7 @@ struct AgcConfig
 class FaAgcNode : public rclcpp::Node
 {
 public:
-  FaAgcNode();
+  explicit FaAgcNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaAgcNode() override;
 
 private:

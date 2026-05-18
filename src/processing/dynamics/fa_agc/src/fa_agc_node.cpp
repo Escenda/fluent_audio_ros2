@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -37,8 +36,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaAgcNode::FaAgcNode()
-: rclcpp::Node("fa_agc")
+FaAgcNode::FaAgcNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_agc", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA AGC node");
   loadParameters();
@@ -325,18 +324,3 @@ void FaAgcNode::publishDiagnostics()
 }
 
 }  // namespace fa_agc
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_agc::FaAgcNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_agc"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

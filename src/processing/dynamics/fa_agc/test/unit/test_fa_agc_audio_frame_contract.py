@@ -11,6 +11,16 @@ def read_node_source() -> str:
     return (package_root() / "src" / "fa_agc_node.cpp").read_text(encoding="utf-8")
 
 
+def read_node_header() -> str:
+    return (package_root() / "include" / "fa_agc" / "fa_agc_node.hpp").read_text(
+        encoding="utf-8"
+    )
+
+
+def read_main_source() -> str:
+    return (package_root() / "src" / "main.cpp").read_text(encoding="utf-8")
+
+
 def read_backend_header() -> str:
     return (
         package_root() / "include" / "fa_agc" / "backends" / "internal_rms_agc.hpp"
@@ -250,6 +260,21 @@ def test_diagnostics_include_parameters_state_and_counters() -> None:
     assert "backend_->lastTargetGain()" in publish_diagnostics
 
 
+def test_node_core_is_constructible_with_node_options_for_graph_tests() -> None:
+    header = read_node_header()
+    node_source = read_node_source()
+    main_source = read_main_source()
+
+    assert (
+        "explicit FaAgcNode(const rclcpp::NodeOptions & options = "
+        "rclcpp::NodeOptions());"
+    ) in header
+    assert "FaAgcNode::FaAgcNode(const rclcpp::NodeOptions & options)" in node_source
+    assert ': rclcpp::Node("fa_agc", options)' in node_source
+    assert "int main(" not in node_source
+    assert "auto node = std::make_shared<fa_agc::FaAgcNode>();" in main_source
+
+
 def test_package_layout_matches_required_processing_layout() -> None:
     required_paths = (
         "README.md",
@@ -262,11 +287,13 @@ def test_package_layout_matches_required_processing_layout() -> None:
         "include/fa_agc/fa_agc_node.hpp",
         "include/fa_agc/backends/internal_rms_agc.hpp",
         "src/fa_agc_node.cpp",
+        "src/main.cpp",
         "src/backends/internal_rms_agc.cpp",
         "test/cpp/test_internal_rms_agc_backend.cpp",
+        "test/cpp/test_agc_graph.cpp",
+        "test/launch/test_fa_agc_launch_contract.py",
         "test/unit/test_fa_agc_audio_frame_contract.py",
         "test/integration/.gitkeep",
-        "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
     )
 
@@ -280,7 +307,12 @@ def test_colcon_runs_pytest_and_backend_gtest_contracts() -> None:
 
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "add_library(fa_agc_node_core" in cmake_text
+    assert "src/main.cpp" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_graph_smoke_test" in cmake_text
+    assert "test/cpp/test_agc_graph.cpp" in cmake_text
+    assert "fa_agc_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
