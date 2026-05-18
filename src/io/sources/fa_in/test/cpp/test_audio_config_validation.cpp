@@ -28,7 +28,7 @@ TEST(FaInAudioConfigValidation, RejectsNonPositiveAndOutOfRangeUint32)
 TEST(FaInAudioConfigValidation, RejectsMissingExplicitDeviceSelector)
 {
   EXPECT_NO_THROW(fa_in::validation::requireDeviceSelector("id", "hw:1,0", -1));
-  EXPECT_NO_THROW(fa_in::validation::requireDeviceSelector("name", "hw:1,0", -1));
+  EXPECT_NO_THROW(fa_in::validation::requireDeviceSelector("name", "Front Mic", -1));
   EXPECT_NO_THROW(fa_in::validation::requireDeviceSelector("index", "", 0));
 
   EXPECT_THROW(
@@ -39,6 +39,9 @@ TEST(FaInAudioConfigValidation, RejectsMissingExplicitDeviceSelector)
     std::runtime_error);
   EXPECT_THROW(
     fa_in::validation::requireDeviceSelector("name", "", -1),
+    std::runtime_error);
+  EXPECT_THROW(
+    fa_in::validation::requireDeviceSelector("name", "hw:1,0", -1),
     std::runtime_error);
   EXPECT_THROW(
     fa_in::validation::requireDeviceSelector("index", "", -1),
