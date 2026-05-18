@@ -18,9 +18,13 @@ class _BackendError(Exception):
 class _FakeLogger:
     def __init__(self) -> None:
         self.fatal_records: list[str] = []
+        self.error_records: list[str] = []
 
     def fatal(self, message: str) -> None:
         self.fatal_records.append(message)
+
+    def error(self, message: str) -> None:
+        self.error_records.append(message)
 
 
 class _FakeNode:
@@ -343,6 +347,47 @@ def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame data is required" in source
     assert "AudioFrame sample_rate must match backend sample_rate" in source
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
+    assert "VadState source_id and stream_id are required" in source
+    assert "VadState source_id must match expected_source_id" in source
+    assert "VadState stream_id must match audio_topic" in source
+
+
+def test_turn_detector_rejects_unbound_vad_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = Path(__file__).parents[2]
+    shutdown_calls: list[bool] = []
+    _install_turn_detector_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(package_root))
+    sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+    try:
+        module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
+        msg = _FakeVadState()
+        msg.source_id = "mic-a"
+        msg.stream_id = "audio/frame"
+
+        module.FaTurnDetectorNode._validate_vad_identity(
+            msg,
+            expected_source_id="mic-a",
+            expected_stream_id="audio/frame",
+        )
+
+        with pytest.raises(ValueError, match="VadState source_id must match expected_source_id"):
+            module.FaTurnDetectorNode._validate_vad_identity(
+                msg,
+                expected_source_id="mic-b",
+                expected_stream_id="audio/frame",
+            )
+
+        with pytest.raises(ValueError, match="VadState stream_id must match audio_topic"):
+            module.FaTurnDetectorNode._validate_vad_identity(
+                msg,
+                expected_source_id="mic-a",
+                expected_stream_id="audio/other",
+            )
+    finally:
+        sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
 
 
 def test_turn_detector_node_source_does_not_hide_parameter_type_conversion() -> None:

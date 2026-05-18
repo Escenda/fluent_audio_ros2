@@ -74,8 +74,10 @@ def _active_context(session_id: str, user_turn_id: int) -> TurnContext:
     return msg
 
 
-def _vad_end() -> VadState:
+def _vad_end(source_id: str, stream_id: str) -> VadState:
     msg = VadState()
+    msg.source_id = source_id
+    msg.stream_id = stream_id
     msg.probability = 0.0
     msg.is_speech = False
     msg.start = False
@@ -190,7 +192,10 @@ def test_turn_detector_publishes_turn_end_from_ros_graph_fixture(tmp_path: Path)
         audio_pub.publish(_audio_frame(audio_topic, np.full(16000, 0.1, dtype=np.float32)))
         assert _spin_until(executor, lambda: len(node.audio_buffer) >= 16000)
 
-        vad_pub.publish(_vad_end())
+        vad_pub.publish(_vad_end("mic-b", audio_topic))
+        assert not _spin_until(executor, lambda: len(received) == 1, timeout_sec=0.3)
+
+        vad_pub.publish(_vad_end("mic-a", audio_topic))
         assert _spin_until(executor, lambda: len(received) == 1)
 
         assert received[0].session_id == "session-a"

@@ -53,3 +53,22 @@ def test_log_mel_frame_is_feature_payload_only() -> None:
     assert all("probability" not in field for field in fields)
     assert all("detected" not in field for field in fields)
     assert all("text" not in field for field in fields)
+
+
+def test_vad_state_carries_audio_stream_identity() -> None:
+    msg_path = Path(__file__).parents[2] / "msg" / "VadState.msg"
+    fields = [
+        line.strip()
+        for line in msg_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+    assert fields == [
+        "std_msgs/Header header",
+        "string source_id",
+        "string stream_id",
+        "float32 probability",
+        "bool is_speech",
+        "bool start",
+        "bool end",
+    ]

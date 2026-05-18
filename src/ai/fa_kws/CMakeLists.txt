@@ -61,6 +61,7 @@ endif()
 add_executable(fa_kws_node
   src/fa_kws_node.cpp
   src/audio_utils.cpp
+  src/vad_state_identity.cpp
 )
 
 ament_target_dependencies(fa_kws_node
@@ -147,6 +148,19 @@ if(BUILD_TESTING)
       include
     )
     ament_target_dependencies(${PROJECT_NAME}_audio_utils_test
+      fa_interfaces
+    )
+  endif()
+
+  ament_add_gtest(${PROJECT_NAME}_vad_state_identity_test
+    test/unit/vad_state_identity_contract.cpp
+    src/vad_state_identity.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_vad_state_identity_test)
+    target_include_directories(${PROJECT_NAME}_vad_state_identity_test PRIVATE
+      include
+    )
+    ament_target_dependencies(${PROJECT_NAME}_vad_state_identity_test
       fa_interfaces
     )
   endif()

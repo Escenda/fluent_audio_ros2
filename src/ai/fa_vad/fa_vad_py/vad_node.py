@@ -225,6 +225,8 @@ class FaVadNode(Node):
         if self._vad_state_pub is not None:
             out = VadState()
             out.header = msg.header
+            out.source_id = msg.source_id
+            out.stream_id = msg.stream_id
             out.probability = float(probability)
             out.is_speech = bool(is_speech)
             out.start = bool(start)

@@ -12,7 +12,7 @@
 
 `config/default.yaml` の `model.encoder` / `model.decoder` / `model.joiner` / `model.tokens` / `kws.keywords_file` は必須です。空または存在しないパスを指定した場合、ノードは起動時に失敗します。`backend.execution_provider` も必須で、空または未対応 provider は sherpa-onnx C API に渡す前に失敗します。KWS は VAD state を必須入力として扱い、未受信または `vad.max_age_ms` を超えた stale state では audio frame を処理しません。
 
-`expected_source_id` も必須です。受信した `AudioFrame.source_id` は `expected_source_id` と一致し、`AudioFrame.stream_id` は `audio_topic` と一致する必要があります。別 source / stream の audio frame は backend に渡さず reject します。
+`expected_source_id` も必須です。受信した `AudioFrame.source_id` と `VadState.source_id` は `expected_source_id` と一致し、`AudioFrame.stream_id` と `VadState.stream_id` は `audio_topic` と一致する必要があります。別 source / stream の audio frame または VAD state は backend に渡さず reject します。
 
 ビルド時には sherpa-onnx C API が必要です。標準パスに無い場合は `SHERPA_ONNX_PREFIX` 環境変数または CMake cache で install prefix を指定してください。
 

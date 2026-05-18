@@ -9,7 +9,7 @@
 - Sub: `conversation/turn_context` (`fa_interfaces/msg/TurnContext`)
 - Pub: `voice/asr/result` (`fa_interfaces/msg/AsrResult`)
 
-`expected_source_id` / `expected_stream_id` は必須です。受信した `AudioFrame.source_id` は `expected_source_id`、`AudioFrame.stream_id` は `expected_stream_id` と一致する必要があります。別 source / stream の audio frame は ASR buffer に混ぜず reject します。
+`expected_source_id` / `expected_stream_id` は必須です。受信した `AudioFrame.source_id` と `VadState.source_id` は `expected_source_id`、`AudioFrame.stream_id` と `VadState.stream_id` は `expected_stream_id` と一致する必要があります。別 source / stream の audio frame や VAD end は ASR buffer に混ぜず reject します。
 
 ## バックエンド契約
 

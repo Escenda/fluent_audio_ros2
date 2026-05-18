@@ -9,7 +9,7 @@
 - Sub: `conversation/turn_context` (`fa_interfaces/msg/TurnContext`)
 - Pub: `voice/turn_end` (`fa_interfaces/msg/TurnEnd`)
 
-`TurnContext.active=true` の間だけ音声をバッファします。`AudioFrame.source_id` は `expected_source_id`、`AudioFrame.stream_id` は `audio_topic` に一致する必要があります。モデルファイルが無い場合は起動時に失敗します。
+`TurnContext.active=true` の間だけ音声をバッファします。`AudioFrame.source_id` と `VadState.source_id` は `expected_source_id`、`AudioFrame.stream_id` と `VadState.stream_id` は `audio_topic` に一致する必要があります。モデルファイルが無い場合は起動時に失敗します。
 
 ## Runtime
 

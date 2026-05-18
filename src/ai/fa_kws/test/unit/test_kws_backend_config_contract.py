@@ -87,6 +87,13 @@ def test_backend_builds_as_shared_runtime_boundary() -> None:
 def test_node_uses_backend_execution_provider_parameter() -> None:
     node_path = PACKAGE_ROOT / "src" / "fa_kws_node.cpp"
     node_text = node_path.read_text(encoding="utf-8")
+    identity_text = (PACKAGE_ROOT / "src" / "vad_state_identity.cpp").read_text(
+        encoding="utf-8"
+    )
+    identity_test_text = (
+        PACKAGE_ROOT / "test" / "unit" / "vad_state_identity_contract.cpp"
+    ).read_text(encoding="utf-8")
+    cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
     assert '"backend.execution_provider", ""' in node_text
     assert '"expected_source_id", ""' in node_text
@@ -98,8 +105,16 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     assert '"vad.max_age_ms", 1000' in node_text
     assert "vad.probability_gate must be finite and in (0.0, 1.0]" in node_text
     assert "vad.max_age_ms must be greater than zero" in node_text
+    assert "vadStateMatchesAudioBinding(*msg, expected_source_id_, audio_topic_)" in node_text
+    assert "msg.source_id.empty() || msg.stream_id.empty()" in identity_text
+    assert "expected_source_id.empty() || expected_stream_id.empty()" in identity_text
+    assert "msg.source_id == expected_source_id && msg.stream_id == expected_stream_id" in identity_text
+    assert "Rejecting VadState identity mismatch" in node_text
     assert "Rejecting invalid VadState.probability" in node_text
     assert "last_vad_rx_ns_.store(0" in node_text
+    assert "ament_add_gtest(${PROJECT_NAME}_vad_state_identity_test" in cmake_text
+    assert "RejectsMissingVadIdentity" in identity_test_text
+    assert "RejectsUnexpectedSourceOrStream" in identity_test_text
     assert "isValidVadGateThreshold(probability_gate_)" in node_text
     assert "isValidVadProbability(msg->probability)" in node_text
     assert "passesVadGate(vad_prob, static_cast<float>(probability_gate_))" in node_text

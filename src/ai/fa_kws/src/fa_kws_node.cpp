@@ -18,6 +18,7 @@
 
 #include "fa_kws/audio_utils.hpp"
 #include "fa_kws/backends/kws_backend.hpp"
+#include "fa_kws/vad_state_identity.hpp"
 #ifdef FA_KWS_WITH_SHERPA_ONNX
 #include "fa_kws/backends/sherpa_onnx_kws_backend.hpp"
 #endif
@@ -293,9 +294,21 @@ private:
     if (!msg) {
       return;
     }
+    if (!vadStateMatchesAudioBinding(*msg, expected_source_id_, audio_topic_)) {
+      clearVadState();
+      RCLCPP_ERROR_THROTTLE(
+        this->get_logger(),
+        *this->get_clock(),
+        2000,
+        "Rejecting VadState identity mismatch: source_id='%s' expected_source_id='%s' stream_id='%s' expected_stream_id='%s'",
+        msg->source_id.c_str(),
+        expected_source_id_.c_str(),
+        msg->stream_id.c_str(),
+        audio_topic_.c_str());
+      return;
+    }
     if (!isValidVadProbability(msg->probability)) {
-      current_vad_prob_.store(0.0f, std::memory_order_relaxed);
-      last_vad_rx_ns_.store(0, std::memory_order_relaxed);
+      clearVadState();
       RCLCPP_ERROR_THROTTLE(
         this->get_logger(),
         *this->get_clock(),
@@ -309,6 +322,12 @@ private:
                           std::chrono::steady_clock::now().time_since_epoch())
                           .count();
     last_vad_rx_ns_.store(now_ns, std::memory_order_relaxed);
+  }
+
+  void clearVadState()
+  {
+    current_vad_prob_.store(0.0f, std::memory_order_relaxed);
+    last_vad_rx_ns_.store(0, std::memory_order_relaxed);
   }
 
   bool readFreshVadProbability(std::int64_t now_ns, float &vad_prob)

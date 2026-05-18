@@ -389,6 +389,8 @@ def test_vad_node_source_does_not_hide_format_conversion() -> None:
     assert "AudioFrame sample_rate must match target_sample_rate" in source
     assert "expected_source_id=self._expected_source_id" in source
     assert "expected_stream_id=self._input_topic" in source
+    assert "out.source_id = msg.source_id" in source
+    assert "out.stream_id = msg.stream_id" in source
     assert '"FA VAD (Silero): "' in source
     assert "Dropping invalid AudioFrame: %s" not in source
     assert "VAD backend failed: %s" not in source

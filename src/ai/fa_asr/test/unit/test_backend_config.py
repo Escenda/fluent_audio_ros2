@@ -394,6 +394,9 @@ def test_asr_node_rejects_non_canonical_audio_frames() -> None:
     assert "AudioFrame bit_depth must be 32" in source
     assert "AudioFrame sample_rate must match target_sample_rate" in source
     assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
+    assert "VadState source_id and stream_id are required" in source
+    assert "VadState source_id must match expected_source_id" in source
+    assert "VadState stream_id must match expected_stream_id" in source
 
 
 def test_asr_node_rejects_empty_audio_data(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -488,6 +491,42 @@ def test_asr_node_rejects_unbound_source_or_stream_identity(
                 frame,
                 expected_source_id="mic0",
                 expected_stream_id="audio/other",
+            )
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
+def test_asr_node_rejects_unbound_vad_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        msg = _FakeVadState()
+        msg.source_id = "mic0"
+        msg.stream_id = "stream0"
+
+        module.FaAsrNode._validate_vad_identity(
+            msg,
+            expected_source_id="mic0",
+            expected_stream_id="stream0",
+        )
+
+        with pytest.raises(ValueError, match="VadState source_id must match expected_source_id"):
+            module.FaAsrNode._validate_vad_identity(
+                msg,
+                expected_source_id="mic1",
+                expected_stream_id="stream0",
+            )
+
+        with pytest.raises(ValueError, match="VadState stream_id must match expected_stream_id"):
+            module.FaAsrNode._validate_vad_identity(
+                msg,
+                expected_source_id="mic0",
+                expected_stream_id="stream1",
             )
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)

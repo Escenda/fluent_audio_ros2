@@ -166,6 +166,15 @@ class FaTurnDetectorNode(Node):
         self.audio_buffer.extend(audio_data.tolist())
 
     def on_vad(self, msg: VadState) -> None:
+        try:
+            self._validate_vad_identity(
+                msg,
+                expected_source_id=self.expected_source_id,
+                expected_stream_id=self.audio_topic,
+            )
+        except ValueError as exc:
+            self.get_logger().error(f"Dropping invalid VadState: {exc}")
+            return
         if not self._context_active:
             self.is_speech = bool(msg.is_speech)
             return
@@ -173,6 +182,24 @@ class FaTurnDetectorNode(Node):
         self.is_speech = bool(msg.is_speech)
         if msg.end or (prev_is_speech and not self.is_speech):
             self._detect_turn_end()
+
+    @staticmethod
+    def _validate_vad_identity(
+        msg: VadState,
+        *,
+        expected_source_id: str,
+        expected_stream_id: str,
+    ) -> None:
+        if not msg.source_id or not msg.stream_id:
+            raise ValueError("VadState source_id and stream_id are required")
+        if not expected_source_id:
+            raise ValueError("expected_source_id is required")
+        if not expected_stream_id:
+            raise ValueError("expected_stream_id is required")
+        if msg.source_id != expected_source_id:
+            raise ValueError("VadState source_id must match expected_source_id")
+        if msg.stream_id != expected_stream_id:
+            raise ValueError("VadState stream_id must match audio_topic")
 
     def _detect_turn_end(self) -> None:
         if len(self.audio_buffer) < self.backend.min_samples:

@@ -217,6 +217,15 @@ class FaAsrNode(Node):
     def on_vad(self, msg: VadState) -> None:
         if not self._context_active:
             return
+        try:
+            self._validate_vad_identity(
+                msg,
+                expected_source_id=self.expected_source_id,
+                expected_stream_id=self.expected_stream_id,
+            )
+        except ValueError as exc:
+            self.get_logger().error("Dropping invalid VadState: %s", exc)
+            return
         if msg.is_speech:
             self._last_speech = self.get_clock().now()
         if self.finalize_on_vad_end and msg.end:
@@ -368,6 +377,24 @@ class FaAsrNode(Node):
         if np.any(samples < -1.0) or np.any(samples > 1.0):
             raise ValueError("AudioFrame samples must be normalized to [-1.0, 1.0]")
         return samples
+
+    @staticmethod
+    def _validate_vad_identity(
+        msg: VadState,
+        *,
+        expected_source_id: str,
+        expected_stream_id: str,
+    ) -> None:
+        if not msg.source_id or not msg.stream_id:
+            raise ValueError("VadState source_id and stream_id are required")
+        if not expected_source_id:
+            raise ValueError("expected_source_id is required")
+        if not expected_stream_id:
+            raise ValueError("expected_stream_id is required")
+        if msg.source_id != expected_source_id:
+            raise ValueError("VadState source_id must match expected_source_id")
+        if msg.stream_id != expected_stream_id:
+            raise ValueError("VadState stream_id must match expected_stream_id")
 
     def _publish_result(
         self,
