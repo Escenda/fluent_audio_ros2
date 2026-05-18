@@ -86,7 +86,8 @@ const BiquadCoefficients & InternalNotchBackend::coefficients() const
 
 ProcessStatus InternalNotchBackend::process(
   const std::vector<uint8_t> & input,
-  std::vector<uint8_t> & output)
+  std::vector<uint8_t> & output,
+  const bool reset_state)
 {
   const size_t bytes_per_frame = static_cast<size_t>(config_.channels) * sizeof(float);
   if (input.empty()) {
@@ -96,7 +97,10 @@ ProcessStatus InternalNotchBackend::process(
     return ProcessStatus::kMisalignedInput;
   }
 
-  std::vector<ChannelFilterState> next_channel_states = channel_states_;
+  std::vector<ChannelFilterState> next_channel_states =
+    reset_state ?
+    std::vector<ChannelFilterState>(channel_states_.size(), ChannelFilterState{}) :
+    channel_states_;
   std::vector<uint8_t> next_output(input.size());
   const double float_max = static_cast<double>(std::numeric_limits<float>::max());
 

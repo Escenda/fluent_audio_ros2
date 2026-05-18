@@ -43,7 +43,7 @@ TEST(InternalNotchBackendContract, FiltersFloat32LeWithBiquadState)
     fa_notch::backends::InternalNotchConfig{1000, 1, 60.0, 30.0});
 
   std::vector<uint8_t> output;
-  const auto status = backend.process(float32LeBytes({1.0F, 0.0F, 0.0F}), output);
+  const auto status = backend.process(float32LeBytes({1.0F, 0.0F, 0.0F}), output, false);
 
   ASSERT_EQ(status, fa_notch::backends::ProcessStatus::kOk);
   const std::vector<float> samples = decodeFloat32Le(output);
@@ -65,15 +65,15 @@ TEST(InternalNotchBackendContract, ReportsInputRejectionStatuses)
 
   std::vector<uint8_t> output;
   EXPECT_EQ(
-    backend.process({}, output),
+    backend.process({}, output, false),
     fa_notch::backends::ProcessStatus::kEmptyInput);
 
   EXPECT_EQ(
-    backend.process(std::vector<uint8_t>{0, 1, 2}, output),
+    backend.process(std::vector<uint8_t>{0, 1, 2}, output, false),
     fa_notch::backends::ProcessStatus::kMisalignedInput);
 
   EXPECT_EQ(
-    backend.process(float32LeBytes({std::numeric_limits<float>::quiet_NaN()}), output),
+    backend.process(float32LeBytes({std::numeric_limits<float>::quiet_NaN()}), output, false),
     fa_notch::backends::ProcessStatus::kNonFiniteInput);
 }
 
@@ -84,13 +84,13 @@ TEST(InternalNotchBackendContract, DoesNotCommitStateWhenFrameIsRejected)
 
   std::vector<uint8_t> output;
   ASSERT_EQ(
-    backend.process(float32LeBytes({1.0F, 0.0F}), output),
+    backend.process(float32LeBytes({1.0F, 0.0F}), output, false),
     fa_notch::backends::ProcessStatus::kOk);
   EXPECT_EQ(
-    backend.process(float32LeBytes({std::numeric_limits<float>::quiet_NaN()}), output),
+    backend.process(float32LeBytes({std::numeric_limits<float>::quiet_NaN()}), output, false),
     fa_notch::backends::ProcessStatus::kNonFiniteInput);
   ASSERT_EQ(
-    backend.process(float32LeBytes({0.0F}), output),
+    backend.process(float32LeBytes({0.0F}), output, false),
     fa_notch::backends::ProcessStatus::kOk);
 
   const std::vector<float> samples = decodeFloat32Le(output);
@@ -110,6 +110,55 @@ TEST(InternalNotchBackendContract, DoesNotRequireNormalizedInputRange)
 
   std::vector<uint8_t> output;
   EXPECT_EQ(
-    backend.process(float32LeBytes({2.0F, -2.0F}), output),
+    backend.process(float32LeBytes({2.0F, -2.0F}), output, false),
     fa_notch::backends::ProcessStatus::kOk);
+}
+
+TEST(InternalNotchBackendContract, ResetStateStartsFromFreshBiquadState)
+{
+  fa_notch::backends::InternalNotchBackend backend(
+    fa_notch::backends::InternalNotchConfig{1000, 1, 60.0, 30.0});
+
+  std::vector<uint8_t> output;
+  ASSERT_EQ(
+    backend.process(float32LeBytes({1.0F, 0.0F}), output, false),
+    fa_notch::backends::ProcessStatus::kOk);
+  ASSERT_EQ(
+    backend.process(float32LeBytes({0.25F, 1.0F}), output, true),
+    fa_notch::backends::ProcessStatus::kOk);
+
+  const std::vector<float> samples = decodeFloat32Le(output);
+  ASSERT_EQ(samples.size(), 2U);
+
+  const fa_notch::backends::BiquadCoefficients & c = backend.coefficients();
+  const double y0 = c.b0 * 0.25;
+  const double y1 = (c.b0 * 1.0) + (c.b1 * 0.25) - (c.a1 * y0);
+  EXPECT_NEAR(samples.at(0), static_cast<float>(y0), 1.0e-6F);
+  EXPECT_NEAR(samples.at(1), static_cast<float>(y1), 1.0e-6F);
+}
+
+TEST(InternalNotchBackendContract, DoesNotCommitResetStateWhenResetFrameIsRejected)
+{
+  fa_notch::backends::InternalNotchBackend backend(
+    fa_notch::backends::InternalNotchConfig{1000, 1, 60.0, 30.0});
+
+  std::vector<uint8_t> output;
+  ASSERT_EQ(
+    backend.process(float32LeBytes({1.0F, 0.0F}), output, false),
+    fa_notch::backends::ProcessStatus::kOk);
+  EXPECT_EQ(
+    backend.process(float32LeBytes({std::numeric_limits<float>::quiet_NaN()}), output, true),
+    fa_notch::backends::ProcessStatus::kNonFiniteInput);
+  ASSERT_EQ(
+    backend.process(float32LeBytes({0.0F}), output, false),
+    fa_notch::backends::ProcessStatus::kOk);
+
+  const std::vector<float> samples = decodeFloat32Le(output);
+  ASSERT_EQ(samples.size(), 1U);
+
+  const fa_notch::backends::BiquadCoefficients & c = backend.coefficients();
+  const double y0 = c.b0;
+  const double y1 = c.b1 - (c.a1 * y0);
+  const double expected = c.b2 - (c.a1 * y1) - (c.a2 * y0);
+  EXPECT_NEAR(samples.at(0), static_cast<float>(expected), 1.0e-6F);
 }

@@ -21,22 +21,30 @@ target_include_directories(fa_notch_internal_notch PUBLIC
   include
 )
 
-add_executable(fa_notch_node
+add_library(fa_notch_node_core
   src/fa_notch_node.cpp
 )
 
-target_include_directories(fa_notch_node PRIVATE
+target_include_directories(fa_notch_node_core PUBLIC
   include
 )
 
-ament_target_dependencies(fa_notch_node
+ament_target_dependencies(fa_notch_node_core
   rclcpp
   diagnostic_msgs
   fa_interfaces
 )
 
-target_link_libraries(fa_notch_node
+target_link_libraries(fa_notch_node_core
   fa_notch_internal_notch
+)
+
+add_executable(fa_notch_node
+  src/main.cpp
+)
+
+target_link_libraries(fa_notch_node
+  fa_notch_node_core
 )
 
 install(TARGETS fa_notch_node
@@ -67,6 +75,22 @@ if(BUILD_TESTING)
     )
     target_link_libraries(${PROJECT_NAME}_backend_test
       fa_notch_internal_notch
+    )
+  endif()
+
+  ament_add_gtest(${PROJECT_NAME}_graph_smoke_test
+    test/cpp/test_notch_graph.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_graph_smoke_test)
+    target_include_directories(${PROJECT_NAME}_graph_smoke_test PRIVATE
+      include
+    )
+    target_link_libraries(${PROJECT_NAME}_graph_smoke_test
+      fa_notch_node_core
+    )
+    ament_target_dependencies(${PROJECT_NAME}_graph_smoke_test
+      rclcpp
+      fa_interfaces
     )
   endif()
 

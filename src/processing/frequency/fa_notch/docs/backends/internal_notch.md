@@ -8,6 +8,7 @@
 - channel ごとに二次 biquad filter state を保持する。
 - `filter.center_hz` と `filter.q` から notch 係数を計算する。
 - 係数は処理前に `a0` で正規化する。
+- `reset_state=true` の処理では zero initial condition の一時 state を使う。
 - backend は ROS2 topic、ROS message、`rclcpp` を参照しない。
 
 ## Failure Contract
@@ -17,6 +18,7 @@
 - non-finite input sample は `kNonFiniteInput` として拒否する。
 - FLOAT32LE として表現できない output sample は `kNonFiniteOutput` として拒否する。
 - 拒否時は channel filter state を更新しない。
+- `reset_state=true` の frame が拒否された場合も、既存 state は保持し、fresh state を commit しない。
 
 ## Non-Scope
 

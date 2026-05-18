@@ -2,7 +2,6 @@
 
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -37,8 +36,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaNotchNode::FaNotchNode()
-: rclcpp::Node("fa_notch")
+FaNotchNode::FaNotchNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_notch", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Notch node");
   loadParameters();
@@ -132,7 +131,12 @@ void FaNotchNode::loadParameters()
 
 void FaNotchNode::configureBackend()
 {
-  backend_ = std::make_unique<backends::InternalNotchBackend>(
+  backend_ = createBackend();
+}
+
+std::unique_ptr<backends::InternalNotchBackend> FaNotchNode::createBackend() const
+{
+  return std::make_unique<backends::InternalNotchBackend>(
     backends::InternalNotchConfig{
       config_.expected_sample_rate,
       config_.expected_channels,
@@ -167,6 +171,14 @@ void FaNotchNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr ms
 {
   frames_in_.fetch_add(1);
 
+  if (!msg) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping null AudioFrame pointer");
+    frames_dropped_.fetch_add(1);
+    return;
+  }
+
   if (!validateFrame(*msg)) {
     frames_dropped_.fetch_add(1);
     return;
@@ -196,6 +208,14 @@ bool FaNotchNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id mismatch: %s != %s",
       msg.source_id.c_str(),
       active_source_id_.c_str());
+    return false;
+  }
+  if (last_epoch_.has_value() && msg.epoch <= *last_epoch_) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping non-monotonic AudioFrame epoch %u after epoch %u",
+      msg.epoch,
+      *last_epoch_);
     return false;
   }
   if (msg.stream_id != config_.input_topic) {
@@ -250,9 +270,13 @@ bool FaNotchNode::applyNotch(
   const fa_interfaces::msg::AudioFrame & in,
   fa_interfaces::msg::AudioFrame & out)
 {
+  const bool should_bind_source = active_source_id_.empty();
+  const bool should_reset_state =
+    last_epoch_.has_value() && in.epoch != (*last_epoch_ + 1U);
+
   out = in;
   out.stream_id = config_.output_topic;
-  const backends::ProcessStatus status = backend_->process(in.data, out.data);
+  const backends::ProcessStatus status = backend_->process(in.data, out.data, should_reset_state);
   if (status != backends::ProcessStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
@@ -261,9 +285,18 @@ bool FaNotchNode::applyNotch(
     return false;
   }
 
-  if (active_source_id_.empty()) {
+  if (should_bind_source) {
     active_source_id_ = in.source_id;
   }
+  if (should_reset_state) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "AudioFrame epoch jumped from %u to %u; processing with fresh notch state",
+      *last_epoch_,
+      in.epoch);
+    state_resets_.fetch_add(1);
+  }
+  last_epoch_ = in.epoch;
   return true;
 }
 
@@ -276,7 +309,7 @@ void FaNotchNode::publishDiagnostics()
   status.name = "fa_notch";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(11);
+  status.values.reserve(13);
   pushKeyValue(status, "filter_center_hz", std::to_string(config_.center_hz));
   pushKeyValue(status, "filter_q", std::to_string(config_.q));
   const backends::BiquadCoefficients & coefficients = backend_->coefficients();
@@ -285,6 +318,8 @@ void FaNotchNode::publishDiagnostics()
   pushKeyValue(status, "coefficient_b2", std::to_string(coefficients.b2));
   pushKeyValue(status, "coefficient_a1", std::to_string(coefficients.a1));
   pushKeyValue(status, "coefficient_a2", std::to_string(coefficients.a2));
+  pushKeyValue(status, "state_source_id", active_source_id_);
+  pushKeyValue(status, "state_resets", std::to_string(state_resets_.load()));
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
@@ -295,18 +330,3 @@ void FaNotchNode::publishDiagnostics()
 }
 
 }  // namespace fa_notch
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_notch::FaNotchNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_notch"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

@@ -54,7 +54,8 @@ public:
 
   [[nodiscard]] ProcessStatus process(
     const std::vector<uint8_t> & input,
-    std::vector<uint8_t> & output);
+    std::vector<uint8_t> & output,
+    bool reset_state);
 
 private:
   InternalNotchConfig config_;
