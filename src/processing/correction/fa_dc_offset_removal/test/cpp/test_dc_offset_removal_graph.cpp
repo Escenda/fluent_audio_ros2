@@ -197,6 +197,6 @@ TEST_F(RclcppFixture, RejectsInputStreamThatMatchesTopicAtStartup)
   });
 
   EXPECT_THROW(
-    fa_dc_offset_removal::FaDcOffsetRemovalNode(options),
+    fa_dc_offset_removal::FaDcOffsetRemovalNode{options},
     std::runtime_error);
 }
