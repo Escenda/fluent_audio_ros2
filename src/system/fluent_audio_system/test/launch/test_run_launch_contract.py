@@ -42,8 +42,11 @@ def test_vlabor_entrypoints_do_not_accept_backend_or_model_site_args() -> None:
 
     for forbidden_arg in (
         "backend.name",
+        "backend.command",
         "backend.model",
+        "backend.model_id",
         "backend.model_path",
+        "embedding.dimension",
         "vad_threshold",
         "asr_prompt",
         "openai_api_key",

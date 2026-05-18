@@ -32,6 +32,7 @@ def test_system_launch_declares_site_binding_arguments() -> None:
     assert 'node.package == "fa_out"' in launch_text
     assert "_SOURCE_BOUND_AUDIO_AI_PACKAGES" in launch_text
     assert '"fa_asr"' in launch_text
+    assert '"fa_audio_embedding"' in launch_text
     assert '"fa_kws"' in launch_text
     assert '"fa_turn_detector"' in launch_text
     assert '"fa_vad"' in launch_text

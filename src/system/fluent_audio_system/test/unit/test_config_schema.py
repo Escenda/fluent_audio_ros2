@@ -406,6 +406,52 @@ def test_streaming_group_accepts_streaming_package(tmp_path: Path) -> None:
     assert spec.groups[0].nodes[0].package == "fa_frame_buffer"
 
 
+def test_ai_group_accepts_audio_embedding_package(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_audio_embedding.yaml"
+    params_file.write_text(
+        "fa_audio_embedding:\n  ros__parameters: {}\n",
+        encoding="utf-8",
+    )
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "ai",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_audio_embedding",
+                            "enable": True,
+                            "package": "fa_audio_embedding",
+                            "exec": "fa_audio_embedding_node",
+                            "params_file": str(params_file),
+                            "parameters": {
+                                "input_topic": "audio/resample16k/mic",
+                                "expected_stream_id": "audio/resample16k/mic",
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    node = spec.groups[0].nodes[0]
+    assert node.package == "fa_audio_embedding"
+    assert node.executable == "fa_audio_embedding_node"
+    assert node.parameters == {
+        "input_topic": "audio/resample16k/mic",
+        "expected_stream_id": "audio/resample16k/mic",
+    }
+    assert required_packages_for_system(spec) == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_audio_embedding",
+    ]
+
+
 @pytest.mark.parametrize(
     "package_name, executable_name",
     [

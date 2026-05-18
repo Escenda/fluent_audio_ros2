@@ -11,7 +11,9 @@ from fluent_audio_system.site_binding import (
 )
 
 
-_SOURCE_BOUND_AUDIO_AI_PACKAGES = frozenset(("fa_asr", "fa_kws", "fa_turn_detector", "fa_vad"))
+_SOURCE_BOUND_AUDIO_AI_PACKAGES = frozenset(
+    ("fa_asr", "fa_audio_embedding", "fa_kws", "fa_turn_detector", "fa_vad")
+)
 
 
 def _required_bool_launch_arg(context, name: str) -> bool:

@@ -91,6 +91,18 @@ groups:
           audio_topic: "audio/resample16k/mic"
           expected_stream_id: "audio/resample16k/mic"
 
+      - id: fa_audio_embedding
+        enable: false
+        package: fa_audio_embedding
+        exec: fa_audio_embedding_node
+        node_name: fa_audio_embedding
+        namespace: ""
+        params_file: "${share:fa_audio_embedding}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/resample16k/mic"
+          expected_stream_id: "audio/resample16k/mic"
+
       - id: fa_turn_detector
         enable: false
         package: fa_turn_detector
