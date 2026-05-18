@@ -106,12 +106,15 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         '"jitter.reset_on_epoch_regression"',
         'readRequiredInt(*this, "qos.depth")',
         'readRequiredBool(*this, "qos.reliable")',
+        'readRequiredInt(*this, "diagnostics.qos.depth")',
+        'readRequiredBool(*this, "diagnostics.qos.reliable")',
     )
     for read in required_reads:
         assert read in load_parameters
     assert "readRequiredInt(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
     assert "this->get_parameter(" not in load_parameters
+    assert "SystemDefaultsQoS" not in source
     assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
     assert "throw std::runtime_error(\"output_topic is required\")" in load_parameters
     assert "expected.sample_rate must be > 0" in load_parameters
@@ -126,6 +129,7 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "jitter.max_depth_frames must be > jitter.target_depth_frames" in load_parameters
     assert "qos.depth must be > 0" in load_parameters
     assert "diagnostics.publish_period_ms must be > 0" in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
 
 
 def test_runtime_validation_rejects_invalid_frames_before_buffer_mutation() -> None:

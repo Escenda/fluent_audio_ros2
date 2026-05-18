@@ -63,6 +63,7 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "buffering.max_buffered_chunks must be > 0" in load_parameters
     assert "qos.depth must be > 0" in load_parameters
     assert "diagnostics.publish_period_ms must be > 0" in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
     required_reads = (
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
@@ -75,12 +76,15 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         'readRequiredInt(*this, "buffering.max_buffered_chunks")',
         'readRequiredInt(*this, "qos.depth")',
         'readRequiredBool(*this, "qos.reliable")',
+        'readRequiredInt(*this, "diagnostics.qos.depth")',
+        'readRequiredBool(*this, "diagnostics.qos.reliable")',
     )
     for read in required_reads:
         assert read in load_parameters
     assert "readRequiredInt(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
     assert "this->get_parameter(" not in load_parameters
+    assert "SystemDefaultsQoS" not in source
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert "config_." not in line

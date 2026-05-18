@@ -98,12 +98,15 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         'readRequiredString(*this, "expected.layout")',
         'readRequiredInt(*this, "qos.depth")',
         'readRequiredBool(*this, "qos.reliable")',
+        'readRequiredInt(*this, "diagnostics.qos.depth")',
+        'readRequiredBool(*this, "diagnostics.qos.reliable")',
     )
     for read in required_reads:
         assert read in load_parameters
     assert "readRequiredInt(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
     assert "this->get_parameter(" not in load_parameters
+    assert "SystemDefaultsQoS" not in source
     assert "std::isfinite(config_.offset_ms)" in load_parameters
     assert "compensation.offset_ms must be finite" in load_parameters
     assert "compensation.offset_ms exceeds int64 nanosecond range" in load_parameters
@@ -115,6 +118,7 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "expected.layout is required" in load_parameters
     assert "qos.depth must be > 0" in load_parameters
     assert "diagnostics.publish_period_ms must be > 0" in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
 
 
 def test_runtime_validates_audio_frame_contract_before_compensation() -> None:

@@ -89,6 +89,7 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "window.hop_samples must be <= window.frame_samples" in load_parameters
     assert "qos.depth must be > 0" in load_parameters
     assert "diagnostics.publish_period_ms must be > 0" in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
     assert 'declare_parameter<int>("window.frame_samples");' in load_parameters
     assert 'declare_parameter<int>("window.hop_samples");' in load_parameters
     assert 'declare_parameter<bool>("qos.reliable");' in load_parameters
@@ -105,12 +106,15 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         'readRequiredInt(*this, "window.hop_samples")',
         'readRequiredInt(*this, "qos.depth")',
         'readRequiredBool(*this, "qos.reliable")',
+        'readRequiredInt(*this, "diagnostics.qos.depth")',
+        'readRequiredBool(*this, "diagnostics.qos.reliable")',
     )
     for read in required_reads:
         assert read in load_parameters
     assert "readRequiredInt(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
     assert "this->get_parameter(" not in load_parameters
+    assert "SystemDefaultsQoS" not in source
 
 
 def test_runtime_validation_rejects_invalid_frames_before_buffer_mutation() -> None:

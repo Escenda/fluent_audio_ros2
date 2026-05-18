@@ -16,3 +16,6 @@ fa_packet_loss_concealment_node:
       reliable: false
     diagnostics:
       publish_period_ms: 1000
+      qos:
+        depth: 10
+        reliable: true

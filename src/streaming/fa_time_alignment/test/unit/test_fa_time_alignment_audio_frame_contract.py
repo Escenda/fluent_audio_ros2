@@ -77,12 +77,15 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         'readRequiredDouble(*this, "alignment.max_adjust_ms")',
         'readRequiredInt(*this, "qos.depth")',
         'readRequiredBool(*this, "qos.reliable")',
+        'readRequiredInt(*this, "diagnostics.qos.depth")',
+        'readRequiredBool(*this, "diagnostics.qos.reliable")',
     )
     for read in required_reads:
         assert read in load_parameters
     assert "readRequiredInt(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
     assert "this->get_parameter(" not in load_parameters
+    assert "SystemDefaultsQoS" not in source
     assert "throw std::runtime_error" in load_parameters
 
 
