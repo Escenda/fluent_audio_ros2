@@ -1,14 +1,13 @@
 #pragma once
 
 #include <atomic>
-#include <cstddef>
-#include <cstdint>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "fa_channel_convert/backends/internal_float32le_channel_convert.hpp"
 #include "fa_interfaces/msg/audio_frame.hpp"
 
 namespace fa_channel_convert
@@ -51,12 +50,8 @@ private:
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool convertFrame(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
-  static bool isSupportedConversion(const std::string & mode, int input_channels, int output_channels);
-  static float readFloat32Le(const std::vector<uint8_t> & bytes, size_t sample_index);
-  static void appendFloat32Le(float sample, std::vector<uint8_t> & out_bytes);
-  static bool isNormalizedFinite(float sample);
-
   ChannelConvertConfig config_;
+  std::unique_ptr<backends::InternalFloat32LeChannelConvertBackend> backend_;
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
