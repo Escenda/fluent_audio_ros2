@@ -237,3 +237,37 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
+
+
+def test_source_adapter_exposes_no_file_network_or_dsp_surface() -> None:
+    package_root = Path(__file__).parents[2]
+    source_text = (package_root / "src" / "fa_in_node.cpp").read_text(encoding="utf-8")
+    header_text = (package_root / "include" / "fa_in" / "fa_in_node.hpp").read_text(
+        encoding="utf-8"
+    )
+    config_text = (package_root / "config" / "default.yaml").read_text(encoding="utf-8")
+    spec_text = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
+    test_plan_text = (package_root / "docs" / "テスト設計.md").read_text(
+        encoding="utf-8"
+    )
+    combined = "\n".join([source_text, header_text, config_text])
+
+    forbidden_tokens = [
+        "file_path",
+        "audio.file",
+        "network",
+        "decode",
+        "encoder",
+        "gain",
+        "normalize",
+        "limiter",
+        "resample",
+        "volume",
+        "sample_format",
+        "channel_convert",
+        "bit_depth_convert",
+    ]
+    for token in forbidden_tokens:
+        assert token not in combined
+    assert "FA-IN-SPEC-023" in spec_text
+    assert "FA-IN-SPEC-023" in test_plan_text
