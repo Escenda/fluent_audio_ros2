@@ -19,6 +19,14 @@ def test_fa_network_in_is_declared_as_ros_package_after_contract_completion() ->
     assert (PACKAGE_ROOT / "config" / "default.yaml").is_file()
 
 
+def test_fa_network_in_readme_does_not_describe_package_as_roadmap_only() -> None:
+    readme = (PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "not a ROS 2 package yet" not in readme
+    assert "Roadmap directory" not in readme
+    assert "fa_network_in_node" in readme
+
+
 def test_fa_network_in_docs_keep_streaming_stability_out_of_source_adapter() -> None:
     specification = (PACKAGE_ROOT / "docs" / "仕様書.md").read_text(encoding="utf-8")
     algorithm = (PACKAGE_ROOT / "docs" / "アルゴリズム詳細説明書.md").read_text(

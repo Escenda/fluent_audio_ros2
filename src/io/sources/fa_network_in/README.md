@@ -1,12 +1,11 @@
 # fa_network_in
 
-Roadmap directory for the network source adapter that receives audio from an
-explicit network endpoint and publishes its contract as `AudioFrame`.
+`fa_network_in` is the network source adapter that receives raw PCM audio from
+an explicit UDP endpoint and publishes its contract as `AudioFrame`.
 
-This is not a ROS 2 package yet. Do not add `package.xml` until the source
-adapter specification, backend documentation, launch contract, and tests are in
-place. Jitter buffering, clock drift correction, and packet loss concealment
-belong in `src/streaming`, not inside this adapter.
+This package is source-only. Jitter buffering, clock drift correction, packet
+loss concealment, codec decode, resampling, gain, and format negotiation belong
+in explicit downstream processing or streaming nodes, not inside this adapter.
 
 ## Documents
 
@@ -14,3 +13,9 @@ belong in `src/streaming`, not inside this adapter.
 - `docs/アルゴリズム詳細説明書.md`
 - `docs/テスト設計.md`
 - `docs/backends/network_pcm_receiver.md`
+
+## Runtime
+
+- `launch/fa_network_in.launch.py`
+- `config/default.yaml`
+- executable: `fa_network_in_node`
