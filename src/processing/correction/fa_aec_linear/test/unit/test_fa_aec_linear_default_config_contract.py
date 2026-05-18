@@ -54,6 +54,38 @@ def test_aec_linear_outputs_audio_frame_without_analysis_metadata() -> None:
     assert ".vad" not in source
 
 
+def test_required_parameters_are_declared_without_runtime_defaults() -> None:
+    source = read_node_source()
+    load_parameters = source.split("void FaAecLinearNode::loadParameters")[1].split(
+        "if (config_.mic_topic.empty())"
+    )[0]
+
+    required_reads = (
+        'readRequiredBool(*this, "enabled")',
+        'readRequiredString(*this, "mic_topic")',
+        'readRequiredString(*this, "ref_topic")',
+        'readRequiredString(*this, "output_topic")',
+        'readRequiredInt(*this, "expected_sample_rate")',
+        'readRequiredInt(*this, "expected_channels")',
+        'readRequiredString(*this, "expected.encoding")',
+        'readRequiredInt(*this, "expected.bit_depth")',
+        'readRequiredInt(*this, "ref_timeout_ms")',
+        'readRequiredString(*this, "reference_failure_policy")',
+        'readRequiredDouble(*this, "cancel_gain")',
+        'readRequiredInt(*this, "qos.depth")',
+        'readRequiredBool(*this, "qos.reliable")',
+    )
+    for read in required_reads:
+      assert read in load_parameters
+
+    assert "readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "this->get_parameter(" not in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert "config_." not in line
+
+
 def test_aec_linear_has_ros_free_baseline_backend() -> None:
     backend_header = (
         package_root() / "include" / "fa_aec_linear" / "backends" / "baseline_linear.hpp"

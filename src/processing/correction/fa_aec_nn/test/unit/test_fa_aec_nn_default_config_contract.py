@@ -30,6 +30,37 @@ def test_disabled_branch_drops_before_publish() -> None:
     assert "Dropping frame because fa_aec_nn is disabled" in source
 
 
+def test_required_parameters_are_declared_without_runtime_defaults() -> None:
+    source = (Path(__file__).parents[2] / "src" / "fa_aec_nn_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    load_parameters = source.split("void FaAecNnNode::loadParameters")[1].split(
+        "if (config_.input_topic.empty())"
+    )[0]
+
+    required_reads = (
+        'readRequiredBool(*this, "enabled")',
+        'readRequiredString(*this, "backend.name")',
+        'readRequiredString(*this, "input_topic")',
+        'readRequiredString(*this, "output_topic")',
+        'readRequiredInt(*this, "expected_sample_rate")',
+        'readRequiredInt(*this, "expected_channels")',
+        'readRequiredString(*this, "expected.encoding")',
+        'readRequiredInt(*this, "expected.bit_depth")',
+        'readRequiredInt(*this, "qos.depth")',
+        'readRequiredBool(*this, "qos.reliable")',
+    )
+    for read in required_reads:
+        assert read in load_parameters
+
+    assert "readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "this->get_parameter(" not in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert "config_." not in line
+
+
 def test_aec_nn_passthrough_updates_output_stream_identity() -> None:
     source_path = Path(__file__).parents[2] / "src" / "fa_aec_nn_node.cpp"
     source = source_path.read_text(encoding="utf-8")

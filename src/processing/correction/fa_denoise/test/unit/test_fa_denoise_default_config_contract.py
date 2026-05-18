@@ -34,6 +34,47 @@ def test_denoise_outputs_audio_frame_identity_without_analysis_metadata() -> Non
     assert ".vad" not in source
 
 
+def test_required_parameters_are_declared_without_runtime_defaults() -> None:
+    source = (Path(__file__).parents[2] / "src" / "fa_denoise_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    load_parameters = source.split("void FaDenoiseNode::loadParameters")[1].split(
+        "if (config_.input_topic.empty())"
+    )[0]
+
+    required_reads = (
+        'readRequiredBool(*this, "enabled")',
+        'readRequiredString(*this, "backend.name")',
+        'readRequiredString(*this, "input_topic")',
+        'readRequiredString(*this, "output_topic")',
+        'readRequiredInt(*this, "expected_sample_rate")',
+        'readRequiredInt(*this, "expected_channels")',
+        'readRequiredString(*this, "expected.encoding")',
+        'readRequiredInt(*this, "expected.bit_depth")',
+        'readRequiredString(*this, "output.encoding")',
+        'readRequiredInt(*this, "output.bit_depth")',
+        'readRequiredInt(*this, "dtln.block_len")',
+        'readRequiredInt(*this, "dtln.block_shift")',
+        'readRequiredString(*this, "dtln.model_1_path")',
+        'readRequiredString(*this, "dtln.model_2_path")',
+        'readRequiredInt(*this, "dtln.intra_op_num_threads")',
+        'readRequiredInt(*this, "dtln.inter_op_num_threads")',
+        'readRequiredBool(',
+        '"dtln.enable_ort_optimizations"',
+        'readRequiredInt(*this, "qos.depth")',
+        'readRequiredBool(*this, "qos.reliable")',
+    )
+    for read in required_reads:
+        assert read in load_parameters
+
+    assert "readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "this->get_parameter(" not in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert "config_." not in line
+
+
 def test_dtln_backend_lives_under_backend_boundary() -> None:
     package_root = Path(__file__).parents[2]
     contract_header = (
@@ -151,6 +192,20 @@ def test_node_fails_closed_when_dtln_selected_without_onnxruntime() -> None:
         "(FA_DENOISE_WITH_ONNXRUNTIME=0)"
     ) in node_text
     assert "別 backend へ暗黙に切り替えない" in spec_text
+
+
+def test_dtln_model_paths_are_required_before_backend_initialization() -> None:
+    node_text = (Path(__file__).parents[2] / "src" / "fa_denoise_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    load_parameters = node_text.split("void FaDenoiseNode::loadParameters")[1].split(
+        "void FaDenoiseNode::configureBackend"
+    )[0]
+
+    assert "config_.dtln_model_1_path.empty()" in load_parameters
+    assert "dtln.model_1_path is required for dtln_onnx backend" in load_parameters
+    assert "config_.dtln_model_2_path.empty()" in load_parameters
+    assert "dtln.model_2_path is required for dtln_onnx backend" in load_parameters
 
 
 def test_denoise_requires_explicit_format_pairs_and_no_hidden_clamp() -> None:

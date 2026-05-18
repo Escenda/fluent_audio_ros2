@@ -1,7 +1,9 @@
 #include "fa_aec_linear/fa_aec_linear_node.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -21,6 +23,62 @@ namespace
 constexpr int kRequiredSampleRate = 16000;
 constexpr uint32_t kNanosecondsPerSecond = 1000000000U;
 constexpr const char * kInterleavedLayout = "interleaved";
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string parameter");
+  }
+  return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer parameter");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " must fit in a 32-bit signed integer");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool parameter");
+  }
+  return parameter.as_bool();
+}
+
+double readRequiredDouble(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+    throw std::runtime_error(name + " must be a double parameter");
+  }
+  return parameter.as_double();
+}
 
 bool hasValidStamp(const builtin_interfaces::msg::Time & stamp)
 {
@@ -74,38 +132,37 @@ FaAecLinearNode::~FaAecLinearNode() = default;
 
 void FaAecLinearNode::loadParameters()
 {
-  this->declare_parameter<bool>("enabled", config_.enabled);
-  this->declare_parameter("mic_topic", config_.mic_topic);
-  this->declare_parameter("ref_topic", config_.ref_topic);
-  this->declare_parameter("output_topic", config_.output_topic);
-  this->declare_parameter<int>("expected_sample_rate", config_.expected_sample_rate);
-  this->declare_parameter<int>("expected_channels", config_.expected_channels);
-  this->declare_parameter("expected.encoding", config_.expected_encoding);
-  this->declare_parameter<int>("expected.bit_depth", config_.expected_bit_depth);
-  this->declare_parameter<int>("ref_timeout_ms", config_.ref_timeout_ms);
-  this->declare_parameter("reference_failure_policy", config_.reference_failure_policy);
-  this->declare_parameter<double>("cancel_gain", config_.cancel_gain);
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
-  this->declare_parameter<int>(
-    "diagnostics.publish_period_ms",
-    config_.diagnostics_publish_period_ms);
+  this->declare_parameter<bool>("enabled");
+  this->declare_parameter<std::string>("mic_topic");
+  this->declare_parameter<std::string>("ref_topic");
+  this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<int>("expected_sample_rate");
+  this->declare_parameter<int>("expected_channels");
+  this->declare_parameter<std::string>("expected.encoding");
+  this->declare_parameter<int>("expected.bit_depth");
+  this->declare_parameter<int>("ref_timeout_ms");
+  this->declare_parameter<std::string>("reference_failure_policy");
+  this->declare_parameter<double>("cancel_gain");
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
+  this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.enabled = this->get_parameter("enabled").as_bool();
-  config_.mic_topic = this->get_parameter("mic_topic").as_string();
-  config_.ref_topic = this->get_parameter("ref_topic").as_string();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.expected_sample_rate = this->get_parameter("expected_sample_rate").as_int();
-  config_.expected_channels = this->get_parameter("expected_channels").as_int();
-  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
-  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
-  config_.ref_timeout_ms = this->get_parameter("ref_timeout_ms").as_int();
-  config_.reference_failure_policy = this->get_parameter("reference_failure_policy").as_string();
-  config_.cancel_gain = this->get_parameter("cancel_gain").as_double();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.enabled = readRequiredBool(*this, "enabled");
+  config_.mic_topic = readRequiredString(*this, "mic_topic");
+  config_.ref_topic = readRequiredString(*this, "ref_topic");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.expected_sample_rate = readRequiredInt(*this, "expected_sample_rate");
+  config_.expected_channels = readRequiredInt(*this, "expected_channels");
+  config_.expected_encoding = readRequiredString(*this, "expected.encoding");
+  config_.expected_bit_depth = readRequiredInt(*this, "expected.bit_depth");
+  config_.ref_timeout_ms = readRequiredInt(*this, "ref_timeout_ms");
+  config_.reference_failure_policy = readRequiredString(*this, "reference_failure_policy");
+  config_.cancel_gain = readRequiredDouble(*this, "cancel_gain");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(
+    *this,
+    "diagnostics.publish_period_ms");
 
   if (config_.mic_topic.empty()) {
     throw std::runtime_error("mic_topic is required (set via YAML)");

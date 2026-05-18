@@ -94,6 +94,34 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "config_.channels <= 0" in backend_source
 
 
+def test_required_parameters_are_declared_without_runtime_defaults() -> None:
+    node_source = read_node_source()
+    load_parameters = node_source.split("void FaDcOffsetRemovalNode::loadParameters")[1].split(
+        "if (config_.input_topic.empty())"
+    )[0]
+
+    required_reads = (
+        'readRequiredString(*this, "input_topic")',
+        'readRequiredString(*this, "output_topic")',
+        'readRequiredInt(*this, "expected.sample_rate")',
+        'readRequiredInt(*this, "expected.channels")',
+        'readRequiredString(*this, "expected.encoding")',
+        'readRequiredInt(*this, "expected.bit_depth")',
+        'readRequiredString(*this, "expected.layout")',
+        'readRequiredInt(*this, "qos.depth")',
+        'readRequiredBool(*this, "qos.reliable")',
+    )
+    for read in required_reads:
+        assert read in load_parameters
+
+    assert "readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "this->get_parameter(" not in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert "config_." not in line
+
+
 def test_qos_depth_is_not_clamped_after_startup_validation() -> None:
     node_source = read_node_source()
     setup_interfaces = node_source.split("void FaDcOffsetRemovalNode::setupInterfaces")[1].split(

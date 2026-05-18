@@ -87,6 +87,36 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "throw std::runtime_error" in load_parameters
 
 
+def test_required_parameters_are_declared_without_runtime_defaults() -> None:
+    source = read_node_source()
+    load_parameters = source.split("void FaDeclickNode::loadParameters")[1].split(
+        "if (config_.input_topic.empty())"
+    )[0]
+
+    required_reads = (
+        'readRequiredString(*this, "input_topic")',
+        'readRequiredString(*this, "output_topic")',
+        'readRequiredDouble(*this, "threshold.delta")',
+        'readRequiredInt(*this, "window.max_samples")',
+        'readRequiredInt(*this, "expected.sample_rate")',
+        'readRequiredInt(*this, "expected.channels")',
+        'readRequiredString(*this, "expected.encoding")',
+        'readRequiredInt(*this, "expected.bit_depth")',
+        'readRequiredString(*this, "expected.layout")',
+        'readRequiredInt(*this, "qos.depth")',
+        'readRequiredBool(*this, "qos.reliable")',
+    )
+    for read in required_reads:
+        assert read in load_parameters
+
+    assert "readRequiredInt(" in load_parameters
+    assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "this->get_parameter(" not in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert "config_." not in line
+
+
 def test_qos_uses_validated_depth_without_clamping_fallback() -> None:
     source = read_node_source()
     setup = source.split("void FaDeclickNode::setupInterfaces")[1].split(
