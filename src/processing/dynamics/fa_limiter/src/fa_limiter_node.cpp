@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -37,8 +36,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaLimiterNode::FaLimiterNode()
-: rclcpp::Node("fa_limiter")
+FaLimiterNode::FaLimiterNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_limiter", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Limiter node");
   loadParameters();
@@ -281,18 +280,3 @@ void FaLimiterNode::publishDiagnostics()
 }
 
 }  // namespace fa_limiter
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_limiter::FaLimiterNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_limiter"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

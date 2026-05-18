@@ -36,7 +36,7 @@ struct LimiterConfig
 class FaLimiterNode : public rclcpp::Node
 {
 public:
-  FaLimiterNode();
+  explicit FaLimiterNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaLimiterNode() override;
 
 private:
