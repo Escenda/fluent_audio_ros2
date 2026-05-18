@@ -4,6 +4,13 @@
 
 現状はMVPとして `std_msgs/msg/String` のコマンドを購読し、状態を `std_msgs/msg/String` でPublishします（KWS/ASR自体は別パッケージで実装）。
 
+## Documents
+
+- `docs/仕様書.md`
+- `docs/アルゴリズム詳細説明書.md`
+- `docs/テスト設計.md`
+- `docs/backends/no_runtime_backend.md`
+
 ## 起動
 ```bash
 ros2 launch fa_voice_command_router fa_voice_command_router.launch.py
