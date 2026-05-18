@@ -3,21 +3,21 @@
 `fa_vad`は`fa_in`等が配信するPCMフレームを購読し、外部 Silero VAD worker process で音声活動検知を行うノードです（オフライン前提）。
 
 ## 機能
-- `fa_interfaces/msg/AudioFrame`購読（`audio/frame`）
+- `input_topic` で指定した `fa_interfaces/msg/AudioFrame` を購読
 - `audio/vad`（`std_msgs/msg/Bool`）をPublish（状態変化時）
 - `voice/vad_state`（`fa_interfaces/msg/VadState`）をPublish（確率/開始/終了を含む）
 - 閾値（start/end）とハングオーバーで検知を安定化
 
 ## 起動
 ```bash
-ros2 launch fa_vad fa_vad.launch.py
+ros2 launch fa_vad fa_vad.launch.py node_name:=fa_vad config_file:=/path/to/fa_vad.yaml
 ```
 
 ## Runtime
 
 PyTorch / Silero VAD は ROS package dependency ではなく、`backend.command` で指定する外部 process 側に明示的に provision します。`backend.model_path` は local torch.hub repository directory を指し、空または存在しない場合は起動失敗します。online download fallback はありません。`backend.execution_provider` と `backend.command` も必須です。
 
-`expected_source_id` は必須です。受信した `AudioFrame.source_id` は `expected_source_id`、`AudioFrame.stream_id` は `input_topic` と一致する必要があります。別 source / stream の audio frame は VAD backend に渡さず reject します。publish する `VadState.source_id` / `stream_id` は、検証済み `AudioFrame` の identity をそのまま引き継ぎます。
+`node_name` と `config_file` は launch 時に明示します。`expected_source_id` と `input_stream_id` は必須です。受信した `AudioFrame.source_id` は `expected_source_id`、`AudioFrame.stream_id` は `input_stream_id` と一致する必要があります。`input_topic` は ROS transport の接続点であり、frame identity ではありません。別 source / stream の audio frame は VAD backend に渡さず reject します。publish する `VadState.source_id` / `stream_id` は、検証済み `AudioFrame` の identity をそのまま引き継ぎます。
 
 `scripts/silero_vad_worker` は reference worker です。別 venv や別 container に同じ CLI contract の worker を置く場合は、その executable path を `backend.command` に指定します。
 
@@ -25,6 +25,14 @@ PyTorch / Silero VAD は ROS package dependency ではなく、`backend.command`
 ```yaml
 fa_vad:
   ros__parameters:
+    input_topic: "fa_vad/input"
+    input_stream_id: "audio/raw/mic"
+    output_topic: "fa_vad/is_speech"
+    vad_state_topic: "fa_vad/state"
+    probability_topic: "fa_vad/probability"
+    expected_source_id: "mic0"
+    publish_vad_state: true
+    publish_probability: false
     target_sample_rate: 16000
     threshold_start: 0.5
     threshold_end: 0.1
@@ -43,4 +51,10 @@ fa_vad:
       - "{provider}"
       - "--sample-rate"
       - "{sample_rate}"
+    backend.timeout_sec: 1.0
+    backend.workspace_dir: "/tmp/fluent_audio/fa_vad"
+    backend.cleanup_audio_files: true
+    log_speech_events: true
+    qos.depth: 10
+    qos.reliable: false
 ```

@@ -11,9 +11,13 @@ def test_launch_uses_explicit_config_file_contract() -> None:
         encoding="utf-8"
     )
 
-    assert 'default_value="fa_vad"' in launch_text
+    assert "default_value" not in launch_text
+    forbidden_find_package_share = "Find" + "PackageShare"
+    forbidden_path_join_substitution = "PathJoin" + "Substitution"
+    assert forbidden_find_package_share not in launch_text
+    assert forbidden_path_join_substitution not in launch_text
+    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
     assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert 'FindPackageShare("fa_vad"), "config", "default.yaml"' in launch_text
     assert "parameters=[config_file]" in launch_text
 
 
@@ -26,6 +30,9 @@ def test_default_config_requires_external_worker_command() -> None:
     params = config["fa_vad"]["ros__parameters"]
 
     assert params["backend.name"] == "silero"
+    assert params["input_topic"] == "audio/frame"
+    assert params["input_stream_id"] == "audio/raw/mic"
+    assert params["input_topic"] != params["input_stream_id"]
     assert params["backend.command"] == ""
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""

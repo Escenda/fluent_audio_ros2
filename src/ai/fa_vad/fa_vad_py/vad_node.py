@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Iterable
 
 import rclpy
+from rclpy.exceptions import ParameterUninitializedException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
@@ -22,44 +23,15 @@ from fa_vad_py.contracts import (
 class FaVadNode(Node):
     def __init__(self) -> None:
         super().__init__("fa_vad")
+        self._declare_required_parameters()
 
-        self.declare_parameter("input_topic", "audio/frame")
-        self.declare_parameter("output_topic", "audio/vad")
-        self.declare_parameter("vad_state_topic", "voice/vad_state")
-        self.declare_parameter("probability_topic", "audio/vad/probability")
-        self.declare_parameter("expected_source_id", "")
-        self.declare_parameter("publish_vad_state", True)
-        self.declare_parameter("publish_probability", False)
-
-        self.declare_parameter("target_sample_rate", 16000)
-        self.declare_parameter("threshold_start", 0.5)
-        self.declare_parameter("threshold_end", 0.1)
-        self.declare_parameter("hangover_ms", 300)
-
-        self.declare_parameter("backend.name", "")
-        self.declare_parameter("backend.model_path", "")
-        self.declare_parameter("backend.execution_provider", "")
-        self.declare_parameter("backend.command", "")
-        self.declare_parameter(
-            "backend.args",
-            Parameter.Type.STRING_ARRAY,
-        )
-        self.declare_parameter("backend.timeout_sec", 1.0)
-        self.declare_parameter("backend.workspace_dir", "/tmp/fluent_audio/fa_vad")
-        self.declare_parameter("backend.cleanup_audio_files", True)
-
-        self.declare_parameter("log_speech_events", True)
-
-        self.declare_parameter("qos.depth", 10)
-        self.declare_parameter("qos.reliable", False)
-
-        self._input_topic = self._string_parameter("input_topic")
-        self._output_topic = self._string_parameter("output_topic")
-        self._vad_state_topic = self._string_parameter("vad_state_topic")
-        self._probability_topic = self._string_parameter("probability_topic")
-        self._expected_source_id = self._string_parameter("expected_source_id").strip()
-        if not self._expected_source_id:
-            raise RuntimeError("expected_source_id is required")
+        self._input_topic = self._required_string_parameter("input_topic")
+        self._input_stream_id = self._required_string_parameter("input_stream_id")
+        self._output_topic = self._required_string_parameter("output_topic")
+        self._vad_state_topic = self._required_string_parameter("vad_state_topic")
+        self._probability_topic = self._required_string_parameter("probability_topic")
+        self._expected_source_id = self._required_string_parameter("expected_source_id")
+        self._validate_identity_contract()
 
         self._publish_vad_state = self._bool_parameter("publish_vad_state")
         self._publish_probability = self._bool_parameter("publish_probability")
@@ -123,12 +95,64 @@ class FaVadNode(Node):
 
         self.get_logger().info(
             "FA VAD (Silero): "
-            f"input={self._input_topic} expected_source_id={self._expected_source_id} "
+            f"input={self._input_topic} input_stream_id={self._input_stream_id} "
+            f"expected_source_id={self._expected_source_id} "
             f"output={self._output_topic} "
             f"vad_state={self._vad_state_topic if self._publish_vad_state else '(disabled)'} "
             f"target_sr={self._target_sample_rate} start={threshold_start:.2f} "
             f"end={threshold_end:.2f} hangover={hangover_ms}ms "
             f"provider={execution_provider} model_path={model_path} command={command}"
+        )
+
+    def _declare_required_parameters(self) -> None:
+        self.declare_parameter("input_topic", Parameter.Type.STRING)
+        self.declare_parameter("input_stream_id", Parameter.Type.STRING)
+        self.declare_parameter("output_topic", Parameter.Type.STRING)
+        self.declare_parameter("vad_state_topic", Parameter.Type.STRING)
+        self.declare_parameter("probability_topic", Parameter.Type.STRING)
+        self.declare_parameter("expected_source_id", Parameter.Type.STRING)
+        self.declare_parameter("publish_vad_state", Parameter.Type.BOOL)
+        self.declare_parameter("publish_probability", Parameter.Type.BOOL)
+
+        self.declare_parameter("target_sample_rate", Parameter.Type.INTEGER)
+        self.declare_parameter("threshold_start", Parameter.Type.DOUBLE)
+        self.declare_parameter("threshold_end", Parameter.Type.DOUBLE)
+        self.declare_parameter("hangover_ms", Parameter.Type.INTEGER)
+
+        self.declare_parameter("backend.name", Parameter.Type.STRING)
+        self.declare_parameter("backend.model_path", Parameter.Type.STRING)
+        self.declare_parameter("backend.execution_provider", Parameter.Type.STRING)
+        self.declare_parameter("backend.command", Parameter.Type.STRING)
+        self.declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)
+        self.declare_parameter("backend.timeout_sec", Parameter.Type.DOUBLE)
+        self.declare_parameter("backend.workspace_dir", Parameter.Type.STRING)
+        self.declare_parameter("backend.cleanup_audio_files", Parameter.Type.BOOL)
+
+        self.declare_parameter("log_speech_events", Parameter.Type.BOOL)
+
+        self.declare_parameter("qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("qos.reliable", Parameter.Type.BOOL)
+
+    def _validate_identity_contract(self) -> None:
+        if self._same_identity_string(self._input_stream_id, self._input_topic):
+            raise RuntimeError("input_stream_id must be distinct from ROS input_topic")
+        if self._same_identity_string(self._input_stream_id, self._output_topic):
+            raise RuntimeError("input_stream_id must be distinct from ROS output_topic")
+        if self._same_identity_string(self._input_stream_id, self._vad_state_topic):
+            raise RuntimeError("input_stream_id must be distinct from ROS vad_state_topic")
+        if self._same_identity_string(self._input_stream_id, self._probability_topic):
+            raise RuntimeError("input_stream_id must be distinct from ROS probability_topic")
+        if self._same_identity_string(self._input_topic, self._output_topic):
+            raise RuntimeError("input_topic must be distinct from output_topic")
+
+    @staticmethod
+    def _remove_leading_slashes(value: str) -> str:
+        return value.lstrip("/")
+
+    @classmethod
+    def _same_identity_string(cls, left: str, right: str) -> bool:
+        return left == right or (
+            cls._remove_leading_slashes(left) == cls._remove_leading_slashes(right)
         )
 
     def _load_backend(
@@ -166,31 +190,52 @@ class FaVadNode(Node):
         )
 
     def _string_parameter(self, name: str) -> str:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.STRING:
             raise RuntimeError(f"{name} must be a string")
         return parameter.value
 
+    def _required_string_parameter(self, name: str) -> str:
+        value = self._string_parameter(name).strip()
+        if not value:
+            raise RuntimeError(f"{name} is required")
+        return value
+
     def _bool_parameter(self, name: str) -> bool:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.BOOL:
             raise RuntimeError(f"{name} must be a bool")
         return parameter.value
 
     def _integer_parameter(self, name: str) -> int:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.INTEGER:
             raise RuntimeError(f"{name} must be an integer")
         return parameter.value
 
     def _double_parameter(self, name: str) -> float:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.DOUBLE:
             raise RuntimeError(f"{name} must be a double")
         return parameter.value
 
     def _string_array_parameter(self, name: str) -> tuple[str, ...]:
-        parameter = self.get_parameter(name)
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.STRING_ARRAY:
             raise RuntimeError(f"{name} must be a string array")
         return tuple(parameter.get_parameter_value().string_array_value)
@@ -251,7 +296,7 @@ class FaVadNode(Node):
             source_id=msg.source_id,
             stream_id=msg.stream_id,
             expected_source_id=self._expected_source_id,
-            expected_stream_id=self._input_topic,
+            expected_stream_id=self._input_stream_id,
             encoding=msg.encoding,
             layout=msg.layout,
             channels=int(msg.channels),

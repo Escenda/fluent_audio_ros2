@@ -1,6 +1,7 @@
 fa_vad:
   ros__parameters:
     input_topic: "audio/frame"
+    input_stream_id: "audio/raw/mic"
     output_topic: "audio/vad"
     vad_state_topic: "voice/vad_state"
     expected_source_id: ""

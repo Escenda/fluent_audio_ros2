@@ -33,6 +33,10 @@ class _BackendCrash(Exception):
     pass
 
 
+class _FakeParameterUninitializedException(Exception):
+    pass
+
+
 class _FakeLogger:
     def __init__(self) -> None:
         self.fatal_records: list[str] = []
@@ -159,6 +163,9 @@ def _install_vad_node_import_fakes(
     parameter_module = ModuleType("rclpy.parameter")
     parameter_module.Parameter = _FakeParameter
 
+    exceptions_module = ModuleType("rclpy.exceptions")
+    exceptions_module.ParameterUninitializedException = _FakeParameterUninitializedException
+
     qos_module = ModuleType("rclpy.qos")
     qos_module.QoSProfile = _FakeQoSProfile
     qos_module.ReliabilityPolicy = _FakeReliabilityPolicy
@@ -175,6 +182,7 @@ def _install_vad_node_import_fakes(
     fa_interfaces_msg_module.VadState = _FakeVadState
 
     monkeypatch.setitem(sys.modules, "rclpy", rclpy_module)
+    monkeypatch.setitem(sys.modules, "rclpy.exceptions", exceptions_module)
     monkeypatch.setitem(sys.modules, "rclpy.node", node_module)
     monkeypatch.setitem(sys.modules, "rclpy.parameter", parameter_module)
     monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
@@ -235,7 +243,9 @@ def _write_executable(path: Path) -> None:
 
 def test_default_config_requires_explicit_silero_model_path() -> None:
     config_path = Path(__file__).parents[2] / "config" / "default.yaml"
+    readme_path = Path(__file__).parents[2] / "README.md"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    readme = readme_path.read_text(encoding="utf-8")
     source = (Path(__file__).parents[2] / "fa_vad_py" / "vad_node.py").read_text(
         encoding="utf-8"
     )
@@ -245,6 +255,9 @@ def test_default_config_requires_explicit_silero_model_path() -> None:
     params = config["fa_vad"]["ros__parameters"]
 
     assert params["backend.name"] == "silero"
+    assert params["input_topic"] == "audio/frame"
+    assert params["input_stream_id"] == "audio/raw/mic"
+    assert params["input_topic"] != params["input_stream_id"]
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""
     assert params["backend.command"] == ""
@@ -258,6 +271,25 @@ def test_default_config_requires_explicit_silero_model_path() -> None:
     assert "silero" not in params
     assert '"backend.args",' in source
     assert "Parameter.Type.STRING_ARRAY" in source
+    assert 'declare_parameter("input_topic", Parameter.Type.STRING)' in source
+    assert 'declare_parameter("input_stream_id", Parameter.Type.STRING)' in source
+    forbidden_input_topic_default = 'declare_parameter("input_topic", ' + '"audio/frame")'
+    forbidden_backend_name_default = 'declare_parameter("backend.name", ' + '"")'
+    forbidden_qos_depth_default = 'declare_parameter("qos.depth", ' + "10)"
+    assert forbidden_input_topic_default not in source
+    assert forbidden_backend_name_default not in source
+    assert forbidden_qos_depth_default not in source
+    for required_example_key in (
+        "publish_vad_state",
+        "publish_probability",
+        "backend.timeout_sec",
+        "backend.workspace_dir",
+        "backend.cleanup_audio_files",
+        "log_speech_events",
+        "qos.depth",
+        "qos.reliable",
+    ):
+        assert required_example_key in readme
     assert "tuple(str(item) for item in self.get_parameter" not in source
 
 
@@ -339,7 +371,7 @@ def test_vad_frame_contract_accepts_canonical_float32_mono() -> None:
         ({"stream_id": ""}, "AudioFrame source_id and stream_id are required"),
         ({"expected_source_id": ""}, "expected_source_id is required"),
         ({"source_id": "mic1"}, "AudioFrame source_id must match expected_source_id"),
-        ({"stream_id": "wrong_stream"}, "AudioFrame stream_id must match input_topic"),
+        ({"stream_id": "wrong_stream"}, "AudioFrame stream_id must match input_stream_id"),
         ({"layout": "planar"}, "AudioFrame layout must be interleaved"),
         ({"channels": 2}, "AudioFrame channels must be 1"),
         ({"encoding": "PCM32LE"}, "AudioFrame encoding must be FLOAT32LE"),
@@ -393,13 +425,16 @@ def test_vad_node_source_does_not_hide_format_conversion() -> None:
     assert "astype(np.int16)" not in source
     assert "AudioFrame sample_rate must match target_sample_rate" in source
     assert "expected_source_id=self._expected_source_id" in source
-    assert "expected_stream_id=self._input_topic" in source
+    assert "expected_stream_id=self._input_stream_id" in source
     assert "out.source_id = msg.source_id" in source
     assert "out.stream_id = msg.stream_id" in source
     assert '"FA VAD (Silero): "' in source
     assert "Dropping invalid AudioFrame: %s" not in source
     assert "VAD backend failed: %s" not in source
     assert "Speech START (prob=%.2f)" not in source
+    assert "input_stream_id must be distinct from ROS input_topic" in source
+    assert "input_stream_id must be distinct from ROS vad_state_topic" in source
+    assert "input_stream_id must be distinct from ROS probability_topic" in source
 
 
 def test_vad_node_backend_runtime_failure_is_fail_closed(
@@ -416,7 +451,7 @@ def test_vad_node_backend_runtime_failure_is_fail_closed(
         node = module.FaVadNode.__new__(module.FaVadNode)
         node._logger = _FakeLogger()
         node._target_sample_rate = 16000
-        node._input_topic = "stream0"
+        node._input_stream_id = "stream0"
         node._expected_source_id = "mic0"
         node._vad = _FailingVadBackend()
 
@@ -641,7 +676,7 @@ def test_silero_backend_is_external_process_boundary() -> None:
     assert "import torch" not in backend_source
     assert "torch.hub" not in backend_source
     assert "subprocess.run" in backend_source
-    assert 'declare_parameter("backend.command", "")' in node_source
+    assert 'declare_parameter("backend.command", Parameter.Type.STRING)' in node_source
     assert "VAD backend failed" in node_source
 
 
