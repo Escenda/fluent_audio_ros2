@@ -1,0 +1,14 @@
+# PlaybackControl.srv
+# fa_out の playback queue / chunk boundary を制御する。
+#
+# command:
+# - stop: active epoch を進め、queued frame と旧 epoch frame を破棄する。
+# - pause: backend への新規 chunk write を一時停止する。
+# - resume: pause を解除する。
+
+string command
+---
+bool accepted
+string message
+uint32 active_epoch
+bool paused

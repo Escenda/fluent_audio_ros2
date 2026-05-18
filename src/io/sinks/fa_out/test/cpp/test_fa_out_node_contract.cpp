@@ -6,6 +6,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -87,6 +88,8 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("backend.name", "alsa_playback"),
     rclcpp::Parameter("input_topic", "fa_out_contract/input"),
     rclcpp::Parameter("input_stream_id", "audio/playback/main"),
+    rclcpp::Parameter("playback_done_topic", "fa_out_contract/playback_done"),
+    rclcpp::Parameter("playback_control_service", "fa_out_contract/playback_control"),
     rclcpp::Parameter("audio.device_id", "hw:0,0"),
     rclcpp::Parameter("audio.encoding", "PCM16LE"),
     rclcpp::Parameter("audio.sample_rate", 48000),
@@ -98,6 +101,8 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("audio.chunk_duration_ms", 30),
     rclcpp::Parameter("audio.qos.depth", 10),
     rclcpp::Parameter("audio.qos.reliable", true),
+    rclcpp::Parameter("lifecycle.qos.depth", 10),
+    rclcpp::Parameter("lifecycle.qos.reliable", true),
   };
 }
 
@@ -260,10 +265,20 @@ TEST_F(RclcppContractTest, WritesOnlyFramesMatchingTheConfiguredSinkContract)
   auto publisher_node = std::make_shared<rclcpp::Node>("fa_out_contract_publisher");
   auto publisher = publisher_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "fa_out_contract/input", rclcpp::QoS(10).reliable());
+  auto done_node = std::make_shared<rclcpp::Node>("fa_out_contract_done_watcher");
+  std::mutex done_mutex;
+  std::vector<fa_interfaces::msg::PlaybackDone> done_messages;
+  auto done_sub = done_node->create_subscription<fa_interfaces::msg::PlaybackDone>(
+    "fa_out_contract/playback_done", rclcpp::QoS(10).reliable(),
+    [&done_mutex, &done_messages](const fa_interfaces::msg::PlaybackDone::SharedPtr msg) {
+      std::lock_guard<std::mutex> lock(done_mutex);
+      done_messages.push_back(*msg);
+    });
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
   executor.add_node(publisher_node);
+  executor.add_node(done_node);
 
   auto invalid = validFrame();
   invalid.encoding = "FLOAT32LE";
@@ -290,6 +305,16 @@ TEST_F(RclcppContractTest, WritesOnlyFramesMatchingTheConfiguredSinkContract)
     return state->frames_written.load() == 2u;
   }));
   EXPECT_EQ(state->write_calls.load(), 1u);
+  EXPECT_TRUE(spinUntil(executor, [&done_mutex, &done_messages]() {
+    std::lock_guard<std::mutex> lock(done_mutex);
+    return done_messages.size() == 1u;
+  }));
+  {
+    std::lock_guard<std::mutex> lock(done_mutex);
+    ASSERT_EQ(done_messages.size(), 1u);
+    EXPECT_EQ(done_messages.front().request_id, "test-request");
+    EXPECT_EQ(done_messages.front().epoch, 1u);
+  }
 }
 
 TEST_F(RclcppContractTest, WriteFailureFailsClosed)

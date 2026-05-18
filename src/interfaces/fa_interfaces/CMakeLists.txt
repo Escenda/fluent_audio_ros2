@@ -28,6 +28,7 @@ set(message_files
 
 set(service_files
   "srv/ListDevices.srv"
+  "srv/PlaybackControl.srv"
   "srv/SwitchDevice.srv"
   "srv/Record.srv"
   "srv/Speak.srv"

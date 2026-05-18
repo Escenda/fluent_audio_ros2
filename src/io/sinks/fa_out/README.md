@@ -15,10 +15,14 @@ ros2 launch fa_out fa_out.launch.py node_name:=fa_out config_file:=/path/to/fa_o
 `audio.device_id` を明示しない起動は fail closed します。
 `node_name` と `config_file` は launch 時に明示する必要があります。
 受信した `AudioFrame.stream_id` は `input_stream_id` と一致する必要があります。topic subscription だけを根拠に、別 stream の frame を speaker sink へ流しません。
+再生完了は `playback_done_topic` に `fa_interfaces/msg/PlaybackDone` として publish します。
+出力制御は `playback_control_service` の `fa_interfaces/srv/PlaybackControl` で `stop` / `pause` / `resume` を受けます。
 
 主なパラメータ:
 - `input_topic`: playback 対象 frame を受け取る ROS topic
 - `input_stream_id`: speaker sink に流せる `AudioFrame.stream_id`
+- `playback_done_topic`: playback 完了通知を publish する ROS topic
+- `playback_control_service`: stop / pause / resume を受ける ROS service
 - `audio.device_id`: ALSA raw hardware device id（例: `hw:1,0`）
 - `audio.sample_rate`, `audio.channels`, `audio.bit_depth`: フレームと一致している必要があります。
 - `queue.max_frames`: バッファに保持するフレーム数。溢れた場合は frame drop で継続せず fail closed します。

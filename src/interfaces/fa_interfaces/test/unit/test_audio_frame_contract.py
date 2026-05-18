@@ -63,6 +63,44 @@ def test_encoded_audio_chunk_is_registered_for_rosidl_generation() -> None:
     assert '"msg/EncodedAudioChunk.msg"' in cmake_text
 
 
+def test_playback_control_is_output_lifecycle_service_only() -> None:
+    srv_path = Path(__file__).parents[2] / "srv" / "PlaybackControl.srv"
+    fields = [
+        line.strip()
+        for line in srv_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+    assert fields == [
+        "string command",
+        "---",
+        "bool accepted",
+        "string message",
+        "uint32 active_epoch",
+        "bool paused",
+    ]
+    forbidden_tokens = [
+        "file_path",
+        "text",
+        "voice",
+        "volume",
+        "gain",
+        "normalize",
+        "resample",
+        "encoding",
+        "bit_depth",
+    ]
+    for token in forbidden_tokens:
+        assert token not in "\n".join(fields)
+
+
+def test_playback_control_is_registered_for_rosidl_generation() -> None:
+    cmake_path = Path(__file__).parents[2] / "CMakeLists.txt"
+    cmake_text = cmake_path.read_text(encoding="utf-8")
+
+    assert '"srv/PlaybackControl.srv"' in cmake_text
+
+
 def test_audio_embedding_frame_is_embedding_payload_only() -> None:
     msg_path = Path(__file__).parents[2] / "msg" / "AudioEmbeddingFrame.msg"
     fields = [

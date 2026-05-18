@@ -3,6 +3,8 @@ fa_out:
     backend.name: "alsa_playback"
     input_topic: "fa_out/input"
     input_stream_id: "audio/playback/main"
+    playback_done_topic: "fa_out/playback_done"
+    playback_control_service: "fa_out/playback_control"
     audio.device_id: ""
     audio.encoding: "PCM16LE"
     audio.sample_rate: 48000
@@ -13,4 +15,6 @@ fa_out:
     audio.alsa.period_frames: 4096
     audio.qos.depth: 10
     audio.qos.reliable: true
+    lifecycle.qos.depth: 10
+    lifecycle.qos.reliable: true
     queue.max_frames: 32

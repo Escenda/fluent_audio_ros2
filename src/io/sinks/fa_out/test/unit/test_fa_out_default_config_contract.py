@@ -13,7 +13,10 @@ def test_default_config_requires_explicit_sink_device() -> None:
     assert params["backend.name"] == "alsa_playback"
     assert params["input_topic"] == "fa_out/input"
     assert params["input_stream_id"] == "audio/playback/main"
+    assert params["playback_done_topic"] == "fa_out/playback_done"
+    assert params["playback_control_service"] == "fa_out/playback_control"
     assert params["input_topic"] != params["input_stream_id"]
+    assert params["playback_done_topic"] != params["input_topic"]
     assert params["audio.device_id"] == ""
     assert params["audio.encoding"] == "PCM16LE"
     assert params["audio.bit_depth"] == 16
@@ -22,6 +25,8 @@ def test_default_config_requires_explicit_sink_device() -> None:
     assert params["audio.alsa.period_frames"] == 4096
     assert params["audio.qos.depth"] == 10
     assert params["audio.qos.reliable"] is True
+    assert params["lifecycle.qos.depth"] == 10
+    assert params["lifecycle.qos.reliable"] is True
     assert '"default"' not in config_text
 
 
@@ -35,6 +40,8 @@ def test_sink_backend_has_no_struct_default() -> None:
     assert "std::string backend_name{};" in header_text
     assert "std::string input_topic{};" in header_text
     assert "std::string input_stream_id{};" in header_text
+    assert "std::string playback_done_topic{};" in header_text
+    assert "std::string playback_control_service{};" in header_text
     assert "std::string encoding{};" in header_text
     assert "uint32_t sample_rate{0};" in header_text
     assert "uint32_t channels{0};" in header_text
@@ -46,11 +53,14 @@ def test_sink_backend_has_no_struct_default() -> None:
     assert "size_t alsa_buffer_frames{0};" in header_text
     assert "size_t alsa_period_frames{0};" in header_text
     assert "size_t qos_depth{0};" in header_text
+    assert "size_t lifecycle_qos_depth{0};" in header_text
 
     source_path = package_root / "src" / "fa_out_node.cpp"
     source_text = source_path.read_text(encoding="utf-8")
     assert 'declare_parameter<std::string>("input_topic")' in source_text
     assert 'declare_parameter<std::string>("input_stream_id")' in source_text
+    assert 'declare_parameter<std::string>("playback_done_topic")' in source_text
+    assert 'declare_parameter<std::string>("playback_control_service")' in source_text
     assert "readRequiredString(*this, \"input_topic\")" in source_text
     assert "requirePositiveUint32" in source_text
     assert "requirePositiveSize" in source_text
@@ -86,6 +96,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
 
     assert 'declare_parameter<std::string>("input_topic")' in source
     assert 'declare_parameter<std::string>("input_stream_id")' in source
+    assert 'declare_parameter<std::string>("playback_done_topic")' in source
+    assert 'declare_parameter<std::string>("playback_control_service")' in source
     assert 'declare_parameter<std::string>("audio.encoding")' in source
     assert 'declare_parameter<int>("audio.sample_rate")' in source
     assert 'declare_parameter<int>("audio.channels")' in source
@@ -96,6 +108,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     assert 'declare_parameter<int>("audio.chunk_duration_ms")' in source
     assert 'declare_parameter<int>("audio.qos.depth")' in source
     assert 'declare_parameter<bool>("audio.qos.reliable")' in source
+    assert 'declare_parameter<int>("lifecycle.qos.depth")' in source
+    assert 'declare_parameter<bool>("lifecycle.qos.reliable")' in source
 
 
 def test_playback_contract_is_pcm16_only_at_startup() -> None:
@@ -288,17 +302,17 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "ament_add_gtest(${PROJECT_NAME}_audio_config_validation_test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "find_package(std_msgs REQUIRED)" in cmake_text
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
+    assert "<depend>std_msgs</depend>" in package_xml
     assert "diagnostic_msgs" not in cmake_text
     assert "diagnostic_msgs" not in package_xml
-    assert "std_msgs" not in cmake_text
-    assert "std_msgs" not in package_xml
 
 
-def test_sink_adapter_exposes_no_file_or_dsp_surface() -> None:
+def test_sink_adapter_exposes_only_playback_lifecycle_control_surface() -> None:
     package_root = Path(__file__).parents[2]
     source_text = (package_root / "src" / "fa_out_node.cpp").read_text(encoding="utf-8")
     header_text = (package_root / "include" / "fa_out" / "fa_out_node.hpp").read_text(
@@ -307,16 +321,14 @@ def test_sink_adapter_exposes_no_file_or_dsp_surface() -> None:
     config_text = (package_root / "config" / "default.yaml").read_text(encoding="utf-8")
     combined = "\n".join([source_text, header_text, config_text])
 
-    assert "create_service" not in source_text
-    assert "audio/output/stop" not in combined
-    assert "audio/output/pause" not in combined
-    assert "audio/output/resume" not in combined
-    assert "audio/output/playback_done" not in combined
-    assert "audio/output/paused" not in combined
-    assert "PlaybackDone" not in combined
-    assert "std_msgs" not in combined
+    assert "create_service<fa_interfaces::srv::PlaybackControl>" in source_text
+    assert "fa_interfaces::msg::PlaybackDone" in combined
+    assert "playback_done_topic" in combined
+    assert "playback_control_service" in combined
+    assert "active_epoch_" in combined
+    assert "paused_" in combined
     assert "last_stop_time_" not in combined
-    assert "current_epoch_" not in combined
+    assert "audio/output/paused" not in combined
     forbidden_tokens = [
         "file_path",
         "audio.file",
@@ -330,6 +342,30 @@ def test_sink_adapter_exposes_no_file_or_dsp_surface() -> None:
     ]
     for token in forbidden_tokens:
         assert token not in combined
+
+
+def test_playback_done_and_control_contract_are_explicit() -> None:
+    package_root = Path(__file__).parents[2]
+    source_text = (package_root / "src" / "fa_out_node.cpp").read_text(encoding="utf-8")
+    header_text = (package_root / "include" / "fa_out" / "fa_out_node.hpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "fa_interfaces/msg/playback_done.hpp" in header_text
+    assert "fa_interfaces/srv/playback_control.hpp" in header_text
+    assert "void publishPlaybackDone(const QueuedFrame & queued_frame);" in header_text
+    assert "void handlePlaybackControl(" in header_text
+    assert "done_msg.header = queued_frame.header;" in source_text
+    assert "done_msg.request_id = queued_frame.request_id;" in source_text
+    assert "done_msg.epoch = queued_frame.epoch;" in source_text
+    assert 'request->command == kPlaybackCommandStop' in source_text
+    assert "active_epoch_.store(next_epoch);" in source_text
+    assert "frame_queue_.clear();" in source_text
+    assert "paused_.store(true);" in source_text
+    assert "paused_.store(false);" in source_text
+    assert "queued_frame.epoch < active_epoch_.load()" in source_text
+    assert "Rejecting stale playback frame epoch" in source_text
+    assert "unsupported playback control command" in source_text
 
 
 def test_sink_backend_exposes_no_session_control_primitive() -> None:
