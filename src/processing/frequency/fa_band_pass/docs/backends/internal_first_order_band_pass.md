@@ -27,4 +27,4 @@ backend は意味を変える fallback を行わない。
 - normalized range 外の final output は `kOutOfRangeOutput` として拒否する。
 - 拒否時は channel filter state を更新しない。
 
-source 切り替えの判断は node 側が行い、backend は `reset_state` 指示を受けた frame で一時 state を未初期化にして処理する。frame 全体が成功した場合だけ reset 後 state を commit する。
+source と epoch の判断は node 側が行い、backend は `reset_state` 指示を受けた frame で一時 state を未初期化にして処理する。frame 全体が成功した場合だけ reset 後 state を commit する。`reset_state=true` の frame が拒否された場合も、既存 state は保持し、fresh state を commit しない。
