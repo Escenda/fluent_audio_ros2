@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -37,8 +36,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaHighPassNode::FaHighPassNode()
-: rclcpp::Node("fa_high_pass")
+FaHighPassNode::FaHighPassNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_high_pass", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA High Pass node");
   loadParameters();
@@ -126,7 +125,12 @@ void FaHighPassNode::loadParameters()
 
 void FaHighPassNode::configureBackend()
 {
-  backend_ = std::make_unique<backends::InternalHighPassBackend>(
+  backend_ = createBackend();
+}
+
+std::unique_ptr<backends::InternalHighPassBackend> FaHighPassNode::createBackend() const
+{
+  return std::make_unique<backends::InternalHighPassBackend>(
     backends::InternalHighPassConfig{
       config_.expected_sample_rate,
       config_.expected_channels,
@@ -160,6 +164,14 @@ void FaHighPassNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
 {
   frames_in_.fetch_add(1);
 
+  if (!msg) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping null AudioFrame pointer");
+    frames_dropped_.fetch_add(1);
+    return;
+  }
+
   if (!validateFrame(*msg)) {
     frames_dropped_.fetch_add(1);
     return;
@@ -189,6 +201,14 @@ bool FaHighPassNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id mismatch: %s != %s",
       msg.source_id.c_str(),
       active_source_id_.c_str());
+    return false;
+  }
+  if (last_epoch_.has_value() && msg.epoch <= *last_epoch_) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping non-monotonic AudioFrame epoch %u after epoch %u",
+      msg.epoch,
+      *last_epoch_);
     return false;
   }
   if (msg.stream_id != config_.input_topic) {
@@ -244,10 +264,24 @@ bool FaHighPassNode::applyHighPass(
   fa_interfaces::msg::AudioFrame & out)
 {
   const bool should_bind_source = active_source_id_.empty();
+  const bool should_reset_state =
+    last_epoch_.has_value() && in.epoch != (*last_epoch_ + 1U);
+  std::unique_ptr<backends::InternalHighPassBackend> reset_backend{};
+  backends::InternalHighPassBackend * processing_backend = backend_.get();
+
+  if (should_reset_state) {
+    reset_backend = createBackend();
+    processing_backend = reset_backend.get();
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "AudioFrame epoch jumped from %u to %u; processing with fresh high-pass state",
+      *last_epoch_,
+      in.epoch);
+  }
 
   out = in;
   out.stream_id = config_.output_topic;
-  const backends::ProcessStatus status = backend_->process(in.data, out.data);
+  const backends::ProcessStatus status = processing_backend->process(in.data, out.data);
   if (status != backends::ProcessStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
@@ -256,9 +290,13 @@ bool FaHighPassNode::applyHighPass(
     return false;
   }
 
+  if (should_reset_state) {
+    backend_ = std::move(reset_backend);
+  }
   if (should_bind_source) {
     active_source_id_ = in.source_id;
   }
+  last_epoch_ = in.epoch;
 
   return true;
 }
@@ -285,18 +323,3 @@ void FaHighPassNode::publishDiagnostics()
 }
 
 }  // namespace fa_high_pass
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_high_pass::FaHighPassNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_high_pass"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

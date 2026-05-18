@@ -52,6 +52,7 @@ def test_high_pass_validates_frame_contract_before_processing() -> None:
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
     assert "msg.source_id != active_source_id_" in validate_frame
+    assert "msg.epoch <= *last_epoch_" in validate_frame
     assert "msg.stream_id != config_.input_topic" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
@@ -59,6 +60,19 @@ def test_high_pass_validates_frame_contract_before_processing() -> None:
     assert "msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)" in validate_frame
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in validate_frame
     assert "msg.data.empty() || (msg.data.size() % bytes_per_frame) != 0" in validate_frame
+
+
+def test_high_pass_drops_null_frame_before_dereference() -> None:
+    package_root = Path(__file__).parents[2]
+    source = (package_root / "src" / "fa_high_pass_node.cpp").read_text(encoding="utf-8")
+    handle_frame = source.split("void FaHighPassNode::handleFrame")[1].split(
+        "bool FaHighPassNode::validateFrame"
+    )[0]
+
+    assert "if (!msg)" in handle_frame
+    assert '"Dropping null AudioFrame pointer"' in handle_frame
+    assert "frames_dropped_.fetch_add(1);" in handle_frame
+    assert handle_frame.index("if (!msg)") < handle_frame.index("validateFrame(*msg)")
 
 
 def test_high_pass_preserves_source_identity_and_updates_stream_identity() -> None:
@@ -84,14 +98,41 @@ def test_high_pass_binds_source_only_after_backend_accepts_frame() -> None:
     )[0]
 
     assert "const bool should_bind_source = active_source_id_.empty();" in apply_high_pass
-    assert "const backends::ProcessStatus status = backend_->process(in.data, out.data);" in apply_high_pass
+    assert "const backends::ProcessStatus status = processing_backend->process(in.data, out.data);" in apply_high_pass
     assert "if (status != backends::ProcessStatus::kOk)" in apply_high_pass
     assert "if (should_bind_source)" in apply_high_pass
-    assert apply_high_pass.index("backend_->process") < apply_high_pass.index(
+    assert apply_high_pass.index("processing_backend->process") < apply_high_pass.index(
         "if (status != backends::ProcessStatus::kOk)"
     )
     assert apply_high_pass.index("if (status != backends::ProcessStatus::kOk)") < apply_high_pass.index(
         "active_source_id_ = in.source_id;"
+    )
+
+
+def test_high_pass_resets_filter_state_on_forward_epoch_gap_only_after_backend_accepts() -> None:
+    package_root = Path(__file__).parents[2]
+    header = (package_root / "include" / "fa_high_pass" / "fa_high_pass_node.hpp").read_text(
+        encoding="utf-8"
+    )
+    source = (package_root / "src" / "fa_high_pass_node.cpp").read_text(encoding="utf-8")
+    apply_high_pass = source.split("bool FaHighPassNode::applyHighPass")[1].split(
+        "void FaHighPassNode::publishDiagnostics"
+    )[0]
+
+    assert "#include <optional>" in header
+    assert "std::optional<uint32_t> last_epoch_" in header
+    assert "std::unique_ptr<backends::InternalHighPassBackend> createBackend() const;" in header
+    assert "const bool should_reset_state =" in apply_high_pass
+    assert "last_epoch_.has_value() && in.epoch != (*last_epoch_ + 1U)" in apply_high_pass
+    assert "reset_backend = createBackend();" in apply_high_pass
+    assert "processing_backend = reset_backend.get();" in apply_high_pass
+    assert "backend_ = std::move(reset_backend);" in apply_high_pass
+    assert "last_epoch_ = in.epoch;" in apply_high_pass
+    assert apply_high_pass.index("if (status != backends::ProcessStatus::kOk)") < apply_high_pass.index(
+        "backend_ = std::move(reset_backend);"
+    )
+    assert apply_high_pass.index("if (status != backends::ProcessStatus::kOk)") < apply_high_pass.index(
+        "last_epoch_ = in.epoch;"
     )
 
 
@@ -176,11 +217,17 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_high_pass.launch.py",
         "include/fa_high_pass/fa_high_pass_node.hpp",
+        "include/fa_high_pass/backends/internal_high_pass.hpp",
         "src/fa_high_pass_node.cpp",
+        "src/backends/internal_high_pass.cpp",
+        "src/main.cpp",
         "test/cpp/test_internal_high_pass_backend.cpp",
+        "test/cpp/test_high_pass_graph.cpp",
+        "test/unit/test_fa_high_pass_audio_frame_contract.py",
         "test/unit",
         "test/integration",
         "test/launch",
+        "test/launch/test_fa_high_pass_launch_contract.py",
         "test/fixtures",
     )
 
@@ -196,9 +243,12 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_graph_smoke_test" in cmake_text
+    assert "fa_high_pass_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

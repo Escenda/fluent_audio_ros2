@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
@@ -39,7 +40,7 @@ struct HighPassConfig
 class FaHighPassNode : public rclcpp::Node
 {
 public:
-  FaHighPassNode();
+  explicit FaHighPassNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaHighPassNode() override;
 
 private:
@@ -48,12 +49,14 @@ private:
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
   void configureBackend();
+  std::unique_ptr<backends::InternalHighPassBackend> createBackend() const;
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyHighPass(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   HighPassConfig config_;
   std::string active_source_id_{};
+  std::optional<uint32_t> last_epoch_{};
   std::unique_ptr<backends::InternalHighPassBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
