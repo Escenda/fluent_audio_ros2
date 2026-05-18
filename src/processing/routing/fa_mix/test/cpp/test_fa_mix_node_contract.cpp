@@ -21,6 +21,9 @@ using namespace std::chrono_literals;
 constexpr const char * kInputTopicA = "audio/test/mix_a";
 constexpr const char * kInputTopicB = "audio/test/mix_b";
 constexpr const char * kOutputTopic = "audio/test/mix_output";
+constexpr const char * kInputStreamA = "audio/test/stream_a";
+constexpr const char * kInputStreamB = "audio/test/stream_b";
+constexpr const char * kOutputStream = "audio/test/stream_output";
 constexpr uint32_t kSampleRate = 48000;
 constexpr uint32_t kChannels = 1;
 constexpr uint32_t kBitDepth = 16;
@@ -29,18 +32,23 @@ constexpr int64_t kNanosecondsPerSecond = 1000000000LL;
 std::vector<rclcpp::Parameter> validParameters()
 {
   return {
-    rclcpp::Parameter("input_topics", std::vector<std::string>({kInputTopicA, kInputTopicB})),
-    rclcpp::Parameter("input_gains_db", std::vector<double>({0.0, 0.0})),
-    rclcpp::Parameter("master_index", 0),
-    rclcpp::Parameter("output_topic", kOutputTopic),
-    rclcpp::Parameter("expected.sample_rate", static_cast<int>(kSampleRate)),
-    rclcpp::Parameter("expected.channels", static_cast<int>(kChannels)),
-    rclcpp::Parameter("expected.bit_depth", static_cast<int>(kBitDepth)),
-    rclcpp::Parameter("expected.encoding", "PCM16LE"),
-    rclcpp::Parameter("max_frame_age_ms", 500),
-    rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
-    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+	    rclcpp::Parameter("input_topics", std::vector<std::string>({kInputTopicA, kInputTopicB})),
+	    rclcpp::Parameter("input_stream_ids", std::vector<std::string>({kInputStreamA, kInputStreamB})),
+	    rclcpp::Parameter("input_gains_db", std::vector<double>({0.0, 0.0})),
+	    rclcpp::Parameter("master_index", 0),
+	    rclcpp::Parameter("output_topic", kOutputTopic),
+	    rclcpp::Parameter("output.stream_id", kOutputStream),
+	    rclcpp::Parameter("expected.sample_rate", static_cast<int>(kSampleRate)),
+	    rclcpp::Parameter("expected.channels", static_cast<int>(kChannels)),
+	    rclcpp::Parameter("expected.bit_depth", static_cast<int>(kBitDepth)),
+	    rclcpp::Parameter("expected.encoding", "PCM16LE"),
+	    rclcpp::Parameter("expected.layout", "interleaved"),
+	    rclcpp::Parameter("max_frame_age_ms", 500),
+	    rclcpp::Parameter("qos.depth", 10),
+	    rclcpp::Parameter("qos.reliable", true),
+	    rclcpp::Parameter("diagnostics.qos.depth", 10),
+	    rclcpp::Parameter("diagnostics.qos.reliable", false),
+	    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   };
 }
 
@@ -187,7 +195,7 @@ TEST_F(RclcppContractTest, DropsWholeMixWhenConfiguredInputIsMissing)
     return input_a->get_subscription_count() > 0 && output->get_publisher_count() > 0;
   }));
 
-  input_a->publish(frameWith(kInputTopicA, {8192, 8192}, 1U));
+  input_a->publish(frameWith(kInputStreamA, {8192, 8192}, 1U));
   spinFor(executor, 250ms);
 
   EXPECT_TRUE(received.empty());
@@ -218,14 +226,14 @@ TEST_F(RclcppContractTest, PublishesOnlyAfterAllInputsHaveFreshMatchingFrames)
       output->get_publisher_count() > 0;
   }));
 
-  input_b->publish(frameWith(kInputTopicB, {8192, 8192}, 2U));
+  input_b->publish(frameWith(kInputStreamB, {8192, 8192}, 2U));
   spinFor(executor, 100ms);
-  input_a->publish(frameWith(kInputTopicA, {8192, 8192}, 3U));
+  input_a->publish(frameWith(kInputStreamA, {8192, 8192}, 3U));
   ASSERT_TRUE(spinUntil(executor, [&received]() {
     return received.size() == 1U;
   }));
 
-  EXPECT_EQ(received[0].stream_id, kOutputTopic);
+  EXPECT_EQ(received[0].stream_id, kOutputStream);
   EXPECT_EQ(received[0].source_id, "test-source");
   EXPECT_EQ(received[0].sample_rate, kSampleRate);
   EXPECT_EQ(received[0].channels, kChannels);
@@ -261,9 +269,9 @@ TEST_F(RclcppContractTest, DropsWholeMixWhenBufferedInputTimestampIsStale)
       output->get_publisher_count() > 0;
   }));
 
-  input_b->publish(frameWithTimestamp(kInputTopicB, {8192, 8192}, 2U, 1000000000LL));
+  input_b->publish(frameWithTimestamp(kInputStreamB, {8192, 8192}, 2U, 1000000000LL));
   spinFor(executor, 100ms);
-  input_a->publish(frameWithTimestamp(kInputTopicA, {8192, 8192}, 3U, 2000000000LL));
+  input_a->publish(frameWithTimestamp(kInputStreamA, {8192, 8192}, 3U, 2000000000LL));
   spinFor(executor, 250ms);
 
   EXPECT_TRUE(received.empty());
@@ -294,9 +302,9 @@ TEST_F(RclcppContractTest, RejectsZeroTimestampBeforeFrameCanRefreshInput)
       output->get_publisher_count() > 0;
   }));
 
-  input_b->publish(frameWithTimestamp(kInputTopicB, {8192, 8192}, 2U, 0LL));
+  input_b->publish(frameWithTimestamp(kInputStreamB, {8192, 8192}, 2U, 0LL));
   spinFor(executor, 100ms);
-  input_a->publish(frameWithTimestamp(kInputTopicA, {8192, 8192}, 3U, 1000000000LL));
+  input_a->publish(frameWithTimestamp(kInputStreamA, {8192, 8192}, 3U, 1000000000LL));
   spinFor(executor, 250ms);
 
   EXPECT_TRUE(received.empty());
@@ -327,9 +335,9 @@ TEST_F(RclcppContractTest, DropsWholeMixWhenInputSampleCountDiffers)
       output->get_publisher_count() > 0;
   }));
 
-  input_b->publish(frameWith(kInputTopicB, {8192}, 2U));
+  input_b->publish(frameWith(kInputStreamB, {8192}, 2U));
   spinFor(executor, 100ms);
-  input_a->publish(frameWith(kInputTopicA, {8192, 8192}, 3U));
+  input_a->publish(frameWith(kInputStreamA, {8192, 8192}, 3U));
   spinFor(executor, 250ms);
 
   EXPECT_TRUE(received.empty());

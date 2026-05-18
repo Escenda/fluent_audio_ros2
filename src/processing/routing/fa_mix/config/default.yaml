@@ -1,16 +1,20 @@
 fa_mix:
   ros__parameters:
-    input_topics: ["audio/tts/frame"]
+    input_topics: ["fa_mix/tts"]
+    input_stream_ids: ["audio/tts/frame"]
     input_gains_db: [0.0]
     master_index: 0
 
-    output_topic: "audio/output/frame"
+    output_topic: "fa_mix/output"
+    output:
+      stream_id: "audio/mix/output"
 
     expected:
       sample_rate: 48000
       channels: 1
       bit_depth: 16
       encoding: "PCM16LE"
+      layout: "interleaved"
 
     max_frame_age_ms: 60
 
@@ -19,5 +23,7 @@ fa_mix:
       reliable: true
 
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000
-

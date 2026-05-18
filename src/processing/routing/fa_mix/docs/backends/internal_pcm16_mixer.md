@@ -1,29 +1,20 @@
 # internal_pcm16_mixer
 
-`fa_mix` currently uses an internal PCM16 mixer. It has no external routing or
-DSP backend.
+`internal_pcm16_mixer` は `fa_mix_node` から分離された ROS-free C++ backend である。ROS2 topic、`AudioFrame`、diagnostics、publisher/subscriber、frame timestamp cache を知らない。
 
 ## Input Contract
 
-- `input_topics` must contain at least one topic.
-- `input_gains_db` must contain one gain or one gain per input. Empty gain
-  lists are invalid and are not treated as implicit 0 dB.
-- `master_index` must refer to an input topic.
-- frames must match configured sample rate, channels, bit depth, and encoding.
-- frame `stream_id` must match the configured input topic.
-- current implementation requires `expected.encoding=PCM16LE` and
-  `expected.bit_depth=16`.
+- backend input buffer count must match configured gain count.
+- every input buffer must contain PCM16LE interleaved bytes.
+- `input_gains_db` must be explicit and finite. Empty gain lists are invalid and are not treated as implicit 0 dB.
+- all decoded input buffers must have the same sample count.
 
 ## Output Contract
 
-The node mixes fresh frames using explicit `input_gains_db` and publishes a
-PCM16 `AudioFrame` on `output_topic`.
+The backend returns a PCM16LE byte payload. The ROS node wraps that payload in an `AudioFrame`, sets `output.stream_id`, and publishes it on `output_topic`.
 
 ## Failure Policy
 
-Missing inputs, stale frames, mismatched frame lengths, mismatched formats,
-unsupported PCM format, and decode failures are not corrected implicitly. The
-node drops the entire mix instead of publishing a partial mix.
+Mismatched buffer counts, empty inputs, misaligned inputs, mismatched sample counts, non-finite gains, and output overflow are not corrected implicitly. The backend returns a typed status and leaves the output payload unchanged.
 
-Future bus/router engines must be added as explicit backend contracts rather
-than hidden runtime selection.
+Missing inputs, stale frames, topic/stream metadata mismatch, and timestamp validation are node responsibilities. Future bus/router engines must be added as explicit backend contracts rather than hidden runtime selection.

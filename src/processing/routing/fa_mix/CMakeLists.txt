@@ -13,7 +13,15 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
-add_library(fa_mix_node_core
+add_library(fa_mix_internal_pcm16_mixer STATIC
+  src/backends/internal_pcm16_mixer.cpp
+)
+
+target_include_directories(fa_mix_internal_pcm16_mixer PUBLIC
+  include
+)
+
+add_library(fa_mix_node_core STATIC
   src/fa_mix_node.cpp
 )
 
@@ -27,6 +35,10 @@ ament_target_dependencies(fa_mix_node_core
   fa_interfaces
 )
 
+target_link_libraries(fa_mix_node_core
+  fa_mix_internal_pcm16_mixer
+)
+
 add_executable(fa_mix_node
   src/main.cpp
 )
@@ -35,6 +47,8 @@ target_link_libraries(fa_mix_node fa_mix_node_core)
 
 ament_target_dependencies(fa_mix_node
   rclcpp
+  diagnostic_msgs
+  fa_interfaces
 )
 
 install(TARGETS fa_mix_node
@@ -63,6 +77,18 @@ if(BUILD_TESTING)
     APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}
     TIMEOUT 30
   )
+
+  ament_add_gtest(${PROJECT_NAME}_backend_test
+    test/cpp/test_internal_pcm16_mixer_backend.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_backend_test)
+    target_include_directories(${PROJECT_NAME}_backend_test PRIVATE
+      include
+    )
+    target_link_libraries(${PROJECT_NAME}_backend_test
+      fa_mix_internal_pcm16_mixer
+    )
+  endif()
 
   ament_add_gtest(${PROJECT_NAME}_node_contract_test
     test/cpp/test_fa_mix_node_contract.cpp

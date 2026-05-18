@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -10,29 +11,34 @@
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "fa_interfaces/msg/audio_frame.hpp"
+#include "fa_mix/backends/internal_pcm16_mixer.hpp"
 
 namespace fa_mix
 {
 
 struct MixConfig
 {
-  std::vector<std::string> input_topics;
-  std::vector<double> input_gains_db;
-  std::vector<double> input_gains_linear;
-  int master_index = -1;
-  std::string output_topic;
+  std::vector<std::string> input_topics{};
+  std::vector<std::string> input_stream_ids{};
+  std::vector<double> input_gains_db{};
+  int master_index{-1};
+  std::string output_topic{};
+  std::string output_stream_id{};
 
-  int expected_sample_rate = -1;
-  int expected_channels = -1;
-  int expected_bit_depth = -1;
-  std::string expected_encoding;
+  int expected_sample_rate{-1};
+  int expected_channels{-1};
+  int expected_bit_depth{-1};
+  std::string expected_encoding{};
+  std::string expected_layout{};
 
-  int max_frame_age_ms = -1;
+  int max_frame_age_ms{-1};
 
-  int qos_depth = -1;
-  bool qos_reliable = true;
+  int qos_depth{-1};
+  bool qos_reliable{false};
 
-  int diagnostics_publish_period_ms = -1;
+  int diagnostics_qos_depth{-1};
+  bool diagnostics_qos_reliable{false};
+  int diagnostics_publish_period_ms{-1};
 };
 
 class FaMixNode : public rclcpp::Node
@@ -43,6 +49,7 @@ public:
 
 private:
   void loadParameters();
+  void configureBackend();
   void setupInterfaces();
   void publishDiagnostics();
 
@@ -52,13 +59,9 @@ private:
   bool validateFrame(
     const fa_interfaces::msg::AudioFrame & msg,
     const std::string & expected_stream_id) const;
-  static bool decodePcm16ToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out_samples);
-  static bool encodeFloatToPcm16(
-    const std::vector<float> & samples,
-    std::vector<uint8_t> & out_bytes,
-    std::string & error_message);
 
   MixConfig config_;
+  std::unique_ptr<backends::InternalPcm16MixerBackend> backend_;
 
   std::vector<rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr> subs_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr pub_;
