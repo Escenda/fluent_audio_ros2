@@ -1,9 +1,8 @@
 #include "fa_loopback/fa_loopback_node.hpp"
 
 #include <chrono>
-#include <cstdlib>
 #include <functional>
-#include <memory>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -19,12 +18,74 @@ constexpr const char * kEncodingPcm16 = "PCM16LE";
 constexpr const char * kEncodingPcm32 = "PCM32LE";
 constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
+constexpr int kMaxExpectedSampleRate = 384000;
+constexpr int kMaxExpectedChannels = 64;
+
+std::string removeLeadingSlashes(std::string value)
+{
+  while (!value.empty() && value.front() == '/') {
+    value.erase(value.begin());
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return left == right || removeLeadingSlashes(left) == removeLeadingSlashes(right);
+}
 
 bool isSupportedEncodingBitDepth(const std::string & encoding, int bit_depth)
 {
   return (encoding == kEncodingPcm16 && bit_depth == 16) ||
          (encoding == kEncodingPcm32 && bit_depth == 32) ||
          (encoding == kEncodingFloat32 && bit_depth == 32);
+}
+
+bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
+{
+  return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
+}
+
+rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
+{
+  rclcpp::Parameter parameter;
+  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+    throw std::runtime_error(name + " is required");
+  }
+  return parameter;
+}
+
+std::string readRequiredString(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+    throw std::runtime_error(name + " must be a string");
+  }
+  return parameter.as_string();
+}
+
+int readRequiredInt(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    throw std::runtime_error(name + " must be an integer");
+  }
+  const int64_t value = parameter.as_int();
+  if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+      value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+  {
+    throw std::runtime_error(name + " is outside supported integer range");
+  }
+  return static_cast<int>(value);
+}
+
+bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
+{
+  const rclcpp::Parameter parameter = getRequiredParameter(node, name);
+  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+    throw std::runtime_error(name + " must be a bool");
+  }
+  return parameter.as_bool();
 }
 
 void pushKeyValue(
@@ -39,8 +100,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaLoopbackNode::FaLoopbackNode()
-: rclcpp::Node("fa_loopback")
+FaLoopbackNode::FaLoopbackNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_loopback", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Loopback node");
   loadParameters();
@@ -49,33 +110,35 @@ FaLoopbackNode::FaLoopbackNode()
 
 void FaLoopbackNode::loadParameters()
 {
-  this->declare_parameter("input_topic", config_.input_topic);
-  this->declare_parameter("output_topic", config_.output_topic);
-  this->declare_parameter<bool>("loopback.require_distinct_topics", config_.require_distinct_topics);
-  this->declare_parameter<int>("expected.sample_rate", config_.expected_sample_rate);
-  this->declare_parameter<int>("expected.channels", config_.expected_channels);
-  this->declare_parameter("expected.encoding", config_.expected_encoding);
-  this->declare_parameter<int>("expected.bit_depth", config_.expected_bit_depth);
-  this->declare_parameter("expected.layout", config_.expected_layout);
-  this->declare_parameter<int>("qos.depth", config_.qos_depth);
-  this->declare_parameter<bool>("qos.reliable", config_.qos_reliable);
-  this->declare_parameter<int>(
-    "diagnostics.publish_period_ms",
-    config_.diagnostics_publish_period_ms);
+  this->declare_parameter<std::string>("input_topic");
+  this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
+  this->declare_parameter<int>("expected.sample_rate");
+  this->declare_parameter<int>("expected.channels");
+  this->declare_parameter<std::string>("expected.encoding");
+  this->declare_parameter<int>("expected.bit_depth");
+  this->declare_parameter<std::string>("expected.layout");
+  this->declare_parameter<int>("qos.depth");
+  this->declare_parameter<bool>("qos.reliable");
+  this->declare_parameter<int>("diagnostics.qos.depth");
+  this->declare_parameter<bool>("diagnostics.qos.reliable");
+  this->declare_parameter<int>("diagnostics.publish_period_ms");
 
-  config_.input_topic = this->get_parameter("input_topic").as_string();
-  config_.output_topic = this->get_parameter("output_topic").as_string();
-  config_.require_distinct_topics =
-    this->get_parameter("loopback.require_distinct_topics").as_bool();
-  config_.expected_sample_rate = this->get_parameter("expected.sample_rate").as_int();
-  config_.expected_channels = this->get_parameter("expected.channels").as_int();
-  config_.expected_encoding = this->get_parameter("expected.encoding").as_string();
-  config_.expected_bit_depth = this->get_parameter("expected.bit_depth").as_int();
-  config_.expected_layout = this->get_parameter("expected.layout").as_string();
-  config_.qos_depth = this->get_parameter("qos.depth").as_int();
-  config_.qos_reliable = this->get_parameter("qos.reliable").as_bool();
-  config_.diagnostics_publish_period_ms =
-    this->get_parameter("diagnostics.publish_period_ms").as_int();
+  config_.input_topic = readRequiredString(*this, "input_topic");
+  config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
+  config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
+  config_.expected_channels = readRequiredInt(*this, "expected.channels");
+  config_.expected_encoding = readRequiredString(*this, "expected.encoding");
+  config_.expected_bit_depth = readRequiredInt(*this, "expected.bit_depth");
+  config_.expected_layout = readRequiredString(*this, "expected.layout");
+  config_.qos_depth = readRequiredInt(*this, "qos.depth");
+  config_.qos_reliable = readRequiredBool(*this, "qos.reliable");
+  config_.diagnostics_qos_depth = readRequiredInt(*this, "diagnostics.qos.depth");
+  config_.diagnostics_qos_reliable = readRequiredBool(*this, "diagnostics.qos.reliable");
+  config_.diagnostics_publish_period_ms = readRequiredInt(*this, "diagnostics.publish_period_ms");
 
   if (config_.input_topic.empty()) {
     throw std::runtime_error("input_topic is required");
@@ -83,15 +146,39 @@ void FaLoopbackNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
   }
-  if (config_.require_distinct_topics && config_.input_topic == config_.output_topic) {
-    throw std::runtime_error(
-      "input_topic and output_topic must differ when loopback.require_distinct_topics=true");
+  const std::string resolved_input = this->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output = this->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(resolved_input, resolved_output)) {
+    throw std::runtime_error("input_topic and output_topic must differ after resolution");
   }
-  if (config_.expected_sample_rate <= 0) {
-    throw std::runtime_error("expected.sample_rate must be > 0");
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
   }
-  if (config_.expected_channels <= 0) {
-    throw std::runtime_error("expected.channels must be > 0");
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  if (config_.input_stream_id == config_.output_stream_id) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input) ||
+      sameIdentityString(config_.input_stream_id, resolved_output))
+  {
+    throw std::runtime_error("input_stream_id must not match raw or resolved topic names");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input) ||
+      sameIdentityString(config_.output_stream_id, resolved_output))
+  {
+    throw std::runtime_error("output.stream_id must not match raw or resolved topic names");
+  }
+  if (config_.expected_sample_rate <= 0 || config_.expected_sample_rate > kMaxExpectedSampleRate) {
+    throw std::runtime_error("expected.sample_rate must be in (0, 384000]");
+  }
+  if (config_.expected_channels <= 0 || config_.expected_channels > kMaxExpectedChannels) {
+    throw std::runtime_error("expected.channels must be in (0, 64]");
   }
   if (config_.expected_encoding.empty()) {
     throw std::runtime_error("expected.encoding is required");
@@ -112,24 +199,12 @@ void FaLoopbackNode::loadParameters()
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0");
   }
+  if (config_.diagnostics_qos_depth <= 0) {
+    throw std::runtime_error("diagnostics.qos.depth must be > 0");
+  }
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0");
   }
-
-  RCLCPP_INFO(
-    this->get_logger(),
-    "Loopback config: input=%s output=%s require_distinct_topics=%s expected=%dHz/%d/%s/%d/%s qos_depth=%d reliable=%s diag=%dms",
-    config_.input_topic.c_str(),
-    config_.output_topic.c_str(),
-    config_.require_distinct_topics ? "true" : "false",
-    config_.expected_sample_rate,
-    config_.expected_channels,
-    config_.expected_encoding.c_str(),
-    config_.expected_bit_depth,
-    config_.expected_layout.c_str(),
-    config_.qos_depth,
-    config_.qos_reliable ? "true" : "false",
-    config_.diagnostics_publish_period_ms);
 }
 
 void FaLoopbackNode::setupInterfaces()
@@ -141,6 +216,13 @@ void FaLoopbackNode::setupInterfaces()
     qos.best_effort();
   }
 
+  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
+  if (config_.diagnostics_qos_reliable) {
+    diagnostics_qos.reliable();
+  } else {
+    diagnostics_qos.best_effort();
+  }
+
   audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(config_.output_topic, qos);
 
   audio_sub_ = this->create_subscription<fa_interfaces::msg::AudioFrame>(
@@ -150,7 +232,7 @@ void FaLoopbackNode::setupInterfaces()
 
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics",
-    rclcpp::SystemDefaultsQoS());
+    diagnostics_qos);
   diag_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(config_.diagnostics_publish_period_ms),
     std::bind(&FaLoopbackNode::publishDiagnostics, this));
@@ -172,7 +254,7 @@ void FaLoopbackNode::handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   publishLoopback(*msg);
 }
 
-bool FaLoopbackNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
+bool FaLoopbackNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
 {
   if (msg.source_id.empty() || msg.stream_id.empty()) {
     RCLCPP_WARN_THROTTLE(
@@ -180,12 +262,12 @@ bool FaLoopbackNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.layout != config_.expected_layout) {
@@ -232,7 +314,7 @@ bool FaLoopbackNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
 void FaLoopbackNode::publishLoopback(const fa_interfaces::msg::AudioFrame & msg)
 {
   fa_interfaces::msg::AudioFrame out = msg;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   audio_pub_->publish(out);
   frames_out_.fetch_add(1);
 }
@@ -252,13 +334,11 @@ void FaLoopbackNode::publishDiagnostics()
   status.name = "fa_loopback";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(14);
+  status.values.reserve(16);
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
-  pushKeyValue(
-    status,
-    "loopback.require_distinct_topics",
-    config_.require_distinct_topics ? "true" : "false");
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "expected.sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected.channels", std::to_string(config_.expected_channels));
   pushKeyValue(status, "expected.encoding", config_.expected_encoding);
@@ -266,6 +346,8 @@ void FaLoopbackNode::publishDiagnostics()
   pushKeyValue(status, "expected.layout", config_.expected_layout);
   pushKeyValue(status, "qos.depth", std::to_string(config_.qos_depth));
   pushKeyValue(status, "qos.reliable", config_.qos_reliable ? "true" : "false");
+  pushKeyValue(status, "diagnostics.qos.depth", std::to_string(config_.diagnostics_qos_depth));
+  pushKeyValue(status, "diagnostics.qos.reliable", config_.diagnostics_qos_reliable ? "true" : "false");
   pushKeyValue(status, "frames_in", std::to_string(frames_in_.load()));
   pushKeyValue(status, "frames_out", std::to_string(frames_out_.load()));
   pushKeyValue(status, "frames_dropped", std::to_string(frames_dropped_.load()));
@@ -275,18 +357,3 @@ void FaLoopbackNode::publishDiagnostics()
 }
 
 }  // namespace fa_loopback
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_loopback::FaLoopbackNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_loopback"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

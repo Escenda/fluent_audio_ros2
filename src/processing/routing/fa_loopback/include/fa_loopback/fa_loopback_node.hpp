@@ -17,14 +17,17 @@ struct LoopbackConfig
 {
   std::string input_topic{};
   std::string output_topic{};
-  bool require_distinct_topics{true};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   int expected_sample_rate{-1};
   int expected_channels{-1};
   std::string expected_encoding{};
   int expected_bit_depth{-1};
   std::string expected_layout{};
   int qos_depth{-1};
-  bool qos_reliable{true};
+  bool qos_reliable{false};
+  int diagnostics_qos_depth{-1};
+  bool diagnostics_qos_reliable{false};
   int diagnostics_publish_period_ms{-1};
 };
 
@@ -34,7 +37,7 @@ struct LoopbackConfig
 class FaLoopbackNode : public rclcpp::Node
 {
 public:
-  FaLoopbackNode();
+  explicit FaLoopbackNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaLoopbackNode() override = default;
 
 private:
@@ -44,7 +47,7 @@ private:
   void publishLoopback(const fa_interfaces::msg::AudioFrame & msg);
   void publishDiagnostics();
 
-  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
+  bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
   size_t bytesPerFrame() const;
 
   LoopbackConfig config_;

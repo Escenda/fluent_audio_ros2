@@ -6,7 +6,8 @@
 
 - required `input_topic` を購読する
 - required `output_topic` へ publish する
-- 入力 `AudioFrame` の metadata と data を copy し、`stream_id` だけを `output_topic` に更新する
+- required `input_stream_id` の frame だけを受け取る
+- 入力 `AudioFrame` の metadata と data を copy し、`stream_id` だけを required `output.stream_id` に更新する
 - `source_id`、`header`、format fields、`epoch`、`data` は変更しない
 - invalid frame は drop し、warning と diagnostics counter に反映する
 
@@ -19,17 +20,17 @@
 - format conversion
 - device capture / playback
 
-## self-loop guard
+## topic と stream
 
-`loopback.require_distinct_topics` の default は `true` である。この状態で `input_topic == output_topic` の場合は startup error とする。
+`input_topic` / `output_topic` は ROS2 graph 上の配送先である。`input_stream_id` / `output.stream_id` は `AudioFrame` 内の stream identity であり、topic 名として扱わない。
 
-`false` にすると同一 topic の passthrough を許可する。これは operator が ROS2 graph 上の loopback を明示的に制御する場合だけに使う。
+`input_topic` と `output_topic` が解決後に同じ場合は startup error とする。stream ID が raw/resolved topic 名と一致する場合も startup error とする。
 
-## default topics
+## launch
 
-- Sub: `audio/output/frame`
-- Pub: `audio/loopback/frame`
-- Diagnostics: `diagnostics`
+`fa_loopback.launch.py` は `node_name` と `config_file` を必須 launch argument とする。package 内 default config への暗黙 fallback は持たない。
+
+`config/default.yaml` は単体デバッグ用の明示例であり、system launch では profile / system config から渡す。
 
 ## test
 

@@ -1,10 +1,10 @@
 fa_loopback:
   ros__parameters:
-    input_topic: "audio/output/frame"
-    output_topic: "audio/loopback/frame"
-
-    loopback:
-      require_distinct_topics: true
+    input_topic: "fa_loopback/input"
+    output_topic: "fa_loopback/output"
+    input_stream_id: "audio/output/frame"
+    output:
+      stream_id: "audio/loopback/frame"
 
     expected:
       sample_rate: 48000
@@ -18,4 +18,7 @@ fa_loopback:
       reliable: true
 
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000

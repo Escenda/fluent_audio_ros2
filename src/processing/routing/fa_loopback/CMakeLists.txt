@@ -13,12 +13,26 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
-add_executable(fa_loopback_node
+add_library(fa_loopback_node_core STATIC
   src/fa_loopback_node.cpp
 )
 
-target_include_directories(fa_loopback_node PRIVATE
+target_include_directories(fa_loopback_node_core PUBLIC
   include
+)
+
+ament_target_dependencies(fa_loopback_node_core
+  rclcpp
+  diagnostic_msgs
+  fa_interfaces
+)
+
+add_executable(fa_loopback_node
+  src/main.cpp
+)
+
+target_link_libraries(fa_loopback_node
+  fa_loopback_node_core
 )
 
 ament_target_dependencies(fa_loopback_node
