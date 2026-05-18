@@ -7,6 +7,7 @@
 ## Input format
 
 - `fa_interfaces/msg/AudioFrame`
+- `stream_id == input_stream_id`
 - `FLOAT32LE`
 - `bit_depth=32`
 - `layout=interleaved`
@@ -18,7 +19,7 @@
 - `fa_interfaces/msg/AudioFrame`
 - `data.size() == window.hop_samples * channels * sizeof(float)`
 - `source_id` は入力を保持
-- `stream_id` は `output_topic`
+- `stream_id` は `output.stream_id`
 - `epoch` は node lifetime 内で単調増加
 
 ## Failure policy

@@ -1,7 +1,10 @@
 fa_overlap_add_node:
   ros__parameters:
-    input_topic: "audio/chunked_overlap/mic"
-    output_topic: "audio/overlap_added/mic"
+    input_topic: "fa_overlap_add/input"
+    output_topic: "fa_overlap_add/output"
+    input_stream_id: "audio/chunked_overlap/mic"
+    output:
+      stream_id: "audio/overlap_added/mic"
 
     expected:
       sample_rate: 16000

@@ -24,8 +24,10 @@ def test_default_config_declares_required_overlap_add_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_overlap_add_node"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/chunked_overlap/mic"
-    assert params["output_topic"] == "audio/overlap_added/mic"
+    assert params["input_topic"] == "fa_overlap_add/input"
+    assert params["output_topic"] == "fa_overlap_add/output"
+    assert params["input_stream_id"] == "audio/chunked_overlap/mic"
+    assert params["output"]["stream_id"] == "audio/overlap_added/mic"
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "FLOAT32LE"
@@ -85,6 +87,8 @@ def test_startup_validation_fails_closed_for_invalid_config_without_code_default
     required_declarations = (
         'declare_parameter<std::string>("input_topic");',
         'declare_parameter<std::string>("output_topic");',
+        'declare_parameter<std::string>("input_stream_id");',
+        'declare_parameter<std::string>("output.stream_id");',
         'declare_parameter<int>("expected.sample_rate");',
         'declare_parameter<int>("expected.channels");',
         'declare_parameter<std::string>("expected.encoding");',
@@ -107,6 +111,8 @@ def test_startup_validation_fails_closed_for_invalid_config_without_code_default
     required_reads = (
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredInt(*this, "expected.sample_rate")',
         'readRequiredInt(*this, "expected.channels")',
         'readRequiredString(*this, "expected.encoding")',
@@ -129,6 +135,15 @@ def test_startup_validation_fails_closed_for_invalid_config_without_code_default
     assert "SystemDefaultsQoS" not in source
     assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
     assert "throw std::runtime_error(\"output_topic is required\")" in load_parameters
+    assert "throw std::runtime_error(\"input_stream_id is required\")" in load_parameters
+    assert "throw std::runtime_error(\"output.stream_id is required\")" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
     assert "expected.sample_rate must be > 0" in load_parameters
     assert "expected.channels must be > 0" in load_parameters
     assert "fa_overlap_add requires expected.encoding=FLOAT32LE" in load_parameters
@@ -154,7 +169,7 @@ def test_runtime_validation_rejects_invalid_frames_before_state_mutation() -> No
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)" in validate_frame
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
@@ -291,7 +306,7 @@ def test_source_format_and_future_epoch_gap_reset_state_without_resetting_output
     assert "next_expected_input_epoch_ = msg.epoch + 1U;" in source
     assert "next_output_epoch_ = 0" not in reset_state
     assert "out.source_id = active_stream_->source_id;" in build_output
-    assert "out.stream_id = config_.output_topic;" in build_output
+    assert "out.stream_id = config_.output_stream_id;" in build_output
     assert "out.epoch = next_output_epoch_;" in build_output
 
 
@@ -312,6 +327,8 @@ def test_diagnostics_publish_config_counters_and_backend_identity() -> None:
     for key in (
         "input_topic",
         "output_topic",
+        "input_stream_id",
+        "output_stream_id",
         "expected_sample_rate",
         "expected_channels",
         "expected_encoding",

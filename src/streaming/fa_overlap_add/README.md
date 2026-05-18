@@ -6,7 +6,8 @@
 
 ## Contract
 
-- `input_topic` と `output_topic` は必須。
+- `input_topic` と `output_topic` は ROS transport topic として必須。
+- `input_stream_id` と `output.stream_id` は data-plane stream identity として必須で、ROS topic 名とは一致させない。
 - `window.frame_samples` は `> 0`。
 - `window.hop_samples` は `> 0` かつ `<= window.frame_samples`。
 - `window.type` は `rectangular` または `hann`。
@@ -16,12 +17,13 @@
 - 不正 frame は drop し、既存の valid overlap-add state は変更しない。
 - `source_id`、format、future input `epoch` gap が出た場合は state を reset して新 chunk から開始する。
 - duplicate / regressing input `epoch` は stale audio replay を避けるため drop する。
-- 出力は hop-sized `AudioFrame` とし、`source_id` を保持し、`stream_id` を `output_topic` に更新する。
+- 出力は hop-sized `AudioFrame` とし、`source_id` を保持し、`stream_id` を `output.stream_id` に更新する。
 
 ## Topics
 
 - Subscribe: `input_topic` (`fa_interfaces/msg/AudioFrame`)
 - Publish: `output_topic` (`fa_interfaces/msg/AudioFrame`)
+- Stream identity: input `AudioFrame.stream_id == input_stream_id`, output `AudioFrame.stream_id == output.stream_id`
 - Diagnostics: `diagnostics` (`diagnostic_msgs/msg/DiagnosticArray`)
 
 ## Parameters
