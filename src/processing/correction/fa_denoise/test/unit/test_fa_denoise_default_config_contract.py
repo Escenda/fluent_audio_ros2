@@ -12,6 +12,13 @@ def test_default_config_requires_explicit_dtln_models() -> None:
     assert params["enabled"] is True
     assert params["backend.name"] == "dtln_onnx"
     assert "backend" not in params
+    assert params["input_topic"] == "fa_denoise/input"
+    assert params["output_topic"] == "fa_denoise/output"
+    assert params["input_stream_id"] == "audio/resample16k/mic"
+    assert params["output"]["stream_id"] == "audio/denoised/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["expected"]["encoding"] == "PCM16LE"
     assert params["expected"]["bit_depth"] == 16
     assert params["dtln"]["model_1_path"] == ""
@@ -26,7 +33,8 @@ def test_denoise_outputs_audio_frame_identity_without_analysis_metadata() -> Non
     assert "msg.layout != kInterleavedLayout" in source
     assert "fa_denoise received a null AudioFrame pointer" in source
     assert "fa_denoise publisher is not initialized" in source
-    assert "out_msg.stream_id = config_.output_topic;" in source
+    assert "out_msg.stream_id = config_.output_stream_id;" in source
+    assert "out_msg.stream_id = config_.output_topic;" not in source
     assert "out_msg.layout = kInterleavedLayout;" in source
     assert "computeRmsPeak" not in source
     assert ".rms" not in source
@@ -47,6 +55,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
         'readRequiredString(*this, "backend.name")',
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredInt(*this, "expected_sample_rate")',
         'readRequiredInt(*this, "expected_channels")',
         'readRequiredString(*this, "expected.encoding")',
@@ -226,8 +236,18 @@ def test_denoise_requires_explicit_format_pairs_and_no_hidden_clamp() -> None:
     assert "output.encoding/output.bit_depth must be PCM16LE/16 or FLOAT32LE/32" in source
     assert "msg.encoding != config_.expected_encoding" in source
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in source
-    assert "msg.stream_id != config_.input_topic" in source
+    assert "msg.stream_id != config_.input_stream_id" in source
+    assert "config_.input_topic == config_.output_topic" in source
     assert "resolved input_topic and output_topic must be distinct" in source
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in source
+    assert "sameIdentityString(config_.input_stream_id, config_.output_topic)" in source
+    assert "sameIdentityString(config_.input_stream_id, config_.resolved_input_topic)" in source
+    assert "sameIdentityString(config_.input_stream_id, config_.resolved_output_topic)" in source
+    assert "sameIdentityString(config_.output_stream_id, config_.input_topic)" in source
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in source
+    assert "sameIdentityString(config_.output_stream_id, config_.resolved_input_topic)" in source
+    assert "sameIdentityString(config_.output_stream_id, config_.resolved_output_topic)" in source
+    assert "sameIdentityString(config_.input_stream_id, config_.output_stream_id)" in source
     assert "hasValidStamp(msg.header.stamp)" in source
     assert "std::max<int>(1, config_.qos_depth)" not in source
     assert "decodeToFloat" not in source

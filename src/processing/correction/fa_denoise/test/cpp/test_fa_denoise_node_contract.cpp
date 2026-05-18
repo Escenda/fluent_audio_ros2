@@ -20,6 +20,8 @@ using namespace std::chrono_literals;
 
 constexpr const char * kInputTopic = "audio/test/denoise_input";
 constexpr const char * kOutputTopic = "audio/test/denoise_output";
+constexpr const char * kInputStreamId = "audio/test/resampled_mic";
+constexpr const char * kOutputStreamId = "audio/test/denoised_mic";
 constexpr uint32_t kSampleRate = 16000;
 constexpr uint32_t kChannels = 1;
 constexpr uint32_t kBitDepth = 16;
@@ -32,6 +34,8 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("backend.name", "passthrough"),
     rclcpp::Parameter("input_topic", kInputTopic),
     rclcpp::Parameter("output_topic", kOutputTopic),
+    rclcpp::Parameter("input_stream_id", kInputStreamId),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("expected_sample_rate", static_cast<int>(kSampleRate)),
     rclcpp::Parameter("expected_channels", static_cast<int>(kChannels)),
     rclcpp::Parameter("expected.encoding", "PCM16LE"),
@@ -168,6 +172,36 @@ TEST_F(RclcppContractTest, RejectsResolvedTopicLoopAtStartup)
     std::runtime_error);
 }
 
+TEST_F(RclcppContractTest, RejectsInputStreamIdTopicCollisionAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("input_stream_id", kInputTopic));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsOutputStreamIdTopicCollisionAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("output.stream_id", kOutputTopic));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsInputOutputStreamIdentityCollisionAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("output.stream_id", kInputStreamId));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
 TEST_F(RclcppContractTest, RejectsPassthroughOutputFormatChangeAtStartup)
 {
   auto parameters = validParameters();
@@ -201,12 +235,12 @@ TEST_F(RclcppContractTest, PublishesPassthroughFrameWithOutputStreamId)
   }));
 
   const std::vector<uint8_t> data{0x00U, 0x00U, 0x00U, 0x40U};
-  input_pub->publish(frameWith(kInputTopic, data, 1U));
+  input_pub->publish(frameWith(kInputStreamId, data, 1U));
   ASSERT_TRUE(spinUntil(executor, [&received]() {
     return received.size() == 1U;
   }));
 
-  EXPECT_EQ(received[0].stream_id, kOutputTopic);
+  EXPECT_EQ(received[0].stream_id, kOutputStreamId);
   EXPECT_EQ(received[0].source_id, "test-source");
   EXPECT_EQ(received[0].sample_rate, kSampleRate);
   EXPECT_EQ(received[0].channels, kChannels);
@@ -240,7 +274,7 @@ TEST_F(RclcppContractTest, DropsFrameWhenDisabled)
     return input_pub->get_subscription_count() > 0 && output_sub->get_publisher_count() > 0;
   }));
 
-  input_pub->publish(frameWith(kInputTopic, {0x00U, 0x00U}, 1U));
+  input_pub->publish(frameWith(kInputStreamId, {0x00U, 0x00U}, 1U));
   spinFor(executor, 250ms);
 
   EXPECT_TRUE(received.empty());
@@ -294,7 +328,7 @@ TEST_F(RclcppContractTest, DropsUnsupportedRuntimeEncoding)
     return input_pub->get_subscription_count() > 0 && output_sub->get_publisher_count() > 0;
   }));
 
-  auto invalid = frameWith(kInputTopic, {0x00U, 0x00U, 0x00U, 0x00U}, 1U);
+  auto invalid = frameWith(kInputStreamId, {0x00U, 0x00U, 0x00U, 0x00U}, 1U);
   invalid.encoding = "PCM32LE";
   invalid.bit_depth = 32U;
   input_pub->publish(invalid);

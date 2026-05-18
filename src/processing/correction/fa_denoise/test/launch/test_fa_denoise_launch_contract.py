@@ -20,6 +20,7 @@ def _run_fa_denoise_launch(config_path: Path) -> subprocess.CompletedProcess[str
         "launch",
         "fa_denoise",
         "fa_denoise.launch.py",
+        "node_name:=fa_denoise",
         f"config_file:={config_path}",
     ]
     process = subprocess.Popen(
@@ -66,6 +67,13 @@ def test_default_launch_config_keeps_dtln_model_paths_explicit() -> None:
     params = config["fa_denoise"]["ros__parameters"]
 
     assert params["backend.name"] == "dtln_onnx"
+    assert params["input_topic"] == "fa_denoise/input"
+    assert params["output_topic"] == "fa_denoise/output"
+    assert params["input_stream_id"] == "audio/resample16k/mic"
+    assert params["output"]["stream_id"] == "audio/denoised/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["dtln"]["model_1_path"] == ""
     assert params["dtln"]["model_2_path"] == ""
     assert params["dtln"]["block_len"] == 512
@@ -113,14 +121,32 @@ def test_launch_fails_closed_when_backend_is_unknown(tmp_path: Path) -> None:
     assert "backend.name must be passthrough or dtln_onnx" in result.stdout
 
 
-def test_launch_fails_closed_when_resolved_topics_match(tmp_path: Path) -> None:
+def test_launch_fails_closed_when_raw_topics_match(tmp_path: Path) -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
     params = config["fa_denoise"]["ros__parameters"]
     params["backend.name"] = "passthrough"
     params["output_topic"] = params["input_topic"]
-    config_path = tmp_path / "same_topics.yaml"
+    config_path = tmp_path / "same_raw_topics.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_denoise_launch(config_path)
+
+    assert result.returncode != LAUNCH_TIMEOUT_CODE
+    assert "process has died" in result.stdout
+    assert "input_topic and output_topic must be distinct" in result.stdout
+
+
+def test_launch_fails_closed_when_resolved_topics_match(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_denoise"]["ros__parameters"]
+    params["backend.name"] = "passthrough"
+    params["input_topic"] = "audio/same"
+    params["output_topic"] = "/audio/same"
+    config_path = tmp_path / "same_resolved_topics.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
     result = _run_fa_denoise_launch(config_path)
@@ -128,6 +154,40 @@ def test_launch_fails_closed_when_resolved_topics_match(tmp_path: Path) -> None:
     assert result.returncode != LAUNCH_TIMEOUT_CODE
     assert "process has died" in result.stdout
     assert "resolved input_topic and output_topic must be distinct" in result.stdout
+
+
+def test_launch_fails_closed_when_stream_identity_collides_with_topic(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_denoise"]["ros__parameters"]
+    params["backend.name"] = "passthrough"
+    params["input_stream_id"] = params["input_topic"]
+    config_path = tmp_path / "stream_topic_collision.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_denoise_launch(config_path)
+
+    assert result.returncode != LAUNCH_TIMEOUT_CODE
+    assert "process has died" in result.stdout
+    assert "input_stream_id must be distinct from ROS topics" in result.stdout
+
+
+def test_launch_fails_closed_when_input_output_stream_identity_matches(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_denoise"]["ros__parameters"]
+    params["backend.name"] = "passthrough"
+    params["output"]["stream_id"] = params["input_stream_id"]
+    config_path = tmp_path / "same_stream_ids.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_denoise_launch(config_path)
+
+    assert result.returncode != LAUNCH_TIMEOUT_CODE
+    assert "process has died" in result.stdout
+    assert "input_stream_id and output.stream_id must be distinct" in result.stdout
 
 
 def test_launch_accepts_explicit_passthrough_config(tmp_path: Path) -> None:

@@ -13,6 +13,13 @@ def test_default_config_requires_explicit_backend() -> None:
     assert params["enabled"] is True
     assert params["backend.name"] == ""
     assert "backend" not in params
+    assert params["input_topic"] == "fa_aec_nn/input"
+    assert params["output_topic"] == "fa_aec_nn/output"
+    assert params["input_stream_id"] == "audio/aec_linear/frame"
+    assert params["output"]["stream_id"] == "audio/aec/frame"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["expected_channels"] == 1
     assert params["expected"]["encoding"] == "PCM16LE"
     assert params["expected"]["bit_depth"] == 16
@@ -43,6 +50,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
         'readRequiredString(*this, "backend.name")',
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredInt(*this, "expected_sample_rate")',
         'readRequiredInt(*this, "expected_channels")',
         'readRequiredString(*this, "expected.encoding")',
@@ -69,12 +78,13 @@ def test_aec_nn_passthrough_updates_output_stream_identity() -> None:
     source = source_path.read_text(encoding="utf-8")
 
     assert "msg.source_id.empty()" in source
-    assert "msg.stream_id != config_.input_topic" in source
+    assert "msg.stream_id != config_.input_stream_id" in source
     assert "msg.layout != kInterleavedLayout" in source
     assert "processed_chunk = backend_->process(chunk);" in source
     assert "validateProcessedAudioChunk(chunk, processed_chunk)" in source
     assert "out_msg.data = std::move(processed_chunk.data);" in source
-    assert "out_msg.stream_id = config_.output_topic;" in source
+    assert "out_msg.stream_id = config_.output_stream_id;" in source
+    assert "out_msg.stream_id = config_.output_topic;" not in source
     assert "out_msg.layout = processed_chunk.layout;" in source
 
 
@@ -169,6 +179,13 @@ def test_aec_nn_rejects_channel_wildcards_and_unsupported_format_pairs() -> None
     )
 
     assert "config_.expected_channels <= 0" in source
+    assert "config_.input_stream_id.empty()" in source
+    assert "config_.output_stream_id.empty()" in source
+    assert "resolve_topic_name(config_.input_topic)" in source
+    assert "resolve_topic_name(config_.output_topic)" in source
+    assert "input_stream_id must be distinct from ROS topics" in source
+    assert "output.stream_id must be distinct from ROS topics" in source
+    assert "input_stream_id and output.stream_id must be distinct" in source
     assert "config_.expected_channels > 0" not in source
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in source
     assert "msg.encoding != config_.expected_encoding" in source
@@ -176,11 +193,11 @@ def test_aec_nn_rejects_channel_wildcards_and_unsupported_format_pairs() -> None
     assert 'throw std::logic_error("fa_aec_nn backend is not initialized")' in source
     assert "Dropping frame because fa_aec_nn backend is not initialized" not in source
     assert "channel 検査の無効化は禁止" in spec
-    assert "`stream_id` は `input_topic`" in spec
+    assert "`stream_id` は `input_stream_id`" in spec
     assert "PCM32LE/32" in spec
     assert "channel 検査の wildcard はない" in algorithm
     assert "encoding / bit depth は `PCM16LE/16`" in algorithm
-    assert "stream_id` が `input_topic`" in test_plan
+    assert "stream_id` が `input_stream_id`" in test_plan
 
 
 def test_package_manifest_declares_launch_and_yaml_dependencies() -> None:

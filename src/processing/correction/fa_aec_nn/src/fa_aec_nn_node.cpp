@@ -76,6 +76,19 @@ bool isSupportedAudioFormatPair(const std::string & encoding, int bit_depth)
   return (encoding == kEncodingPcm16 && bit_depth == 16) ||
          (encoding == kEncodingFloat32 && bit_depth == 32);
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaAecNnNode::FaAecNnNode(const rclcpp::NodeOptions & options)
@@ -95,6 +108,8 @@ void FaAecNnNode::loadParameters()
   this->declare_parameter<std::string>("backend.name");
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<int>("expected_sample_rate");
   this->declare_parameter<int>("expected_channels");
   this->declare_parameter<std::string>("expected.encoding");
@@ -109,6 +124,8 @@ void FaAecNnNode::loadParameters()
   config_.backend_name = readRequiredString(*this, "backend.name");
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.expected_sample_rate = readRequiredInt(*this, "expected_sample_rate");
   config_.expected_channels = readRequiredInt(*this, "expected_channels");
   config_.expected_encoding = readRequiredString(*this, "expected.encoding");
@@ -126,6 +143,36 @@ void FaAecNnNode::loadParameters()
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required (set via YAML)");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required (set via YAML)");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required (set via YAML)");
+  }
+  config_.resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  config_.resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (config_.resolved_input_topic == config_.resolved_output_topic) {
+    throw std::runtime_error("resolved input_topic and output_topic must be distinct");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.resolved_output_topic))
+  {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.resolved_output_topic))
+  {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (config_.expected_sample_rate != kRequiredSampleRate) {
     throw std::runtime_error(
@@ -155,11 +202,13 @@ void FaAecNnNode::loadParameters()
   }
 
   RCLCPP_INFO(this->get_logger(),
-    "AEC NN config: enabled=%s backend.name=%s input=%s output=%s expected_sr=%d expected_ch=%d expected=%s/%d qos_depth=%d reliable=%s",
+    "AEC NN config: enabled=%s backend.name=%s input=%s/%s output=%s/%s expected_sr=%d expected_ch=%d expected=%s/%d qos_depth=%d reliable=%s",
     config_.enabled ? "true" : "false",
     config_.backend_name.c_str(),
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -224,7 +273,7 @@ bool FaAecNnNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) cons
   if (msg.source_id.empty()) {
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     return false;
   }
   if (msg.layout != kInterleavedLayout) {
@@ -310,7 +359,7 @@ void FaAecNnNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr m
   out_msg.encoding = processed_chunk.encoding;
   out_msg.bit_depth = static_cast<uint32_t>(processed_chunk.bit_depth);
   out_msg.data = std::move(processed_chunk.data);
-  out_msg.stream_id = config_.output_topic;
+  out_msg.stream_id = config_.output_stream_id;
   out_msg.layout = processed_chunk.layout;
   pub_->publish(out_msg);
   out_.fetch_add(1);
@@ -334,11 +383,15 @@ void FaAecNnNode::publishDiagnostics()
       status.values.push_back(kv);
     };
 
-  status.values.reserve(10);
+  status.values.reserve(14);
   push_kv("enabled", config_.enabled ? "true" : "false");
   push_kv("backend.name", config_.backend_name);
   push_kv("input_topic", config_.input_topic);
   push_kv("output_topic", config_.output_topic);
+  push_kv("input_stream_id", config_.input_stream_id);
+  push_kv("output_stream_id", config_.output_stream_id);
+  push_kv("resolved_input_topic", config_.resolved_input_topic);
+  push_kv("resolved_output_topic", config_.resolved_output_topic);
   push_kv("expected_sample_rate", std::to_string(config_.expected_sample_rate));
   push_kv("expected_channels", std::to_string(config_.expected_channels));
   push_kv("frames.in", std::to_string(in_.load()));

@@ -63,8 +63,13 @@ def test_default_launch_config_requires_explicit_backend() -> None:
     params = config["fa_aec_nn"]["ros__parameters"]
 
     assert params["backend.name"] == ""
-    assert params["input_topic"] == "audio/aec_linear/frame"
-    assert params["output_topic"] == "audio/aec/frame"
+    assert params["input_topic"] == "fa_aec_nn/input"
+    assert params["output_topic"] == "fa_aec_nn/output"
+    assert params["input_stream_id"] == "audio/aec_linear/frame"
+    assert params["output"]["stream_id"] == "audio/aec/frame"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["expected_sample_rate"] == 16000
     assert params["expected_channels"] == 1
     assert params["expected"]["encoding"] == "PCM16LE"
@@ -118,3 +123,54 @@ def test_launch_accepts_explicit_passthrough_config(tmp_path: Path) -> None:
     assert "backend.name must be passthrough" not in result.stdout
     assert "Starting FA AEC NN node" in result.stdout
     assert "Exception:" not in result.stdout
+
+
+def test_launch_fails_closed_when_input_stream_id_matches_topic(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_aec_nn"]["ros__parameters"]
+    params["backend.name"] = "passthrough"
+    params["input_stream_id"] = params["input_topic"]
+    config_path = tmp_path / "input_stream_matches_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_aec_nn_launch(config_path)
+
+    assert result.returncode != LAUNCH_TIMEOUT_CODE
+    assert "process has died" in result.stdout
+    assert "input_stream_id must be distinct from ROS topics" in result.stdout
+
+
+def test_launch_fails_closed_when_output_stream_id_matches_topic(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_aec_nn"]["ros__parameters"]
+    params["backend.name"] = "passthrough"
+    params["output"]["stream_id"] = params["output_topic"]
+    config_path = tmp_path / "output_stream_matches_topic.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_aec_nn_launch(config_path)
+
+    assert result.returncode != LAUNCH_TIMEOUT_CODE
+    assert "process has died" in result.stdout
+    assert "output.stream_id must be distinct from ROS topics" in result.stdout
+
+
+def test_launch_fails_closed_when_input_and_output_stream_ids_match(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_aec_nn"]["ros__parameters"]
+    params["backend.name"] = "passthrough"
+    params["output"]["stream_id"] = params["input_stream_id"]
+    config_path = tmp_path / "same_stream_identity.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_aec_nn_launch(config_path)
+
+    assert result.returncode != LAUNCH_TIMEOUT_CODE
+    assert "process has died" in result.stdout
+    assert "input_stream_id and output.stream_id must be distinct" in result.stdout

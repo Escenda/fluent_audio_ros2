@@ -20,6 +20,8 @@ struct DenoiseConfig
 
   std::string input_topic;
   std::string output_topic;
+  std::string input_stream_id;
+  std::string output_stream_id;
   std::string resolved_input_topic;
   std::string resolved_output_topic;
 

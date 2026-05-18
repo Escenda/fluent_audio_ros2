@@ -7,8 +7,12 @@
 DeepFIR 設計メモ: `docs/deepfir_ns_design_memo.md`
 
 ## Subscribe / Publish
-- Sub: `audio/resample16k/mic`（`fa_interfaces/msg/AudioFrame`）
-- Pub: `audio/denoise/frame`（`fa_interfaces/msg/AudioFrame`）
+- Sub topic: `fa_denoise/input`（`fa_interfaces/msg/AudioFrame`）
+- Pub topic: `fa_denoise/output`（`fa_interfaces/msg/AudioFrame`）
+- Input stream identity: `audio/resample16k/mic`
+- Output stream identity: `audio/denoised/mic`
+
+ROS topic 名は transport identity、`AudioFrame.stream_id` は audio stream identity として分離します。受信 frame の `stream_id` が `input_stream_id` と一致しない場合は drop し、publish する frame の `stream_id` は `output.stream_id` から設定します。topic 名と stream identity が一致する設定、または input/output stream identity が一致する設定は起動時に fail closed します。
 
 ## Backend
 - `backend.name=dtln_onnx`（既定）:
@@ -36,7 +40,7 @@ colcon build --packages-select fa_denoise
 
 ## Run
 ```bash
-ros2 launch fa_denoise fa_denoise.launch.py
+ros2 launch fa_denoise fa_denoise.launch.py node_name:=fa_denoise config_file:=/path/to/fa_denoise.yaml
 ```
 
-standalone launch では `model_1_path` / `model_2_path` launch argument を明示してください。system config から起動する場合も、`dtln.model_1_path` / `dtln.model_2_path` を明示してください。
+standalone launch では `config_file` を必ず明示してください。system config から起動する場合も、`dtln.model_1_path` / `dtln.model_2_path` を明示してください。

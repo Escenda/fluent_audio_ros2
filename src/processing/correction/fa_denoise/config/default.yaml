@@ -3,8 +3,9 @@ fa_denoise:
     enabled: true
     backend.name: "dtln_onnx"   # passthrough | dtln_onnx
 
-    input_topic: "audio/resample16k/mic"
-    output_topic: "audio/denoise/frame"
+    input_topic: "fa_denoise/input"
+    output_topic: "fa_denoise/output"
+    input_stream_id: "audio/resample16k/mic"
 
     expected_sample_rate: 16000
     expected_channels: 1
@@ -13,6 +14,7 @@ fa_denoise:
       bit_depth: 16
 
     output:
+      stream_id: "audio/denoised/mic"
       encoding: "PCM16LE"
       bit_depth: 16
 

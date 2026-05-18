@@ -92,6 +92,19 @@ void updateMaxAtomic(std::atomic<uint64_t> & target, uint64_t value)
     // retry
   }
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }
 
 FaDenoiseNode::FaDenoiseNode(const rclcpp::NodeOptions & options)
@@ -111,6 +124,8 @@ void FaDenoiseNode::loadParameters()
   this->declare_parameter<std::string>("backend.name");
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<int>("expected_sample_rate");
   this->declare_parameter<int>("expected_channels");
   this->declare_parameter<std::string>("expected.encoding");
@@ -135,6 +150,8 @@ void FaDenoiseNode::loadParameters()
   config_.backend_name = readRequiredString(*this, "backend.name");
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.expected_sample_rate = readRequiredInt(*this, "expected_sample_rate");
   config_.expected_channels = readRequiredInt(*this, "expected_channels");
   config_.expected_encoding = readRequiredString(*this, "expected.encoding");
@@ -165,12 +182,38 @@ void FaDenoiseNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required (set via YAML)");
   }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required (set via YAML)");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required (set via YAML)");
+  }
+  if (config_.input_topic == config_.output_topic) {
+    throw std::runtime_error("input_topic and output_topic must be distinct");
+  }
   config_.resolved_input_topic =
     this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
   config_.resolved_output_topic =
     this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
   if (config_.resolved_input_topic == config_.resolved_output_topic) {
     throw std::runtime_error("resolved input_topic and output_topic must be distinct");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.resolved_output_topic))
+  {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.resolved_output_topic))
+  {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (config_.expected_sample_rate != kRequiredSampleRate) {
     throw std::runtime_error(
@@ -235,12 +278,14 @@ void FaDenoiseNode::loadParameters()
   }
 
   RCLCPP_INFO(this->get_logger(),
-    "NS config: enabled=%s backend.name=%s input=%s output=%s expected_sr=%d expected_ch=%d "
+    "NS config: enabled=%s backend.name=%s input=%s/%s output=%s/%s expected_sr=%d expected_ch=%d "
     "expected_enc=%s expected_bits=%d out_enc=%s out_bits=%d qos_depth=%d reliable=%s",
     config_.enabled ? "true" : "false",
     config_.backend_name.c_str(),
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -345,7 +390,7 @@ bool FaDenoiseNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) co
   if (msg.source_id.empty() || msg.stream_id.empty()) {
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     return false;
   }
   if (msg.layout != kInterleavedLayout) {
@@ -419,7 +464,7 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   fa_interfaces::msg::AudioFrame out_msg;
   out_msg.header = msg->header;
   out_msg.source_id = msg->source_id;
-  out_msg.stream_id = config_.output_topic;
+  out_msg.stream_id = config_.output_stream_id;
   out_msg.encoding = backend_result.output.format.encoding;
   out_msg.sample_rate = static_cast<uint32_t>(backend_result.output.format.sample_rate);
   out_msg.channels = static_cast<uint32_t>(backend_result.output.format.channels);
@@ -462,11 +507,15 @@ void FaDenoiseNode::publishDiagnostics()
       status.values.push_back(kv);
     };
 
-  status.values.reserve(10);
+  status.values.reserve(22);
   push_kv("enabled", config_.enabled ? "true" : "false");
   push_kv("backend.name", backend_->name());
   push_kv("input_topic", config_.input_topic);
   push_kv("output_topic", config_.output_topic);
+  push_kv("input_stream_id", config_.input_stream_id);
+  push_kv("output_stream_id", config_.output_stream_id);
+  push_kv("resolved_input_topic", config_.resolved_input_topic);
+  push_kv("resolved_output_topic", config_.resolved_output_topic);
   push_kv("expected_sample_rate", std::to_string(config_.expected_sample_rate));
   push_kv("expected_channels", std::to_string(config_.expected_channels));
   push_kv("expected.encoding", config_.expected_encoding);
