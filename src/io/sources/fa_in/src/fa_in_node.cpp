@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "fa_in/backends/alsa_capture_backend.hpp"
+#include "fa_in/backends/pcm_file_reader_backend.hpp"
 
 namespace fa_in
 {
@@ -35,7 +36,8 @@ backends::AudioFormat backendFormatFromConfig(const AudioConfig & config)
     config.bit_depth,
     config.chunk_ms,
     config.encoding,
-    config.layout};
+    config.layout,
+    config.playback_loop};
 }
 
 backends::DeviceSelector backendSelectorFromConfig(const AudioConfig & config)
@@ -131,6 +133,13 @@ bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
   }
   return parameter.as_bool();
 }
+
+rcl_interfaces::msg::ParameterDescriptor dynamicParameterDescriptor()
+{
+  rcl_interfaces::msg::ParameterDescriptor descriptor;
+  descriptor.dynamic_typing = true;
+  return descriptor;
+}
 }  // namespace
 
 FaInNode::FaInNode(const rclcpp::NodeOptions & options)
@@ -191,9 +200,13 @@ void FaInNode::loadParameters()
 {
   this->declare_parameter<std::string>("backend.name");
   this->declare_parameter<std::string>("output_topic");
-  this->declare_parameter<std::string>("audio.device_selector.mode");
-  this->declare_parameter<std::string>("audio.device_selector.identifier");
-  this->declare_parameter<int>("audio.device_selector.index");
+  const auto dynamic_parameter = dynamicParameterDescriptor();
+  this->declare_parameter("audio.device_selector.mode", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("audio.device_selector.identifier", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("audio.device_selector.index", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("file.path", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("audio.source_id", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("playback.loop", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter<int>("audio.sample_rate");
   this->declare_parameter<int>("audio.channels");
   this->declare_parameter<int>("audio.bit_depth");
@@ -209,9 +222,15 @@ void FaInNode::loadParameters()
 
   config_.backend_name = readRequiredString(*this, "backend.name");
   config_.output_topic = readRequiredString(*this, "output_topic");
-  config_.device_mode = readRequiredString(*this, "audio.device_selector.mode");
-  config_.device_identifier = readRequiredString(*this, "audio.device_selector.identifier");
-  config_.device_index = readRequiredInt(*this, "audio.device_selector.index");
+  if (config_.backend_name == "alsa_capture") {
+    config_.device_mode = readRequiredString(*this, "audio.device_selector.mode");
+    config_.device_identifier = readRequiredString(*this, "audio.device_selector.identifier");
+    config_.device_index = readRequiredInt(*this, "audio.device_selector.index");
+  } else if (config_.backend_name == "pcm_file_reader") {
+    config_.file_path = readRequiredString(*this, "file.path");
+    config_.source_id = readRequiredString(*this, "audio.source_id");
+    config_.playback_loop = readRequiredBool(*this, "playback.loop");
+  }
   config_.sample_rate = validation::requirePositiveUint32(
     "audio.sample_rate", readRequiredInt(*this, "audio.sample_rate"));
   config_.channels = validation::requirePositiveUint32(
@@ -235,14 +254,21 @@ void FaInNode::loadParameters()
     "diagnostics.publish_period_ms",
     readRequiredInt(*this, "diagnostics.publish_period_ms"));
 
-  validation::requireDeviceSelector(
-    config_.device_mode, config_.device_identifier, config_.device_index);
-
   if (config_.backend_name.empty()) {
     throw std::runtime_error("backend.name is required");
   }
-  if (config_.backend_name != "alsa_capture") {
+  if (config_.backend_name != "alsa_capture" && config_.backend_name != "pcm_file_reader") {
     throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
+  }
+  if (config_.backend_name == "alsa_capture") {
+    validation::requireDeviceSelector(
+      config_.device_mode, config_.device_identifier, config_.device_index);
+  }
+  if (config_.backend_name == "pcm_file_reader" && config_.file_path.empty()) {
+    throw std::runtime_error("file.path is required for backend.name=pcm_file_reader");
+  }
+  if (config_.backend_name == "pcm_file_reader" && config_.source_id.empty()) {
+    throw std::runtime_error("audio.source_id is required for backend.name=pcm_file_reader");
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
@@ -258,7 +284,7 @@ void FaInNode::loadParameters()
     throw std::runtime_error("audio.stream_id must be distinct from ROS output_topic");
   }
   if (config_.layout != kInterleavedLayout) {
-    throw std::runtime_error("audio.layout must be interleaved for backend.name=alsa_capture");
+    throw std::runtime_error("audio.layout must be interleaved");
   }
   if (!isSupportedEncodingPair(config_)) {
     throw std::runtime_error(
@@ -271,8 +297,8 @@ void FaInNode::loadParameters()
     "audio.chunk_ms", frames_per_buffer_, bytes_per_frame_);
   last_frame_time_ = std::chrono::steady_clock::now();
 
-  RCLCPP_INFO(this->get_logger(), "Audio configuration: backend.name=%s mode=%s rate=%uHz channels=%u bits=%u chunk=%ums",
-    config_.backend_name.c_str(), config_.device_mode.c_str(), config_.sample_rate, config_.channels,
+  RCLCPP_INFO(this->get_logger(), "Audio configuration: backend.name=%s rate=%uHz channels=%u bits=%u chunk=%ums",
+    config_.backend_name.c_str(), config_.sample_rate, config_.channels,
     config_.bit_depth, config_.chunk_ms);
 }
 
@@ -283,6 +309,10 @@ void FaInNode::initializeBackend()
     if (!source_backend_) {
       throw std::runtime_error("fa_in backend factory returned null backend");
     }
+    return;
+  }
+  if (config_.backend_name == "pcm_file_reader") {
+    source_backend_ = std::make_unique<backends::PcmFileReaderBackend>();
     return;
   }
   throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
@@ -326,9 +356,10 @@ bool FaInNode::configureDevice()
 
   active_device_name_ = displayName(device);
   active_device_id_ = device.id;
+  active_source_id_ = config_.backend_name == "pcm_file_reader" ? config_.source_id : active_device_id_;
   RCLCPP_INFO(
     this->get_logger(),
-    "Using ALSA device: %s (%s)",
+    "Using input source: %s (%s)",
     active_device_id_.c_str(),
     active_device_name_.c_str());
   return true;
@@ -401,9 +432,12 @@ void FaInNode::captureLoop()
     } else if (read_result.status == backends::ReadStatus::kZeroFrames) {
       failClosed("snd_pcm_readi returned zero frames on required input source " + active_device_id_);
       break;
+    } else if (read_result.status == backends::ReadStatus::kEndOfStream) {
+      capturing_.store(false);
+      break;
     }
 
-    if (read_result.frames != frames_per_buffer_) {
+    if (read_result.frames != frames_per_buffer_ && config_.backend_name != "pcm_file_reader") {
       failClosed(
         "snd_pcm_readi returned " + std::to_string(read_result.frames) +
         " frames, expected configured capture chunk " + std::to_string(frames_per_buffer_) +
@@ -423,7 +457,7 @@ void FaInNode::publishFrame(const uint8_t *data, size_t data_size)
 {
   fa_interfaces::msg::AudioFrame frame_msg;
   frame_msg.header.stamp = this->now();
-  frame_msg.source_id = active_device_id_;
+  frame_msg.source_id = active_source_id_;
   frame_msg.stream_id = config_.stream_id;
   frame_msg.encoding = config_.encoding;
   frame_msg.sample_rate = config_.sample_rate;
@@ -458,6 +492,7 @@ void FaInNode::publishDiagnostics()
 
   status.values.reserve(14);
   push_kv("device_id", active_device_id_);
+  push_kv("source_id", active_source_id_);
   push_kv("output_topic", config_.output_topic);
   push_kv("stream_id", config_.stream_id);
   push_kv("sample_rate", std::to_string(config_.sample_rate));
@@ -488,6 +523,9 @@ backends::DeviceInfo FaInNode::determineDeviceFromConfig()
 {
   if (!source_backend_) {
     throw backends::BackendError("source backend is not initialized");
+  }
+  if (config_.backend_name == "pcm_file_reader") {
+    return backends::DeviceInfo{config_.file_path, config_.source_id, config_.channels, config_.sample_rate};
   }
   return source_backend_->selectDevice(backendSelectorFromConfig(config_));
 }
@@ -543,6 +581,11 @@ void FaInNode::handleSwitchDevice(
   std::shared_ptr<fa_interfaces::srv::SwitchDevice::Response> response)
 {
   try {
+    if (config_.backend_name == "pcm_file_reader") {
+      response->success = false;
+      response->message = "switch_device is not supported for backend.name=pcm_file_reader";
+      return;
+    }
     validation::requireSwitchDeviceSelector(
       request->target_selector_mode,
       request->target_identifier,

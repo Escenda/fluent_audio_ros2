@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <future>
 #include <memory>
@@ -20,6 +23,10 @@
 namespace
 {
 using namespace std::chrono_literals;
+
+constexpr const char * kFileOutputTopic = "audio/test/file_in";
+constexpr const char * kFileSourceId = "fixture_source";
+constexpr const char * kFileStreamId = "fixture_stream";
 
 struct FakeSourceState
 {
@@ -198,6 +205,40 @@ std::vector<rclcpp::Parameter> validParameters()
   };
 }
 
+std::filesystem::path writeFixtureFile(
+  const std::string & name,
+  const std::vector<uint8_t> & bytes)
+{
+  const auto path = std::filesystem::temp_directory_path() / name;
+  std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+  stream.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+  stream.close();
+  return path;
+}
+
+std::vector<rclcpp::Parameter> validFileParameters(const std::filesystem::path & file_path)
+{
+  return {
+    rclcpp::Parameter("backend.name", "pcm_file_reader"),
+    rclcpp::Parameter("file.path", file_path.string()),
+    rclcpp::Parameter("output_topic", kFileOutputTopic),
+    rclcpp::Parameter("audio.source_id", kFileSourceId),
+    rclcpp::Parameter("audio.sample_rate", 1000),
+    rclcpp::Parameter("audio.channels", 1),
+    rclcpp::Parameter("audio.bit_depth", 16),
+    rclcpp::Parameter("audio.chunk_ms", 2),
+    rclcpp::Parameter("audio.encoding", "PCM16LE"),
+    rclcpp::Parameter("audio.stream_id", kFileStreamId),
+    rclcpp::Parameter("audio.layout", "interleaved"),
+    rclcpp::Parameter("playback.loop", true),
+    rclcpp::Parameter("audio.qos.depth", 10),
+    rclcpp::Parameter("audio.qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
+    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+  };
+}
+
 void replaceParameter(
   std::vector<rclcpp::Parameter> & parameters,
   const rclcpp::Parameter & replacement)
@@ -339,6 +380,61 @@ TEST_F(RclcppContractTest, PublishesConfiguredMetadataAndRawSourcePayload)
   EXPECT_EQ(received->data, state->payload);
   EXPECT_GE(state->read_calls.load(), 1u);
   EXPECT_FALSE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, FileBackendPublishesRawPcmChunksWithoutFormatMutation)
+{
+  const auto fixture = writeFixtureFile(
+    "fa_in_file_backend_valid_fixture.pcm",
+    {0x10, 0x00, 0x20, 0x00, 0x30, 0x00, 0x40, 0x00});
+
+  auto subscriber_node = std::make_shared<rclcpp::Node>("fa_in_file_backend_subscriber");
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto subscription = subscriber_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    kFileOutputTopic,
+    rclcpp::QoS(10).reliable(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+  auto node = std::make_shared<fa_in::FaInNode>(optionsWith(validFileParameters(fixture)));
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(subscriber_node);
+
+  ASSERT_TRUE(spinUntil(executor, [&received]() {
+    return received.size() >= 4;
+  }));
+
+  const std::vector<uint8_t> first_chunk{0x10, 0x00, 0x20, 0x00};
+  const std::vector<uint8_t> second_chunk{0x30, 0x00, 0x40, 0x00};
+  bool saw_first_chunk = false;
+  bool saw_second_chunk = false;
+  for (const auto & frame : received) {
+    EXPECT_EQ(frame.source_id, kFileSourceId);
+    EXPECT_EQ(frame.stream_id, kFileStreamId);
+    EXPECT_EQ(frame.encoding, "PCM16LE");
+    EXPECT_EQ(frame.sample_rate, 1000u);
+    EXPECT_EQ(frame.channels, 1u);
+    EXPECT_EQ(frame.bit_depth, 16u);
+    EXPECT_EQ(frame.layout, "interleaved");
+    saw_first_chunk = saw_first_chunk || frame.data == first_chunk;
+    saw_second_chunk = saw_second_chunk || frame.data == second_chunk;
+  }
+  EXPECT_TRUE(saw_first_chunk);
+  EXPECT_TRUE(saw_second_chunk);
+  EXPECT_FALSE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, FileBackendFailsClosedWhenFilePathIsMissing)
+{
+  const auto fixture = writeFixtureFile("fa_in_file_backend_missing_path.pcm", {0x01, 0x02});
+  auto parameters = validFileParameters(fixture);
+  replaceParameter(parameters, rclcpp::Parameter("file.path", ""));
+
+  EXPECT_THROW(
+    { auto node = std::make_shared<fa_in::FaInNode>(optionsWith(parameters)); },
+    std::runtime_error);
 }
 
 TEST_F(RclcppContractTest, NameSelectorMatchesDisplayNameOnly)

@@ -12,7 +12,7 @@
 - 音声にフォーカスするため、vision 系パッケージ（カメラ/AI/UI/配信/SLAM など）は本リポジトリから削除しています（視覚系は upstream を参照してください）
 
 ## 主要パッケージ（Audio）
-- `fa_in`（`src/io/sources/fa_in/`）: マイク入力（ALSA）→ `audio/frame` を Publish、デバイス列挙/切替、Diagnostics
+- `fa_in`（`src/io/sources/fa_in/`）: 明示 backend で選択した入力源（ALSA / raw PCM file）→ `audio/frame` を Publish、Diagnostics
 - `fa_out`（`src/io/sinks/fa_out/`）: `audio/output/frame` をスピーカーへ再生
 - `fa_record`（`src/io/utilities/fa_record/`）: `audio/frame` をWAVへ録音（`record` サービス）
 - `fa_stream`（`src/io/utilities/fa_stream/`）: `audio/frame` を外部へ配信する utility（Icecast向け `fa_stream_node.py`）

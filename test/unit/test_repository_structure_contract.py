@@ -34,7 +34,6 @@ PACKAGE_TEST_CODE_SUFFIXES = (".py", ".cpp")
 
 IO_ROADMAP_PACKAGE_PATHS = (
     "io/sources/fa_in",
-    "io/sources/fa_file_in",
     "io/sources/fa_network_in",
     "io/sinks/fa_out",
     "io/sinks/fa_file_out",

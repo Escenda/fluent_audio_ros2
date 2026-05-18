@@ -29,25 +29,24 @@ def _write_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) ->
     gained_stream_id = "audio/e2e/pipeline_gain_float32_stream"
 
     _write_yaml(
-        tmp_path / "fa_file_in.params.yaml",
+        tmp_path / "fa_in.params.yaml",
         {
-            "fa_file_in_pipeline_e2e": {
+            "fa_in_pipeline_e2e": {
                 "ros__parameters": {
                     "backend.name": "pcm_file_reader",
                     "file.path": str(input_pcm),
                     "output_topic": pcm16_topic,
                     "audio.source_id": "pipeline_e2e_source",
+                    "audio.sample_rate": 16000,
+                    "audio.channels": 1,
+                    "audio.encoding": "PCM16LE",
+                    "audio.bit_depth": 16,
+                    "audio.layout": "interleaved",
+                    "audio.chunk_ms": 1,
                     "audio.stream_id": pcm16_stream_id,
-                    "audio.frames_per_chunk": 4,
-                    "expected.sample_rate": 16000,
-                    "expected.channels": 1,
-                    "expected.encoding": "PCM16LE",
-                    "expected.bit_depth": 16,
-                    "expected.layout": "interleaved",
                     "playback.loop": False,
-                    "playback.publish_period_ms": 25,
-                    "qos.depth": 10,
-                    "qos.reliable": True,
+                    "audio.qos.depth": 10,
+                    "audio.qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
                     "diagnostics.qos.depth": 10,
                     "diagnostics.qos.reliable": True,
@@ -186,12 +185,12 @@ def _write_system_config(tmp_path: Path) -> Path:
                     "enable": True,
                     "nodes": [
                         {
-                            "id": "fa_file_in",
+                            "id": "fa_in",
                             "enable": True,
-                            "package": "fa_file_in",
-                            "exec": "fa_file_in_node",
-                            "node_name": "fa_file_in_pipeline_e2e",
-                            "params_file": str(tmp_path / "fa_file_in.params.yaml"),
+                            "package": "fa_in",
+                            "exec": "fa_in_node",
+                            "node_name": "fa_in_pipeline_e2e",
+                            "params_file": str(tmp_path / "fa_in.params.yaml"),
                         },
                     ],
                 },
@@ -242,7 +241,7 @@ def test_fluent_audio_system_launches_explicit_processing_pipeline_e2e(
             "fluent_audio_system",
             "fluent_audio_system.launch.py",
             f"config:={system_config}",
-            "fa_in_enabled:=false",
+            "fa_in_enabled:=true",
             "fa_out_enabled:=false",
             "fa_in_source_id:=disabled",
             "fa_out_sink_id:=disabled",

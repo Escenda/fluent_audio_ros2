@@ -39,7 +39,6 @@ _STREAMING_PACKAGE_NAMES = (
 )
 _PACKAGE_CATEGORIES = {
     "fa_in": frozenset(("io",)),
-    "fa_file_in": frozenset(("io",)),
     "fa_network_in": frozenset(("io",)),
     "fa_out": frozenset(("io",)),
     "fa_file_out": frozenset(("io",)),
@@ -433,7 +432,6 @@ _FEATURE_ANALYSIS_PACKAGES = (
 )
 _PARAMETER_IDENTITY_CONTRACTS: dict[str, ParameterIdentityContract] = {
     "fa_in": _SOURCE_CONTRACT,
-    "fa_file_in": _SOURCE_CONTRACT,
     "fa_network_in": _SOURCE_CONTRACT,
     "fa_out": _FA_OUT_CONTRACT,
     "fa_file_out": _SINK_CONTRACT,
@@ -594,6 +592,8 @@ def _validate_group_taxonomy(group: _GroupConfig, group_id: str) -> None:
             continue
         package = node.package.strip()
         package_categories = _PACKAGE_CATEGORIES.get(package)
+        if package_categories is None:
+            raise RuntimeError(f"group {group_id} contains unsupported FluentAudio package {package}")
         if "analysis" in group_categories and package in _AI_PACKAGE_NAMES:
             raise RuntimeError(
                 f"group {group_id} must not contain AI package {package}; "

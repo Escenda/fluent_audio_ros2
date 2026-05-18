@@ -43,6 +43,9 @@ def test_source_backend_has_no_struct_default() -> None:
     assert "std::string backend_name{};" in header_text
     assert "std::string output_topic{};" in header_text
     assert "std::string device_mode{};" in header_text
+    assert "std::string file_path{};" in header_text
+    assert "std::string source_id{};" in header_text
+    assert "bool playback_loop{false};" in header_text
     assert "uint32_t sample_rate{0};" in header_text
     assert "uint32_t channels{0};" in header_text
     assert "uint32_t bit_depth{0};" in header_text
@@ -107,7 +110,7 @@ def test_publish_frame_sets_required_audio_frame_identity_without_analysis_field
         "void FaInNode::publishDiagnostics"
     )[0]
 
-    assert "frame_msg.source_id = active_device_id_;" in publish_frame
+    assert "frame_msg.source_id = active_source_id_;" in publish_frame
     assert "frame_msg.stream_id = config_.stream_id;" in publish_frame
     assert "frame_msg.layout = config_.layout;" in publish_frame
     assert ".rms" not in publish_frame
@@ -290,6 +293,7 @@ def test_backend_builds_as_separate_library() -> None:
 
     assert "add_library(fa_in_backends" in cmake_text
     assert "src/backends/alsa_capture_backend.cpp" in cmake_text
+    assert "src/backends/pcm_file_reader_backend.cpp" in cmake_text
     assert "add_library(fa_in_node_core" in cmake_text
     assert "src/fa_in_node.cpp" in cmake_text
     assert "src/main.cpp" in cmake_text
@@ -326,7 +330,7 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
 
 
-def test_source_adapter_exposes_no_file_network_or_dsp_surface() -> None:
+def test_source_adapter_exposes_file_backend_but_no_network_or_dsp_surface() -> None:
     package_root = Path(__file__).parents[2]
     source_text = (package_root / "src" / "fa_in_node.cpp").read_text(encoding="utf-8")
     header_text = (package_root / "include" / "fa_in" / "fa_in_node.hpp").read_text(
@@ -340,7 +344,6 @@ def test_source_adapter_exposes_no_file_network_or_dsp_surface() -> None:
     combined = "\n".join([source_text, header_text, config_text])
 
     forbidden_tokens = [
-        "file_path",
         "audio.file",
         "network",
         "decode",
@@ -356,5 +359,7 @@ def test_source_adapter_exposes_no_file_network_or_dsp_surface() -> None:
     ]
     for token in forbidden_tokens:
         assert token not in combined
+    assert "pcm_file_reader" in combined
+    assert "file.path" in combined
     assert "FA-IN-SPEC-023" in spec_text
     assert "FA-IN-SPEC-023" in test_plan_text

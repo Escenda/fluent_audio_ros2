@@ -30,6 +30,9 @@ struct AudioConfig
   std::string device_mode{};
   std::string device_identifier{};
   int device_index{};
+  std::string file_path{};
+  std::string source_id{};
+  bool playback_loop{false};
   uint32_t sample_rate{0};
   uint32_t channels{0};
   uint32_t bit_depth{0};
@@ -94,6 +97,7 @@ private:
   std::thread capture_thread_;
   std::string active_device_id_;
   std::string active_device_name_;
+  std::string active_source_id_;
   size_t frames_per_buffer_{0};
   size_t bytes_per_frame_{0};
   size_t bytes_per_buffer_{0};

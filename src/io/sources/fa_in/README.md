@@ -1,12 +1,13 @@
 # FA In
 
-FluentAudioの音声入力ROS2ノードです。ALSA の raw hardware capture source を明示的に開き、PCMデータを設定されたROSトピックやサービスを通じて配信します。
+FluentAudioの音声入力ROS2ノードです。ALSA の raw hardware capture source または raw PCM file source を明示的に開き、PCMデータを設定されたROSトピックやサービスを通じて配信します。
 
 ## 機能
 - PCMデータの低遅延Publish (`output_topic`トピック)
 - デバイス列挙サービス (`list_devices`)
 - ホットスワップサービス (`switch_device`)
 - Diagnostic出力（XRUN/レイテンシ監視）
+- `backend.name=pcm_file_reader` による raw PCM file source
 
 ## ビルド
 ```bash
@@ -25,4 +26,4 @@ ros2 launch fa_in fa_in.launch.py node_name:=fa_in config_file:=/path/to/fa_in.y
 launch file は `node_name` / `config_file` の default を持たないため、呼び出し元 profile または system config から必ず明示します。
 AudioFrame と diagnostics の QoS も `audio.qos.*` / `diagnostics.qos.*` で明示し、node 内の hidden QoS へ切り替えません。
 
-詳細な設計は `docs/仕様書.md`、backend 契約は `docs/backends/alsa.md` を参照してください。
+詳細な設計は `docs/仕様書.md`、backend 契約は `docs/backends/alsa.md` と `docs/backends/pcm_file_reader.md` を参照してください。

@@ -19,6 +19,7 @@ struct AudioFormat
   uint32_t chunk_ms{0};
   std::string encoding{};
   std::string layout{};
+  bool loop{false};
 };
 
 struct DeviceSelector
@@ -42,6 +43,7 @@ enum class ReadStatus
   kXrun,
   kError,
   kZeroFrames,
+  kEndOfStream,
 };
 
 struct ReadResult
