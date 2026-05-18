@@ -115,6 +115,14 @@ TEST(InternalPeakNormalizeBackendContract, ReportsInputRejectionStatuses)
     fa_normalize::backends::ProcessStatus::kOutOfRangeInput);
 }
 
+TEST(InternalPeakNormalizeBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_normalize::backends::processStatusMessage(
+      static_cast<fa_normalize::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(InternalPeakNormalizeBackendContract, RejectedFrameDoesNotOverwriteOutput)
 {
   fa_normalize::backends::InternalPeakNormalizeBackend backend(

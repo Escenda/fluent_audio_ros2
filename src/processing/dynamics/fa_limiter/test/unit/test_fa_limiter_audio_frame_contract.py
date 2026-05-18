@@ -150,6 +150,8 @@ def test_limiter_backend_reports_rejection_reason_and_keeps_ros_boundary() -> No
     assert "processStatusMessage(ProcessStatus status)" in header
     assert "return ProcessResult{ProcessStatus::kMisalignedInput, 0};" in backend_source
     assert "return ProcessResult{ProcessStatus::kNonFiniteInput, 0};" in backend_source
+    assert 'throw std::logic_error("unhandled limiter backend process status")' in backend_source
+    assert "unknown limiter backend status" not in backend_source
     assert "backends::processStatusMessage(result.status)" in node_source
 
     forbidden_backend_tokens = ("rclcpp", "fa_interfaces", "AudioFrame")

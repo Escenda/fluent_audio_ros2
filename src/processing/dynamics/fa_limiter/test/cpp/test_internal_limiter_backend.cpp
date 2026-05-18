@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -93,6 +94,14 @@ TEST(InternalLimiterBackendContract, ReportsInputRejectionStatuses)
   EXPECT_EQ(
     backend.process(float32LeBytes({std::numeric_limits<float>::quiet_NaN()}), output).status,
     fa_limiter::backends::ProcessStatus::kNonFiniteInput);
+}
+
+TEST(InternalLimiterBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_limiter::backends::processStatusMessage(
+      static_cast<fa_limiter::backends::ProcessStatus>(999)),
+    std::logic_error);
 }
 
 TEST(InternalLimiterBackendContract, RejectedFrameDoesNotOverwriteOutput)

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -99,6 +100,14 @@ TEST(InternalStaticCurveBackendContract, ReportsInputAndOutputRejectionStatuses)
   EXPECT_EQ(
     backend.process(float32LeBytes({0.75F}), output).status,
     fa_compressor::backends::ProcessStatus::kOutOfRangeOutput);
+}
+
+TEST(InternalStaticCurveBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_compressor::backends::processStatusMessage(
+      static_cast<fa_compressor::backends::ProcessStatus>(999)),
+    std::logic_error);
 }
 
 TEST(InternalStaticCurveBackendContract, RejectedFrameDoesNotOverwriteOutput)

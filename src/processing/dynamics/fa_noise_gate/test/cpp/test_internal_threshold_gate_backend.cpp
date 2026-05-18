@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -96,6 +97,14 @@ TEST(InternalThresholdGateBackendContract, ReportsInputRejectionStatuses)
   EXPECT_EQ(
     backend.process(float32LeBytes({1.25F}), output).status,
     fa_noise_gate::backends::ProcessStatus::kOutOfRangeInput);
+}
+
+TEST(InternalThresholdGateBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_noise_gate::backends::processStatusMessage(
+      static_cast<fa_noise_gate::backends::ProcessStatus>(999)),
+    std::logic_error);
 }
 
 TEST(InternalThresholdGateBackendContract, RejectedFrameDoesNotOverwriteOutput)

@@ -138,7 +138,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "noise gate output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown noise gate backend status";
+  throw std::logic_error("unhandled noise gate backend process status");
 }
 
 }  // namespace fa_noise_gate::backends

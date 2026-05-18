@@ -107,7 +107,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kNonFiniteOutput:
       return "limiter output sample is not finite";
   }
-  return "unknown limiter backend status";
+  throw std::logic_error("unhandled limiter backend process status");
 }
 
 }  // namespace fa_limiter::backends

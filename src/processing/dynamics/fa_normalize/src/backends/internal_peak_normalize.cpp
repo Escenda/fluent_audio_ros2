@@ -169,7 +169,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "normalize output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown normalize backend status";
+  throw std::logic_error("unhandled normalize backend process status");
 }
 
 }  // namespace fa_normalize::backends

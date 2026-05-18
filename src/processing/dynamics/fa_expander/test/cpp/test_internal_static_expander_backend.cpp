@@ -104,6 +104,14 @@ TEST(InternalStaticExpanderBackendContract, ReportsInputRejectionStatuses)
     fa_expander::backends::ProcessStatus::kOutOfRangeInput);
 }
 
+TEST(InternalStaticExpanderBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_expander::backends::processStatusMessage(
+      static_cast<fa_expander::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(InternalStaticExpanderBackendContract, RejectedFrameDoesNotOverwriteOutput)
 {
   fa_expander::backends::InternalStaticExpanderBackend backend(

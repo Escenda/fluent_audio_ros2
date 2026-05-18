@@ -153,7 +153,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "compressor output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown compressor backend status";
+  throw std::logic_error("unhandled compressor backend process status");
 }
 
 }  // namespace fa_compressor::backends

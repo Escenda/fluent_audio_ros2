@@ -237,6 +237,8 @@ def test_expander_backend_reports_rejection_reason_and_keeps_ros_boundary() -> N
     assert "ProcessStatus::kMisalignedInput" in backend_source
     assert "ProcessStatus::kNonFiniteInput" in backend_source
     assert "ProcessStatus::kOutOfRangeInput" in backend_source
+    assert 'throw std::logic_error("unhandled expander backend process status")' in backend_source
+    assert "unknown expander backend status" not in backend_source
     assert "backends::processStatusMessage(result.status)" in node_source
 
     forbidden_backend_tokens = ("rclcpp", "fa_interfaces", "AudioFrame")

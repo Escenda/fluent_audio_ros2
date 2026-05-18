@@ -132,7 +132,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "expander output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown expander backend status";
+  throw std::logic_error("unhandled expander backend process status");
 }
 
 }  // namespace fa_expander::backends
