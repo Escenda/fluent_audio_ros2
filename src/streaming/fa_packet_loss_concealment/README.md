@@ -4,6 +4,8 @@
 
 入力 `AudioFrame` の `epoch` が欠落した場合だけ、直前の有効 frame を `plc.attenuation_per_gap` で減衰して最大 `plc.max_gap_frames` 枚まで合成します。これは隠れた fallback ではなく、system config でこの node を pipeline に挟んだ場合だけ有効になる PLC 処理です。
 
+ROS topic は transport identity としてのみ扱い、`AudioFrame.stream_id` は `input_stream_id` / `output.stream_id` で明示します。pass-through する current frame と synthetic concealed frame はどちらも `output.stream_id` を publish payload に設定します。
+
 ## Topics
 
 | 種別 | topic | message |
@@ -24,6 +26,8 @@ ros2 launch fa_packet_loss_concealment fa_packet_loss_concealment.launch.py \
 
 - `input_topic`
 - `output_topic`
+- `input_stream_id`
+- `output.stream_id`
 - `expected.sample_rate`
 - `expected.channels`
 - `expected.encoding`

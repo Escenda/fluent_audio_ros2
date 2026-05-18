@@ -26,8 +26,13 @@ def test_default_config_declares_explicit_plc_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_packet_loss_concealment_node"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/stream/input"
-    assert params["output_topic"] == "audio/stream/plc"
+    assert params["input_topic"] == "fa_packet_loss_concealment/input"
+    assert params["output_topic"] == "fa_packet_loss_concealment/output"
+    assert params["input_stream_id"] == "audio/stream/input"
+    assert params["output"]["stream_id"] == "audio/stream/plc"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "FLOAT32LE"
@@ -68,6 +73,8 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     required_declarations = (
         'declare_parameter<std::string>("input_topic");',
         'declare_parameter<std::string>("output_topic");',
+        'declare_parameter<std::string>("input_stream_id");',
+        'declare_parameter<std::string>("output.stream_id");',
         'declare_parameter<int>("expected.sample_rate");',
         'declare_parameter<int>("expected.channels");',
         'declare_parameter<std::string>("expected.encoding");',
@@ -87,6 +94,8 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     required_reads = (
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredInt(*this, "expected.sample_rate")',
         'readRequiredInt(*this, "expected.channels")',
         'readRequiredString(*this, "expected.encoding")',
@@ -108,6 +117,13 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     assert "SystemDefaultsQoS" not in source
     assert "input_topic is required" in load_parameters
     assert "output_topic is required" in load_parameters
+    assert "input_stream_id is required" in load_parameters
+    assert "output.stream_id is required" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "expected.sample_rate must be > 0" in load_parameters
     assert "expected.channels must be > 0" in load_parameters
     assert "requires expected.encoding=FLOAT32LE" in load_parameters
@@ -133,7 +149,7 @@ def test_runtime_validation_rejects_invalid_frames_before_state_mutation() -> No
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)" in validate_frame
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
@@ -159,13 +175,17 @@ def test_plc_synthesizes_missing_epochs_with_repeat_attenuation() -> None:
     build_frame = source.split("bool FaPacketLossConcealmentNode::buildConcealedFrame")[1].split(
         "bool FaPacketLossConcealmentNode::timestampForGap"
     )[0]
+    publish_current = source.split("void FaPacketLossConcealmentNode::publishCurrentFrame")[1].split(
+        "void FaPacketLossConcealmentNode::updatePreviousFrame"
+    )[0]
 
     assert "const uint32_t missing_frame_count = msg->epoch - previous_frame_.epoch - 1U;" in handle_frame
     assert "publishConcealedFrames(missing_frame_count)" in handle_frame
     assert "for (uint32_t gap_index = 1U; gap_index <= missing_frame_count; ++gap_index)" in publish_concealed
     assert "audio_pub_->publish(out);" in publish_concealed
     assert "concealed_frames_.fetch_add(1);" in publish_concealed
-    assert "out.stream_id = config_.output_topic;" in build_frame
+    assert "out.stream_id = config_.output_stream_id;" in build_frame
+    assert "out.stream_id = config_.output_stream_id;" in publish_current
     assert "out.epoch = previous_frame_.epoch + gap_index;" in build_frame
     assert "out.data.resize(previous_frame_.data.size());" in build_frame
     assert "std::pow(config_.attenuation_per_gap, static_cast<double>(gap_index))" in build_frame
@@ -225,6 +245,8 @@ def test_diagnostics_publish_config_and_required_counters() -> None:
         '"backend.name"',
         '"input_topic"',
         '"output_topic"',
+        '"input_stream_id"',
+        '"output_stream_id"',
         '"expected_sample_rate"',
         '"expected_channels"',
         '"expected_encoding"',

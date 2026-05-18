@@ -1,7 +1,10 @@
 fa_packet_loss_concealment_node:
   ros__parameters:
-    input_topic: "audio/stream/input"
-    output_topic: "audio/stream/plc"
+    input_topic: "fa_packet_loss_concealment/input"
+    output_topic: "fa_packet_loss_concealment/output"
+    input_stream_id: "audio/stream/input"
+    output:
+      stream_id: "audio/stream/plc"
     expected:
       sample_rate: 16000
       channels: 1

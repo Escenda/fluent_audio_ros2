@@ -19,6 +19,15 @@ def test_default_config_defines_explicit_streaming_data_plane_contract() -> None
     assert isinstance(params["output_topic"], str)
     assert params["output_topic"]
     assert params["input_topic"] != params["output_topic"]
+    assert isinstance(params["input_stream_id"], str)
+    assert params["input_stream_id"]
+    assert isinstance(params["output"]["stream_id"], str)
+    assert params["output"]["stream_id"]
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["input_stream_id"] != params["output_topic"]
+    assert params["output"]["stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert isinstance(params["qos"]["depth"], int)
     assert params["qos"]["depth"] > 0
     assert isinstance(params["qos"]["reliable"], bool)

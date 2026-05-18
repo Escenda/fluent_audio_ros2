@@ -82,6 +82,19 @@ double readRequiredDouble(const rclcpp::Node & node, const std::string & name)
   return parameter.as_double();
 }
 
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
+
 void pushKeyValue(
   diagnostic_msgs::msg::DiagnosticStatus & status,
   const std::string & key,
@@ -121,6 +134,8 @@ void FaPacketLossConcealmentNode::loadParameters()
 {
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<int>("expected.sample_rate");
   this->declare_parameter<int>("expected.channels");
   this->declare_parameter<std::string>("expected.encoding");
@@ -136,6 +151,8 @@ void FaPacketLossConcealmentNode::loadParameters()
 
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.expected_sample_rate = readRequiredInt(*this, "expected.sample_rate");
   config_.expected_channels = readRequiredInt(*this, "expected.channels");
   config_.expected_encoding = readRequiredString(*this, "expected.encoding");
@@ -156,6 +173,31 @@ void FaPacketLossConcealmentNode::loadParameters()
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   if (config_.expected_sample_rate <= 0) {
     throw std::runtime_error("expected.sample_rate must be > 0");
@@ -196,10 +238,12 @@ void FaPacketLossConcealmentNode::loadParameters()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Packet loss concealment config: input=%s output=%s expected=%dHz/%d/%s/%d/%s "
+    "Packet loss concealment config: input=%s/%s output=%s/%s expected=%dHz/%d/%s/%d/%s "
     "max_gap_frames=%d attenuation_per_gap=%.6f qos_depth=%d reliable=%s diag=%dms",
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.expected_sample_rate,
     config_.expected_channels,
     config_.expected_encoding.c_str(),
@@ -307,12 +351,12 @@ bool FaPacketLossConcealmentNode::validateFrame(const fa_interfaces::msg::AudioF
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   if (msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate) ||
@@ -401,7 +445,7 @@ bool FaPacketLossConcealmentNode::buildConcealedFrame(
     return false;
   }
   out.source_id = previous_frame_.source_id;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   out.encoding = previous_frame_.encoding;
   out.sample_rate = previous_frame_.sample_rate;
   out.channels = previous_frame_.channels;
@@ -457,7 +501,7 @@ void FaPacketLossConcealmentNode::publishCurrentFrame(
   const fa_interfaces::msg::AudioFrame & msg)
 {
   fa_interfaces::msg::AudioFrame out = msg;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   audio_pub_->publish(out);
   frames_out_.fetch_add(1);
 }
@@ -524,10 +568,12 @@ void FaPacketLossConcealmentNode::publishDiagnostics()
   status.name = "fa_packet_loss_concealment_node";
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
-  status.values.reserve(18);
+  status.values.reserve(21);
   pushKeyValue(status, "backend.name", kBackendName);
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "expected_sample_rate", std::to_string(config_.expected_sample_rate));
   pushKeyValue(status, "expected_channels", std::to_string(config_.expected_channels));
   pushKeyValue(status, "expected_encoding", config_.expected_encoding);

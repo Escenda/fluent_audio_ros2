@@ -22,7 +22,7 @@
 
 ## 4. Output format
 
-synthetic frame は previous frame の format を維持し、`stream_id` だけ `output_topic` に変更する。`epoch` は欠落 epoch と一致させる。
+synthetic frame は previous frame の format を維持し、`stream_id` だけ `output.stream_id` に変更する。`epoch` は欠落 epoch と一致させる。ROS topic は node 側の transport 設定であり、backend の stream identity には使わない。
 
 ## 5. Failure policy
 
