@@ -11,6 +11,16 @@ def read_node_source() -> str:
     return (package_root() / "src" / "fa_normalize_node.cpp").read_text(encoding="utf-8")
 
 
+def read_node_header() -> str:
+    return (
+        package_root() / "include" / "fa_normalize" / "fa_normalize_node.hpp"
+    ).read_text(encoding="utf-8")
+
+
+def read_main_source() -> str:
+    return (package_root() / "src" / "main.cpp").read_text(encoding="utf-8")
+
+
 def read_backend_header() -> str:
     return (
         package_root()
@@ -106,6 +116,7 @@ def test_startup_rejects_invalid_config_without_fallback() -> None:
 
 
 def test_normalize_validates_frame_contract_before_processing() -> None:
+    header = read_node_header()
     source = read_node_source()
     handle_frame = source.split("void FaNormalizeNode::handleFrame")[1].split(
         "bool FaNormalizeNode::validateFrame"
@@ -114,6 +125,8 @@ def test_normalize_validates_frame_contract_before_processing() -> None:
         "bool FaNormalizeNode::applyNormalize"
     )[0]
 
+    assert "explicit FaNormalizeNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());" in header
+    assert ': rclcpp::Node("fa_normalize", options)' in source
     assert "if (!msg)" in handle_frame
     assert "frames_dropped_.fetch_add(1);" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
@@ -278,11 +291,13 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "include/fa_normalize/fa_normalize_node.hpp",
         "include/fa_normalize/backends/internal_peak_normalize.hpp",
         "src/fa_normalize_node.cpp",
+        "src/main.cpp",
         "src/backends/internal_peak_normalize.cpp",
         "test/cpp/test_internal_peak_normalize_backend.cpp",
+        "test/cpp/test_normalize_graph.cpp",
+        "test/launch/test_fa_normalize_launch_contract.py",
         "test/unit/test_fa_normalize_audio_frame_contract.py",
         "test/integration/.gitkeep",
-        "test/launch/.gitkeep",
         "test/fixtures/.gitkeep",
     )
 
@@ -293,10 +308,19 @@ def test_package_layout_matches_standard_processing_layout() -> None:
 def test_colcon_runs_pytest_and_backend_gtest_contracts() -> None:
     cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
     package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
+    node_source = read_node_source()
+    main_source = read_main_source()
 
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "add_library(fa_normalize_node_core" in cmake_text
+    assert "src/fa_normalize_node.cpp" in cmake_text
+    assert "add_executable(fa_normalize_node" in cmake_text
+    assert "src/main.cpp" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_graph_smoke_test" in cmake_text
+    assert "test/cpp/test_normalize_graph.cpp" in cmake_text
+    assert "fa_normalize_node_core" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
@@ -304,3 +328,5 @@ def test_colcon_runs_pytest_and_backend_gtest_contracts() -> None:
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
+    assert "int main(" not in node_source
+    assert "int main(int argc, char ** argv)" in main_source

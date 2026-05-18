@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -37,8 +36,8 @@ void pushKeyValue(
 }
 }  // namespace
 
-FaNormalizeNode::FaNormalizeNode()
-: rclcpp::Node("fa_normalize")
+FaNormalizeNode::FaNormalizeNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("fa_normalize", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Normalize node");
   loadParameters();
@@ -304,18 +303,3 @@ void FaNormalizeNode::publishDiagnostics()
 }
 
 }  // namespace fa_normalize
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  try {
-    auto node = std::make_shared<fa_normalize::FaNormalizeNode>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return EXIT_SUCCESS;
-  } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("fa_normalize"), "Exception: %s", e.what());
-    rclcpp::shutdown();
-    return EXIT_FAILURE;
-  }
-}

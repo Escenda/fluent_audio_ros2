@@ -37,7 +37,7 @@ struct NormalizeConfig
 class FaNormalizeNode : public rclcpp::Node
 {
 public:
-  FaNormalizeNode();
+  explicit FaNormalizeNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~FaNormalizeNode() override;
 
 private:
