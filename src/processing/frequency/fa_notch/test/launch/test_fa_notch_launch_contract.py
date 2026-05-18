@@ -37,7 +37,9 @@ def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
 
     assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
     assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert 'FindPackageShare("fa_notch"), "config", "default.yaml"' in launch_text
+    assert "default_value" not in launch_text
+    assert "FindPackageShare" not in launch_text
+    assert "PathJoinSubstitution" not in launch_text
     assert 'package="fa_notch"' in launch_text
     assert 'executable="fa_notch_node"' in launch_text
     assert "parameters=[config_file]" in launch_text

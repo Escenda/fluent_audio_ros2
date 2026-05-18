@@ -60,7 +60,13 @@ def test_low_pass_validates_startup_config_fail_closed() -> None:
         "void FaLowPassNode::configureBackend"
     )[0]
 
-    assert 'this->declare_parameter<double>("filter.cutoff_hz", config_.cutoff_hz);' in load_parameters
+    assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredDouble(*this, "filter.cutoff_hz")' in load_parameters
+    assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
+    assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert 'throw std::runtime_error("input_topic is required");' in load_parameters
     assert 'throw std::runtime_error("output_topic is required");' in load_parameters
     assert "const double nyquist_hz = static_cast<double>(config_.expected_sample_rate) / 2.0;" in load_parameters

@@ -76,9 +76,14 @@ def test_startup_rejects_invalid_config_without_fallback() -> None:
         "void FaDeesserNode::configureBackend"
     )[0]
 
-    assert 'this->declare_parameter<double>("detector.cutoff_hz", config_.cutoff_hz);' in load_parameters
-    assert 'this->declare_parameter<double>("detector.threshold", config_.threshold);' in load_parameters
-    assert 'this->declare_parameter<double>("detector.attenuation_db", config_.attenuation_db);' in load_parameters
+    assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredDouble(*this, "detector.cutoff_hz")' in load_parameters
+    assert 'readRequiredDouble(*this, "detector.threshold")' in load_parameters
+    assert 'readRequiredDouble(*this, "detector.attenuation_db")' in load_parameters
+    assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
     assert "const double nyquist_hz" in load_parameters

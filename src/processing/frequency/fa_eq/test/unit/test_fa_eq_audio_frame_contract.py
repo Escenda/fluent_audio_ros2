@@ -64,11 +64,16 @@ def test_eq_validates_startup_config_fail_closed() -> None:
         "void FaEqNode::configureBackend"
     )[0]
 
-    assert 'this->declare_parameter<double>("low.cutoff_hz", config_.low_cutoff_hz);' in load_parameters
-    assert 'this->declare_parameter<double>("high.cutoff_hz", config_.high_cutoff_hz);' in load_parameters
-    assert 'this->declare_parameter<double>("gains.low_db", config_.gain_low_db);' in load_parameters
-    assert 'this->declare_parameter<double>("gains.mid_db", config_.gain_mid_db);' in load_parameters
-    assert 'this->declare_parameter<double>("gains.high_db", config_.gain_high_db);' in load_parameters
+    assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredDouble(*this, "low.cutoff_hz")' in load_parameters
+    assert 'readRequiredDouble(*this, "high.cutoff_hz")' in load_parameters
+    assert 'readRequiredDouble(*this, "gains.low_db")' in load_parameters
+    assert 'readRequiredDouble(*this, "gains.mid_db")' in load_parameters
+    assert 'readRequiredDouble(*this, "gains.high_db")' in load_parameters
+    assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert 'throw std::runtime_error("input_topic is required");' in load_parameters
     assert 'throw std::runtime_error("output_topic is required");' in load_parameters
     assert "const double nyquist_hz = static_cast<double>(config_.expected_sample_rate) / 2.0;" in load_parameters
