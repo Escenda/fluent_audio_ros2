@@ -87,8 +87,8 @@ fa_tts
 原則として各パッケージ配下の `config/*.yaml` を利用します（upstream と同様に launch で差し替え可能）。
 
 例:
-- `fa_in`: `src/io/sources/fa_in/config/default.yaml`（root: `fa_in_node`）
-- `fa_vad`: `src/ai/fa_vad/config/default.yaml`（root: `fa_vad_node`）
+- `fa_in`: `src/io/sources/fa_in/config/default.yaml`（root: `fa_in`）
+- `fa_vad`: `src/ai/fa_vad/config/default.yaml`（root: `fa_vad`）
 - `fa_out`: `src/io/sinks/fa_out/config/default.yaml`（root: `fa_out`）
 - `fa_tts`: `src/processing/generation/fa_tts/config/default.yaml`（root: `fa_tts`）
 - `fa_kws`: `src/ai/fa_kws/config/default.yaml`（root: `fa_kws`）
