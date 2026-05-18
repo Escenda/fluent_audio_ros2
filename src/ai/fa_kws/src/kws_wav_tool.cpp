@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -163,10 +164,13 @@ struct Args
   std::string tokens;
   std::string keywords;
   std::string provider;
-  float keywords_threshold{0.25f};
-  int target_sample_rate{16000};
+  float keywords_threshold{std::numeric_limits<float>::quiet_NaN()};
+  int target_sample_rate{0};
   int chunk_ms{20};
-  int max_active_paths{4};
+  int model_num_threads{0};
+  int max_active_paths{0};
+  int num_trailing_blanks{-1};
+  float keywords_score{std::numeric_limits<float>::quiet_NaN()};
   bool batch_mode{false};
   bool assume_vad_speech{false};
 };
@@ -176,11 +180,15 @@ Args parse_args(int argc, char **argv)
   if (argc < 15) {
     throw std::runtime_error(
       "Usage: kws_wav_tool --wav <path> --encoder <path> --decoder <path> "
-      "--joiner <path> --tokens <path> --keywords <path> --provider <provider> [--threshold 0.25] "
-      "[--sample_rate 16000] [--chunk_ms 20] --assume-vad-speech\n"
+      "--joiner <path> --tokens <path> --keywords <path> --provider <provider> "
+      "--threshold <float> --sample_rate <hz> --num_threads <n> "
+      "--max_active_paths <n> --num_trailing_blanks <n> --keywords_score <float> "
+      "[--chunk_ms 20] --assume-vad-speech\n"
       "   or: kws_wav_tool --batch <dir> --encoder <path> --decoder <path> "
-      "--joiner <path> --tokens <path> --keywords <path> --provider <provider> [--threshold 0.25] "
-      "--assume-vad-speech");
+      "--joiner <path> --tokens <path> --keywords <path> --provider <provider> "
+      "--threshold <float> --sample_rate <hz> --num_threads <n> "
+      "--max_active_paths <n> --num_trailing_blanks <n> --keywords_score <float> "
+      "[--chunk_ms 20] --assume-vad-speech");
   }
   Args args;
   for (int i = 1; i < argc; ++i) {
@@ -208,8 +216,14 @@ Args parse_args(int argc, char **argv)
       args.target_sample_rate = std::stoi(argv[++i]);
     } else if (arg == "--chunk_ms" && i + 1 < argc) {
       args.chunk_ms = std::stoi(argv[++i]);
+    } else if (arg == "--num_threads" && i + 1 < argc) {
+      args.model_num_threads = std::stoi(argv[++i]);
     } else if (arg == "--max_active_paths" && i + 1 < argc) {
       args.max_active_paths = std::stoi(argv[++i]);
+    } else if (arg == "--num_trailing_blanks" && i + 1 < argc) {
+      args.num_trailing_blanks = std::stoi(argv[++i]);
+    } else if (arg == "--keywords_score" && i + 1 < argc) {
+      args.keywords_score = std::stof(argv[++i]);
     } else if (arg == "--assume-vad-speech") {
       args.assume_vad_speech = true;
     }
@@ -238,6 +252,21 @@ Args parse_args(int argc, char **argv)
   if (args.chunk_ms <= 0) {
     throw std::runtime_error("chunk_ms must be positive");
   }
+  if (args.model_num_threads <= 0) {
+    throw std::runtime_error("num_threads must be positive");
+  }
+  if (args.max_active_paths <= 0) {
+    throw std::runtime_error("max_active_paths must be positive");
+  }
+  if (args.num_trailing_blanks < 0) {
+    throw std::runtime_error("num_trailing_blanks must be zero or positive");
+  }
+  if (!std::isfinite(args.keywords_score) || args.keywords_score <= 0.0f) {
+    throw std::runtime_error("keywords_score must be finite and positive");
+  }
+  if (!std::isfinite(args.keywords_threshold) || args.keywords_threshold <= 0.0f) {
+    throw std::runtime_error("threshold must be finite and positive");
+  }
   if (!args.assume_vad_speech) {
     throw std::runtime_error(
       "kws_wav_tool requires explicit VAD policy: "
@@ -262,6 +291,26 @@ void validate_wav_contract(const WavData &wav,
   if (wav.bit_depth != 32) {
     throw std::runtime_error("WAV bit_depth must be 32 for " + wav_path);
   }
+}
+
+fa_kws::SherpaOnnxKwsBackendConfig build_backend_config(const Args &args)
+{
+  fa_kws::SherpaOnnxKwsBackendConfig cfg;
+  cfg.target_sample_rate = args.target_sample_rate;
+  cfg.model_num_threads = args.model_num_threads;
+  cfg.execution_provider = args.provider;
+  cfg.encoder_path = args.encoder;
+  cfg.decoder_path = args.decoder;
+  cfg.joiner_path = args.joiner;
+  cfg.tokens_path = args.tokens;
+  cfg.keywords_path = args.keywords;
+  cfg.max_active_paths = args.max_active_paths;
+  cfg.num_trailing_blanks = args.num_trailing_blanks;
+  cfg.keywords_score = args.keywords_score;
+  cfg.keywords_threshold = args.keywords_threshold;
+  cfg.vad_threshold = 1.0f;
+  cfg.cooldown = std::chrono::milliseconds{0};
+  return cfg;
 }
 
 }  // namespace
@@ -316,19 +365,7 @@ int main(int argc, char **argv)
 {
   try {
     const Args args = parse_args(argc, argv);
-
-    fa_kws::SherpaOnnxKwsBackendConfig cfg;
-    cfg.target_sample_rate = args.target_sample_rate;
-    cfg.encoder_path = args.encoder;
-    cfg.decoder_path = args.decoder;
-    cfg.joiner_path = args.joiner;
-    cfg.tokens_path = args.tokens;
-    cfg.keywords_path = args.keywords;
-    cfg.execution_provider = args.provider;
-    cfg.keywords_threshold = args.keywords_threshold;
-    cfg.max_active_paths = args.max_active_paths;
-    cfg.vad_threshold = 1.0f;
-    cfg.cooldown = std::chrono::milliseconds{0};
+    const fa_kws::SherpaOnnxKwsBackendConfig cfg = build_backend_config(args);
 
     if (args.batch_mode) {
       // Batch mode: process all WAV files in directory with single model load

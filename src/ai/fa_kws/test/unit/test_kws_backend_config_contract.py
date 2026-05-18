@@ -317,6 +317,49 @@ def test_wav_tool_validates_wav_before_backend_initialization() -> None:
     assert single_validation < single_engine
 
 
+def test_wav_tool_initializes_every_backend_config_field_explicitly() -> None:
+    tool_text = (PACKAGE_ROOT / "src" / "kws_wav_tool.cpp").read_text(encoding="utf-8")
+
+    assert "float keywords_threshold{std::numeric_limits<float>::quiet_NaN()};" in tool_text
+    assert "int target_sample_rate{0};" in tool_text
+    assert "int model_num_threads{0};" in tool_text
+    assert "int max_active_paths{0};" in tool_text
+    assert "int num_trailing_blanks{-1};" in tool_text
+    assert "float keywords_score{std::numeric_limits<float>::quiet_NaN()};" in tool_text
+    assert 'arg == "--num_threads"' in tool_text
+    assert 'arg == "--num_trailing_blanks"' in tool_text
+    assert 'arg == "--keywords_score"' in tool_text
+    assert "num_threads must be positive" in tool_text
+    assert "max_active_paths must be positive" in tool_text
+    assert "num_trailing_blanks must be zero or positive" in tool_text
+    assert "keywords_score must be finite and positive" in tool_text
+    assert "threshold must be finite and positive" in tool_text
+    assert "build_backend_config(const Args &args)" in tool_text
+    for assignment in (
+        "cfg.target_sample_rate = args.target_sample_rate;",
+        "cfg.model_num_threads = args.model_num_threads;",
+        "cfg.execution_provider = args.provider;",
+        "cfg.encoder_path = args.encoder;",
+        "cfg.decoder_path = args.decoder;",
+        "cfg.joiner_path = args.joiner;",
+        "cfg.tokens_path = args.tokens;",
+        "cfg.keywords_path = args.keywords;",
+        "cfg.max_active_paths = args.max_active_paths;",
+        "cfg.num_trailing_blanks = args.num_trailing_blanks;",
+        "cfg.keywords_score = args.keywords_score;",
+        "cfg.keywords_threshold = args.keywords_threshold;",
+        "cfg.vad_threshold = 1.0f;",
+        "cfg.cooldown = std::chrono::milliseconds{0};",
+    ):
+        assert assignment in tool_text
+
+    config_index = tool_text.index(
+        "const fa_kws::SherpaOnnxKwsBackendConfig cfg = build_backend_config(args);"
+    )
+    first_engine_index = tool_text.index("fa_kws::SherpaOnnxKwsBackend engine(cfg)")
+    assert config_index < first_engine_index
+
+
 def test_backend_boundary_fails_closed_for_invalid_runtime_state() -> None:
     backend_text = (
         PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
