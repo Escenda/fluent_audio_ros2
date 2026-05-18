@@ -8,6 +8,16 @@ REPO_ROOT = Path(__file__).parents[2]
 SRC_ROOT = REPO_ROOT / "src"
 
 
+TOP_LEVEL_LAYER_READMES = (
+    "interfaces",
+    "io",
+    "processing",
+    "ai",
+    "streaming",
+    "apps",
+    "system",
+)
+
 REQUIRED_PACKAGE_PATHS = (
     "README.md",
     "docs/仕様書.md",
@@ -486,6 +496,17 @@ def test_repository_docs_do_not_overclaim_skeleton_packages_as_complete() -> Non
                 violations.append(f"{doc_path.relative_to(REPO_ROOT)} contains {phrase}")
 
     assert violations == []
+
+
+def test_top_level_layer_readmes_exist() -> None:
+    missing: list[str] = []
+
+    for layer_name in TOP_LEVEL_LAYER_READMES:
+        readme_path = SRC_ROOT / layer_name / "README.md"
+        if not readme_path.is_file():
+            missing.append(str(readme_path.relative_to(REPO_ROOT)))
+
+    assert missing == []
 
 
 def test_io_taxonomy_exposes_design_source_sink_utility_directories() -> None:
