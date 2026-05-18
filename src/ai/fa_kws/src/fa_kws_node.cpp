@@ -64,6 +64,7 @@ public:
     current_vad_prob_(0.0f)
   {
     loadParameters();
+    validateTopicBindingsOrThrow();
     validateBackendOrThrow();
     validateVadInputOrThrow();
 
@@ -98,8 +99,9 @@ public:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "fa_kws initialized: audio_topic=%s vad_topic=%s output_topic=%s target_sr=%d provider=%s",
+      "fa_kws initialized: audio_topic=%s expected_source_id=%s vad_topic=%s output_topic=%s target_sr=%d provider=%s",
       audio_topic_.c_str(),
+      expected_source_id_.c_str(),
       vad_topic_.c_str(),
       output_topic_.c_str(),
       target_sample_rate_,
@@ -117,6 +119,22 @@ private:
     }
     if (backend_name_ != "sherpa_onnx_kws") {
       throw std::runtime_error("unsupported fa_kws backend.name: " + backend_name_);
+    }
+  }
+
+  void validateTopicBindingsOrThrow() const
+  {
+    if (audio_topic_.empty()) {
+      throw std::runtime_error("audio_topic is required");
+    }
+    if (vad_topic_.empty()) {
+      throw std::runtime_error("vad_topic is required");
+    }
+    if (output_topic_.empty()) {
+      throw std::runtime_error("output_topic is required");
+    }
+    if (expected_source_id_.empty()) {
+      throw std::runtime_error("expected_source_id is required");
     }
   }
 
@@ -189,6 +207,7 @@ private:
     audio_topic_ = this->declare_parameter<std::string>("audio_topic", "audio/frame");
     vad_topic_ = this->declare_parameter<std::string>("vad_topic", "voice/vad_state");
     output_topic_ = this->declare_parameter<std::string>("output_topic", "voice/wake_word");
+    expected_source_id_ = this->declare_parameter<std::string>("expected_source_id", "");
     backend_name_ = this->declare_parameter<std::string>("backend.name", "");
 
     target_sample_rate_ = this->declare_parameter<int>("target_sample_rate", 16000);
@@ -323,8 +342,11 @@ private:
 
   void onAudio(const AudioFrame::SharedPtr msg)
   {
-    if (!msg || !kws_backend_) {
-      return;
+    if (!msg) {
+      throw std::runtime_error("fa_kws received null AudioFrame message");
+    }
+    if (!kws_backend_) {
+      throw std::runtime_error("fa_kws backend is not initialized");
     }
 
     tracef(
@@ -349,7 +371,7 @@ private:
 
     std::vector<float> samples;
     try {
-      samples = frameToCanonicalFloat(*msg);
+      samples = frameToCanonicalFloat(*msg, expected_source_id_, audio_topic_);
     } catch (const std::invalid_argument &e) {
       RCLCPP_ERROR(this->get_logger(), "Dropping invalid AudioFrame: %s", e.what());
       return;
@@ -407,6 +429,7 @@ private:
   std::string audio_topic_;
   std::string vad_topic_;
   std::string output_topic_;
+  std::string expected_source_id_;
   std::string backend_name_;
 
   int target_sample_rate_{16000};

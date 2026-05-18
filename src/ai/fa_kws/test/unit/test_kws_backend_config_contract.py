@@ -14,6 +14,7 @@ def test_default_config_requires_explicit_execution_provider() -> None:
 
     assert params["backend.name"] == "sherpa_onnx_kws"
     assert params["backend.execution_provider"] == ""
+    assert params["expected_source_id"] == ""
     assert params["vad.max_age_ms"] == 1000
     assert "model.provider" not in params
 
@@ -88,6 +89,10 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     node_text = node_path.read_text(encoding="utf-8")
 
     assert '"backend.execution_provider", ""' in node_text
+    assert '"expected_source_id", ""' in node_text
+    assert "expected_source_id is required" in node_text
+    assert "validateTopicBindingsOrThrow();" in node_text
+    assert "frameToCanonicalFloat(*msg, expected_source_id_, audio_topic_)" in node_text
     assert '"vad.probability_gate", 0.35' in node_text
     assert "backend.execution_provider is required" in node_text
     assert '"vad.max_age_ms", 1000' in node_text
@@ -179,6 +184,10 @@ def test_audio_utils_has_executable_contract_test() -> None:
     assert "test/unit/audio_utils_contract.cpp" in cmake_text
     assert "src/audio_utils.cpp" in cmake_text
     assert "RejectsPcm32PayloadBeforeFloatInterpretation" in test_text
+    assert "RejectsMissingExpectedSourceBinding" in test_text
+    assert "RejectsMissingExpectedStreamBinding" in test_text
+    assert "RejectsUnexpectedSourceIdentity" in test_text
+    assert "RejectsUnexpectedStreamIdentity" in test_text
     assert 'msg.encoding = "PCM32LE"' in test_text
 
 
@@ -196,6 +205,10 @@ def test_kws_node_rejects_non_canonical_audio_frames() -> None:
     assert "reinterpret_cast<const std::int16_t *>" not in audio_utils_text
     assert "AudioFrame channels must be 1" in audio_utils_text
     assert "AudioFrame source_id and stream_id are required" in audio_utils_text
+    assert "expected_source_id is required" in audio_utils_text
+    assert "expected_stream_id is required" in audio_utils_text
+    assert "AudioFrame source_id must match expected_source_id" in audio_utils_text
+    assert "AudioFrame stream_id must match audio_topic" in audio_utils_text
     assert "AudioFrame layout must be interleaved" in audio_utils_text
     assert "AudioFrame encoding must be FLOAT32LE" in audio_utils_text
     assert "AudioFrame bit_depth must be 32" in audio_utils_text

@@ -30,6 +30,7 @@ def test_default_config_requires_explicit_kws_backend_inputs() -> None:
     assert params["model.joiner"] == ""
     assert params["model.tokens"] == ""
     assert params["kws.keywords_file"] == ""
+    assert params["expected_source_id"] == ""
     assert params["vad.probability_gate"] == 0.35
     assert params["vad.max_age_ms"] > 0
     assert "dump_audio.enable" not in params

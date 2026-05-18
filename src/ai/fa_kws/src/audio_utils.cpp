@@ -14,14 +14,29 @@ constexpr const char * kFloat32Encoding = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
 }
 
-std::vector<float> frameToCanonicalFloat(const fa_interfaces::msg::AudioFrame &msg)
+std::vector<float> frameToCanonicalFloat(
+  const fa_interfaces::msg::AudioFrame &msg,
+  const std::string &expected_source_id,
+  const std::string &expected_stream_id)
 {
+  if (msg.source_id.empty() || msg.stream_id.empty()) {
+    throw std::invalid_argument("AudioFrame source_id and stream_id are required");
+  }
+  if (expected_source_id.empty()) {
+    throw std::invalid_argument("expected_source_id is required");
+  }
+  if (expected_stream_id.empty()) {
+    throw std::invalid_argument("expected_stream_id is required");
+  }
+  if (msg.source_id != expected_source_id) {
+    throw std::invalid_argument("AudioFrame source_id must match expected_source_id");
+  }
+  if (msg.stream_id != expected_stream_id) {
+    throw std::invalid_argument("AudioFrame stream_id must match audio_topic");
+  }
   if (msg.channels != 1u) {
     throw std::invalid_argument(
       "AudioFrame channels must be 1, got " + std::to_string(msg.channels));
-  }
-  if (msg.source_id.empty() || msg.stream_id.empty()) {
-    throw std::invalid_argument("AudioFrame source_id and stream_id are required");
   }
   if (msg.layout != kInterleavedLayout) {
     throw std::invalid_argument("AudioFrame layout must be interleaved, got " + msg.layout);
