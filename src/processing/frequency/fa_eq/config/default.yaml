@@ -1,7 +1,10 @@
 fa_eq:
   ros__parameters:
-    input_topic: "audio/sample_format/mic"
-    output_topic: "audio/eq/mic"
+    input_topic: "fa_eq/input"
+    output_topic: "fa_eq/output"
+    input_stream_id: "audio/sample_format/mic"
+    output:
+      stream_id: "audio/eq/mic"
 
     low:
       cutoff_hz: 250.0

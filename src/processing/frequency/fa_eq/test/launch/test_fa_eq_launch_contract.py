@@ -55,8 +55,13 @@ def test_default_launch_config_keeps_eq_as_frequency_node() -> None:
     )
     params = config["fa_eq"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/sample_format/mic"
-    assert params["output_topic"] == "audio/eq/mic"
+    assert params["input_topic"] == "fa_eq/input"
+    assert params["output_topic"] == "fa_eq/output"
+    assert params["input_stream_id"] == "audio/sample_format/mic"
+    assert params["output"]["stream_id"] == "audio/eq/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["low"]["cutoff_hz"] == 250.0
     assert params["high"]["cutoff_hz"] == 4000.0
     assert 0.0 < params["low"]["cutoff_hz"] < params["high"]["cutoff_hz"]

@@ -8,7 +8,8 @@
 - Executable: `fa_eq_node`
 - Input: `input_topic`
 - Output: `output_topic`
-- 入力契約: `source_id` 非空、`stream_id == input_topic`、`sample_rate > 0`、`channels > 0`、`encoding == FLOAT32LE`、`bit_depth == 32`、`layout == interleaved`
+- 入力契約: `source_id` 非空、`stream_id == input_stream_id`、`sample_rate > 0`、`channels > 0`、`encoding == FLOAT32LE`、`bit_depth == 32`、`layout == interleaved`
+- ROS topic は transport identity であり、`AudioFrame.stream_id` は `input_stream_id` / `output.stream_id` で明示する
 - データ契約: 非空、`channels * sizeof(float)` で割り切れる、各サンプルが finite normalized `[-1, 1]`
 
 起動時設定が不正な場合は fail closed します。runtime frame が契約を満たさない場合、または EQ 後の出力が normalized `[-1, 1]` を外れる場合は warning を出して drop します。clamp、normalize、resampling、device I/O は行いません。
@@ -17,8 +18,10 @@
 
 `config/default.yaml` の既定値:
 
-- `input_topic`: `audio/sample_format/mic`
-- `output_topic`: `audio/eq/mic`
+- `input_topic`: `fa_eq/input`
+- `output_topic`: `fa_eq/output`
+- `input_stream_id`: `audio/sample_format/mic`
+- `output.stream_id`: `audio/eq/mic`
 - `low.cutoff_hz`: `250.0`
 - `high.cutoff_hz`: `4000.0`
 - `gains.low_db`: `0.0`
@@ -37,4 +40,4 @@
 
 ## Diagnostics
 
-`/diagnostics` に `low_cutoff_hz`、`high_cutoff_hz`、`low_alpha`、`high_alpha`、各 band gain、`state_source_id`、`source_resets`、`frames_in`、`frames_out`、`frames_dropped`、`output_topic` を publish します。
+`/diagnostics` に `input_topic`、`output_topic`、`input_stream_id`、`output_stream_id`、`low_cutoff_hz`、`high_cutoff_hz`、`low_alpha`、`high_alpha`、各 band gain、`state_source_id`、`source_resets`、`frames_in`、`frames_out`、`frames_dropped` を publish します。

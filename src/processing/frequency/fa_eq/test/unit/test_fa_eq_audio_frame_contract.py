@@ -15,8 +15,13 @@ def test_default_config_requires_float32_interleaved_three_band_eq_contract() ->
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_eq"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/sample_format/mic"
-    assert params["output_topic"] == "audio/eq/mic"
+    assert params["input_topic"] == "fa_eq/input"
+    assert params["output_topic"] == "fa_eq/output"
+    assert params["input_stream_id"] == "audio/sample_format/mic"
+    assert params["output"]["stream_id"] == "audio/eq/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["low"]["cutoff_hz"] == 250.0
     assert params["high"]["cutoff_hz"] == 4000.0
     assert 0.0 < params["low"]["cutoff_hz"] < params["high"]["cutoff_hz"]
@@ -67,6 +72,9 @@ def test_eq_validates_startup_config_fail_closed() -> None:
     )[0]
 
     assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "output_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredDouble(*this, "low.cutoff_hz")' in load_parameters
     assert 'readRequiredDouble(*this, "high.cutoff_hz")' in load_parameters
     assert 'readRequiredDouble(*this, "gains.low_db")' in load_parameters
@@ -82,6 +90,13 @@ def test_eq_validates_startup_config_fail_closed() -> None:
             assert ", config_." not in line
     assert 'throw std::runtime_error("input_topic is required");' in load_parameters
     assert 'throw std::runtime_error("output_topic is required");' in load_parameters
+    assert "input_stream_id is required" in load_parameters
+    assert "output.stream_id is required" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "const double nyquist_hz = static_cast<double>(config_.expected_sample_rate) / 2.0;" in load_parameters
     assert "!isFinite(config_.low_cutoff_hz)" in load_parameters
     assert "config_.low_cutoff_hz <= 0.0" in load_parameters
@@ -107,7 +122,7 @@ def test_eq_validates_frame_contract_before_processing() -> None:
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
     assert "msg.source_id != active_source_id_" in validate_frame
     assert "msg.epoch <= *last_epoch_" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -136,7 +151,7 @@ def test_eq_preserves_source_identity_and_updates_stream_identity() -> None:
 
     assert "active_source_id_ = in.source_id;" in apply_eq
     assert "out = in;" in apply_eq
-    assert "out.stream_id = config_.output_topic;" in apply_eq
+    assert "out.stream_id = config_.output_stream_id;" in apply_eq
     assert ".rms" not in apply_eq
     assert ".peak" not in apply_eq
     assert ".vad" not in apply_eq
@@ -253,6 +268,10 @@ def test_eq_diagnostics_include_filter_gain_state_and_counters() -> None:
     diagnostics = source.split("void FaEqNode::publishDiagnostics")[1]
 
     assert 'status.name = "fa_eq";' in diagnostics
+    assert 'pushKeyValue(status, "input_topic", config_.input_topic);' in diagnostics
+    assert 'pushKeyValue(status, "output_topic", config_.output_topic);' in diagnostics
+    assert 'pushKeyValue(status, "input_stream_id", config_.input_stream_id);' in diagnostics
+    assert 'pushKeyValue(status, "output_stream_id", config_.output_stream_id);' in diagnostics
     assert 'pushKeyValue(status, "low_cutoff_hz", std::to_string(config_.low_cutoff_hz));' in diagnostics
     assert 'pushKeyValue(status, "high_cutoff_hz", std::to_string(config_.high_cutoff_hz));' in diagnostics
     assert 'pushKeyValue(status, "low_alpha", std::to_string(backend_->lowAlpha()));' in diagnostics

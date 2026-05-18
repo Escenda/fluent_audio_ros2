@@ -23,6 +23,8 @@ struct EqConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   double low_cutoff_hz{-1.0};
   double high_cutoff_hz{-1.0};
   double gain_low_db{0.0};
