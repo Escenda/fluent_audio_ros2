@@ -220,7 +220,11 @@ bool spinUntil(
     if (!rclcpp::ok()) {
       return predicate();
     }
-    executor.spin_some(10ms);
+    try {
+      executor.spin_some(10ms);
+    } catch (const rclcpp::exceptions::RCLError &) {
+      return predicate();
+    }
     std::this_thread::sleep_for(10ms);
   }
   return predicate();
