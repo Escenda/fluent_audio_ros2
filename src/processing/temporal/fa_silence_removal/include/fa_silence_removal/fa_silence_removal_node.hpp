@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
@@ -13,10 +14,17 @@
 namespace fa_silence_removal
 {
 
+namespace backends
+{
+class InternalRmsSilenceRemovalBackend;
+}  // namespace backends
+
 struct SilenceRemovalConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   double threshold_rms{-1.0};
   double hangover_ms{-1.0};
   int expected_sample_rate{-1};
@@ -35,8 +43,8 @@ struct SilenceRemovalConfig
 class FaSilenceRemovalNode : public rclcpp::Node
 {
 public:
-  FaSilenceRemovalNode();
-  ~FaSilenceRemovalNode() override = default;
+  explicit FaSilenceRemovalNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~FaSilenceRemovalNode() override;
 
 private:
   void loadParameters();
@@ -44,17 +52,14 @@ private:
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishAcceptedFrame(const fa_interfaces::msg::AudioFrame & msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
-  bool computeRms(const fa_interfaces::msg::AudioFrame & msg, double & rms);
-  void consumeHangoverSamples(size_t frame_count);
   size_t bytesPerFrame() const;
-  size_t frameCount(const fa_interfaces::msg::AudioFrame & msg) const;
 
   SilenceRemovalConfig config_;
   size_t hangover_samples_{0};
-  size_t hangover_samples_remaining_{0};
-  double last_rms_{0.0};
+  std::unique_ptr<backends::InternalRmsSilenceRemovalBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;

@@ -2,24 +2,25 @@
 
 ## 1. 位置づけ
 
-`internal_rms_silence_removal` は `fa_silence_removal` node 内で実行する最小 backend である。外部推論 engine、VAD model、ASR、device I/O は持たない。
+`internal_rms_silence_removal` は `fa_silence_removal` node 内で実行する ROS-free C++ backend である。外部推論 engine、VAD model、ASR、device I/O は持たない。
+
+この backend は ROS2 topic、`fa_interfaces/msg/AudioFrame`、diagnostics、publisher/subscriber を知らない。node が ROS message contract を検証した後、backend は FLOAT32LE interleaved byte列だけを受け取る。
 
 ## 2. 入力
 
-- `fa_interfaces/msg/AudioFrame`
-- `FLOAT32LE`
-- `bit_depth=32`
-- `layout=interleaved`
-- finite normalized samples in `[-1.0, 1.0]`
+- `std::vector<uint8_t>` の FLOAT32LE interleaved sample bytes
+- `channels > 0`
+- byte length は `channels * sizeof(float)` の倍数
+- 各 sample は finite normalized samples in `[-1.0, 1.0]`
 
 ## 3. 出力
 
-backend は publish 用の新しい payload を生成しない。判定結果だけを node logic に返す。
+backend は publish 用の payload を生成しない。`ProcessStatus`、`Decision`、RMS、frame count、hangover 残量だけを node logic に返す。
 
 | 判定 | node の動作 |
 | --- | --- |
-| non-silent | 入力 frame を publish。`stream_id` のみ `output_topic` に更新 |
-| silent in hangover | 入力 frame を publish。`stream_id` のみ `output_topic` に更新 |
+| `accepted_active` | 入力 frame を publish。`stream_id` のみ `output.stream_id` に更新 |
+| `accepted_hangover` | 入力 frame を publish。`stream_id` のみ `output.stream_id` に更新 |
 | silent outside hangover | publish しない |
 | invalid | publish しない |
 
@@ -33,14 +34,16 @@ rms = sqrt(sum(sample^2) / sample_count)
 
 ## 5. 失敗時契約
 
-backend は invalid sample を補正しない。
+backend は invalid input を補正しない。
 
 - NaN / inf を 0 にしない
 - out-of-range sample を clamp しない
 - byte size mismatch を補正しない
-- format mismatch を推定変換しない
+- channel 数を推定しない
 
 invalid frame は node 側で warning と diagnostics counter を出し、drop する。
+
+backend は invalid input で `last_rms` や hangover state を更新しない。未知の `Decision` / `ProcessStatus` は `std::logic_error` で fail closed し、accepted / dropped のどちらかへ丸めない。
 
 ## 6. backend 分離の理由
 

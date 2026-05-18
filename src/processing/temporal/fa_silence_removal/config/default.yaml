@@ -1,7 +1,11 @@
 fa_silence_removal:
   ros__parameters:
-    input_topic: "audio/buffered/mic"
-    output_topic: "audio/silence_removed/mic"
+    input_topic: "fa_silence_removal/input"
+    output_topic: "fa_silence_removal/output"
+    input_stream_id: "audio/buffered/mic"
+
+    output:
+      stream_id: "audio/silence_removed/mic"
 
     threshold:
       rms: 0.02
