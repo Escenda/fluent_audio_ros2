@@ -7,8 +7,11 @@
 - `mono_to_stereo_duplicate`: 1ch 入力を 2ch 出力へ複製する
 - `stereo_to_mono_average`: 2ch 入力を 1ch 出力へ平均する
 - `source_id`、`header`、`sample_rate`、`bit_depth`、`encoding`、`layout`、`epoch` を保持する
-- `stream_id` を `output_topic` に更新し、`channels` と `data` を変換結果に更新する
+- `stream_id` を `output.stream_id` に更新し、`channels` と `data` を変換結果に更新する
 - config と frame counter を `diagnostics` に publish する
+
+ROS topic は搬送路であり、`AudioFrame.stream_id` ではありません。入力 stream は
+`input_stream_id`、出力 stream は `output.stream_id` で明示します。
 
 ## 非役割
 

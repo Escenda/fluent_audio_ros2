@@ -1,13 +1,15 @@
 fa_channel_convert:
   ros__parameters:
-    input_topic: "audio/sample_format/mic"
-    output_topic: "audio/channel_converted/mic"
+    input_topic: "fa_channel_convert/input"
+    output_topic: "fa_channel_convert/output"
+    input_stream_id: "audio/sample_format/mic"
 
     input:
       channels: 1
 
     output:
       channels: 2
+      stream_id: "audio/channel_converted/mic"
 
     conversion:
       mode: "mono_to_stereo_duplicate"

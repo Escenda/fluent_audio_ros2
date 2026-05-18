@@ -8,8 +8,13 @@ def test_default_config_requires_explicit_pcm16_to_pcm32_interleaved_contract() 
     config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_bit_depth"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/frame"
-    assert params["output_topic"] == "audio/bit_depth/mic"
+    assert params["input_topic"] == "fa_bit_depth/input"
+    assert params["output_topic"] == "fa_bit_depth/output"
+    assert params["input_stream_id"] == "audio/raw/mic"
+    assert params["output"]["stream_id"] == "audio/bit_depth/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["input"]["encoding"] == "PCM16LE"
     assert params["input"]["bit_depth"] == 16
     assert params["output"]["encoding"] == "PCM32LE"
@@ -95,11 +100,16 @@ def test_bit_depth_requires_explicit_runtime_config() -> None:
     )[0]
 
     assert 'readRequiredString(*this, "input_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
     assert 'readRequiredString(*this, "input.encoding")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
     assert 'readRequiredBool(*this, "qos.reliable")' in load_parameters
     assert 'readRequiredInt(*this, "diagnostics.qos.depth")' in load_parameters
     assert 'readRequiredBool(*this, "diagnostics.qos.reliable")' in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert ", config_." not in line
@@ -113,7 +123,7 @@ def test_bit_depth_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "backend_->validateContract(frameContractFrom(msg))" in validate_frame
     assert "FrameContractStatus::kOk" in validate_frame
     assert "frameContractStatusName(contract_status)" in validate_frame
@@ -151,7 +161,8 @@ def test_bit_depth_preserves_identity_and_updates_format_metadata() -> None:
 
     assert "backend_->process(in.data, frameContractFrom(in), output_data)" in convert_frame
     assert "out = in;" in convert_frame
-    assert "out.stream_id = config_.output_topic;" in convert_frame
+    assert "out.stream_id = config_.output_stream_id;" in convert_frame
+    assert "out.stream_id = config_.output_topic;" not in convert_frame
     assert "out.encoding = backend_->outputEncoding();" in convert_frame
     assert "out.bit_depth = static_cast<uint32_t>(backend_->outputBitDepth());" in convert_frame
     assert "out.sample_rate = in.sample_rate;" in convert_frame

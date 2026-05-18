@@ -1,13 +1,15 @@
 fa_bit_depth:
   ros__parameters:
-    input_topic: "audio/frame"
-    output_topic: "audio/bit_depth/mic"
+    input_topic: "fa_bit_depth/input"
+    output_topic: "fa_bit_depth/output"
+    input_stream_id: "audio/raw/mic"
 
     input:
       encoding: "PCM16LE"
       bit_depth: 16
 
     output:
+      stream_id: "audio/bit_depth/mic"
       encoding: "PCM32LE"
       bit_depth: 32
 

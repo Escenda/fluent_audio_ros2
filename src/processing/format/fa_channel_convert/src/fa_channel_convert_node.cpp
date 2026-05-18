@@ -86,6 +86,19 @@ bool readRequiredBool(const rclcpp::Node & node, const std::string & name)
   }
   return parameter.as_bool();
 }
+
+std::string identityWithoutLeadingSlash(const std::string & value)
+{
+  if (!value.empty() && value.front() == '/') {
+    return value.substr(1);
+  }
+  return value;
+}
+
+bool sameIdentityString(const std::string & left, const std::string & right)
+{
+  return identityWithoutLeadingSlash(left) == identityWithoutLeadingSlash(right);
+}
 }  // namespace
 
 FaChannelConvertNode::FaChannelConvertNode()
@@ -100,6 +113,8 @@ void FaChannelConvertNode::loadParameters()
 {
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("output_topic");
+  this->declare_parameter<std::string>("input_stream_id");
+  this->declare_parameter<std::string>("output.stream_id");
   this->declare_parameter<int>("input.channels");
   this->declare_parameter<int>("output.channels");
   this->declare_parameter<std::string>("conversion.mode");
@@ -115,6 +130,8 @@ void FaChannelConvertNode::loadParameters()
 
   config_.input_topic = readRequiredString(*this, "input_topic");
   config_.output_topic = readRequiredString(*this, "output_topic");
+  config_.input_stream_id = readRequiredString(*this, "input_stream_id");
+  config_.output_stream_id = readRequiredString(*this, "output.stream_id");
   config_.input_channels = readRequiredInt(*this, "input.channels");
   config_.output_channels = readRequiredInt(*this, "output.channels");
   config_.conversion_mode = readRequiredString(*this, "conversion.mode");
@@ -134,6 +151,31 @@ void FaChannelConvertNode::loadParameters()
   }
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required");
+  }
+  if (config_.input_stream_id.empty()) {
+    throw std::runtime_error("input_stream_id is required");
+  }
+  if (config_.output_stream_id.empty()) {
+    throw std::runtime_error("output.stream_id is required");
+  }
+  const std::string resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  const std::string resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (sameIdentityString(config_.input_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.input_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.input_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("input_stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.output_stream_id, config_.input_topic) ||
+      sameIdentityString(config_.output_stream_id, config_.output_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_input_topic) ||
+      sameIdentityString(config_.output_stream_id, resolved_output_topic)) {
+    throw std::runtime_error("output.stream_id must be distinct from ROS topics");
+  }
+  if (sameIdentityString(config_.input_stream_id, config_.output_stream_id)) {
+    throw std::runtime_error("input_stream_id and output.stream_id must be distinct");
   }
   backend_ = std::make_unique<backends::InternalFloat32LeChannelConvertBackend>(
     backends::InternalFloat32LeChannelConvertConfig{
@@ -156,10 +198,12 @@ void FaChannelConvertNode::loadParameters()
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Channel convert config: input=%s output=%s mode=%s channels=%d->%d expected=%dHz/%s/%d/%s qos_depth=%d "
+    "Channel convert config: input=%s/%s output=%s/%s mode=%s channels=%d->%d expected=%dHz/%s/%d/%s qos_depth=%d "
     "reliable=%s diag=%dms",
     config_.input_topic.c_str(),
+    config_.input_stream_id.c_str(),
     config_.output_topic.c_str(),
+    config_.output_stream_id.c_str(),
     config_.conversion_mode.c_str(),
     config_.input_channels,
     config_.output_channels,
@@ -233,12 +277,12 @@ bool FaChannelConvertNode::validateFrame(const fa_interfaces::msg::AudioFrame & 
       "AudioFrame source_id and stream_id are required");
     return false;
   }
-  if (msg.stream_id != config_.input_topic) {
+  if (msg.stream_id != config_.input_stream_id) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
       "AudioFrame stream_id mismatch: %s != %s",
       msg.stream_id.c_str(),
-      config_.input_topic.c_str());
+      config_.input_stream_id.c_str());
     return false;
   }
   const backends::FrameContractStatus contract_status =
@@ -270,7 +314,7 @@ bool FaChannelConvertNode::convertFrame(
   }
 
   out = in;
-  out.stream_id = config_.output_topic;
+  out.stream_id = config_.output_stream_id;
   out.channels = static_cast<uint32_t>(backend_->outputChannels());
   out.data = output_data;
   return true;
@@ -287,9 +331,11 @@ void FaChannelConvertNode::publishDiagnostics()
   status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
   status.message = "running";
 
-  status.values.reserve(12);
+  status.values.reserve(13);
   pushKeyValue(status, "input_topic", config_.input_topic);
   pushKeyValue(status, "output_topic", config_.output_topic);
+  pushKeyValue(status, "input_stream_id", config_.input_stream_id);
+  pushKeyValue(status, "output_stream_id", config_.output_stream_id);
   pushKeyValue(status, "conversion.mode", config_.conversion_mode);
   pushKeyValue(status, "input.channels", std::to_string(config_.input_channels));
   pushKeyValue(status, "output.channels", std::to_string(config_.output_channels));

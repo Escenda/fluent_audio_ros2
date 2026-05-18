@@ -17,6 +17,8 @@ struct ChannelConvertConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   int input_channels{-1};
   int output_channels{-1};
   std::string conversion_mode{};

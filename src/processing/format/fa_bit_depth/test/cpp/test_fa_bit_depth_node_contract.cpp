@@ -20,6 +20,8 @@ using namespace std::chrono_literals;
 
 constexpr const char * kInputTopic = "audio/test/bit_depth_input";
 constexpr const char * kOutputTopic = "audio/test/bit_depth_output";
+constexpr const char * kInputStreamId = "audio/test/bit_depth_input_stream";
+constexpr const char * kOutputStreamId = "audio/test/bit_depth_output_stream";
 constexpr uint32_t kSampleRate = 16000;
 constexpr uint32_t kChannels = 1;
 constexpr uint32_t kInputBitDepth = 16;
@@ -31,8 +33,10 @@ std::vector<rclcpp::Parameter> validParameters()
   return {
     rclcpp::Parameter("input_topic", kInputTopic),
     rclcpp::Parameter("output_topic", kOutputTopic),
+    rclcpp::Parameter("input_stream_id", kInputStreamId),
     rclcpp::Parameter("input.encoding", "PCM16LE"),
     rclcpp::Parameter("input.bit_depth", static_cast<int>(kInputBitDepth)),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("output.encoding", "PCM32LE"),
     rclcpp::Parameter("output.bit_depth", static_cast<int>(kOutputBitDepth)),
     rclcpp::Parameter("expected.sample_rate", static_cast<int>(kSampleRate)),
@@ -82,7 +86,7 @@ fa_interfaces::msg::AudioFrame frameWith(
   frame.header.stamp = stampFromNanoseconds(1000000000LL);
   frame.header.frame_id = "mic-a-frame";
   frame.source_id = "mic-a";
-  frame.stream_id = kInputTopic;
+  frame.stream_id = kInputStreamId;
   frame.encoding = "PCM16LE";
   frame.sample_rate = kSampleRate;
   frame.channels = kChannels;
@@ -166,7 +170,7 @@ TEST_F(RclcppContractTest, ExpandsPcm16LeSamplesIntoPcm32LeHighWords)
     return received.size() == 1u;
   }));
 
-  EXPECT_EQ(received[0].stream_id, kOutputTopic);
+  EXPECT_EQ(received[0].stream_id, kOutputStreamId);
   EXPECT_EQ(received[0].source_id, input.source_id);
   EXPECT_EQ(received[0].sample_rate, input.sample_rate);
   EXPECT_EQ(received[0].channels, input.channels);
@@ -252,5 +256,85 @@ TEST_F(RclcppContractTest, RejectsLossyDownConversionAtStartup)
   EXPECT_THROW(
     (std::make_shared<fa_bit_depth::FaBitDepthNode>(optionsWith(std::move(parameters)))),
     std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsEmptyInputStreamIdAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("input_stream_id", ""));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_bit_depth::FaBitDepthNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsEmptyOutputStreamIdAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("output.stream_id", ""));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_bit_depth::FaBitDepthNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsInputStreamIdThatCollidesWithTopicAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("input_stream_id", kInputTopic));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_bit_depth::FaBitDepthNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsOutputStreamIdThatCollidesWithResolvedTopicAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("output_topic", "/audio/test/resolved_output"));
+  replaceParameter(parameters, rclcpp::Parameter("output.stream_id", "audio/test/resolved_output"));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_bit_depth::FaBitDepthNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsEqualInputAndOutputStreamIdsAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("output.stream_id", kInputStreamId));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_bit_depth::FaBitDepthNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, DropsFrameWithTopicNameAsStreamId)
+{
+  auto node = std::make_shared<fa_bit_depth::FaBitDepthNode>(optionsWith(validParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_bit_depth_topic_stream_contract_io");
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic, rclcpp::QoS(10).reliable());
+  auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    kOutputTopic, rclcpp::QoS(10).reliable(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+  ASSERT_NE(subscription, nullptr);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&publisher, &subscription]() {
+    return publisher->get_subscription_count() > 0 && subscription->get_publisher_count() > 0;
+  }));
+
+  auto invalid = frameWith({0x00U, 0x00U});
+  invalid.stream_id = kInputTopic;
+  publisher->publish(invalid);
+  spinFor(executor, 200ms);
+
+  EXPECT_TRUE(received.empty());
 }
 }  // namespace
