@@ -66,6 +66,20 @@ bool sameIdentityString(const std::string &left, const std::string &right)
   return comparableIdentity(left) == comparableIdentity(right);
 }
 
+rclcpp::QoS makeExplicitQos(int depth, bool reliable)
+{
+  if (depth <= 0) {
+    throw std::runtime_error("qos depth must be greater than zero");
+  }
+  rclcpp::QoS qos(rclcpp::KeepLast(static_cast<std::size_t>(depth)));
+  if (reliable) {
+    qos.reliable();
+  } else {
+    qos.best_effort();
+  }
+  return qos;
+}
+
 }  // namespace
 
 class FaKwsNode : public rclcpp::Node
@@ -209,6 +223,15 @@ private:
     if (vad_max_age_ms_ <= 0) {
       throw std::runtime_error("vad.max_age_ms must be greater than zero");
     }
+    if (audio_qos_depth_ <= 0) {
+      throw std::runtime_error("audio.qos.depth must be greater than zero");
+    }
+    if (vad_qos_depth_ <= 0) {
+      throw std::runtime_error("vad.qos.depth must be greater than zero");
+    }
+    if (result_qos_depth_ <= 0) {
+      throw std::runtime_error("result.qos.depth must be greater than zero");
+    }
   }
 
   void validateExecutionProviderOrThrow() const
@@ -237,6 +260,12 @@ private:
     vad_max_age_ms_ = this->declare_parameter<int>("vad.max_age_ms");
     cooldown_ms_ = this->declare_parameter<int>("cooldown_ms");
     debug_status_period_sec_ = this->declare_parameter<double>("debug.status_period_sec");
+    audio_qos_depth_ = this->declare_parameter<int>("audio.qos.depth");
+    audio_qos_reliable_ = this->declare_parameter<bool>("audio.qos.reliable");
+    vad_qos_depth_ = this->declare_parameter<int>("vad.qos.depth");
+    vad_qos_reliable_ = this->declare_parameter<bool>("vad.qos.reliable");
+    result_qos_depth_ = this->declare_parameter<int>("result.qos.depth");
+    result_qos_reliable_ = this->declare_parameter<bool>("result.qos.reliable");
 
     encoder_path_ = this->declare_parameter<std::string>("model.encoder");
     decoder_path_ = this->declare_parameter<std::string>("model.decoder");
@@ -255,13 +284,11 @@ private:
 
   void setupCommunication()
   {
-    rclcpp::QoS qos_audio(rclcpp::KeepLast(10));
-    qos_audio.best_effort();
+    const rclcpp::QoS qos_audio = makeExplicitQos(audio_qos_depth_, audio_qos_reliable_);
+    const rclcpp::QoS qos_vad = makeExplicitQos(vad_qos_depth_, vad_qos_reliable_);
+    const rclcpp::QoS qos_result = makeExplicitQos(result_qos_depth_, result_qos_reliable_);
 
-    rclcpp::QoS qos_vad(rclcpp::KeepLast(20));
-    qos_vad.best_effort();
-
-    wake_pub_ = this->create_publisher<WakeWordResult>(output_topic_, qos_audio);
+    wake_pub_ = this->create_publisher<WakeWordResult>(output_topic_, qos_result);
 
     vad_sub_ = this->create_subscription<VadState>(
       vad_topic_, qos_vad,
@@ -476,6 +503,12 @@ private:
   double probability_gate_{};
   int vad_max_age_ms_{};
   int cooldown_ms_{};
+  int audio_qos_depth_{};
+  bool audio_qos_reliable_{};
+  int vad_qos_depth_{};
+  bool vad_qos_reliable_{};
+  int result_qos_depth_{};
+  bool result_qos_reliable_{};
 
   std::string encoder_path_;
   std::string decoder_path_;

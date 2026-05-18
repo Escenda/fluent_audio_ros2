@@ -12,6 +12,12 @@ fa_kws:
     vad.probability_gate: 0.35
     vad.max_age_ms: 1000
     cooldown_ms: 1500
+    audio.qos.depth: 10
+    audio.qos.reliable: false
+    vad.qos.depth: 20
+    vad.qos.reliable: false
+    result.qos.depth: 10
+    result.qos.reliable: false
 
     # Local sherpa-onnx KWS model files. These are required; fa_kws fails closed
     # at startup if any path is empty or missing.
