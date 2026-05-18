@@ -382,6 +382,26 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
         "mic.output_topic": "audio/tts/48k_float32",
         "ref.enabled": False,
     }
+    assert format_nodes["fa_encode"]["enable"] is False
+    assert format_nodes["fa_encode"]["package"] == "fa_encode"
+    assert format_nodes["fa_encode"]["params_file"] == (
+        "${share:fa_encode}/config/default.yaml"
+    )
+    assert format_nodes["fa_encode"]["parameters"] == {
+        "backend.command.executable": "${env:FLUENT_AUDIO_CODEC_ENCODER}",
+        "input_topic": "audio/resample16k/mic",
+        "output_topic": "audio/encoded/mic",
+    }
+    assert format_nodes["fa_decode"]["enable"] is False
+    assert format_nodes["fa_decode"]["package"] == "fa_decode"
+    assert format_nodes["fa_decode"]["params_file"] == (
+        "${share:fa_decode}/config/default.yaml"
+    )
+    assert format_nodes["fa_decode"]["parameters"] == {
+        "backend.command.executable": "${env:FLUENT_AUDIO_CODEC_DECODER}",
+        "input_topic": "audio/encoded/mic",
+        "output_topic": "audio/decoded/mic",
+    }
     assert format_nodes["fa_sample_format_tts"]["parameters"] == {
         "input_topic": "audio/tts/48k_float32",
         "output_topic": "audio/tts/pcm16",

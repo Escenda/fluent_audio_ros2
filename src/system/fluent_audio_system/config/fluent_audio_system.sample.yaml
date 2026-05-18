@@ -54,6 +54,32 @@ groups:
           mic.input_topic: "audio/sample_format/mic"
           mic.output_topic: "audio/resample16k/mic"
 
+      - id: fa_encode
+        enable: false
+        package: fa_encode
+        exec: fa_encode_node
+        node_name: fa_encode_mic
+        namespace: ""
+        params_file: "${share:fa_encode}/config/default.yaml"
+        remappings: {}
+        parameters:
+          backend.command.executable: "${env:FLUENT_AUDIO_CODEC_ENCODER}"
+          input_topic: "audio/resample16k/mic"
+          output_topic: "audio/encoded/mic"
+
+      - id: fa_decode
+        enable: false
+        package: fa_decode
+        exec: fa_decode_node
+        node_name: fa_decode_mic
+        namespace: ""
+        params_file: "${share:fa_decode}/config/default.yaml"
+        remappings: {}
+        parameters:
+          backend.command.executable: "${env:FLUENT_AUDIO_CODEC_DECODER}"
+          input_topic: "audio/encoded/mic"
+          output_topic: "audio/decoded/mic"
+
       - id: fa_resample_tts
         enable: false
         package: fa_resample
