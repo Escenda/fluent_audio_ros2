@@ -3,9 +3,32 @@ from pathlib import Path
 import yaml
 
 
+def package_root() -> Path:
+    return Path(__file__).parents[2]
+
+
+def read_node_source() -> str:
+    return (package_root() / "src" / "fa_noise_gate_node.cpp").read_text(encoding="utf-8")
+
+
+def read_backend_header() -> str:
+    return (
+        package_root()
+        / "include"
+        / "fa_noise_gate"
+        / "backends"
+        / "internal_threshold_gate.hpp"
+    ).read_text(encoding="utf-8")
+
+
+def read_backend_source() -> str:
+    return (package_root() / "src" / "backends" / "internal_threshold_gate.cpp").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_default_config_requires_float32_interleaved_contract() -> None:
-    package_root = Path(__file__).parents[2]
-    config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
+    config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_noise_gate"]["ros__parameters"]
 
     assert params["input_topic"] == "audio/dc_offset_removed/mic"
@@ -22,8 +45,7 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
 
 
 def test_noise_gate_does_not_hide_other_processing_or_io_responsibilities() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_noise_gate_node.cpp").read_text(encoding="utf-8")
+    sources = [read_node_source(), read_backend_source()]
 
     forbidden = (
         "SND_PCM",
@@ -40,15 +62,16 @@ def test_noise_gate_does_not_hide_other_processing_or_io_responsibilities() -> N
         "limiter",
         "limit",
     )
-    for token in forbidden:
-        assert token not in source
+    for source in sources:
+        for token in forbidden:
+            assert token not in source
 
 
 def test_startup_rejects_invalid_config_without_fallback() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_noise_gate_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
+    backend_source = read_backend_source()
     load_parameters = source.split("void FaNoiseGateNode::loadParameters")[1].split(
-        "void FaNoiseGateNode::setupInterfaces"
+        "void FaNoiseGateNode::configureBackend"
     )[0]
 
     assert 'this->declare_parameter<double>("gate.threshold_linear", config_.threshold_linear);' in load_parameters
@@ -63,15 +86,21 @@ def test_startup_rejects_invalid_config_without_fallback() -> None:
     assert "requires expected.encoding=FLOAT32LE" in load_parameters
     assert "requires expected.bit_depth=32" in load_parameters
     assert "requires expected.layout=interleaved" in load_parameters
+    assert "config_.threshold_linear < 0.0" in backend_source
+    assert "config_.closed_gain_linear < 0.0" in backend_source
 
 
 def test_noise_gate_validates_frame_contract_before_processing() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_noise_gate_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
     validate_frame = source.split("bool FaNoiseGateNode::validateFrame")[1].split(
         "bool FaNoiseGateNode::applyNoiseGate"
     )[0]
+    handle_frame = source.split("void FaNoiseGateNode::handleFrame")[1].split(
+        "bool FaNoiseGateNode::validateFrame"
+    )[0]
 
+    assert "if (!msg)" in handle_frame
+    assert "frames_dropped_.fetch_add(1);" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
     assert "msg.stream_id != config_.input_topic" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
@@ -84,56 +113,85 @@ def test_noise_gate_validates_frame_contract_before_processing() -> None:
 
 
 def test_noise_gate_preserves_frame_identity_and_updates_stream_identity() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_noise_gate_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
     apply_gate = source.split("bool FaNoiseGateNode::applyNoiseGate")[1].split(
         "void FaNoiseGateNode::publishDiagnostics"
     )[0]
 
     assert "out = in;" in apply_gate
     assert "out.stream_id = config_.output_topic;" in apply_gate
-    assert "out.data.resize(in.data.size());" in apply_gate
     assert ".rms" not in apply_gate
     assert ".peak" not in apply_gate
     assert ".vad" not in apply_gate
 
 
-def test_noise_gate_algorithm_uses_threshold_and_closed_gain_only() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_noise_gate_node.cpp").read_text(encoding="utf-8")
-    apply_gate = source.split("bool FaNoiseGateNode::applyNoiseGate")[1].split(
+def test_noise_gate_algorithm_uses_backend_threshold_and_closed_gain_only() -> None:
+    header = read_backend_header()
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+    process = backend_source.split("ProcessResult InternalThresholdGateBackend::process")[1].split(
+        "const char * processStatusMessage"
+    )[0]
+    apply_gate = node_source.split("bool FaNoiseGateNode::applyNoiseGate")[1].split(
         "void FaNoiseGateNode::publishDiagnostics"
     )[0]
 
-    assert "const float threshold = static_cast<float>(config_.threshold_linear);" in apply_gate
-    assert "const double closed_gain = config_.closed_gain_linear;" in apply_gate
-    assert "if (std::abs(sample) < threshold)" in apply_gate
-    assert "output = static_cast<double>(sample) * closed_gain;" in apply_gate
-    assert "++gated_in_frame;" in apply_gate
-    assert "samples_gated_.fetch_add(gated_in_frame);" in apply_gate
-    assert "else" not in apply_gate
-    assert "std::clamp" not in apply_gate
+    assert "class InternalThresholdGateBackend" in header
+    assert "struct ProcessResult" in header
+    assert "uint64_t samples_gated" in header
+    assert "enum class ProcessStatus" in header
+    assert "if (std::abs(sample) < config_.threshold_linear)" in process
+    assert "output_sample = static_cast<double>(sample) * config_.closed_gain_linear;" in process
+    assert "++gated_in_frame;" in process
+    assert "output = std::move(next_output);" in process
+    assert "backend_->process(in.data, out.data)" in apply_gate
+    assert "samples_gated_.fetch_add(result.samples_gated);" in apply_gate
+    assert "else" not in process
+    assert "std::clamp" not in process
 
 
 def test_noise_gate_drops_invalid_samples_instead_of_clamping_or_normalizing() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_noise_gate_node.cpp").read_text(encoding="utf-8")
-    apply_gate = source.split("bool FaNoiseGateNode::applyNoiseGate")[1].split(
-        "void FaNoiseGateNode::publishDiagnostics"
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+    process = backend_source.split("ProcessResult InternalThresholdGateBackend::process")[1].split(
+        "const char * processStatusMessage"
     )[0]
 
-    assert "!std::isfinite(sample)" in apply_gate
-    assert "sample < kMinNormalizedSample || sample > kMaxNormalizedSample" in apply_gate
-    assert "!isFinite(output) || output < kMinNormalizedSample || output > kMaxNormalizedSample" in apply_gate
-    assert "!std::isfinite(out_sample)" in apply_gate
-    assert "return false;" in apply_gate
-    assert "std::clamp" not in apply_gate
-    assert "normalize(" not in apply_gate
+    assert "!std::isfinite(sample)" in process
+    assert "!isNormalizedSample(sample)" in process
+    assert "!isFinite(output_sample)" in process
+    assert "output_sample < kNormalizedMin || output_sample > kNormalizedMax" in process
+    assert "return ProcessResult{ProcessStatus::kOutOfRangeInput, 0};" in process
+    assert "return ProcessResult{ProcessStatus::kOutOfRangeOutput, 0};" in process
+    assert "std::clamp" not in process
+    assert "normalize(" not in process
+    assert "backends::processStatusMessage(result.status)" in node_source
+
+
+def test_noise_gate_backend_reports_rejection_reason_and_keeps_ros_boundary() -> None:
+    header = read_backend_header()
+    backend_source = read_backend_source()
+    node_source = read_node_source()
+
+    assert "kEmptyInput" in header
+    assert "kMisalignedInput" in header
+    assert "kNonFiniteInput" in header
+    assert "kOutOfRangeInput" in header
+    assert "kNonFiniteOutput" in header
+    assert "kOutOfRangeOutput" in header
+    assert "processStatusMessage(ProcessStatus status)" in header
+    assert "return ProcessResult{ProcessStatus::kMisalignedInput, 0};" in backend_source
+    assert "return ProcessResult{ProcessStatus::kNonFiniteInput, 0};" in backend_source
+    assert "backends::processStatusMessage(result.status)" in node_source
+
+    forbidden_backend_tokens = ("rclcpp", "fa_interfaces", "AudioFrame")
+    for token in forbidden_backend_tokens:
+        assert token not in header
+        assert token not in backend_source
 
 
 def test_diagnostics_publish_config_and_counters() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (package_root / "src" / "fa_noise_gate_node.cpp").read_text(encoding="utf-8")
+    source = read_node_source()
     diagnostics = source.split("void FaNoiseGateNode::publishDiagnostics")[1].split(
         "}  // namespace fa_noise_gate"
     )[0]
@@ -149,7 +207,6 @@ def test_diagnostics_publish_config_and_counters() -> None:
 
 
 def test_package_layout_matches_standard_processing_layout() -> None:
-    package_root = Path(__file__).parents[2]
     required_paths = (
         "README.md",
         "docs/仕様書.md",
@@ -159,7 +216,10 @@ def test_package_layout_matches_standard_processing_layout() -> None:
         "config/default.yaml",
         "launch/fa_noise_gate.launch.py",
         "include/fa_noise_gate/fa_noise_gate_node.hpp",
+        "include/fa_noise_gate/backends/internal_threshold_gate.hpp",
         "src/fa_noise_gate_node.cpp",
+        "src/backends/internal_threshold_gate.cpp",
+        "test/cpp/test_internal_threshold_gate_backend.cpp",
         "test/unit/test_fa_noise_gate_audio_frame_contract.py",
         "test/integration/.gitkeep",
         "test/launch/.gitkeep",
@@ -167,17 +227,20 @@ def test_package_layout_matches_standard_processing_layout() -> None:
     )
 
     for relative_path in required_paths:
-        assert (package_root / relative_path).exists()
+        assert (package_root() / relative_path).exists()
 
 
-def test_colcon_runs_pytest_contracts() -> None:
-    package_root = Path(__file__).parents[2]
-    cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
-    package_xml = (package_root / "package.xml").read_text(encoding="utf-8")
+def test_colcon_runs_pytest_and_backend_gtest_contracts() -> None:
+    cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
+    package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

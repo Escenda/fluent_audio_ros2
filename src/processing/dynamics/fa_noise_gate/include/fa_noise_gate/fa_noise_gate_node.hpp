@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
@@ -11,6 +12,11 @@
 
 namespace fa_noise_gate
 {
+
+namespace backends
+{
+class InternalThresholdGateBackend;
+}  // namespace backends
 
 struct NoiseGateConfig
 {
@@ -35,18 +41,21 @@ class FaNoiseGateNode : public rclcpp::Node
 {
 public:
   FaNoiseGateNode();
-  ~FaNoiseGateNode() override = default;
+  ~FaNoiseGateNode() override;
 
 private:
   void loadParameters();
   void setupInterfaces();
   void handleFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
+  void configureBackend();
 
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg);
   bool applyNoiseGate(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
 
   NoiseGateConfig config_;
+  std::unique_ptr<backends::InternalThresholdGateBackend> backend_{};
+
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
