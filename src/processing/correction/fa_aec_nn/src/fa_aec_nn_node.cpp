@@ -183,9 +183,11 @@ bool FaAecNnNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) cons
 void FaAecNnNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
 {
   in_.fetch_add(1);
-  if (!msg || !pub_) {
-    drop_.fetch_add(1);
-    return;
+  if (!msg) {
+    throw std::logic_error("fa_aec_nn received a null AudioFrame pointer");
+  }
+  if (!pub_) {
+    throw std::logic_error("fa_aec_nn publisher is not initialized");
   }
 
   if (!config_.enabled) {
@@ -207,24 +209,21 @@ void FaAecNnNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr m
   }
 
   if (!backend_) {
-    drop_.fetch_add(1);
-    RCLCPP_ERROR_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping frame because fa_aec_nn backend is not initialized");
-    return;
+    throw std::logic_error("fa_aec_nn backend is not initialized");
   }
 
   backends::AudioChunk chunk;
   chunk.sample_rate = static_cast<int>(msg->sample_rate);
   chunk.channels = static_cast<int>(msg->channels);
   chunk.bit_depth = static_cast<int>(msg->bit_depth);
+  chunk.encoding = msg->encoding;
   chunk.layout = msg->layout;
   chunk.data = msg->data.data();
   chunk.data_size = msg->data.size();
 
-  std::vector<uint8_t> processed_data;
+  backends::ProcessedAudioChunk processed_chunk;
   try {
-    processed_data = backend_->process(chunk);
+    processed_chunk = backend_->process(chunk);
   } catch (const std::exception & e) {
     drop_.fetch_add(1);
     RCLCPP_ERROR_THROTTLE(
@@ -233,18 +232,25 @@ void FaAecNnNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr m
     return;
   }
 
-  if (processed_data.empty()) {
+  const auto processed_contract_error =
+    backends::validateProcessedAudioChunk(chunk, processed_chunk);
+  if (!processed_contract_error.empty()) {
     drop_.fetch_add(1);
     RCLCPP_ERROR_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Dropping frame because fa_aec_nn backend returned empty audio data");
+      "Dropping frame because fa_aec_nn backend violated output contract: %s",
+      processed_contract_error.c_str());
     return;
   }
 
   auto out_msg = *msg;
-  out_msg.data = std::move(processed_data);
+  out_msg.sample_rate = static_cast<uint32_t>(processed_chunk.sample_rate);
+  out_msg.channels = static_cast<uint32_t>(processed_chunk.channels);
+  out_msg.encoding = processed_chunk.encoding;
+  out_msg.bit_depth = static_cast<uint32_t>(processed_chunk.bit_depth);
+  out_msg.data = std::move(processed_chunk.data);
   out_msg.stream_id = config_.output_topic;
-  out_msg.layout = kInterleavedLayout;
+  out_msg.layout = processed_chunk.layout;
   pub_->publish(out_msg);
   out_.fetch_add(1);
 }

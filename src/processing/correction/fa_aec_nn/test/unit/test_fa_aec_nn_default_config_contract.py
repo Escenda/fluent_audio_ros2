@@ -37,10 +37,11 @@ def test_aec_nn_passthrough_updates_output_stream_identity() -> None:
     assert "msg.source_id.empty()" in source
     assert "msg.stream_id != config_.input_topic" in source
     assert "msg.layout != kInterleavedLayout" in source
-    assert "processed_data = backend_->process(chunk);" in source
-    assert "out_msg.data = std::move(processed_data);" in source
+    assert "processed_chunk = backend_->process(chunk);" in source
+    assert "validateProcessedAudioChunk(chunk, processed_chunk)" in source
+    assert "out_msg.data = std::move(processed_chunk.data);" in source
     assert "out_msg.stream_id = config_.output_topic;" in source
-    assert "out_msg.layout = kInterleavedLayout;" in source
+    assert "out_msg.layout = processed_chunk.layout;" in source
 
 
 def test_passthrough_backend_lives_under_backend_boundary() -> None:
@@ -75,6 +76,31 @@ def test_backend_files_are_ros_free() -> None:
             assert token not in source
 
 
+def test_backend_output_contract_is_explicit_and_validated() -> None:
+    package_root = Path(__file__).parents[2]
+    backend_header = (
+        package_root / "include" / "fa_aec_nn" / "backends" / "aec_nn_backend.hpp"
+    ).read_text(encoding="utf-8")
+    source = (package_root / "src" / "fa_aec_nn_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    passthrough_source = (
+        package_root / "src" / "backends" / "passthrough_backend.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "struct ProcessedAudioChunk" in backend_header
+    assert "std::vector<uint8_t> data;" in backend_header
+    assert "validateProcessedAudioChunk" in backend_header
+    assert "backend output sample_rate must match input sample_rate" in backend_header
+    assert "backend output audio data must be non-empty and PCM frame aligned" in backend_header
+    assert "backend output audio data size must match input audio data size" in backend_header
+    assert "chunk.encoding = msg->encoding;" in source
+    assert "backends::validateProcessedAudioChunk(chunk, processed_chunk)" in source
+    assert "fa_aec_nn backend violated output contract" in source
+    assert "output.encoding = chunk.encoding;" in passthrough_source
+    assert "output.data = std::vector<uint8_t>(chunk.data, chunk.data + chunk.data_size)" in passthrough_source
+
+
 def test_cmake_builds_backend_library_and_node_links_it() -> None:
     package_root = Path(__file__).parents[2]
     cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")
@@ -85,6 +111,14 @@ def test_cmake_builds_backend_library_and_node_links_it() -> None:
     assert "target_link_libraries(fa_aec_nn_node_core\n  fa_aec_nn_backends" in cmake_text
     assert "target_link_libraries(fa_aec_nn_node\n  fa_aec_nn_node_core" in cmake_text
     assert "target_sources(fa_aec_nn_node" not in cmake_text
+
+
+def test_main_shutdown_is_guarded_by_rclcpp_ok() -> None:
+    package_root = Path(__file__).parents[2]
+    main_source = (package_root / "src" / "main.cpp").read_text(encoding="utf-8")
+
+    assert "if (rclcpp::ok()) {\n      rclcpp::shutdown();" in main_source
+    assert "}\n  if (rclcpp::ok()) {\n    rclcpp::shutdown();" in main_source
 
 
 def test_aec_nn_rejects_channel_wildcards_and_unsupported_format_pairs() -> None:
@@ -105,9 +139,21 @@ def test_aec_nn_rejects_channel_wildcards_and_unsupported_format_pairs() -> None
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in source
     assert "msg.encoding != config_.expected_encoding" in source
     assert "expected encoding/bit_depth must be PCM16LE/16 or FLOAT32LE/32" in source
+    assert 'throw std::logic_error("fa_aec_nn backend is not initialized")' in source
+    assert "Dropping frame because fa_aec_nn backend is not initialized" not in source
     assert "channel 検査の無効化は禁止" in spec
     assert "`stream_id` は `input_topic`" in spec
     assert "PCM32LE/32" in spec
     assert "channel 検査の wildcard はない" in algorithm
     assert "encoding / bit depth は `PCM16LE/16`" in algorithm
     assert "stream_id` が `input_topic`" in test_plan
+
+
+def test_package_manifest_declares_launch_and_yaml_dependencies() -> None:
+    package_xml = (Path(__file__).parents[2] / "package.xml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "<exec_depend>launch</exec_depend>" in package_xml
+    assert "<exec_depend>launch_ros</exec_depend>" in package_xml
+    assert "<test_depend>python3-yaml</test_depend>" in package_xml

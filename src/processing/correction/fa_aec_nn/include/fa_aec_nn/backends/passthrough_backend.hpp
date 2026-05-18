@@ -9,7 +9,7 @@ class PassthroughBackend final : public AecNnBackend
 {
 public:
   const char * name() const override;
-  std::vector<uint8_t> process(const AudioChunk & chunk) override;
+  ProcessedAudioChunk process(const AudioChunk & chunk) override;
 };
 
 }  // namespace fa_aec_nn::backends

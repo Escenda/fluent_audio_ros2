@@ -14,6 +14,8 @@
 #include <gtest/gtest.h>
 #include <rclcpp/rclcpp.hpp>
 
+#include "fa_aec_nn/backends/aec_nn_backend.hpp"
+
 namespace
 {
 using namespace std::chrono_literals;
@@ -90,6 +92,37 @@ fa_interfaces::msg::AudioFrame frameWith(
   return frame;
 }
 
+fa_aec_nn::backends::AudioChunk audioChunkWith(
+  const std::vector<uint8_t> & data,
+  const std::string & encoding = "PCM16LE",
+  const int bit_depth = static_cast<int>(kBitDepth))
+{
+  fa_aec_nn::backends::AudioChunk chunk;
+  chunk.sample_rate = static_cast<int>(kSampleRate);
+  chunk.channels = static_cast<int>(kChannels);
+  chunk.bit_depth = bit_depth;
+  chunk.encoding = encoding;
+  chunk.layout = "interleaved";
+  chunk.data = data.data();
+  chunk.data_size = data.size();
+  return chunk;
+}
+
+fa_aec_nn::backends::ProcessedAudioChunk processedChunkWith(
+  const std::vector<uint8_t> & data,
+  const std::string & encoding = "PCM16LE",
+  const int bit_depth = static_cast<int>(kBitDepth))
+{
+  fa_aec_nn::backends::ProcessedAudioChunk output;
+  output.sample_rate = static_cast<int>(kSampleRate);
+  output.channels = static_cast<int>(kChannels);
+  output.bit_depth = bit_depth;
+  output.encoding = encoding;
+  output.layout = "interleaved";
+  output.data = data;
+  return output;
+}
+
 bool spinUntil(
   rclcpp::executors::SingleThreadedExecutor & executor,
   const std::function<bool()> & predicate)
@@ -136,6 +169,80 @@ protected:
   }
 };
 
+TEST(AecNnBackendContractTest, AcceptsSameFormatAlignedOutput)
+{
+  const std::vector<uint8_t> data{0x00U, 0x00U};
+  const auto input = audioChunkWith(data);
+  const auto output = processedChunkWith(data);
+
+  EXPECT_TRUE(fa_aec_nn::backends::validateProcessedAudioChunk(input, output).empty());
+}
+
+TEST(AecNnBackendContractTest, RejectsEmptyOutput)
+{
+  const std::vector<uint8_t> data{0x00U, 0x00U};
+  const std::vector<uint8_t> empty;
+  const auto input = audioChunkWith(data);
+  const auto output = processedChunkWith(empty);
+
+  EXPECT_EQ(
+    fa_aec_nn::backends::validateProcessedAudioChunk(input, output),
+    "backend output audio data must be non-empty and PCM frame aligned");
+}
+
+TEST(AecNnBackendContractTest, RejectsMisalignedOutput)
+{
+  const std::vector<uint8_t> data{0x00U, 0x00U};
+  const auto input = audioChunkWith(data);
+  const auto output = processedChunkWith({0x00U});
+
+  EXPECT_EQ(
+    fa_aec_nn::backends::validateProcessedAudioChunk(input, output),
+    "backend output audio data must be non-empty and PCM frame aligned");
+}
+
+TEST(AecNnBackendContractTest, RejectsAlignedDurationChange)
+{
+  const std::vector<uint8_t> data{0x00U, 0x00U};
+  const auto input = audioChunkWith(data);
+  const auto output = processedChunkWith({0x00U, 0x00U, 0x01U, 0x00U});
+
+  EXPECT_EQ(
+    fa_aec_nn::backends::validateProcessedAudioChunk(input, output),
+    "backend output audio data size must match input audio data size");
+}
+
+TEST(AecNnBackendContractTest, RejectsOutputFormatChange)
+{
+  const std::vector<uint8_t> data{0x00U, 0x00U};
+  const auto input = audioChunkWith(data);
+  const auto output = processedChunkWith(data, "FLOAT32LE", 32);
+
+  EXPECT_EQ(
+    fa_aec_nn::backends::validateProcessedAudioChunk(input, output),
+    "backend output encoding must match input encoding");
+}
+
+TEST_F(RclcppContractTest, RejectsMissingBackendAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("backend.name", ""));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_aec_nn::FaAecNnNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, RejectsUnknownBackendAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("backend.name", "unknown"));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_aec_nn::FaAecNnNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
 TEST_F(RclcppContractTest, PublishesPassthroughFrameWithOutputStreamId)
 {
   auto node = std::make_shared<fa_aec_nn::FaAecNnNode>(optionsWith(validParameters()));
@@ -172,6 +279,35 @@ TEST_F(RclcppContractTest, PublishesPassthroughFrameWithOutputStreamId)
   EXPECT_EQ(received[0].layout, "interleaved");
   EXPECT_EQ(received[0].epoch, 1U);
   EXPECT_EQ(received[0].data, data);
+}
+
+TEST_F(RclcppContractTest, DropsFrameWhenDisabled)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("enabled", false));
+  auto node = std::make_shared<fa_aec_nn::FaAecNnNode>(optionsWith(std::move(parameters)));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_nn_disabled_contract_io");
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto input_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic, rclcpp::QoS(10).reliable());
+  auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    kOutputTopic, rclcpp::QoS(10).reliable(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+  ASSERT_NE(output_sub, nullptr);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&input_pub, &output_sub]() {
+    return input_pub->get_subscription_count() > 0 && output_sub->get_publisher_count() > 0;
+  }));
+
+  input_pub->publish(frameWith(kInputTopic, {0x00U, 0x00U}, 1U));
+  spinFor(executor, 250ms);
+
+  EXPECT_TRUE(received.empty());
 }
 
 TEST_F(RclcppContractTest, DropsFrameWithMismatchedStreamId)

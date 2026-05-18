@@ -9,19 +9,22 @@ default config では選択しない。利用する場合は、debug / wiring va
 
 ## 入力
 
-- validated `AudioFrame`
-- `stream_id == input_topic`
+- validated `AudioChunk`
 - `expected_channels > 0`
 - `PCM16LE/16` or `FLOAT32LE/32` explicit format pair
+- interleaved layout
+- non-empty PCM frame-aligned byte payload
 
 ## 出力
 
-- 入力と同じ `AudioFrame`
+- 入力と同じ sample rate / channels / encoding / bit depth / layout / frame count を持つ `ProcessedAudioChunk`
+- 入力と同じ byte payload
 
 ## 失敗条件
 
 - node 側の format validation に失敗した frame
 - node 側の stream-id validation に失敗した frame
+- backend が empty、frame boundary 不一致、frame count 不一致の出力を返した場合
 - disabled channel validation や unsupported format pair を指定した config
 
 ## 注意

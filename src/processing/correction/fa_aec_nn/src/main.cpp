@@ -14,9 +14,13 @@ int main(int argc, char ** argv)
     rclcpp::spin(node);
   } catch (const std::exception & e) {
     RCLCPP_FATAL(rclcpp::get_logger("fa_aec_nn"), "Exception: %s", e.what());
-    rclcpp::shutdown();
+    if (rclcpp::ok()) {
+      rclcpp::shutdown();
+    }
     return EXIT_FAILURE;
   }
-  rclcpp::shutdown();
+  if (rclcpp::ok()) {
+    rclcpp::shutdown();
+  }
   return EXIT_SUCCESS;
 }
