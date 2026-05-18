@@ -110,7 +110,7 @@ fa_tts
 | `audio.encoding` | `PCM16LE / PCM32LE / FLOAT32LE` | `AudioFrame`の格納形式 |
 | `diagnostics.publish_period_ms` | `1000` | diagnostics周期(ms) |
 
-VAD/KWS/ASR/TD を同じ音声 stream で連携する場合、`fa_vad.input_topic`、`fa_kws.audio_topic`、`fa_turn_detector.audio_topic`、`fa_asr.expected_stream_id` は同じ `AudioFrame.stream_id` に揃える必要があります。`VadState.stream_id` は `fa_vad` の入力 `AudioFrame.stream_id` を引き継ぎ、後段 node は不一致の VAD state を処理に使いません。
+VAD/KWS/ASR/TD を同じ音声 stream で連携する場合、`fa_vad.input_stream_id`、`fa_kws.expected_stream_id`、`fa_turn_detector.expected_stream_id`、`fa_asr.expected_stream_id` を同じ `AudioFrame.stream_id` に揃える必要があります。`fa_vad.input_topic`、`fa_kws.audio_topic`、`fa_turn_detector.audio_topic`、`fa_asr.audio_topic` は ROS transport topic であり、frame identity ではありません。`VadState.stream_id` は `fa_vad` の入力 `AudioFrame.stream_id` を引き継ぎ、後段 node は不一致の VAD state を処理に使いません。
 
 ## 5. ランチ例
 ```bash

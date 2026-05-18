@@ -16,8 +16,10 @@
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `input_topic` | yes | 入力 `AudioFrame` topic。入力 frame の `stream_id` と一致すること |
-| `output_topic` | yes | 出力 `AudioFrame` topic。出力 frame の `stream_id` に設定する値 |
+| `input_topic` | yes | 入力 `AudioFrame` の ROS transport topic |
+| `output_topic` | yes | 出力 `AudioFrame` の ROS transport topic |
+| `input_stream_id` | yes | 入力 frame の `stream_id` と一致する論理 stream identity。ROS topic 名とは別値 |
+| `output.stream_id` | yes | 出力 frame の `stream_id` に設定する論理 stream identity。ROS topic 名とは別値 |
 | `compensation.offset_ms` | yes | `header.stamp` に加算する signed double milliseconds |
 | `expected.sample_rate` | yes | 期待する sample rate |
 | `expected.channels` | yes | 期待する channel 数 |
