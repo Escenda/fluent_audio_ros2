@@ -158,6 +158,16 @@ TEST_F(RclcppContractTest, RejectsUnknownBackendAtStartup)
     std::runtime_error);
 }
 
+TEST_F(RclcppContractTest, RejectsResolvedTopicLoopAtStartup)
+{
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("output_topic", kInputTopic));
+
+  EXPECT_THROW(
+    (std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(std::move(parameters)))),
+    std::runtime_error);
+}
+
 TEST_F(RclcppContractTest, RejectsPassthroughOutputFormatChangeAtStartup)
 {
   auto parameters = validParameters();

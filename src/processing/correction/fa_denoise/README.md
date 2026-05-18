@@ -21,11 +21,13 @@ DeepFIR 設計メモ: `docs/deepfir_ns_design_memo.md`
 `enabled=false` は pass-through ではなく drop として扱います。pipeline から外す場合は system config で node 自体を disable してください。
 
 ## Build（ONNX Runtime）
-`fa_denoise` は DTLN ONNX backend を前提に build します。ビルド時に ONNX Runtime（C++）が見つからない場合は configure で失敗します。
+`fa_denoise` は DTLN ONNX backend を前提にしますが、CI / debug 環境では ONNX Runtime なしでも package build できるように `FA_DENOISE_ONNXRUNTIME=AUTO` を既定にしています。この場合も `backend.name=dtln_onnx` は起動時に fail closed し、`passthrough` や別 backend へ暗黙に切り替えません。
 
 - CMake 検出:
   - `ONNXRUNTIME_ROOT`（`include/` と `lib/` を含むディレクトリ）または
   - `ONNXRUNTIME_INCLUDE_DIR`, `ONNXRUNTIME_LIBRARY` を指定
+- ONNX Runtime を build 時必須にする場合:
+  - `-DFA_DENOISE_ONNXRUNTIME=ON`
 - 例:
 ```bash
 export ONNXRUNTIME_ROOT=$HOME/onnxruntime

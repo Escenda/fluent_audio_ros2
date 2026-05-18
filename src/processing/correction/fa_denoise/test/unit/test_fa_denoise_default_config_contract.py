@@ -36,6 +36,18 @@ def test_denoise_outputs_audio_frame_identity_without_analysis_metadata() -> Non
 
 def test_dtln_backend_lives_under_backend_boundary() -> None:
     package_root = Path(__file__).parents[2]
+    contract_header = (
+        package_root / "include" / "fa_denoise" / "backends" / "denoise_backend.hpp"
+    )
+    contract_source = package_root / "src" / "backends" / "denoise_backend.cpp"
+    passthrough_header = (
+        package_root / "include" / "fa_denoise" / "backends" / "passthrough_backend.hpp"
+    )
+    passthrough_source = package_root / "src" / "backends" / "passthrough_backend.cpp"
+    wrapper_header = (
+        package_root / "include" / "fa_denoise" / "backends" / "dtln_onnx_backend.hpp"
+    )
+    wrapper_source = package_root / "src" / "backends" / "dtln_onnx_backend.cpp"
     backend_header = (
         package_root / "include" / "fa_denoise" / "backends" / "dtln_onnx_engine.hpp"
     )
@@ -44,18 +56,33 @@ def test_dtln_backend_lives_under_backend_boundary() -> None:
     old_source = package_root / "src" / "dtln_onnx_engine.cpp"
     node_source = package_root / "src" / "fa_denoise_node.cpp"
 
+    assert contract_header.is_file()
+    assert contract_source.is_file()
+    assert passthrough_header.is_file()
+    assert passthrough_source.is_file()
+    assert wrapper_header.is_file()
+    assert wrapper_source.is_file()
     assert backend_header.is_file()
     assert backend_source.is_file()
     assert not old_header.exists()
     assert not old_source.exists()
-    assert '#include "fa_denoise/backends/dtln_onnx_engine.hpp"' in node_source.read_text(
-        encoding="utf-8"
-    )
+    node_text = node_source.read_text(encoding="utf-8")
+    assert '#include "fa_denoise/backends/dtln_onnx_engine.hpp"' not in node_text
+    assert '#include "fa_denoise/backends/denoise_backend.hpp"' in node_text
+    assert '#include "fa_denoise/backends/passthrough_backend.hpp"' in node_text
+    assert '#include "fa_denoise/backends/dtln_onnx_backend.hpp"' in node_text
+    assert "DtlnOnnxEngine" not in node_text
 
 
 def test_backend_files_are_ros_free() -> None:
     package_root = Path(__file__).parents[2]
     backend_files = [
+        package_root / "include" / "fa_denoise" / "backends" / "denoise_backend.hpp",
+        package_root / "src" / "backends" / "denoise_backend.cpp",
+        package_root / "include" / "fa_denoise" / "backends" / "passthrough_backend.hpp",
+        package_root / "src" / "backends" / "passthrough_backend.cpp",
+        package_root / "include" / "fa_denoise" / "backends" / "dtln_onnx_backend.hpp",
+        package_root / "src" / "backends" / "dtln_onnx_backend.cpp",
         package_root / "include" / "fa_denoise" / "backends" / "dtln_onnx_engine.hpp",
         package_root / "src" / "backends" / "dtln_onnx_engine.cpp",
     ]
@@ -82,18 +109,24 @@ def test_cmake_builds_backend_library_and_registers_pytest() -> None:
     assert 'FA_DENOISE_ONNXRUNTIME STREQUAL "ON"' in cmake_text
     assert 'FA_DENOISE_WITH_ONNXRUNTIME' in cmake_text
     assert "Selecting backend.name=dtln_onnx will fail closed at node startup" in cmake_text
-    assert "add_library(fa_denoise_backends STATIC" in cmake_text
+    assert "add_library(fa_denoise_backend_contract STATIC" in cmake_text
+    assert "src/backends/denoise_backend.cpp" in cmake_text
+    assert "src/backends/passthrough_backend.cpp" in cmake_text
+    assert "add_library(fa_denoise_dtln_onnx_backend STATIC" in cmake_text
+    assert "src/backends/dtln_onnx_backend.cpp" in cmake_text
     assert "src/backends/dtln_onnx_engine.cpp" in cmake_text
     assert "third_party/kissfft/kiss_fft.c" in cmake_text
     assert "add_library(fa_denoise_node_core" in cmake_text
     assert "target_link_libraries(fa_denoise_node_core" in cmake_text
-    assert "fa_denoise_backends" in cmake_text
+    assert "fa_denoise_backend_contract" in cmake_text
+    assert "fa_denoise_dtln_onnx_backend" in cmake_text
     assert "target_link_libraries(fa_denoise_node" in cmake_text
     assert "fa_denoise_node_core" in cmake_text
     assert "target_sources(fa_denoise_node" not in cmake_text
     assert "src/dtln_onnx_engine.cpp" not in cmake_text
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_contract_test" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
@@ -136,14 +169,22 @@ def test_denoise_requires_explicit_format_pairs_and_no_hidden_clamp() -> None:
     assert "msg.encoding != config_.expected_encoding" in source
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in source
     assert "msg.stream_id != config_.input_topic" in source
+    assert "resolved input_topic and output_topic must be distinct" in source
+    assert "hasValidStamp(msg.header.stamp)" in source
     assert "std::max<int>(1, config_.qos_depth)" not in source
-    assert "msg.encoding != kEncodingFloat32 || msg.bit_depth != 32" in source
+    assert "decodeToFloat" not in source
+    assert "encodeFromFloat" not in source
+    backend_source = (package_root / "src" / "backends" / "denoise_backend.cpp").read_text(
+        encoding="utf-8"
+    )
+    assert "input.format.encoding != kEncodingFloat32 || input.format.bit_depth != 32" in backend_source
     assert "fa_denoise passthrough requires output format to match expected input format" in source
-    assert "sample count is not aligned to dtln.block_shift" in source
-    assert "dtln_onnx output sample count must match input sample count" in source
-    assert "fa_denoise dtln_onnx backend is not initialized" in source
-    assert "denoise output sample out of normalized range" in source
-    assert "std::clamp" not in source
+    assert "sample count is not aligned to dtln.block_shift" in backend_source
+    assert "output sample count does not match input sample count" in backend_source
+    assert "denoise output sample is outside normalized [-1.0, 1.0] range" in backend_source
+    hidden_clamp_token = "std::" + "clamp"
+    assert hidden_clamp_token not in source
+    assert hidden_clamp_token not in backend_source
     assert "hidden range clamp" in spec
     assert "PCM32LE/32" in algorithm
 
@@ -159,6 +200,9 @@ def test_dtln_backend_validates_onnx_output_shapes_before_copy() -> None:
     assert "requireShapeEquals(state_output_shape_2, state_shape_2_" in backend_source
     assert "DTLN model_1 mask output" in backend_source
     assert "DTLN model_2 time output" in backend_source
+    assert "dim = 1" not in backend_source
+    assert "DTLN ONNX tensor shape must be fully static and positive" in backend_source
+    assert "DTLN process requires non-empty sample input" in backend_source
 
 
 def test_main_shutdown_is_guarded_by_rclcpp_ok() -> None:

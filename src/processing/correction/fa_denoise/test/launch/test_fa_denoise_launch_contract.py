@@ -109,6 +109,23 @@ def test_launch_fails_closed_when_backend_is_unknown(tmp_path: Path) -> None:
     assert "backend.name must be passthrough or dtln_onnx" in result.stdout
 
 
+def test_launch_fails_closed_when_resolved_topics_match(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    params = config["fa_denoise"]["ros__parameters"]
+    params["backend.name"] = "passthrough"
+    params["output_topic"] = params["input_topic"]
+    config_path = tmp_path / "same_topics.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_fa_denoise_launch(config_path)
+
+    assert result.returncode != LAUNCH_TIMEOUT_CODE
+    assert "process has died" in result.stdout
+    assert "resolved input_topic and output_topic must be distinct" in result.stdout
+
+
 def test_launch_accepts_explicit_passthrough_config(tmp_path: Path) -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")

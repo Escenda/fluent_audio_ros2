@@ -25,6 +25,15 @@ set(ONNXRUNTIME_LIBRARY "" CACHE FILEPATH "ONNX Runtime library file (e.g. libon
 
 set(FA_DENOISE_WITH_ONNXRUNTIME OFF)
 
+add_library(fa_denoise_backend_contract STATIC
+  src/backends/denoise_backend.cpp
+  src/backends/passthrough_backend.cpp
+)
+
+target_include_directories(fa_denoise_backend_contract PUBLIC
+  include
+)
+
 if(NOT FA_DENOISE_ONNXRUNTIME STREQUAL "OFF")
   if(NOT ONNXRUNTIME_INCLUDE_DIR)
     find_path(ONNXRUNTIME_INCLUDE_DIR
@@ -53,22 +62,24 @@ endif()
 
 if(FA_DENOISE_WITH_ONNXRUNTIME)
   message(STATUS "ONNX Runtime found: include=${ONNXRUNTIME_INCLUDE_DIR} lib=${ONNXRUNTIME_LIBRARY}")
-  add_library(fa_denoise_backends STATIC
+  add_library(fa_denoise_dtln_onnx_backend STATIC
+    src/backends/dtln_onnx_backend.cpp
     src/backends/dtln_onnx_engine.cpp
     third_party/kissfft/kiss_fft.c
     third_party/kissfft/kiss_fftr.c
   )
 
-  target_include_directories(fa_denoise_backends PUBLIC
+  target_include_directories(fa_denoise_dtln_onnx_backend PUBLIC
     include
   )
 
-  target_include_directories(fa_denoise_backends PRIVATE
+  target_include_directories(fa_denoise_dtln_onnx_backend PRIVATE
     ${ONNXRUNTIME_INCLUDE_DIR}
     third_party/kissfft
   )
 
-  target_link_libraries(fa_denoise_backends PUBLIC
+  target_link_libraries(fa_denoise_dtln_onnx_backend PUBLIC
+    fa_denoise_backend_contract
     ${ONNXRUNTIME_LIBRARY}
   )
 endif()
@@ -81,6 +92,10 @@ target_include_directories(fa_denoise_node_core PUBLIC
   include
 )
 
+target_link_libraries(fa_denoise_node_core
+  fa_denoise_backend_contract
+)
+
 ament_target_dependencies(fa_denoise_node_core
   rclcpp
   diagnostic_msgs
@@ -91,7 +106,7 @@ if(FA_DENOISE_WITH_ONNXRUNTIME)
   target_compile_definitions(fa_denoise_node_core PUBLIC FA_DENOISE_WITH_ONNXRUNTIME=1)
 
   target_link_libraries(fa_denoise_node_core
-    fa_denoise_backends
+    fa_denoise_dtln_onnx_backend
   )
 endif()
 
@@ -115,12 +130,14 @@ if(FA_DENOISE_WITH_ONNXRUNTIME)
   )
 endif()
 
-install(TARGETS fa_denoise_node
+install(TARGETS
+  fa_denoise_backend_contract
+  fa_denoise_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
 if(FA_DENOISE_WITH_ONNXRUNTIME)
-  install(TARGETS fa_denoise_backends
+  install(TARGETS fa_denoise_dtln_onnx_backend
     DESTINATION lib/${PROJECT_NAME}
   )
 endif()
@@ -171,6 +188,16 @@ if(BUILD_TESTING)
   )
   target_link_libraries(${PROJECT_NAME}_node_contract_test
     fa_denoise_node_core
+  )
+
+  ament_add_gtest(${PROJECT_NAME}_backend_contract_test
+    test/cpp/test_denoise_backend_contract.cpp
+  )
+  target_include_directories(${PROJECT_NAME}_backend_contract_test PRIVATE
+    include
+  )
+  target_link_libraries(${PROJECT_NAME}_backend_contract_test
+    fa_denoise_backend_contract
   )
 
   ament_lint_auto_find_test_dependencies()

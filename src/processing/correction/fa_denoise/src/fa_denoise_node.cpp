@@ -1,9 +1,6 @@
 #include "fa_denoise/fa_denoise_node.hpp"
 
 #include <chrono>
-#include <cmath>
-#include <cstring>
-#include <filesystem>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -11,11 +8,14 @@
 #include <utility>
 #include <vector>
 
+#include "builtin_interfaces/msg/time.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "fa_denoise/backends/denoise_backend.hpp"
+#include "fa_denoise/backends/passthrough_backend.hpp"
 
 #ifdef FA_DENOISE_WITH_ONNXRUNTIME
-#include "fa_denoise/backends/dtln_onnx_engine.hpp"
+#include "fa_denoise/backends/dtln_onnx_backend.hpp"
 #endif
 
 namespace fa_denoise
@@ -24,30 +24,12 @@ namespace fa_denoise
 namespace
 {
 constexpr int kRequiredSampleRate = 16000;
-constexpr const char * kEncodingPcm16 = "PCM16LE";
-constexpr const char * kEncodingFloat32 = "FLOAT32LE";
 constexpr const char * kInterleavedLayout = "interleaved";
 
-bool isSupportedAudioFormatPair(const std::string & encoding, int bit_depth)
+bool hasValidStamp(const builtin_interfaces::msg::Time & stamp)
 {
-  return (encoding == kEncodingPcm16 && bit_depth == 16) ||
-         (encoding == kEncodingFloat32 && bit_depth == 32);
+  return stamp.sec != 0 || stamp.nanosec != 0U;
 }
-
-#ifdef FA_DENOISE_WITH_ONNXRUNTIME
-std::string resolveModelPathOrThrow(const std::string & path_or_empty, const std::string & parameter_name)
-{
-  if (path_or_empty.empty()) {
-    throw std::runtime_error(parameter_name + " is required for dtln_onnx backend");
-  }
-  std::filesystem::path path(path_or_empty);
-  std::error_code ec;
-  if (!std::filesystem::exists(path, ec) || ec) {
-    throw std::runtime_error("Model file not found: " + path.string());
-  }
-  return path.string();
-}
-#endif
 
 uint64_t nanosSince(const std::chrono::steady_clock::time_point & start)
 {
@@ -69,6 +51,7 @@ FaDenoiseNode::FaDenoiseNode(const rclcpp::NodeOptions & options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting FA Denoise node");
   loadParameters();
+  configureBackend();
   setupInterfaces();
 }
 
@@ -131,6 +114,13 @@ void FaDenoiseNode::loadParameters()
   if (config_.output_topic.empty()) {
     throw std::runtime_error("output_topic is required (set via YAML)");
   }
+  config_.resolved_input_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.input_topic);
+  config_.resolved_output_topic =
+    this->get_node_topics_interface()->resolve_topic_name(config_.output_topic);
+  if (config_.resolved_input_topic == config_.resolved_output_topic) {
+    throw std::runtime_error("resolved input_topic and output_topic must be distinct");
+  }
   if (config_.expected_sample_rate != kRequiredSampleRate) {
     throw std::runtime_error(
             "fa_denoise requires expected_sample_rate=16000 by design (got " +
@@ -139,7 +129,7 @@ void FaDenoiseNode::loadParameters()
   if (config_.expected_channels <= 0) {
     throw std::runtime_error("expected_channels must be > 0 (set via YAML)");
   }
-  if (!isSupportedAudioFormatPair(config_.expected_encoding, config_.expected_bit_depth)) {
+  if (!backends::isSupportedAudioFormatPair(config_.expected_encoding, config_.expected_bit_depth)) {
     throw std::runtime_error(
       "expected.encoding/expected.bit_depth must be PCM16LE/16 or FLOAT32LE/32");
   }
@@ -149,7 +139,7 @@ void FaDenoiseNode::loadParameters()
   if (config_.diagnostics_publish_period_ms <= 0) {
     throw std::runtime_error("diagnostics.publish_period_ms must be > 0 (set via YAML)");
   }
-  if (!isSupportedAudioFormatPair(config_.output_encoding, config_.output_bit_depth)) {
+  if (!backends::isSupportedAudioFormatPair(config_.output_encoding, config_.output_bit_depth)) {
     throw std::runtime_error(
       "output.encoding/output.bit_depth must be PCM16LE/16 or FLOAT32LE/32");
   }
@@ -183,19 +173,6 @@ void FaDenoiseNode::loadParameters()
       throw std::runtime_error("dtln intra/inter op thread counts must be > 0 (set via YAML)");
     }
 
-#ifdef FA_DENOISE_WITH_ONNXRUNTIME
-    backends::DtlnOnnxConfig dtln_cfg;
-    dtln_cfg.block_len = config_.dtln_block_len;
-    dtln_cfg.block_shift = config_.dtln_block_shift;
-    dtln_cfg.model_1_path = resolveModelPathOrThrow(config_.dtln_model_1_path, "dtln.model_1_path");
-    dtln_cfg.model_2_path = resolveModelPathOrThrow(config_.dtln_model_2_path, "dtln.model_2_path");
-    dtln_cfg.intra_op_num_threads = config_.dtln_intra_op_num_threads;
-    dtln_cfg.inter_op_num_threads = config_.dtln_inter_op_num_threads;
-    dtln_cfg.enable_ort_optimizations = config_.dtln_enable_ort_optimizations;
-    dtln_ = std::make_unique<backends::DtlnOnnxEngine>(dtln_cfg);
-#else
-    throw std::runtime_error("fa_denoise was built without ONNX Runtime support (FA_DENOISE_WITH_ONNXRUNTIME=0)");
-#endif
   }
 
   RCLCPP_INFO(this->get_logger(),
@@ -213,6 +190,49 @@ void FaDenoiseNode::loadParameters()
     config_.output_bit_depth,
     config_.qos_depth,
     config_.qos_reliable ? "true" : "false");
+}
+
+void FaDenoiseNode::configureBackend()
+{
+  backends::AudioFormat expected_format;
+  expected_format.sample_rate = config_.expected_sample_rate;
+  expected_format.channels = config_.expected_channels;
+  expected_format.encoding = config_.expected_encoding;
+  expected_format.bit_depth = config_.expected_bit_depth;
+
+  backends::AudioFormat output_format;
+  output_format.sample_rate = config_.expected_sample_rate;
+  output_format.channels = config_.expected_channels;
+  output_format.encoding = config_.output_encoding;
+  output_format.bit_depth = config_.output_bit_depth;
+
+  if (config_.backend_name == backends::PassthroughBackend::kName) {
+    backend_ = std::make_unique<backends::PassthroughBackend>(expected_format, output_format);
+    return;
+  }
+
+  if (config_.backend_name != "dtln_onnx") {
+    throw std::logic_error("fa_denoise backend invariant violated after startup validation");
+  }
+
+#ifdef FA_DENOISE_WITH_ONNXRUNTIME
+  backends::DtlnOnnxConfig dtln_cfg;
+  dtln_cfg.block_len = config_.dtln_block_len;
+  dtln_cfg.block_shift = config_.dtln_block_shift;
+  dtln_cfg.model_1_path = config_.dtln_model_1_path;
+  dtln_cfg.model_2_path = config_.dtln_model_2_path;
+  dtln_cfg.intra_op_num_threads = config_.dtln_intra_op_num_threads;
+  dtln_cfg.inter_op_num_threads = config_.dtln_inter_op_num_threads;
+  dtln_cfg.enable_ort_optimizations = config_.dtln_enable_ort_optimizations;
+
+  backends::DtlnOnnxBackendConfig backend_config;
+  backend_config.expected_format = expected_format;
+  backend_config.output_format = output_format;
+  backend_config.engine_config = std::move(dtln_cfg);
+  backend_ = std::make_unique<backends::DtlnOnnxBackend>(backend_config);
+#else
+  throw std::runtime_error("fa_denoise was built without ONNX Runtime support (FA_DENOISE_WITH_ONNXRUNTIME=0)");
+#endif
 }
 
 void FaDenoiseNode::setupInterfaces()
@@ -238,6 +258,9 @@ void FaDenoiseNode::setupInterfaces()
 
 bool FaDenoiseNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) const
 {
+  if (!hasValidStamp(msg.header.stamp)) {
+    return false;
+  }
   if (msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)) {
     return false;
   }
@@ -265,21 +288,7 @@ bool FaDenoiseNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg) co
   if (msg.data.empty()) {
     return false;
   }
-  const size_t bytes_per_sample = static_cast<size_t>(msg.bit_depth / 8);
-  const size_t bytes_per_frame = static_cast<size_t>(msg.channels) * bytes_per_sample;
-  if (bytes_per_frame == 0 || (msg.data.size() % bytes_per_frame) != 0) {
-    return false;
-  }
-  return true;
-}
-
-bool FaDenoiseNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out)
-{
-  out.clear();
-  if (msg.channels == 0) {
-    return false;
-  }
-  if (!isSupportedAudioFormatPair(msg.encoding, static_cast<int>(msg.bit_depth))) {
+  if (!backends::isSupportedAudioFormatPair(msg.encoding, static_cast<int>(msg.bit_depth))) {
     return false;
   }
   const size_t bytes_per_sample = static_cast<size_t>(msg.bit_depth / 8);
@@ -287,81 +296,7 @@ bool FaDenoiseNode::decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, st
   if (bytes_per_frame == 0 || (msg.data.size() % bytes_per_frame) != 0) {
     return false;
   }
-
-  const size_t frames = msg.data.size() / bytes_per_frame;
-  const size_t sample_count = frames * msg.channels;
-  if (sample_count == 0) {
-    return false;
-  }
-
-  out.resize(sample_count);
-  if (msg.encoding == kEncodingPcm16 && msg.bit_depth == 16) {
-    std::vector<int16_t> tmp(sample_count);
-    std::memcpy(tmp.data(), msg.data.data(), msg.data.size());
-    for (size_t i = 0; i < sample_count; ++i) {
-      out[i] = static_cast<float>(tmp[i]) / 32768.0f;
-    }
-    return true;
-  }
-
-  if (msg.encoding != kEncodingFloat32 || msg.bit_depth != 32) {
-    return false;
-  }
-  std::memcpy(out.data(), msg.data.data(), msg.data.size());
-  for (const float sample : out) {
-    if (!std::isfinite(sample) || sample < -1.0f || sample > 1.0f) {
-      return false;
-    }
-  }
   return true;
-}
-
-bool FaDenoiseNode::encodeFromFloat(
-  const std::vector<float> & samples,
-  int bit_depth,
-  std::vector<uint8_t> & out_bytes,
-  std::string & error_message)
-{
-  out_bytes.clear();
-  error_message.clear();
-  if (samples.empty()) {
-    error_message = "denoise output sample buffer is empty";
-    return false;
-  }
-  for (const float sample : samples) {
-    if (!std::isfinite(sample)) {
-      error_message = "denoise output sample is not finite";
-      return false;
-    }
-    if (sample < -1.0f || sample > 1.0f) {
-      error_message = "denoise output sample out of normalized range";
-      return false;
-    }
-  }
-  if (bit_depth == 16) {
-    std::vector<int16_t> pcm(samples.size());
-    for (size_t i = 0; i < samples.size(); ++i) {
-      const double scaled = samples[i] < 0.0f ?
-        static_cast<double>(samples[i]) * 32768.0 :
-        static_cast<double>(samples[i]) * 32767.0;
-      const int32_t rounded = static_cast<int32_t>(std::lround(scaled));
-      if (rounded < -32768 || rounded > 32767) {
-        error_message = "denoise output sample does not fit PCM16 after scaling";
-        return false;
-      }
-      pcm[i] = static_cast<int16_t>(rounded);
-    }
-    out_bytes.resize(pcm.size() * sizeof(int16_t));
-    std::memcpy(out_bytes.data(), pcm.data(), out_bytes.size());
-    return true;
-  }
-  if (bit_depth == 32) {
-    out_bytes.resize(samples.size() * sizeof(float));
-    std::memcpy(out_bytes.data(), samples.data(), out_bytes.size());
-    return true;
-  }
-  error_message = "unsupported denoise output bit depth";
-  return false;
 }
 
 void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg)
@@ -372,6 +307,9 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   }
   if (!pub_) {
     throw std::logic_error("fa_denoise publisher is not initialized");
+  }
+  if (!backend_) {
+    throw std::logic_error("fa_denoise backend is not initialized");
   }
 
   if (!config_.enabled) {
@@ -394,70 +332,21 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
 
   const auto start = std::chrono::steady_clock::now();
 
-  if (config_.backend_name == "passthrough") {
-    auto out_msg = *msg;
-    out_msg.stream_id = config_.output_topic;
-    out_msg.layout = kInterleavedLayout;
-    pub_->publish(out_msg);
-    out_.fetch_add(1);
-    const uint64_t elapsed_ns = nanosSince(start);
-    process_ns_sum_.fetch_add(elapsed_ns);
-    process_count_.fetch_add(1);
-    updateMaxAtomic(process_ns_max_, elapsed_ns);
-    return;
-  }
+  backends::AudioBuffer backend_input;
+  backend_input.format.sample_rate = static_cast<int>(msg->sample_rate);
+  backend_input.format.channels = static_cast<int>(msg->channels);
+  backend_input.format.encoding = msg->encoding;
+  backend_input.format.bit_depth = static_cast<int>(msg->bit_depth);
+  backend_input.data = msg->data;
 
-  if (config_.backend_name != "dtln_onnx") {
-    throw std::logic_error("fa_denoise backend invariant violated after startup validation");
-  }
-
-#ifdef FA_DENOISE_WITH_ONNXRUNTIME
-  if (!dtln_) {
-    throw std::logic_error("fa_denoise dtln_onnx backend is not initialized");
-  }
-
-  std::vector<float> in_f32;
-  if (!decodeToFloat(*msg, in_f32)) {
-    drop_.fetch_add(1);
-    return;
-  }
-
-  // DTLN is mono-only.
-  if (msg->channels != 1) {
-    drop_.fetch_add(1);
-    return;
-  }
-
-  if ((in_f32.size() % static_cast<size_t>(config_.dtln_block_shift)) != 0) {
+  backends::ProcessResult backend_result = backend_->process(backend_input);
+  if (backend_result.status != backends::ProcessStatus::kOk) {
     drop_.fetch_add(1);
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Dropping denoise frame because sample count is not aligned to dtln.block_shift");
-    return;
-  }
-
-  std::vector<float> out_f32;
-  try {
-    out_f32 = dtln_->process(in_f32.data(), in_f32.size());
-  } catch (const std::exception & e) {
-    drop_.fetch_add(1);
-    RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 3000, "DTLN process failed: %s", e.what());
-    return;
-  }
-
-  if (out_f32.size() != in_f32.size()) {
-    throw std::runtime_error(
-      "fa_denoise dtln_onnx output sample count must match input sample count");
-  }
-
-  std::vector<uint8_t> out_bytes;
-  std::string encode_error;
-  if (!encodeFromFloat(out_f32, config_.output_bit_depth, out_bytes, encode_error)) {
-    drop_.fetch_add(1);
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "Dropping denoise output frame: %s. Add an explicit dynamics/limiter node if range control is required.",
-      encode_error.c_str());
+      "Dropping denoise frame because backend %s rejected input or output: %s",
+      backend_->name(),
+      backends::processStatusMessage(backend_result.status));
     return;
   }
 
@@ -465,19 +354,16 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
   out_msg.header = msg->header;
   out_msg.source_id = msg->source_id;
   out_msg.stream_id = config_.output_topic;
-  out_msg.encoding = config_.output_encoding;
-  out_msg.sample_rate = msg->sample_rate;
-  out_msg.channels = msg->channels;
-  out_msg.bit_depth = static_cast<uint32_t>(config_.output_bit_depth);
+  out_msg.encoding = backend_result.output.format.encoding;
+  out_msg.sample_rate = static_cast<uint32_t>(backend_result.output.format.sample_rate);
+  out_msg.channels = static_cast<uint32_t>(backend_result.output.format.channels);
+  out_msg.bit_depth = static_cast<uint32_t>(backend_result.output.format.bit_depth);
   out_msg.layout = kInterleavedLayout;
-  out_msg.data = std::move(out_bytes);
+  out_msg.data = std::move(backend_result.output.data);
   out_msg.epoch = msg->epoch;
 
   pub_->publish(out_msg);
   out_.fetch_add(1);
-#else
-  throw std::logic_error("fa_denoise dtln_onnx backend was selected without ONNX Runtime support");
-#endif
 
   const uint64_t elapsed_ns = nanosSince(start);
   process_ns_sum_.fetch_add(elapsed_ns);
@@ -487,6 +373,13 @@ void FaDenoiseNode::onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr
 
 void FaDenoiseNode::publishDiagnostics()
 {
+  if (!diag_pub_) {
+    throw std::logic_error("fa_denoise diagnostics publisher is not initialized");
+  }
+  if (!backend_) {
+    throw std::logic_error("fa_denoise backend is not initialized");
+  }
+
   diagnostic_msgs::msg::DiagnosticArray array_msg;
   array_msg.header.stamp = this->now();
 
@@ -505,7 +398,7 @@ void FaDenoiseNode::publishDiagnostics()
 
   status.values.reserve(10);
   push_kv("enabled", config_.enabled ? "true" : "false");
-  push_kv("backend.name", config_.backend_name);
+  push_kv("backend.name", backend_->name());
   push_kv("input_topic", config_.input_topic);
   push_kv("output_topic", config_.output_topic);
   push_kv("expected_sample_rate", std::to_string(config_.expected_sample_rate));
@@ -528,11 +421,7 @@ void FaDenoiseNode::publishDiagnostics()
     push_kv("process.max_ms", std::to_string(max_ms));
   }
 
-#ifdef FA_DENOISE_WITH_ONNXRUNTIME
-  if (dtln_) {
-    push_kv("dtln.pending_samples", std::to_string(dtln_->pendingInputSamples()));
-  }
-#endif
+  push_kv("backend.pending_samples", std::to_string(backend_->pendingInputSamples()));
 
   array_msg.status.push_back(status);
   diag_pub_->publish(array_msg);

@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -21,6 +20,8 @@ struct DenoiseConfig
 
   std::string input_topic;
   std::string output_topic;
+  std::string resolved_input_topic;
+  std::string resolved_output_topic;
 
   int expected_sample_rate = -1;
   int expected_channels = -1;
@@ -47,7 +48,7 @@ struct DenoiseConfig
 
 namespace backends
 {
-class DtlnOnnxEngine;
+class DenoiseBackend;
 }
 
 class FaDenoiseNode : public rclcpp::Node
@@ -58,18 +59,14 @@ public:
 
 private:
   void loadParameters();
+  void configureBackend();
   void setupInterfaces();
   void onAudioFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void publishDiagnostics();
   bool validateFrame(const fa_interfaces::msg::AudioFrame & msg) const;
-  static bool decodeToFloat(const fa_interfaces::msg::AudioFrame & msg, std::vector<float> & out);
-  static bool encodeFromFloat(
-    const std::vector<float> & samples,
-    int bit_depth,
-    std::vector<uint8_t> & out_bytes,
-    std::string & error_message);
 
   DenoiseConfig config_;
+  std::unique_ptr<backends::DenoiseBackend> backend_;
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr pub_;
@@ -84,9 +81,6 @@ private:
   std::atomic<uint64_t> process_ns_max_{0};
   std::atomic<uint64_t> process_count_{0};
 
-#ifdef FA_DENOISE_WITH_ONNXRUNTIME
-  std::unique_ptr<backends::DtlnOnnxEngine> dtln_;
-#endif
 };
 
 }  // namespace fa_denoise

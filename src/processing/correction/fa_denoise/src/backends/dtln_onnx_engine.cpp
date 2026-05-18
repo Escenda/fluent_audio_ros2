@@ -25,7 +25,7 @@ std::vector<int64_t> concreteShape(const std::vector<int64_t> & shape)
   std::vector<int64_t> out = shape;
   for (auto & dim : out) {
     if (dim <= 0) {
-      dim = 1;
+      throw std::runtime_error("DTLN ONNX tensor shape must be fully static and positive");
     }
   }
   return out;
@@ -407,7 +407,7 @@ size_t DtlnOnnxEngine::pendingInputSamples() const
 std::vector<float> DtlnOnnxEngine::process(const float * samples, size_t sample_count)
 {
   if (!samples || sample_count == 0) {
-    return {};
+    throw std::runtime_error("DTLN process requires non-empty sample input");
   }
   if (!impl_) {
     throw std::runtime_error("DTLN engine not initialized");
