@@ -1,7 +1,8 @@
 fa_downmix:
   ros__parameters:
-    input_topic: "audio/spatial/mic"
-    output_topic: "audio/downmixed/mic"
+    input_topic: "fa_downmix/input"
+    output_topic: "fa_downmix/output"
+    input_stream_id: "audio/spatial/mic"
 
     expected:
       sample_rate: 16000
@@ -12,6 +13,7 @@ fa_downmix:
 
     output:
       channels: 2
+      stream_id: "audio/downmixed/mic"
 
     mode: "pair_average_to_stereo"
 

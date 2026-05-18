@@ -1,7 +1,10 @@
 fa_pan:
   ros__parameters:
-    input_topic: "audio/channel_converted/mic"
-    output_topic: "audio/panned/mic"
+    input_topic: "fa_pan/input"
+    output_topic: "fa_pan/output"
+    input_stream_id: "audio/channel_converted/mic"
+    output:
+      stream_id: "audio/panned/mic"
 
     pan:
       position: 0.0

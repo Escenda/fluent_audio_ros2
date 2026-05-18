@@ -18,6 +18,8 @@ struct PanConfig
 {
   std::string input_topic{};
   std::string output_topic{};
+  std::string input_stream_id{};
+  std::string output_stream_id{};
   double pan_position{-2.0};
   int expected_sample_rate{-1};
   int expected_channels{-1};

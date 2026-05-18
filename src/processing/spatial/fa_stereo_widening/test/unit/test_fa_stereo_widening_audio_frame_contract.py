@@ -15,8 +15,15 @@ def test_default_config_requires_stereo_float32le_interleaved_contract() -> None
     config = yaml.safe_load((_package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_stereo_widening"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/spatial/mic"
-    assert params["output_topic"] == "audio/stereo_widened/mic"
+    assert params["input_topic"] == "fa_stereo_widening/input"
+    assert params["output_topic"] == "fa_stereo_widening/output"
+    assert params["input_stream_id"] == "audio/spatial/mic"
+    assert params["output"]["stream_id"] == "audio/stereo_widened/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["input_stream_id"] != params["output_topic"]
+    assert params["output"]["stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["width"] == 1.0
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 2
@@ -80,6 +87,13 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
 
     assert "config_.input_topic.empty()" in load_parameters
     assert "config_.output_topic.empty()" in load_parameters
+    assert "config_.input_stream_id.empty()" in load_parameters
+    assert "config_.output_stream_id.empty()" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "!std::isfinite(config_.width)" in load_parameters
     assert "config_.width < 0.0" in load_parameters
     assert "config_.width > kMaxWidth" in load_parameters
@@ -102,6 +116,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
 
     assert 'readRequiredString(*this, "input_topic")' in load_parameters
     assert 'readRequiredString(*this, "output_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredDouble(*this, "width")' in load_parameters
     assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
     assert 'readRequiredInt(*this, "expected.channels")' in load_parameters
@@ -116,6 +132,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     assert "config_.diagnostics_qos_depth = readRequiredInt(" in load_parameters
     assert "config_.diagnostics_qos_reliable = readRequiredBool(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert 'declare_parameter<std::string>("input_stream_id")' in load_parameters
+    assert 'declare_parameter<std::string>("output.stream_id")' in load_parameters
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert "config_." not in line
@@ -128,7 +146,7 @@ def test_stereo_widening_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -145,7 +163,7 @@ def test_stereo_widening_preserves_metadata_and_updates_stream_data_only() -> No
     )[0]
 
     assert "out = in;" in apply_widening
-    assert "out.stream_id = config_.output_topic;" in apply_widening
+    assert "out.stream_id = config_.output_stream_id;" in apply_widening
     assert "out.data = output_data;" in apply_widening
     assert "out.encoding =" not in apply_widening
     assert "out.bit_depth =" not in apply_widening
@@ -214,6 +232,8 @@ def test_diagnostics_include_width_and_counters() -> None:
     )[0]
 
     assert 'status.name = "fa_stereo_widening";' in diagnostics
+    assert 'pushKeyValue(status, "input_stream_id", config_.input_stream_id);' in diagnostics
+    assert 'pushKeyValue(status, "output_stream_id", config_.output_stream_id);' in diagnostics
     assert 'pushKeyValue(status, "width", std::to_string(config_.width));' in diagnostics
     assert 'pushKeyValue(status, "expected.channels", std::to_string(config_.expected_channels));' in diagnostics
     assert 'pushKeyValue(status, "frames.in", std::to_string(frames_in_.load()));' in diagnostics

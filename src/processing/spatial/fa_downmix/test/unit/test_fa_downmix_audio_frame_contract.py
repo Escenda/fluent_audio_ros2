@@ -8,11 +8,16 @@ def test_default_config_requires_explicit_float32le_downmix_contract() -> None:
     config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_downmix"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/spatial/mic"
-    assert params["output_topic"] == "audio/downmixed/mic"
+    assert params["input_topic"] == "fa_downmix/input"
+    assert params["output_topic"] == "fa_downmix/output"
+    assert params["input_stream_id"] == "audio/spatial/mic"
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["input_channels"] == 4
     assert params["output"]["channels"] == 2
+    assert params["output"]["stream_id"] == "audio/downmixed/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["expected"]["encoding"] == "FLOAT32LE"
     assert params["expected"]["bit_depth"] == 32
     assert params["expected"]["layout"] == "interleaved"
@@ -99,6 +104,8 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
 
     assert 'readRequiredString(*this, "input_topic")' in load_parameters
     assert 'readRequiredString(*this, "output_topic")' in load_parameters
+    assert 'readRequiredString(*this, "input_stream_id")' in load_parameters
+    assert 'readRequiredString(*this, "output.stream_id")' in load_parameters
     assert 'readRequiredInt(*this, "expected.sample_rate")' in load_parameters
     assert 'readRequiredInt(*this, "expected.input_channels")' in load_parameters
     assert 'readRequiredInt(*this, "output.channels")' in load_parameters
@@ -114,6 +121,13 @@ def test_required_parameters_are_declared_without_runtime_defaults() -> None:
     assert "config_.diagnostics_qos_depth = readRequiredInt(" in load_parameters
     assert "config_.diagnostics_qos_reliable = readRequiredBool(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "input_stream_id is required" in load_parameters
+    assert "output.stream_id is required" in load_parameters
+    assert "resolve_topic_name(config_.input_topic)" in load_parameters
+    assert "resolve_topic_name(config_.output_topic)" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     for line in load_parameters.splitlines():
         if "declare_parameter" in line:
             assert "config_." not in line
@@ -127,7 +141,7 @@ def test_downmix_validates_frame_contract_before_processing() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -145,7 +159,8 @@ def test_downmix_preserves_metadata_and_updates_stream_channels_data_only() -> N
     )[0]
 
     assert "out = in;" in downmix_frame
-    assert "out.stream_id = config_.output_topic;" in downmix_frame
+    assert "out.stream_id = config_.output_stream_id;" in downmix_frame
+    assert "out.stream_id = config_.output_topic;" not in downmix_frame
     assert "out.channels = static_cast<uint32_t>(config_.output_channels);" in downmix_frame
     assert "out.data = output_data;" in downmix_frame
     assert "out.encoding =" not in downmix_frame
@@ -218,6 +233,10 @@ def test_diagnostics_include_downmix_config_and_counters() -> None:
     )[0]
 
     assert 'status.name = "fa_downmix";' in diagnostics
+    assert 'pushKeyValue(status, "input_topic", config_.input_topic);' in diagnostics
+    assert 'pushKeyValue(status, "output_topic", config_.output_topic);' in diagnostics
+    assert 'pushKeyValue(status, "input_stream_id", config_.input_stream_id);' in diagnostics
+    assert 'pushKeyValue(status, "output_stream_id", config_.output_stream_id);' in diagnostics
     assert 'pushKeyValue(status, "mode", config_.mode);' in diagnostics
     assert (
         'pushKeyValue(status, "expected.input_channels", '

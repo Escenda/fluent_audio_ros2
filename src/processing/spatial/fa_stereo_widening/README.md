@@ -7,12 +7,16 @@
 - package: `fa_stereo_widening`
 - executable: `fa_stereo_widening_node`
 - node: `fa_stereo_widening`
-- input: `input_topic`
-- output: `output_topic`
+- input topic: `input_topic`
+- output topic: `output_topic`
+- input stream identity: `input_stream_id`
+- output stream identity: `output.stream_id`
 - expected frame: `sample_rate > 0`, `channels == 2`, `encoding == FLOAT32LE`, `bit_depth == 32`, `layout == interleaved`
 - `source_id` と `stream_id` は必須
-- 入力 `stream_id` は `input_topic` と一致する必要がある
-- 出力 `stream_id` は `output_topic` に更新する
+- 入力 `stream_id` は `input_stream_id` と一致する必要がある
+- 出力 `stream_id` は `output.stream_id` に更新する
+- ROS topic と `AudioFrame.stream_id` は別 identity であり、`input_stream_id` / `output.stream_id` は raw/resolved topic 名と一致してはならない
+- `input_stream_id` と `output.stream_id` は一致してはならない
 
 ## Width
 

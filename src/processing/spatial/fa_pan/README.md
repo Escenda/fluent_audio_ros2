@@ -7,12 +7,15 @@
 - package: `fa_pan`
 - executable: `fa_pan_node`
 - node: `fa_pan`
-- input: `input_topic`
-- output: `output_topic`
+- ROS input topic: `input_topic`
+- ROS output topic: `output_topic`
+- input frame identity: `input_stream_id`
+- output frame identity: `output.stream_id`
 - expected frame: `sample_rate > 0`, `channels == 2`, `encoding == FLOAT32LE`, `bit_depth == 32`, `layout == interleaved`
 - `source_id` と `stream_id` は必須
-- 入力 `stream_id` は `input_topic` と一致する必要がある
-- 出力 `stream_id` は `output_topic` に更新する
+- 入力 `stream_id` は `input_stream_id` と一致する必要がある
+- 出力 `stream_id` は `output.stream_id` に更新する
+- `input_stream_id` と `output.stream_id` は ROS topic 名および互いと一致してはならない
 
 ## Pan
 

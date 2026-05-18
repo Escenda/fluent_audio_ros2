@@ -1,7 +1,10 @@
 fa_stereo_widening:
   ros__parameters:
-    input_topic: "audio/spatial/mic"
-    output_topic: "audio/stereo_widened/mic"
+    input_topic: "fa_stereo_widening/input"
+    output_topic: "fa_stereo_widening/output"
+    input_stream_id: "audio/spatial/mic"
+    output:
+      stream_id: "audio/stereo_widened/mic"
 
     width: 1.0
 
