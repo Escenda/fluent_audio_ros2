@@ -41,6 +41,14 @@ def test_default_config_requires_float32le_output_contract() -> None:
     assert params["mic"]["output_topic"] == "audio/resample16k/mic"
 
 
+def test_resample_uses_validated_qos_depth_without_hidden_fallback() -> None:
+    source = read_node_source()
+
+    assert "qos.depth must be > 0" in source
+    assert "rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));" in source
+    assert "std::max<int>(1, config_.qos_depth)" not in source
+
+
 def test_resample_preserves_source_and_publishes_stream_identity() -> None:
     source = read_node_source()
 

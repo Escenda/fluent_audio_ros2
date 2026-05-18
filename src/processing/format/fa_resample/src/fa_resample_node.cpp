@@ -2,7 +2,6 @@
 
 #include "fa_resample/backends/internal_linear_resampler.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -135,7 +134,7 @@ void FaResampleNode::configureBackend()
 
 void FaResampleNode::setupInterfaces()
 {
-  rclcpp::QoS qos(std::max<int>(1, config_.qos_depth));
+  rclcpp::QoS qos(static_cast<size_t>(config_.qos_depth));
   if (config_.qos_reliable) {
     qos.reliable();
   } else {
