@@ -7,6 +7,7 @@
 ## Contract
 
 - `input_topic` と `output_topic` は必須。
+- `input_stream_id` と `output.stream_id` は必須で、ROS topic identity とは分ける。
 - `window.frame_samples` は `> 0`。
 - `window.hop_samples` は `> 0` かつ `<= window.frame_samples`。
 - 入力 frame は `expected.sample_rate`、`expected.channels`、`FLOAT32LE`、`bit_depth=32`、`layout=interleaved` と一致する必要がある。

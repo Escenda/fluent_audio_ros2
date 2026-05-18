@@ -21,6 +21,8 @@ using namespace std::chrono_literals;
 
 constexpr const char * kInputTopic = "audio/test/chunk_overlap_input";
 constexpr const char * kOutputTopic = "audio/test/chunk_overlap_output";
+constexpr const char * kInputStreamId = "audio/test/chunk_overlap_input_stream";
+constexpr const char * kOutputStreamId = "audio/test/chunk_overlap_output_stream";
 constexpr uint32_t kSampleRate = 1000;
 constexpr uint32_t kChannels = 1;
 constexpr uint32_t kBitDepth = 32;
@@ -31,6 +33,8 @@ std::vector<rclcpp::Parameter> validParameters()
   return {
     rclcpp::Parameter("input_topic", kInputTopic),
     rclcpp::Parameter("output_topic", kOutputTopic),
+    rclcpp::Parameter("input_stream_id", kInputStreamId),
+    rclcpp::Parameter("output.stream_id", kOutputStreamId),
     rclcpp::Parameter("expected.sample_rate", static_cast<int>(kSampleRate)),
     rclcpp::Parameter("expected.channels", static_cast<int>(kChannels)),
     rclcpp::Parameter("expected.encoding", "FLOAT32LE"),
@@ -41,6 +45,8 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
   };
 }
 
@@ -93,7 +99,7 @@ fa_interfaces::msg::AudioFrame frameAt(
   frame.header.stamp = stampFromNanoseconds(timestamp_ns);
   frame.header.frame_id = source_id + "-frame";
   frame.source_id = source_id;
-  frame.stream_id = kInputTopic;
+  frame.stream_id = kInputStreamId;
   frame.encoding = "FLOAT32LE";
   frame.sample_rate = kSampleRate;
   frame.channels = kChannels;
@@ -186,7 +192,7 @@ TEST_F(RclcppContractTest, PublishesOverlappedWindowsAndAdvancesRetainedHeader)
   ASSERT_TRUE(spinUntil(executor, [&received]() {
     return received.size() == 1u;
   }));
-  EXPECT_EQ(received[0].stream_id, kOutputTopic);
+  EXPECT_EQ(received[0].stream_id, kOutputStreamId);
   EXPECT_EQ(received[0].epoch, 0U);
   EXPECT_EQ(stampToNanoseconds(received[0].header.stamp), 1000000000LL);
   expectSamplesNear(readSamples(received[0].data), {0.1F, 0.2F, 0.3F, 0.4F});

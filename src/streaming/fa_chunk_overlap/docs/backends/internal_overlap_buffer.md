@@ -7,10 +7,12 @@
 ## 契約
 
 - 入力 byte列は `FLOAT32LE` interleaved sample frames として整列済みであること。
+- 入力 `stream_id` は `input_stream_id` と一致すること。
 - buffer は 1 active `source_id` の sample のみを保持する。
 - `source_id` が変わった場合は buffer を clear する。
 - window 未満の残り sample は保持するが publish しない。
 - publish 後は `hop_samples` sample frames だけ削除する。
+- publish frame の `stream_id` は `output.stream_id` に更新する。
 
 ## 禁止事項
 

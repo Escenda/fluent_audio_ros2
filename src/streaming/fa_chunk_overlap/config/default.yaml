@@ -1,7 +1,10 @@
 fa_chunk_overlap:
   ros__parameters:
-    input_topic: "audio/float32le/mic"
-    output_topic: "audio/chunked_overlap/mic"
+    input_topic: "fa_chunk_overlap/input"
+    output_topic: "fa_chunk_overlap/output"
+    input_stream_id: "audio/float32le/mic"
+    output:
+      stream_id: "audio/chunked_overlap/mic"
     expected:
       sample_rate: 16000
       channels: 1
