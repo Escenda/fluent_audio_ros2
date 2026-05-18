@@ -1,0 +1,15 @@
+from pathlib import Path
+
+
+PACKAGE_ROOT = Path(__file__).parents[2]
+
+
+def test_launch_file_runs_fa_decode_node_with_params_file() -> None:
+    launch_text = (PACKAGE_ROOT / "launch" / "fa_decode.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'FindPackageShare("fa_decode")' in launch_text
+    assert 'executable="fa_decode_node"' in launch_text
+    assert "parameters=[config_file]" in launch_text
+    assert 'default_value="fa_decode"' in launch_text

@@ -1,10 +1,6 @@
 # fa_decode
 
-`fa_decode` は encoded audio を明示的な PCM `AudioFrame` 契約へ変換する format processing node の設計ディレクトリです。
-
-This is not a ROS 2 package yet. Do not add `package.xml` until the package has
-its specification, algorithm notes, backend documentation, launch contract, and
-tests.
+`fa_decode` は encoded audio を明示的な PCM `AudioFrame` 契約へ変換する format processing node です。
 
 ## Documents
 
