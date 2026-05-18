@@ -20,3 +20,21 @@
 - hidden channel conversion
 - hidden gain / normalize / limiter
 - output path guessing
+
+## Runtime Boundary
+
+The backend is a ROS-free file adapter. It opens an explicitly configured target
+file, writes raw bytes supplied by the node, flushes after each write, and
+reports the number of bytes accepted by the backend.
+
+It does not create parent directories and does not write WAV/MP3/AAC/FLAC
+containers. Encoded output belongs in `fa_encode` before this sink receives the
+frame.
+
+## Failure Policy
+
+- empty `file.path`: fail closed
+- missing parent directory: fail closed
+- target exists while `overwrite.enabled=false`: fail closed
+- directory target: fail closed
+- write error: fail closed

@@ -1,12 +1,21 @@
 # fa_file_out
 
-Roadmap directory for the file sink adapter that writes incoming `AudioFrame`
-payloads to an explicitly configured file target.
+`fa_file_out` is a ROS 2 sink adapter that writes incoming
+`fa_interfaces/msg/AudioFrame` payloads to an explicitly configured raw PCM file.
 
-This is not a ROS 2 package yet. Do not add `package.xml` until the sink adapter
-specification, backend documentation, launch contract, and tests are in place.
-Encoding must remain an explicit `fa_encode` pipeline stage when the output file
-format differs from the incoming frame contract.
+It does not encode media containers, resample, change channel layout, change
+sample format, normalize, limit, or adjust gain. Those steps must be explicit
+processing nodes such as `fa_encode`, `fa_resample`, `fa_channel_convert`,
+`fa_sample_format`, or `fa_limiter`.
+
+## Launch
+
+```bash
+ros2 launch fa_file_out fa_file_out.launch.py config_file:=/path/to/fa_file_out.yaml
+```
+
+The default config intentionally leaves `file.path` empty, so direct default
+launch fails closed until a site or test config binds a concrete target.
 
 ## Documents
 

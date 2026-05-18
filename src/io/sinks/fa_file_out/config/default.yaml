@@ -1,0 +1,18 @@
+fa_file_out:
+  ros__parameters:
+    backend.name: pcm_file_writer
+    file.path: ""
+    input_topic: audio/file_out
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: PCM16LE
+      bit_depth: 16
+      layout: interleaved
+    overwrite:
+      enabled: false
+    qos:
+      depth: 10
+      reliable: true
+    diagnostics:
+      publish_period_ms: 1000
