@@ -569,6 +569,8 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
     )
     if not os.path.isfile(params_file):
         raise RuntimeError(f"params_file not found: {params_file}")
+    params_file_parameters = _params_file_parameters(params_file, package, node_name, node_id)
+    _validate_parameter_identity_contract(package, node_id, params_file_parameters)
     parameters = _optional_parameters(node.parameters, node_id)
     _validate_parameter_identity_contract(package, node_id, parameters)
     remappings = _optional_remappings(node.remappings, node_id)
@@ -670,6 +672,65 @@ def _optional_parameters(
             raise RuntimeError(f"node {node_id} parameter '{key}' has unsupported value type")
         params[key.strip()] = expanded_value
     return params
+
+
+def _params_file_parameters(
+    params_file: str,
+    package: str,
+    node_name: str,
+    node_id: str,
+) -> dict[str, ParamValue]:
+    with open(params_file, "r", encoding="utf-8") as stream:
+        raw = yaml.safe_load(stream)
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise RuntimeError(f"params_file {params_file} root must be a mapping")
+
+    for root_key in (node_name, package, "/**"):
+        if root_key not in raw:
+            continue
+        candidate = raw[root_key]
+        if not isinstance(candidate, dict):
+            raise RuntimeError(f"params_file {params_file}.{root_key} must be a mapping")
+        parameters = candidate.get("ros__parameters")
+        if parameters is None:
+            continue
+        if not isinstance(parameters, dict):
+            raise RuntimeError(
+                f"params_file {params_file}.{root_key}.ros__parameters must be a mapping"
+            )
+        flattened: dict[str, ParamValue] = {}
+        _flatten_params_file_parameters(
+            parameters,
+            "",
+            flattened,
+            f"params_file {params_file}.{root_key}.ros__parameters",
+            node_id,
+        )
+        return flattened
+    return {}
+
+
+def _flatten_params_file_parameters(
+    mapping: ConfigMapping,
+    prefix: str,
+    flattened: dict[str, ParamValue],
+    label: str,
+    node_id: str,
+) -> None:
+    for key, value in mapping.items():
+        if not isinstance(key, str) or not key.strip():
+            raise RuntimeError(f"{label} keys for node {node_id} must be non-empty strings")
+        param_key = f"{prefix}.{key.strip()}" if prefix else key.strip()
+        if isinstance(value, dict):
+            _flatten_params_file_parameters(value, param_key, flattened, label, node_id)
+            continue
+        if not _is_param_value(value):
+            raise RuntimeError(
+                f"{label}.{param_key} for node {node_id} has unsupported value type"
+            )
+        flattened[param_key] = value
 
 
 def _validate_parameter_identity_contract(

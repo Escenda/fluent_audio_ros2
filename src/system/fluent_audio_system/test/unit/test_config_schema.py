@@ -582,6 +582,81 @@ def test_stream_identity_contract_rejects_non_string_role_values(tmp_path: Path)
         )
 
 
+def test_params_file_rejects_topic_values_used_as_stream_identities(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_sample_format.yaml"
+    params_file.write_text(
+        """
+fa_sample_format:
+  ros__parameters:
+    input_topic: audio/sample_format/input
+    input_stream_id: /audio/sample_format/input
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="must not reuse ROS topic value"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "format",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_sample_format",
+                                "enable": True,
+                                "package": "fa_sample_format",
+                                "exec": "fa_sample_format_node",
+                                "node_name": "fa_sample_format",
+                                "params_file": str(params_file),
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_params_file_flattens_nested_ros_parameters_for_identity_contract(
+    tmp_path: Path,
+) -> None:
+    params_file = tmp_path / "fa_in.yaml"
+    params_file.write_text(
+        """
+fa_in:
+  ros__parameters:
+    output_topic: /audio/raw/mic
+    audio:
+      stream_id: audio/raw/mic
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="must not reuse ROS topic value"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "io",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_in",
+                                "enable": True,
+                                "package": "fa_in",
+                                "exec": "fa_in_node",
+                                "node_name": "fa_in",
+                                "params_file": str(params_file),
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
 @pytest.mark.parametrize(
     "package_name, executable_name",
     [
