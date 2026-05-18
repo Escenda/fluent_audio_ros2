@@ -7,6 +7,7 @@
 ## 入力
 
 - `fa_interfaces/msg/AudioFrame`
+- `stream_id == input_stream_id`
 - `FLOAT32LE`
 - `bit_depth == 32`
 - `layout == interleaved`
@@ -15,7 +16,7 @@
 ## 出力
 
 - `data.size() == frames_per_chunk * channels * sizeof(float)`
-- `stream_id == output_topic`
+- `stream_id == output.stream_id`
 - format と source identity は chunk の first contributing frame 由来
 
 ## buffer upper bound

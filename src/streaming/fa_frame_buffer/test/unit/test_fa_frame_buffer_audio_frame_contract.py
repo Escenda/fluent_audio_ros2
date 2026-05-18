@@ -8,8 +8,12 @@ def test_default_config_requires_float32_interleaved_fixed_chunk_contract() -> N
     config = yaml.safe_load((package_root / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_frame_buffer"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/noise_gated/mic"
-    assert params["output_topic"] == "audio/buffered/mic"
+    assert params["input_topic"] == "fa_frame_buffer/input"
+    assert params["output_topic"] == "fa_frame_buffer/output"
+    assert params["input_stream_id"] == "audio/noise_gated/mic"
+    assert params["output"]["stream_id"] == "audio/buffered/mic"
+    assert params["input_stream_id"] != params["input_topic"]
+    assert params["output"]["stream_id"] != params["output_topic"]
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "FLOAT32LE"
@@ -54,6 +58,8 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
 
     assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
     assert "throw std::runtime_error(\"output_topic is required\")" in load_parameters
+    assert "throw std::runtime_error(\"input_stream_id is required\")" in load_parameters
+    assert "throw std::runtime_error(\"output.stream_id is required\")" in load_parameters
     assert "expected.sample_rate must be > 0" in load_parameters
     assert "expected.channels must be > 0" in load_parameters
     assert "fa_frame_buffer requires expected.encoding=FLOAT32LE" in load_parameters
@@ -67,6 +73,8 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
     required_reads = (
         'readRequiredString(*this, "input_topic")',
         'readRequiredString(*this, "output_topic")',
+        'readRequiredString(*this, "input_stream_id")',
+        'readRequiredString(*this, "output.stream_id")',
         'readRequiredInt(*this, "expected.sample_rate")',
         'readRequiredInt(*this, "expected.channels")',
         'readRequiredString(*this, "expected.encoding")',
@@ -83,6 +91,11 @@ def test_startup_validation_fails_closed_for_invalid_config() -> None:
         assert read in load_parameters
     assert "readRequiredInt(" in load_parameters
     assert '"diagnostics.publish_period_ms"' in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, config_.output_topic)" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, resolved_input_topic)" in load_parameters
+    assert "sameIdentityString(config_.output_stream_id, resolved_output_topic)" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
     assert "this->get_parameter(" not in load_parameters
     assert "SystemDefaultsQoS" not in source
     for line in load_parameters.splitlines():
@@ -110,7 +123,7 @@ def test_frame_buffer_validates_frame_contract_before_buffering() -> None:
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -159,7 +172,7 @@ def test_fixed_chunk_algorithm_preserves_first_contributing_frame_identity() -> 
     assert "const BufferedFrameIdentity & identity = buffered_segments_.front().identity;" in publish_chunks
     assert "out.header = identity.header;" in publish_chunks
     assert "out.source_id = identity.source_id;" in publish_chunks
-    assert "out.stream_id = config_.output_topic;" in publish_chunks
+    assert "out.stream_id = config_.output_stream_id;" in publish_chunks
     assert "out.epoch = identity.epoch;" in publish_chunks
     assert "out.data.assign(buffer_.begin()" in publish_chunks
     assert "buffer_.erase(buffer_.begin()" in publish_chunks
@@ -187,6 +200,8 @@ def test_overflow_drops_oldest_whole_chunk_and_reports_diagnostics() -> None:
     assert "Frame buffer overflow: dropped oldest" in overflow
     assert "frames_per_chunk" in diagnostics
     assert "max_buffered_chunks" in diagnostics
+    assert 'pushKeyValue(status, "input_stream_id", config_.input_stream_id);' in diagnostics
+    assert 'pushKeyValue(status, "output_stream_id", config_.output_stream_id);' in diagnostics
     assert "chunk_bytes" in diagnostics
     assert "buffered_bytes" in diagnostics
     assert "overflow_count" in diagnostics
