@@ -7,3 +7,10 @@ This is not a ROS 2 package yet. Do not add `package.xml` until the source
 adapter specification, backend documentation, launch contract, and tests are in
 place. File decode must remain an explicit `fa_decode` pipeline stage when the
 input file is not already in the configured frame contract.
+
+## Documents
+
+- `docs/仕様書.md`
+- `docs/アルゴリズム詳細説明書.md`
+- `docs/テスト設計.md`
+- `docs/backends/pcm_file_reader.md`

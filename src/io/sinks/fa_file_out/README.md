@@ -7,3 +7,10 @@ This is not a ROS 2 package yet. Do not add `package.xml` until the sink adapter
 specification, backend documentation, launch contract, and tests are in place.
 Encoding must remain an explicit `fa_encode` pipeline stage when the output file
 format differs from the incoming frame contract.
+
+## Documents
+
+- `docs/仕様書.md`
+- `docs/アルゴリズム詳細説明書.md`
+- `docs/テスト設計.md`
+- `docs/backends/pcm_file_writer.md`
