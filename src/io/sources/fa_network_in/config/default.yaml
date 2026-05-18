@@ -1,0 +1,24 @@
+fa_network_in:
+  ros__parameters:
+    backend.name: network_pcm_receiver
+    endpoint.uri: ""
+    transport.identity: ""
+    output_topic: audio/network_in
+    audio:
+      source_id: network_source
+      stream_id: audio/network_in
+    expected:
+      sample_rate: 16000
+      channels: 1
+      encoding: PCM16LE
+      bit_depth: 16
+      layout: interleaved
+    network:
+      max_packet_bytes: 3200
+    polling:
+      period_ms: 10
+    qos:
+      depth: 10
+      reliable: true
+    diagnostics:
+      publish_period_ms: 1000
