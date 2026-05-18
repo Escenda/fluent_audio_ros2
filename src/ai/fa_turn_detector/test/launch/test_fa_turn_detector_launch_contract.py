@@ -6,15 +6,17 @@ import yaml
 PACKAGE_ROOT = Path(__file__).parents[2]
 
 
-def test_launch_uses_explicit_config_file_and_model_override_contract() -> None:
+def test_launch_uses_explicit_config_file_without_model_override_contract() -> None:
     launch_text = (PACKAGE_ROOT / "launch" / "fa_turn_detector.launch.py").read_text(
         encoding="utf-8"
     )
 
     assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
     assert 'FindPackageShare("fa_turn_detector"), "config", "default.yaml"' in launch_text
-    assert 'DeclareLaunchArgument(\n            "model_path"' in launch_text
-    assert 'parameters=[config_file, {"backend.model_path": model_path}]' in launch_text
+    assert 'DeclareLaunchArgument(\n            "model_path"' not in launch_text
+    assert 'LaunchConfiguration("model_path")' not in launch_text
+    assert "backend.model_path" not in launch_text
+    assert "parameters=[config_file]" in launch_text
     assert "onnxruntime" not in launch_text
 
 
@@ -24,6 +26,7 @@ def test_default_config_requires_external_worker_boundary() -> None:
     )
     params = config["fa_turn_detector"]["ros__parameters"]
 
+    assert params["expected_source_id"] == ""
     assert params["backend.name"] == "smart_turn_onnx"
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""

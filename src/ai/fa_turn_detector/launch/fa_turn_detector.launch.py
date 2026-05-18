@@ -8,7 +8,6 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     node_name = LaunchConfiguration("node_name")
     config_file = LaunchConfiguration("config_file")
-    model_path = LaunchConfiguration("model_path")
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -23,16 +22,11 @@ def generate_launch_description():
             ),
             description="設定ファイルへのパス",
         ),
-        DeclareLaunchArgument(
-            "model_path",
-            default_value="",
-            description="Smart Turn ONNX model path",
-        ),
         Node(
             package="fa_turn_detector",
             executable="fa_turn_detector_node",
             name=node_name,
             output="screen",
-            parameters=[config_file, {"backend.model_path": model_path}],
+            parameters=[config_file],
         ),
     ])

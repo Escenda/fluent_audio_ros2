@@ -256,6 +256,8 @@ def test_default_config_requires_explicit_model_and_provider() -> None:
     assert params["backend.command"] == ""
     assert params["backend.args"] == []
     assert params["backend.health_args"] == []
+    assert params["expected_source_id"] == ""
+    assert 'declare_parameter("expected_source_id", "")' in source
     assert 'declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)' in source
     assert 'declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)' in source
     assert "parameter_overrides: Iterable[Parameter] | None = None" in source
@@ -332,6 +334,9 @@ def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
     assert "np.frombuffer(bytes(msg.data), dtype=np.int16)" not in source
     assert "AudioFrame channels must be 1" in source
     assert "AudioFrame source_id and stream_id are required" in source
+    assert "AudioFrame source_id must match expected_source_id" in source
+    assert "AudioFrame stream_id must match audio_topic" in source
+    assert "expected_stream_id=self.audio_topic" in source
     assert "AudioFrame layout must be interleaved" in source
     assert "AudioFrame encoding must be FLOAT32LE" in source
     assert "AudioFrame bit_depth must be 32" in source
@@ -372,7 +377,45 @@ def test_frame_to_float_rejects_pcm32_payload_before_float_interpretation(
     msg.data = np.array([0.0, 0.5], dtype=np.float32).tobytes()
 
     with pytest.raises(ValueError, match="AudioFrame encoding must be FLOAT32LE"):
-        module.FaTurnDetectorNode._frame_to_float(msg)
+        module.FaTurnDetectorNode._frame_to_float(
+            msg,
+            expected_source_id="mic",
+            expected_stream_id="audio/frame",
+        )
+
+
+def test_frame_to_float_rejects_unbound_source_or_stream_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = Path(__file__).parents[2]
+    shutdown_calls: list[bool] = []
+    _install_turn_detector_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(package_root))
+    sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+    module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
+    msg = _FakeAudioFrame()
+    msg.source_id = "mic-a"
+    msg.stream_id = "audio/frame"
+    msg.layout = "interleaved"
+    msg.channels = 1
+    msg.encoding = "FLOAT32LE"
+    msg.bit_depth = 32
+    msg.data = np.array([0.0, 0.5], dtype=np.float32).tobytes()
+
+    with pytest.raises(ValueError, match="AudioFrame source_id must match expected_source_id"):
+        module.FaTurnDetectorNode._frame_to_float(
+            msg,
+            expected_source_id="mic-b",
+            expected_stream_id="audio/frame",
+        )
+
+    with pytest.raises(ValueError, match="AudioFrame stream_id must match audio_topic"):
+        module.FaTurnDetectorNode._frame_to_float(
+            msg,
+            expected_source_id="mic-a",
+            expected_stream_id="audio/other",
+        )
 
 
 def test_turn_detector_backend_runtime_failure_is_fail_closed(

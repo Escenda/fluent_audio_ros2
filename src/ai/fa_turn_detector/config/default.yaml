@@ -4,6 +4,8 @@ fa_turn_detector:
     vad_topic: "voice/vad_state"
     turn_context_topic: "conversation/turn_context"
     output_topic: "voice/turn_end"
+    # Required. Must match AudioFrame.source_id from the configured fa_in/source pipeline.
+    expected_source_id: ""
     backend.name: "smart_turn_onnx"
     # Required. Set an explicit model path in launch/system config.
     backend.model_path: ""

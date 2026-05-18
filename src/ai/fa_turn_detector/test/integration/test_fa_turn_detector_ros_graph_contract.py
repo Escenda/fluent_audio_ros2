@@ -98,6 +98,7 @@ def _parameter_overrides(
         Parameter("vad_topic", Parameter.Type.STRING, vad_topic),
         Parameter("turn_context_topic", Parameter.Type.STRING, turn_context_topic),
         Parameter("output_topic", Parameter.Type.STRING, output_topic),
+        Parameter("expected_source_id", Parameter.Type.STRING, "mic-a"),
         Parameter("backend.name", Parameter.Type.STRING, "smart_turn_onnx"),
         Parameter("backend.model_path", Parameter.Type.STRING, str(model_path)),
         Parameter("backend.threshold", Parameter.Type.DOUBLE, 0.5),

@@ -31,6 +31,7 @@ class FaTurnDetectorNode(Node):
         self.declare_parameter("vad_topic", "voice/vad_state")
         self.declare_parameter("turn_context_topic", "conversation/turn_context")
         self.declare_parameter("output_topic", "voice/turn_end")
+        self.declare_parameter("expected_source_id", "")
         self.declare_parameter("backend.name", "")
         self.declare_parameter("backend.model_path", "")
         self.declare_parameter("backend.threshold", 0.5)
@@ -46,6 +47,9 @@ class FaTurnDetectorNode(Node):
         self.vad_topic = self._string_parameter("vad_topic")
         self.turn_context_topic = self._string_parameter("turn_context_topic")
         self.output_topic = self._string_parameter("output_topic")
+        self.expected_source_id = self._string_parameter("expected_source_id").strip()
+        if not self.expected_source_id:
+            raise RuntimeError("expected_source_id is required")
 
         self.backend = self._load_backend()
         self.audio_buffer: deque[float] = deque(maxlen=self.backend.sample_rate * 10)
@@ -88,6 +92,7 @@ class FaTurnDetectorNode(Node):
             f"vad={self.vad_topic} "
             f"turn_context={self.turn_context_topic} "
             f"output={self.output_topic} "
+            f"expected_source_id={self.expected_source_id} "
             f"backend.name={self.backend.name} "
             f"model={self.backend.model_path}"
         )
@@ -150,7 +155,11 @@ class FaTurnDetectorNode(Node):
                     "AudioFrame sample_rate must match backend sample_rate "
                     f"{self.backend.sample_rate}, got {msg.sample_rate}"
                 )
-            audio_data = self._frame_to_float(msg)
+            audio_data = self._frame_to_float(
+                msg,
+                expected_source_id=self.expected_source_id,
+                expected_stream_id=self.audio_topic,
+            )
         except ValueError as exc:
             self.get_logger().error(f"Dropping invalid AudioFrame: {exc}")
             return
@@ -194,11 +203,24 @@ class FaTurnDetectorNode(Node):
         )
 
     @staticmethod
-    def _frame_to_float(msg: AudioFrame) -> np.ndarray:
+    def _frame_to_float(
+        msg: AudioFrame,
+        *,
+        expected_source_id: str,
+        expected_stream_id: str,
+    ) -> np.ndarray:
         if not msg.data:
             raise ValueError("AudioFrame data is required")
         if not msg.source_id or not msg.stream_id:
             raise ValueError("AudioFrame source_id and stream_id are required")
+        if not expected_source_id:
+            raise ValueError("expected_source_id is required")
+        if not expected_stream_id:
+            raise ValueError("expected_stream_id is required")
+        if msg.source_id != expected_source_id:
+            raise ValueError("AudioFrame source_id must match expected_source_id")
+        if msg.stream_id != expected_stream_id:
+            raise ValueError("AudioFrame stream_id must match audio_topic")
         if msg.layout != "interleaved":
             raise ValueError(f"AudioFrame layout must be interleaved, got {msg.layout}")
         if int(msg.channels) != 1:
