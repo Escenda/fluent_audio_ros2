@@ -3,31 +3,55 @@ from pathlib import Path
 import yaml
 
 
-def _package_root() -> Path:
+def package_root() -> Path:
     return Path(__file__).parents[2]
 
 
-def _source_text() -> str:
-    return (_package_root() / "src" / "fa_ducking_node.cpp").read_text(encoding="utf-8")
+def read_node_source() -> str:
+    return (package_root() / "src" / "fa_ducking_node.cpp").read_text(encoding="utf-8")
 
 
-def test_default_config_requires_float32_interleaved_contract() -> None:
-    config = yaml.safe_load((_package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
+def read_backend_header() -> str:
+    return (
+        package_root()
+        / "include"
+        / "fa_ducking"
+        / "backends"
+        / "internal_sidechain_ducking.hpp"
+    ).read_text(encoding="utf-8")
+
+
+def read_backend_source() -> str:
+    return (
+        package_root() / "src" / "backends" / "internal_sidechain_ducking.cpp"
+    ).read_text(encoding="utf-8")
+
+
+def test_example_config_requires_float32_interleaved_contract() -> None:
+    config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_ducking"]["ros__parameters"]
 
-    assert params["program_topic"] == "audio/program/frame"
-    assert params["sidechain_topic"] == "audio/sidechain/frame"
-    assert params["output_topic"] == "audio/ducked/frame"
+    assert params["program_topic"] == "fa_ducking/program"
+    assert params["sidechain_topic"] == "fa_ducking/sidechain"
+    assert params["output_topic"] == "fa_ducking/output"
+    assert params["program_stream_id"] == "audio/program/frame"
+    assert params["sidechain_stream_id"] == "audio/sidechain/frame"
+    assert params["output"]["stream_id"] == "audio/ducked/frame"
+    assert params["program_topic"] != params["program_stream_id"]
+    assert params["sidechain_topic"] != params["sidechain_stream_id"]
+    assert params["output_topic"] != params["output"]["stream_id"]
+    assert len(
+        {
+            params["program_stream_id"],
+            params["sidechain_stream_id"],
+            params["output"]["stream_id"],
+        }
+    ) == 3
     assert params["sidechain"]["threshold_rms"] == 0.05
     assert params["sidechain"]["max_age_ms"] == 100
     assert params["ducking"]["gain_db"] == -12.0
     assert params["ducking"]["attack_ms"] == 10.0
     assert params["ducking"]["release_ms"] == 250.0
-    assert 0.0 < params["sidechain"]["threshold_rms"] <= 1.0
-    assert params["sidechain"]["max_age_ms"] > 0
-    assert -96.0 <= params["ducking"]["gain_db"] < 0.0
-    assert params["ducking"]["attack_ms"] > 0.0
-    assert params["ducking"]["release_ms"] > 0.0
     assert params["expected"]["sample_rate"] == 16000
     assert params["expected"]["channels"] == 1
     assert params["expected"]["encoding"] == "FLOAT32LE"
@@ -35,60 +59,73 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     assert params["expected"]["layout"] == "interleaved"
     assert params["qos"]["depth"] == 10
     assert params["qos"]["reliable"] is False
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is False
     assert params["diagnostics"]["publish_period_ms"] == 1000
 
 
-def test_ducking_does_not_hide_other_processing_or_io_responsibilities() -> None:
-    source = _source_text()
-
-    forbidden = (
-        "std::clamp",
-        "SND_PCM",
-        "snd_pcm",
-        "Pa_OpenStream",
-        "resample",
-        "set_channels",
-        "convert",
-        "applyLimiter",
-        "applyCompressor",
-        "applyNormalize",
-        "applyNoiseGate",
-        "low_pass",
-        "high_pass",
-        "denoise",
-    )
-    for token in forbidden:
-        assert token not in source
-
-
-def test_startup_config_validation_fails_closed() -> None:
-    source = _source_text()
-    load_parameters = source.split("void FaDuckingNode::loadParameters")[1].split(
-        "void FaDuckingNode::setupInterfaces"
+def test_launch_requires_explicit_config_file_and_node_name_without_package_default() -> None:
+    launch_source = (package_root() / "launch" / "fa_ducking.launch.py").read_text(encoding="utf-8")
+    node_name_argument = launch_source.split('DeclareLaunchArgument(\n            "node_name"')[1].split(
+        "        ),",
+        1,
+    )[0]
+    config_argument = launch_source.split('DeclareLaunchArgument(\n            "config_file"')[1].split(
+        "        ),",
+        1,
     )[0]
 
-    assert "throw std::runtime_error(\"program_topic is required\")" in load_parameters
-    assert "throw std::runtime_error(\"sidechain_topic is required\")" in load_parameters
-    assert "throw std::runtime_error(\"output_topic is required\")" in load_parameters
-    assert "config_.sidechain_threshold_rms <= 0.0" in load_parameters
-    assert "config_.sidechain_threshold_rms > 1.0" in load_parameters
-    assert "sidechain.threshold_rms must be finite and in (0.0, 1.0]" in load_parameters
-    assert "config_.sidechain_max_age_ms <= 0" in load_parameters
-    assert "sidechain.max_age_ms must be > 0" in load_parameters
-    assert "config_.ducking_gain_db < -96.0" in load_parameters
-    assert "config_.ducking_gain_db >= 0.0" in load_parameters
-    assert "ducking.gain_db must be finite and in [-96.0, 0.0)" in load_parameters
-    assert "ducking.attack_ms must be finite and > 0.0" in load_parameters
-    assert "ducking.release_ms must be finite and > 0.0" in load_parameters
-    assert "fa_ducking requires expected.encoding=FLOAT32LE" in load_parameters
-    assert "fa_ducking requires expected.bit_depth=32" in load_parameters
-    assert "fa_ducking requires expected.layout=interleaved" in load_parameters
+    assert "default_value" not in node_name_argument
+    assert "default_value" not in config_argument
+    assert "FindPackageShare" not in launch_source
+    assert "PathJoinSubstitution" not in launch_source
+    assert "config/default.yaml" not in launch_source
+    assert "parameters=[config_file]" in launch_source
 
 
-def test_runtime_frame_validation_drops_invalid_program_and_sidechain_frames() -> None:
-    source = _source_text()
+def test_node_requires_parameters_without_runtime_defaults_and_validates_identity() -> None:
+    source = read_node_source()
+    load_parameters = source.split("void FaDuckingNode::loadParameters")[1].split(
+        "void FaDuckingNode::configureBackend"
+    )[0]
+
+    assert 'this->declare_parameter<std::string>("program_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("sidechain_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("program_stream_id");' in load_parameters
+    assert 'this->declare_parameter<std::string>("sidechain_stream_id");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output.stream_id");' in load_parameters
+    assert 'this->declare_parameter<int>("diagnostics.qos.depth");' in load_parameters
+    assert 'this->declare_parameter<bool>("diagnostics.qos.reliable");' in load_parameters
+    assert "readRequiredString(*this, \"program_topic\")" in load_parameters
+    assert "readRequiredString(*this, \"program_stream_id\")" in load_parameters
+    assert "readRequiredString(*this, \"output.stream_id\")" in load_parameters
+    assert "readRequiredDouble(*this, \"sidechain.threshold_rms\")" in load_parameters
+    assert "readRequiredBool(*this, \"diagnostics.qos.reliable\")" in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
+    assert "resolve_topic_name(config_.program_topic)" in load_parameters
+    assert "resolved_program == resolved_sidechain" in load_parameters
+    assert "streamMatchesTopic(" in load_parameters
+    assert "config_.program_stream_id == config_.sidechain_stream_id" in load_parameters
+    assert "config_.expected_sample_rate > kMaxExpectedSampleRate" in load_parameters
+    assert "config_.expected_channels > kMaxExpectedChannels" in load_parameters
+    assert "config_.diagnostics_qos_depth <= 0" in load_parameters
+    assert "rclcpp::SystemDefaultsQoS" not in source
+    assert "std::max<int>(1, config_.qos_depth)" not in source
+
+
+def test_node_validates_frame_contract_before_backend() -> None:
+    source = read_node_source()
     validate_frame = source.split("bool FaDuckingNode::validateFrame")[1].split(
-        "bool FaDuckingNode::readSamples"
+        "size_t FaDuckingNode::bytesPerFrame"
+    )[0]
+    handle_program = source.split("void FaDuckingNode::handleProgramFrame")[1].split(
+        "void FaDuckingNode::handleSidechainFrame"
+    )[0]
+    handle_sidechain = source.split("void FaDuckingNode::handleSidechainFrame")[1].split(
+        "bool FaDuckingNode::validateFrame"
     )[0]
 
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
@@ -98,188 +135,94 @@ def test_runtime_frame_validation_drops_invalid_program_and_sidechain_frames() -
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
     assert "msg.sample_rate != static_cast<uint32_t>(config_.expected_sample_rate)" in validate_frame
     assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in validate_frame
-    assert "msg.data.empty() || (msg.data.size() % bytes_per_frame) != 0" in validate_frame
-    assert "return false;" in validate_frame
+    assert "msg.data.empty() || (msg.data.size() % bytesPerFrame()) != 0" in validate_frame
+    assert "validateFrame(*msg, config_.program_stream_id, \"program\")" in handle_program
+    assert "backend_->processProgram(msg->data, nowNanoseconds(), output_data)" in handle_program
+    assert handle_program.index("validateFrame(*msg, config_.program_stream_id") < handle_program.index(
+        "backend_->processProgram(msg->data, nowNanoseconds(), output_data)"
+    )
+    assert "validateFrame(*msg, config_.sidechain_stream_id, \"sidechain\")" in handle_sidechain
+    assert "backend_->observeSidechain(msg->data, nowNanoseconds())" in handle_sidechain
 
+
+def test_backend_is_ros_free_and_owns_sample_state() -> None:
+    node_source = read_node_source()
+    backend_header = read_backend_header()
+    backend_source = read_backend_source()
+
+    forbidden = ("rclcpp", "fa_interfaces", "AudioFrame", "diagnostic_msgs", "topic")
+    for text in (backend_header, backend_source):
+        for token in forbidden:
+            assert token not in text
+    assert "calculateFrameRms" not in node_source
+    assert "readSamples" not in node_source
+    assert "smoothingAlpha" not in node_source
+    assert "smoothedGain" not in node_source
+    assert "std::vector<uint8_t> & output" in backend_header
+    assert "observeSidechain" in backend_header
+    assert "processProgram" in backend_header
+    assert "current_gain_" in backend_header
+    assert "latest_sidechain_rms_" in backend_header
+    assert "const ProcessStatus status = validateAndMeasure(input, rms, frame_count);" in backend_source
+
+
+def test_backend_drops_invalid_samples_without_clamp_and_commits_only_on_success() -> None:
+    backend_source = read_backend_source()
+    process_program = backend_source.split("ProgramResult InternalSidechainDuckingBackend::processProgram")[1].split(
+        "double dbToLinear"
+    )[0]
+
+    assert "std::clamp" not in backend_source
+    assert "limiter" not in backend_source
+    assert "normalize(" not in backend_source
+    assert "ProcessStatus::kNonFiniteInput" in backend_source
+    assert "ProcessStatus::kOutOfRangeInput" in backend_source
+    assert "ProcessStatus::kNonFiniteOutput" in process_program
+    assert "ProcessStatus::kOutOfRangeOutput" in process_program
+    assert "output = std::move(candidate);" in process_program
+    assert process_program.index("output = std::move(candidate);") < process_program.index(
+        "current_gain_ = candidate_gain;"
+    )
+    assert "throw std::logic_error(\"unhandled sidechain ducking backend process status\")" in backend_source
+
+
+def test_node_output_metadata_and_diagnostics_use_backend_state() -> None:
+    source = read_node_source()
     handle_program = source.split("void FaDuckingNode::handleProgramFrame")[1].split(
         "void FaDuckingNode::handleSidechainFrame"
     )[0]
-    handle_sidechain = source.split("void FaDuckingNode::handleSidechainFrame")[1].split(
-        "bool FaDuckingNode::validateFrame"
-    )[0]
-
-    assert "if (!msg)" in handle_program
-    assert "program_frames_dropped_.fetch_add(1);" in handle_program
-    assert "if (!msg)" in handle_sidechain
-    assert "sidechain_frames_dropped_.fetch_add(1);" in handle_sidechain
-    assert "invalidateSidechainState();" in handle_sidechain
-    assert "validateFrame(*msg, config_.program_topic, \"program\")" in source
-    assert "validateFrame(*msg, config_.sidechain_topic, \"sidechain\")" in source
-
-
-def test_invalid_sidechain_frames_invalidate_recent_state() -> None:
-    source = _source_text()
-    handle_sidechain = source.split("void FaDuckingNode::handleSidechainFrame")[1].split(
-        "bool FaDuckingNode::validateFrame"
-    )[0]
-    invalidate = source.split("void FaDuckingNode::invalidateSidechainState")[1].split(
-        "SidechainSnapshot FaDuckingNode::sidechainSnapshot"
-    )[0]
-
-    assert "invalidateSidechainState();" in handle_sidechain
-    assert "has_sidechain_ = false;" in invalidate
-    assert "latest_sidechain_rms_ = 0.0;" in invalidate
-    assert "sidechain_state_invalidations_.fetch_add(1);" in invalidate
-
-
-def test_sidechain_rms_state_is_used_only_as_control_signal() -> None:
-    source = _source_text()
-    handle_sidechain = source.split("void FaDuckingNode::handleSidechainFrame")[1].split(
-        "bool FaDuckingNode::validateFrame"
-    )[0]
-    apply_ducking = source.split("bool FaDuckingNode::applyDucking")[1].split(
-        "void FaDuckingNode::publishDiagnostics"
-    )[0]
-
-    assert "const double rms = calculateFrameRms(samples);" in handle_sidechain
-    assert "latest_sidechain_rms_ = rms;" in handle_sidechain
-    assert "latest_sidechain_received_at_ = this->now();" in handle_sidechain
-    assert "out = in;" in apply_ducking
-    assert "out.stream_id = config_.output_topic;" in apply_ducking
-    assert "out.data.resize(in.data.size());" in apply_ducking
-    output_loop = apply_ducking.split("for (size_t i = 0; i < samples.size(); ++i)")[1].split(
-        "current_gain_.store(candidate_gain);"
-    )[0]
-    assert "sidechain" not in output_loop.lower()
-    assert "latest_sidechain_rms_" not in apply_ducking
-
-
-def test_sidechain_active_requires_recent_rms_at_or_above_threshold() -> None:
-    source = _source_text()
-    sidechain_active = source.split("bool FaDuckingNode::sidechainIsActive")[1].split(
-        "double FaDuckingNode::smoothingAlpha"
-    )[0]
-
-    assert "if (!snapshot.available)" in sidechain_active
-    assert "const int64_t age_ms = (now - snapshot.received_at).nanoseconds() / 1000000;" in sidechain_active
-    assert "age_ms < 0 || age_ms > config_.sidechain_max_age_ms" in sidechain_active
-    assert "snapshot.rms >= config_.sidechain_threshold_rms" in sidechain_active
-    assert "last_sidechain_active_.store(active);" in sidechain_active
-
-
-def test_ducking_gain_target_and_smoothing_are_explicit() -> None:
-    source = _source_text()
-
-    assert "double dbToLinear(double db)" in source
-    assert "std::pow(10.0, db / 20.0)" in source
-    assert "config_.ducking_gain_linear = dbToLinear(config_.ducking_gain_db);" in source
-    assert "double FaDuckingNode::smoothingAlpha" in source
-    assert "1.0 - std::exp(-frame_seconds / time_constant_seconds)" in source
-    assert "double FaDuckingNode::smoothedGain" in source
-    assert "target_gain < current_gain ? config_.attack_ms : config_.release_ms" in source
-    assert "current_gain + (alpha * (target_gain - current_gain))" in source
-
-    apply_ducking = source.split("bool FaDuckingNode::applyDucking")[1].split(
-        "void FaDuckingNode::publishDiagnostics"
-    )[0]
-    assert "const bool active_sidechain = sidechainIsActive(this->now());" in apply_ducking
-    assert "const double target_gain = active_sidechain ? config_.ducking_gain_linear : 1.0;" in apply_ducking
-    assert "const double candidate_gain = smoothedGain(target_gain, samples.size());" in apply_ducking
-
-
-def test_ducking_drops_non_finite_or_out_of_range_samples_instead_of_clamping() -> None:
-    source = _source_text()
-    read_samples = source.split("bool FaDuckingNode::readSamples")[1].split(
-        "double FaDuckingNode::calculateFrameRms"
-    )[0]
-    apply_ducking = source.split("bool FaDuckingNode::applyDucking")[1].split(
-        "void FaDuckingNode::publishDiagnostics"
-    )[0]
-
-    assert "!std::isfinite(sample)" in read_samples
-    assert "sample < kMinNormalizedSample || sample > kMaxNormalizedSample" in read_samples
-    assert "output < kMinNormalizedSample" in apply_ducking
-    assert "output > kMaxNormalizedSample" in apply_ducking
-    assert "Dropping program frame because ducking output is outside normalized FLOAT32LE range" in apply_ducking
-    assert "return false;" in apply_ducking
-    assert "std::clamp" not in source
-
-
-def test_output_range_drop_does_not_commit_candidate_gain() -> None:
-    source = _source_text()
-    apply_ducking = source.split("bool FaDuckingNode::applyDucking")[1].split(
-        "void FaDuckingNode::publishDiagnostics"
-    )[0]
-
-    overflow_section = apply_ducking.split(
-        "Dropping program frame because ducking output is outside normalized FLOAT32LE range"
-    )[0]
-    assert "current_gain_.store(candidate_gain);" not in overflow_section
-    assert "current_gain_.store(candidate_gain);" in apply_ducking
-    assert "last_target_gain_.store(target_gain);" in apply_ducking
-
-
-def test_diagnostics_include_parameters_state_and_counters() -> None:
-    source = _source_text()
     diagnostics = source.split("void FaDuckingNode::publishDiagnostics")[1].split(
         "}  // namespace fa_ducking"
     )[0]
 
-    assert 'status.name = "fa_ducking";' in diagnostics
-    assert '"program_topic"' in diagnostics
-    assert '"sidechain_topic"' in diagnostics
-    assert '"output_topic"' in diagnostics
-    assert '"sidechain_threshold_rms"' in diagnostics
+    assert "fa_interfaces::msg::AudioFrame out = *msg;" in handle_program
+    assert "out.stream_id = config_.output_stream_id;" in handle_program
+    assert "out.data = std::move(output_data);" in handle_program
+    assert "backend_->currentGain()" in diagnostics
+    assert "backend_->lastTargetGain()" in diagnostics
+    assert "backend_->lastSidechainRms()" in diagnostics
     assert '"sidechain_max_age_ms"' in diagnostics
-    assert '"ducking_gain_db"' in diagnostics
-    assert '"ducking_gain_linear"' in diagnostics
-    assert '"attack_ms"' in diagnostics
-    assert '"release_ms"' in diagnostics
-    assert '"current_gain"' in diagnostics
-    assert '"last_target_gain"' in diagnostics
-    assert '"last_sidechain_rms"' in diagnostics
     assert '"last_sidechain_age_ms"' in diagnostics
-    assert '"last_sidechain_active"' in diagnostics
-    assert '"program_frames_in"' in diagnostics
-    assert '"program_frames_out"' in diagnostics
-    assert '"program_frames_dropped"' in diagnostics
-    assert '"sidechain_frames_in"' in diagnostics
-    assert '"sidechain_frames_valid"' in diagnostics
-    assert '"sidechain_frames_dropped"' in diagnostics
-    assert '"sidechain_state_invalidations"' in diagnostics
-    assert '"ducked_program_frames"' in diagnostics
-    assert '"released_program_frames"' in diagnostics
-    assert '"stale_sidechain_checks"' in diagnostics
+    assert '"sidechain_max_age_ns"' not in diagnostics
+    assert '"last_sidechain_age_ns"' not in diagnostics
+    assert "nanosecondsToMillisecondsString(backend_->sidechainMaxAgeNs())" in diagnostics
+    assert "nanosecondsToMillisecondsString(backend_->lastSidechainAgeNs())" in diagnostics
+    assert "program_stream_id" in diagnostics
+    assert "sidechain_stream_id" in diagnostics
+    assert "output_stream_id" in diagnostics
 
 
-def test_package_layout_matches_required_processing_layout() -> None:
-    required_paths = (
-        "README.md",
-        "docs/仕様書.md",
-        "docs/アルゴリズム詳細説明書.md",
-        "docs/テスト設計.md",
-        "docs/backends/internal_sidechain_ducking.md",
-        "config/default.yaml",
-        "launch/fa_ducking.launch.py",
-        "include/fa_ducking/fa_ducking_node.hpp",
-        "src/fa_ducking_node.cpp",
-        "test/unit/test_fa_ducking_audio_frame_contract.py",
-        "test/integration/.gitkeep",
-        "test/launch/.gitkeep",
-        "test/fixtures/.gitkeep",
-    )
+def test_colcon_runs_pytest_and_backend_gtest_contracts() -> None:
+    cmake_text = (package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
+    package_xml = (package_root() / "package.xml").read_text(encoding="utf-8")
 
-    for relative_path in required_paths:
-        assert (_package_root() / relative_path).exists()
-
-
-def test_colcon_runs_pytest_contracts() -> None:
-    cmake_text = (_package_root() / "CMakeLists.txt").read_text(encoding="utf-8")
-    package_xml = (_package_root() / "package.xml").read_text(encoding="utf-8")
-
+    assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_test" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
+    assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

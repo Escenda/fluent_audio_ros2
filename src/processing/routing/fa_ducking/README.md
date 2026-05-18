@@ -6,16 +6,21 @@ sidechain は制御信号としてのみ使い、output へ混ぜない。入力
 
 ## 入出力
 
-| 種別 | Default | Message |
+| 種別 | 設定例 | Message |
 | --- | --- | --- |
-| subscribe | `audio/program/frame` | `fa_interfaces/msg/AudioFrame` |
-| subscribe | `audio/sidechain/frame` | `fa_interfaces/msg/AudioFrame` |
-| publish | `audio/ducked/frame` | `fa_interfaces/msg/AudioFrame` |
+| subscribe | `fa_ducking/program` | `fa_interfaces/msg/AudioFrame` |
+| subscribe | `fa_ducking/sidechain` | `fa_interfaces/msg/AudioFrame` |
+| publish | `fa_ducking/output` | `fa_interfaces/msg/AudioFrame` |
+
+ROS topic と `AudioFrame.stream_id` は別の identity として扱います。入力 stream は `program_stream_id` / `sidechain_stream_id`、出力 stream は `output.stream_id` で明示します。
 
 ## 主な parameter
 
-| Parameter | Default | 説明 |
+| Parameter | 設定例 | 説明 |
 | --- | ---: | --- |
+| `program_stream_id` | `audio/program/frame` | program 入力 stream identity |
+| `sidechain_stream_id` | `audio/sidechain/frame` | sidechain 入力 stream identity |
+| `output.stream_id` | `audio/ducked/frame` | 出力 stream identity |
 | `sidechain.threshold_rms` | `0.05` | ducking を有効化する sidechain RMS |
 | `sidechain.max_age_ms` | `100` | sidechain frame の受信時刻ベース有効期限 |
 | `ducking.gain_db` | `-12.0` | active sidechain 時の目標 gain |
@@ -25,8 +30,10 @@ sidechain は制御信号としてのみ使い、output へ混ぜない。入力
 ## 起動
 
 ```bash
-ros2 launch fa_ducking fa_ducking.launch.py
+ros2 launch fa_ducking fa_ducking.launch.py config_file:=/path/to/fa_ducking.yaml
 ```
+
+package launch の `config_file` は必須です。`config/default.yaml` は設定例であり、package launch から暗黙には読み込みません。
 
 ## 検証
 

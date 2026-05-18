@@ -1,8 +1,13 @@
 fa_ducking:
   ros__parameters:
-    program_topic: "audio/program/frame"
-    sidechain_topic: "audio/sidechain/frame"
-    output_topic: "audio/ducked/frame"
+    program_topic: "fa_ducking/program"
+    sidechain_topic: "fa_ducking/sidechain"
+    output_topic: "fa_ducking/output"
+    program_stream_id: "audio/program/frame"
+    sidechain_stream_id: "audio/sidechain/frame"
+
+    output:
+      stream_id: "audio/ducked/frame"
 
     sidechain:
       threshold_rms: 0.05
@@ -25,4 +30,7 @@ fa_ducking:
       reliable: false
 
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000

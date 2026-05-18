@@ -2,9 +2,8 @@
 
 #include <atomic>
 #include <cstdint>
-#include <mutex>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -14,15 +13,22 @@
 namespace fa_ducking
 {
 
+namespace backends
+{
+class InternalSidechainDuckingBackend;
+}  // namespace backends
+
 struct DuckingConfig
 {
   std::string program_topic{};
   std::string sidechain_topic{};
   std::string output_topic{};
+  std::string program_stream_id{};
+  std::string sidechain_stream_id{};
+  std::string output_stream_id{};
   double sidechain_threshold_rms{-1.0};
   int sidechain_max_age_ms{-1};
   double ducking_gain_db{0.0};
-  double ducking_gain_linear{1.0};
   double attack_ms{-1.0};
   double release_ms{-1.0};
   int expected_sample_rate{-1};
@@ -32,14 +38,9 @@ struct DuckingConfig
   std::string expected_layout{};
   int qos_depth{-1};
   bool qos_reliable{false};
+  int diagnostics_qos_depth{-1};
+  bool diagnostics_qos_reliable{false};
   int diagnostics_publish_period_ms{-1};
-};
-
-struct SidechainSnapshot
-{
-  bool available{false};
-  double rms{0.0};
-  rclcpp::Time received_at{0, 0, RCL_ROS_TIME};
 };
 
 /**
@@ -48,11 +49,12 @@ struct SidechainSnapshot
 class FaDuckingNode : public rclcpp::Node
 {
 public:
-  FaDuckingNode();
-  ~FaDuckingNode() override = default;
+  explicit FaDuckingNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~FaDuckingNode() override;
 
 private:
   void loadParameters();
+  void configureBackend();
   void setupInterfaces();
   void handleProgramFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
   void handleSidechainFrame(const fa_interfaces::msg::AudioFrame::SharedPtr msg);
@@ -62,29 +64,16 @@ private:
     const fa_interfaces::msg::AudioFrame & msg,
     const std::string & expected_stream_id,
     const char * input_name);
-  bool readSamples(
-    const fa_interfaces::msg::AudioFrame & msg,
-    std::vector<float> & samples,
-    const char * input_name);
-  double calculateFrameRms(const std::vector<float> & samples) const;
-  void invalidateSidechainState();
-  SidechainSnapshot sidechainSnapshot() const;
-  bool sidechainIsActive(const rclcpp::Time & now);
-  double smoothingAlpha(double time_constant_ms, size_t sample_count) const;
-  double smoothedGain(double target_gain, size_t sample_count) const;
-  bool applyDucking(const fa_interfaces::msg::AudioFrame & in, fa_interfaces::msg::AudioFrame & out);
+  size_t bytesPerFrame() const;
+  int64_t nowNanoseconds() const;
 
   DuckingConfig config_;
+  std::unique_ptr<backends::InternalSidechainDuckingBackend> backend_{};
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr program_sub_;
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr sidechain_sub_;
   rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr audio_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
   rclcpp::TimerBase::SharedPtr diag_timer_;
-
-  mutable std::mutex sidechain_mutex_;
-  bool has_sidechain_{false};
-  double latest_sidechain_rms_{0.0};
-  rclcpp::Time latest_sidechain_received_at_{0, 0, RCL_ROS_TIME};
 
   std::atomic<uint64_t> program_frames_in_{0};
   std::atomic<uint64_t> program_frames_out_{0};
@@ -96,11 +85,6 @@ private:
   std::atomic<uint64_t> ducked_program_frames_{0};
   std::atomic<uint64_t> released_program_frames_{0};
   std::atomic<uint64_t> stale_sidechain_checks_{0};
-  std::atomic<double> current_gain_{1.0};
-  std::atomic<double> last_target_gain_{1.0};
-  std::atomic<double> last_sidechain_rms_{0.0};
-  std::atomic<int64_t> last_sidechain_age_ms_{-1};
-  std::atomic<bool> last_sidechain_active_{false};
 };
 
 }  // namespace fa_ducking

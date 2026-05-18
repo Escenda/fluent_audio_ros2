@@ -2,12 +2,15 @@
 
 ## 概要
 
-`internal_sidechain_ducking` は `fa_ducking_node` 内に実装された C++ backend である。外部 DSP engine、device I/O、resampler、format converter は使わない。
+`internal_sidechain_ducking` は `fa_ducking_node` から分離された ROS-free C++ backend である。外部 DSP engine、device I/O、resampler、format converter は使わない。
+
+backend は ROS2 topic、`fa_interfaces/msg/AudioFrame`、diagnostics、publisher/subscriber を知らない。
 
 ## 入力
 
-- program `fa_interfaces/msg/AudioFrame`
-- sidechain `fa_interfaces/msg/AudioFrame`
+- program FLOAT32LE byte列
+- sidechain FLOAT32LE byte列
+- node から渡される `now_ns`
 
 両方とも `FLOAT32LE`、32 bit、interleaved、正規化済み sample を要求する。
 
@@ -27,6 +30,8 @@
 - input/output sample の正規化範囲違反は drop する。
 - clamp、limiter、normalize による補正はこの backend の責務外である。
 
-## 将来の backend 分離
+## Fail closed
 
-高度な graph routing、lookahead ducking、multi-band ducking が必要になった場合は、この backend を dedicated routing/dynamics backend に分離する。現在の scope では ROS2 node 内の deterministic C++ implementation を正とする。
+- invalid sidechain input は state を commit しない。
+- invalid program input/output は output buffer と current gain を commit しない。
+- unknown `ProcessStatus` は `std::logic_error` で fail closed する。
