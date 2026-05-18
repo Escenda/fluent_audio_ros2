@@ -16,6 +16,7 @@ OpenAI Realtime ASR を外部 worker / process / container として呼び出す
 - `backend.openai_realtime.api_key_env`: OpenAI API key を保持する環境変数名
 - `backend.language`
 - `backend.args`: `{audio}`、`{model}`、`{sample_rate}` を含む
+- `backend.health_args`: startup health check。`{model}` を含む
 
 ## Boundary
 
@@ -27,6 +28,8 @@ OpenAI API 呼び出し、network endpoint、Realtime session、WebSocket/WebRTC
 - model id missing
 - `backend.openai_realtime.api_key_env` missing
 - referenced API key environment variable missing or empty
+- health args missing / malformed
+- health check non-zero exit / timeout
 - worker non-zero exit
 - timeout
 - empty transcript

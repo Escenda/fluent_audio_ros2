@@ -54,6 +54,7 @@ class FaAsrNode(Node):
         self.declare_parameter("backend.timeout_sec", 120.0)
         self.declare_parameter("backend.working_directory", "")
         self.declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)
+        self.declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)
         self.declare_parameter("backend.output_text_path", "")
 
         self.audio_topic = self._string_parameter("audio_topic")
@@ -141,6 +142,7 @@ class FaAsrNode(Node):
                 ),
                 language=self._string_parameter("backend.language"),
                 args=self._backend_args(),
+                health_args=self._string_array_parameter("backend.health_args"),
                 timeout_sec=self._double_parameter("backend.timeout_sec"),
                 working_directory=self._string_parameter("backend.working_directory"),
                 output_text_path=self._string_parameter("backend.output_text_path"),

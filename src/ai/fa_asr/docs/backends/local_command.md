@@ -15,6 +15,7 @@
 - `backend.model_path`: model file path
 - `backend.language`
 - `backend.args`: `{audio}`、`{model}`、`{sample_rate}` を含む
+- `backend.health_args`: 任意。指定時は startup health check として `{model}` を含む command を実行する
 
 ## Input
 
@@ -28,6 +29,7 @@ backend は一時 raw float32le `.f32` file path と sample rate を command に
 ## Failure Conditions
 
 - command path missing
+- health check non-zero exit / timeout
 - non-zero exit
 - timeout
 - empty transcript when empty result is disallowed

@@ -15,6 +15,7 @@ Parakeet 系 ASR を外部 worker / process / container として呼び出しま
 - `backend.model`: worker に渡す model id
 - `backend.language`
 - `backend.args`: `{audio}`、`{model}`、`{sample_rate}` を含む
+- `backend.health_args`: startup health check。`{model}` を含む
 
 ## Boundary
 
@@ -24,6 +25,8 @@ Parakeet 系 ASR を外部 worker / process / container として呼び出しま
 
 - command path missing
 - model id missing
+- health args missing / malformed
+- health check non-zero exit / timeout
 - worker non-zero exit
 - timeout
 - empty transcript

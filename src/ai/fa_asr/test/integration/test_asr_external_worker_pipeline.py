@@ -37,6 +37,7 @@ def _settings(
         openai_transcriptions_api_key_env="",
         language="ja",
         args=tuple(args),
+        health_args=(),
         timeout_sec=1.0,
         working_directory="",
         output_text_path=output_text_path,

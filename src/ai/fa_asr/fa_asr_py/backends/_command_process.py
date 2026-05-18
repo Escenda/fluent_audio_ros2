@@ -15,10 +15,12 @@ from fa_asr_py.backends.base import AsrRequest
 
 _PAYLOAD_ENCODING = "float32le_raw"
 _ALLOWED_ARG_FIELDS = frozenset(("audio", "model", "language", "output", "sample_rate"))
+_ALLOWED_HEALTH_ARG_FIELDS = frozenset(("model", "language"))
 _ALLOWED_OUTPUT_PATH_FIELDS = frozenset(
     ("audio", "model", "language", "sample_rate", "session_id", "user_turn_id")
 )
 _REQUIRED_ARG_FIELDS = frozenset(("audio", "model", "sample_rate"))
+_REQUIRED_HEALTH_ARG_FIELDS = frozenset(("model",))
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,7 @@ class CommandProcessConfig:
     model: str
     language: str
     args: tuple[str, ...]
+    health_args: tuple[str, ...]
     timeout_sec: float
     working_directory: Path | None
     output_text_path: str
@@ -46,6 +49,8 @@ class _CommandProcessRunner:
     def __init__(self, config: CommandProcessConfig) -> None:
         self._config = config
         self._config.workspace_dir.mkdir(parents=True, exist_ok=True)
+        if self._config.health_args:
+            self._run_health_check()
 
     def transcribe(self, request: AsrRequest) -> str:
         self._validate_request(request)
@@ -54,7 +59,7 @@ class _CommandProcessRunner:
         try:
             self._write_audio_payload(audio_path, request)
             command = [self._config.executable]
-            command.extend(self._format_args(audio_path, output_path, request))
+            command.extend(self._format_transcription_args(audio_path, output_path, request))
             try:
                 completed = subprocess.run(
                     command,
@@ -83,6 +88,29 @@ class _CommandProcessRunner:
             if self._config.cleanup_audio_files and audio_path.exists():
                 audio_path.unlink()
 
+    def _run_health_check(self) -> None:
+        command = [self._config.executable]
+        command.extend(self._format_health_args())
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=str(self._config.working_directory)
+                if self._config.working_directory is not None
+                else None,
+                env=self._build_subprocess_environment(),
+                capture_output=True,
+                text=True,
+                timeout=self._config.timeout_sec,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError("ASR backend health check timed out") from exc
+        if completed.returncode != 0:
+            stderr = completed.stderr.strip()
+            raise RuntimeError(
+                f"ASR backend health check failed: code={completed.returncode} stderr={stderr}"
+            )
+
     def _build_output_text_path(self, audio_path: Path, request: AsrRequest) -> Path | None:
         if not self._config.output_text_path:
             return None
@@ -99,7 +127,7 @@ class _CommandProcessRunner:
             path = self._config.workspace_dir / path
         return path
 
-    def _format_args(
+    def _format_transcription_args(
         self, audio_path: Path, output_path: Path | None, request: AsrRequest
     ) -> list[str]:
         output_value = "" if output_path is None else str(output_path)
@@ -112,6 +140,15 @@ class _CommandProcessRunner:
                 output=output_value,
             )
             for part in self._config.args
+        ]
+
+    def _format_health_args(self) -> list[str]:
+        return [
+            part.format(
+                model=self._config.model,
+                language=self._config.language,
+            )
+            for part in self._config.health_args
         ]
 
     @staticmethod
@@ -166,6 +203,7 @@ def _load_model_path_command_config(
     output_text_path: str,
     workspace_dir: Path,
     cleanup_audio_files: bool,
+    health_args: tuple[str, ...] = (),
 ) -> CommandProcessConfig:
     if not model_path_value:
         raise RuntimeError("backend.model_path is required")
@@ -182,6 +220,8 @@ def _load_model_path_command_config(
         model_value=str(model_path),
         language=language,
         args=args,
+        health_args=health_args,
+        require_health_args=False,
         timeout_sec=timeout_sec,
         working_directory_value=working_directory_value,
         output_text_path=output_text_path,
@@ -196,6 +236,7 @@ def _load_model_id_command_config(
     model: str,
     language: str,
     args: tuple[str, ...],
+    health_args: tuple[str, ...],
     timeout_sec: float,
     working_directory_value: str,
     output_text_path: str,
@@ -210,6 +251,8 @@ def _load_model_id_command_config(
         model_value=model_value,
         language=language,
         args=args,
+        health_args=health_args,
+        require_health_args=True,
         timeout_sec=timeout_sec,
         working_directory_value=working_directory_value,
         output_text_path=output_text_path,
@@ -224,6 +267,8 @@ def _load_command_config(
     model_value: str,
     language: str,
     args: tuple[str, ...],
+    health_args: tuple[str, ...],
+    require_health_args: bool,
     timeout_sec: float,
     working_directory_value: str,
     output_text_path: str,
@@ -233,6 +278,7 @@ def _load_command_config(
     executable = _resolve_executable(command)
 
     arg_fields = _validate_backend_args(args)
+    _validate_backend_health_args(health_args, required=require_health_args)
     _validate_output_text_path(output_text_path)
     if "output" in arg_fields and not output_text_path:
         raise RuntimeError(
@@ -260,6 +306,7 @@ def _load_command_config(
         model=model_value,
         language=language,
         args=args,
+        health_args=health_args,
         timeout_sec=timeout_sec,
         working_directory=working_directory,
         output_text_path=output_text_path,
@@ -308,6 +355,28 @@ def _validate_backend_args(args: tuple[str, ...]) -> set[str]:
             + ", ".join(f"{{{field}}}" for field in missing)
         )
     return fields
+
+
+def _validate_backend_health_args(args: tuple[str, ...], *, required: bool) -> None:
+    if not args:
+        if required:
+            raise RuntimeError("backend.health_args must not be empty")
+        return
+    fields: set[str] = set()
+    for part in args:
+        fields.update(
+            _parse_format_fields(
+                value=part,
+                allowed_fields=_ALLOWED_HEALTH_ARG_FIELDS,
+                field_label="backend.health_args",
+            )
+        )
+    missing = sorted(_REQUIRED_HEALTH_ARG_FIELDS.difference(fields))
+    if missing:
+        raise RuntimeError(
+            "backend.health_args must include placeholders: "
+            + ", ".join(f"{{{field}}}" for field in missing)
+        )
 
 
 def _validate_output_text_path(output_text_path: str) -> None:

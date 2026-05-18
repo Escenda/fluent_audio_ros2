@@ -15,11 +15,13 @@
 - `backend.model_path`: ggml model file path
 - `backend.language`
 - `backend.args`: `{audio}`、`{model}`、`{sample_rate}` を含む
+- `backend.health_args`: 任意。指定時は startup health check として `{model}` を含む command を実行する
 
 ## Failure Conditions
 
 - command path missing
 - model file missing
+- health check non-zero exit / timeout
 - `{audio}` / `{model}` / `{sample_rate}` placeholder missing
 - non-zero exit
 - timeout

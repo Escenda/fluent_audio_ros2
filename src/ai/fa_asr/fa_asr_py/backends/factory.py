@@ -33,6 +33,7 @@ class AsrBackendSettings:
     openai_transcriptions_api_key_env: str
     language: str
     args: tuple[str, ...]
+    health_args: tuple[str, ...]
     timeout_sec: float
     working_directory: str
     output_text_path: str
@@ -51,6 +52,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 model_path_value=settings.model_path.strip(),
                 language=settings.language,
                 args=settings.args,
+                health_args=settings.health_args,
                 timeout_sec=settings.timeout_sec,
                 working_directory_value=settings.working_directory.strip(),
                 output_text_path=settings.output_text_path.strip(),
@@ -65,6 +67,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 model_path_value=settings.model_path.strip(),
                 language=settings.language,
                 args=settings.args,
+                health_args=settings.health_args,
                 timeout_sec=settings.timeout_sec,
                 working_directory_value=settings.working_directory.strip(),
                 output_text_path=settings.output_text_path.strip(),
@@ -79,6 +82,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 model=settings.model.strip(),
                 language=settings.language,
                 args=settings.args,
+                health_args=settings.health_args,
                 timeout_sec=settings.timeout_sec,
                 working_directory_value=settings.working_directory.strip(),
                 output_text_path=settings.output_text_path.strip(),
@@ -94,6 +98,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 api_key_env=settings.openai_realtime_api_key_env.strip(),
                 language=settings.language,
                 args=settings.args,
+                health_args=settings.health_args,
                 timeout_sec=settings.timeout_sec,
                 working_directory_value=settings.working_directory.strip(),
                 output_text_path=settings.output_text_path.strip(),
@@ -109,6 +114,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 api_key_env=settings.openai_transcriptions_api_key_env.strip(),
                 language=settings.language,
                 args=settings.args,
+                health_args=settings.health_args,
                 timeout_sec=settings.timeout_sec,
                 working_directory_value=settings.working_directory.strip(),
                 output_text_path=settings.output_text_path.strip(),

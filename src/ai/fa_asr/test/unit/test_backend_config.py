@@ -63,6 +63,11 @@ if os.environ.get("OPENAI_API_KEY", "") != expected_key:
     raise RuntimeError("OPENAI_API_KEY was not forwarded to worker")
 if any(expected_key in value for value in sys.argv):
     raise RuntimeError("OPENAI_API_KEY value leaked into argv")
+if "--health-check" in sys.argv:
+    if not _flag_value("--model"):
+        raise RuntimeError("model is required")
+    print("openai-health-ok")
+    raise SystemExit(0)
 audio_path = Path(_flag_value("--audio"))
 if not audio_path.is_file() or not audio_path.read_bytes():
     raise RuntimeError("audio payload is required")
@@ -71,6 +76,22 @@ if not _flag_value("--model"):
 if int(_flag_value("--sample-rate")) <= 0:
     raise RuntimeError("sample rate must be positive")
 print("openai-env-ok")
+""",
+        encoding="utf-8",
+    )
+    path.chmod(path.stat().st_mode | 0o111)
+    return path
+
+
+def _write_health_fail_worker(path: Path) -> Path:
+    path.write_text(
+        """#!/usr/bin/env python3
+import sys
+
+if "--health-check" in sys.argv:
+    print("health failed", file=sys.stderr)
+    raise SystemExit(7)
+print("transcript")
 """,
         encoding="utf-8",
     )
@@ -231,6 +252,7 @@ def _settings(
     model_path: str,
     openai_realtime_api_key_env: str = "FA_ASR_OPENAI_REALTIME_API_KEY",
     openai_transcriptions_api_key_env: str = "FA_ASR_OPENAI_TRANSCRIPTIONS_API_KEY",
+    health_args: tuple[str, ...] = ("--model", "{model}", "--health-check"),
 ) -> AsrBackendSettings:
     return AsrBackendSettings(
         name=backend_name,
@@ -241,6 +263,7 @@ def _settings(
         openai_transcriptions_api_key_env=openai_transcriptions_api_key_env,
         language="ja",
         args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+        health_args=health_args,
         timeout_sec=10.0,
         working_directory="",
         output_text_path="",
@@ -278,10 +301,12 @@ def test_default_config_requires_explicit_backend_name() -> None:
     assert params["backend.openai_realtime.api_key_env"] == ""
     assert params["backend.openai_transcriptions.api_key_env"] == ""
     assert params["backend.args"] == []
+    assert params["backend.health_args"] == []
     assert params["expected_source_id"] == ""
     assert params["expected_stream_id"] == ""
     assert 'declare_parameter("expected_source_id", "")' in source
     assert 'declare_parameter("expected_stream_id", "")' in source
+    assert 'declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)' in source
     assert "ParameterUninitializedException" not in source
     assert "return tuple()" not in source
     assert "tuple(str(part) for part in args_value)" not in source
@@ -627,6 +652,7 @@ def test_openai_realtime_requires_model_id(tmp_path: Path) -> None:
             api_key_env="FA_ASR_OPENAI_REALTIME_API_KEY",
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -645,6 +671,7 @@ def test_openai_transcriptions_requires_model_id(tmp_path: Path) -> None:
             api_key_env="FA_ASR_OPENAI_TRANSCRIPTIONS_API_KEY",
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -663,6 +690,7 @@ def test_openai_realtime_requires_api_key_env_name(tmp_path: Path) -> None:
             api_key_env="",
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -684,6 +712,7 @@ def test_openai_transcriptions_requires_api_key_env_name(tmp_path: Path) -> None
             api_key_env="",
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -712,6 +741,7 @@ def test_openai_realtime_requires_api_key_env_value(
             api_key_env="FA_ASR_OPENAI_REALTIME_API_KEY",
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -740,6 +770,7 @@ def test_openai_transcriptions_requires_api_key_env_value(
             api_key_env="FA_ASR_OPENAI_TRANSCRIPTIONS_API_KEY",
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -762,6 +793,7 @@ def test_openai_realtime_maps_configured_api_key_env_to_worker_env(
             api_key_env="CUSTOM_OPENAI_REALTIME_KEY",
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -797,6 +829,7 @@ def test_openai_transcriptions_maps_configured_api_key_env_to_worker_env(
             api_key_env="CUSTOM_OPENAI_TRANSCRIPTIONS_KEY",
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -828,11 +861,104 @@ def test_parakeet_worker_requires_model_id(tmp_path: Path) -> None:
             model="",
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+        )
+
+
+def test_model_id_worker_backends_require_health_args(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+
+    with pytest.raises(RuntimeError, match="backend.health_args must not be empty"):
+        load_parakeet_worker_config(
+            command=str(command),
+            model="nvidia/parakeet",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=(),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+    with pytest.raises(RuntimeError, match="backend.health_args must not be empty"):
+        load_openai_realtime_config(
+            command=str(command),
+            model="gpt-4o-realtime-preview",
+            api_key_env="FA_ASR_OPENAI_REALTIME_API_KEY",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=(),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+    with pytest.raises(RuntimeError, match="backend.health_args must not be empty"):
+        load_openai_transcriptions_config(
+            command=str(command),
+            model="gpt-4o-transcribe",
+            api_key_env="FA_ASR_OPENAI_TRANSCRIPTIONS_API_KEY",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=(),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_backend_health_args_require_model_placeholder(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"backend.health_args must include placeholders: \{model\}",
+    ):
+        load_parakeet_worker_config(
+            command=str(command),
+            model="nvidia/parakeet",
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--health-check",),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+        )
+
+
+def test_backend_health_check_fails_startup_before_transcription(tmp_path: Path) -> None:
+    command = _write_health_fail_worker(tmp_path / "worker")
+
+    with pytest.raises(
+        RuntimeError,
+        match="ASR backend health check failed: code=7 stderr=health failed",
+    ):
+        ParakeetWorkerAsrBackend(
+            load_parakeet_worker_config(
+                command=str(command),
+                model="nvidia/parakeet",
+                language="ja",
+                args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+                health_args=("--model", "{model}", "--health-check"),
+                timeout_sec=10.0,
+                working_directory_value="",
+                output_text_path="",
+                workspace_dir=tmp_path / "work",
+                cleanup_audio_files=True,
+            )
         )
 
 
@@ -940,6 +1066,7 @@ def test_whisper_cpp_uses_model_path_contract(tmp_path: Path) -> None:
             model_path_value="",
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",
@@ -958,6 +1085,7 @@ def test_command_and_model_paths_are_resolved_and_executable(tmp_path: Path) -> 
         model_path_value=str(model_path),
         language="ja",
         args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+        health_args=("--model", "{model}", "--health-check"),
         timeout_sec=10.0,
         working_directory_value="",
         output_text_path="",
@@ -984,6 +1112,7 @@ def test_command_backend_rejects_non_executable_command(tmp_path: Path) -> None:
             model_path_value=str(model_path),
             language="ja",
             args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            health_args=("--model", "{model}", "--health-check"),
             timeout_sec=10.0,
             working_directory_value="",
             output_text_path="",

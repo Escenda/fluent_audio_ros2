@@ -39,4 +39,5 @@ fa_asr:
     backend.timeout_sec: 120.0
     backend.working_directory: ""
     backend.args: []
+    backend.health_args: []
     backend.output_text_path: ""

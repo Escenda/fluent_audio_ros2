@@ -37,6 +37,7 @@ def load_whisper_cpp_config(
     output_text_path: str,
     workspace_dir: Path,
     cleanup_audio_files: bool,
+    health_args: tuple[str, ...] = (),
 ) -> WhisperCppAsrConfig:
     return WhisperCppAsrConfig(
         process=_load_model_path_command_config(
@@ -44,6 +45,7 @@ def load_whisper_cpp_config(
             model_path_value=model_path_value,
             language=language,
             args=args,
+            health_args=health_args,
             timeout_sec=timeout_sec,
             working_directory_value=working_directory_value,
             output_text_path=output_text_path,
