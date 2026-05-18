@@ -21,6 +21,8 @@ def test_default_config_requires_explicit_source_identifier() -> None:
     assert params["audio"]["stream_id"] == "audio/raw/mic"
     assert params["output_topic"] != params["audio"]["stream_id"]
     assert params["audio"]["layout"] == "interleaved"
+    assert params["audio"]["qos"]["depth"] == 10
+    assert params["audio"]["qos"]["reliable"] is False
     assert params["diagnostics"]["qos"]["depth"] == 10
     assert params["diagnostics"]["qos"]["reliable"] is False
     assert selector["mode"] == "id"
@@ -48,6 +50,8 @@ def test_source_backend_has_no_struct_default() -> None:
     assert "std::string encoding{};" in header_text
     assert "std::string stream_id{};" in header_text
     assert "std::string layout{};" in header_text
+    assert "uint32_t audio_qos_depth{0};" in header_text
+    assert "bool audio_qos_reliable{false};" in header_text
     assert "uint32_t diag_period_ms{0};" in header_text
     assert "size_t bytes_per_buffer_{0};" in header_text
     assert 'declare_parameter<std::string>("output_topic")' in source_text
@@ -58,10 +62,13 @@ def test_source_backend_has_no_struct_default() -> None:
     assert 'declare_parameter<std::string>("audio.encoding")' in source_text
     assert 'declare_parameter<std::string>("audio.stream_id")' in source_text
     assert 'declare_parameter<std::string>("audio.layout")' in source_text
+    assert 'declare_parameter<int>("audio.qos.depth")' in source_text
+    assert 'declare_parameter<bool>("audio.qos.reliable")' in source_text
     assert 'declare_parameter<int>("diagnostics.qos.depth")' in source_text
     assert 'declare_parameter<bool>("diagnostics.qos.reliable")' in source_text
     assert 'declare_parameter<int>("diagnostics.publish_period_ms")' in source_text
     assert "readRequiredString(*this, \"output_topic\")" in source_text
+    assert "readRequiredBool(*this, \"audio.qos.reliable\")" in source_text
     assert "readRequiredBool(*this, \"diagnostics.qos.reliable\")" in source_text
     forbidden_identifier_default = "declare_parameter(\"audio.device_selector.identifier\", "
     forbidden_identifier_default += "config_"
@@ -108,15 +115,15 @@ def test_publish_frame_sets_required_audio_frame_identity_without_analysis_field
     assert ".vad" not in publish_frame
 
 
-def test_publishers_use_explicit_output_topic_and_diagnostics_qos() -> None:
+def test_publishers_use_explicit_output_topic_and_transport_qos() -> None:
     source_path = Path(__file__).parents[2] / "src" / "fa_in_node.cpp"
     source = source_path.read_text(encoding="utf-8")
 
     assert "create_publisher<fa_interfaces::msg::AudioFrame>(" in source
     assert "config_.output_topic" in source
-    assert "diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth))" in source
-    assert "diagnostics_qos.reliable();" in source
-    assert "diagnostics_qos.best_effort();" in source
+    assert "makeExplicitQos(config_.audio_qos_depth, config_.audio_qos_reliable)" in source
+    assert "makeExplicitQos(config_.diagnostics_qos_depth, config_.diagnostics_qos_reliable)" in source
+    assert "rclcpp::SensorDataQoS()" not in source
     assert "System" + "Defaults" + "QoS" not in source
     forbidden_hardcoded_audio_topic = (
         "audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(\""

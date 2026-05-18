@@ -14,6 +14,9 @@ fa_in:
       encoding: "PCM16LE"     # PCM16LE | PCM32LE | FLOAT32LE
       stream_id: "audio/raw/mic"
       layout: "interleaved"
+      qos:
+        depth: 10
+        reliable: false
     diagnostics:
       qos:
         depth: 10

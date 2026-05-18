@@ -175,6 +175,8 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("audio.encoding", "PCM16LE"),
     rclcpp::Parameter("audio.stream_id", "audio/raw/mic"),
     rclcpp::Parameter("audio.layout", "interleaved"),
+    rclcpp::Parameter("audio.qos.depth", 10),
+    rclcpp::Parameter("audio.qos.reliable", false),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),

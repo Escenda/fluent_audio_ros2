@@ -76,6 +76,20 @@ bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
   return parameter.get_type() != rclcpp::ParameterType::PARAMETER_NOT_SET;
 }
 
+rclcpp::QoS makeExplicitQos(uint32_t depth, bool reliable)
+{
+  if (depth == 0) {
+    throw std::runtime_error("qos depth must be greater than zero");
+  }
+  rclcpp::QoS qos(static_cast<size_t>(depth));
+  if (reliable) {
+    qos.reliable();
+  } else {
+    qos.best_effort();
+  }
+  return qos;
+}
+
 rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
 {
   rclcpp::Parameter parameter;
@@ -135,14 +149,10 @@ FaInNode::FaInNode(const rclcpp::NodeOptions & options, BackendFactory backend_f
 
   audio_pub_ = this->create_publisher<fa_interfaces::msg::AudioFrame>(
     config_.output_topic,
-    rclcpp::SensorDataQoS());
+    makeExplicitQos(config_.audio_qos_depth, config_.audio_qos_reliable));
 
-  rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));
-  if (config_.diagnostics_qos_reliable) {
-    diagnostics_qos.reliable();
-  } else {
-    diagnostics_qos.best_effort();
-  }
+  const rclcpp::QoS diagnostics_qos =
+    makeExplicitQos(config_.diagnostics_qos_depth, config_.diagnostics_qos_reliable);
   diag_pub_ = this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "diagnostics",
     diagnostics_qos);
@@ -191,6 +201,8 @@ void FaInNode::loadParameters()
   this->declare_parameter<std::string>("audio.encoding");
   this->declare_parameter<std::string>("audio.stream_id");
   this->declare_parameter<std::string>("audio.layout");
+  this->declare_parameter<int>("audio.qos.depth");
+  this->declare_parameter<bool>("audio.qos.reliable");
   this->declare_parameter<int>("diagnostics.qos.depth");
   this->declare_parameter<bool>("diagnostics.qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
@@ -211,6 +223,10 @@ void FaInNode::loadParameters()
   config_.encoding = readRequiredString(*this, "audio.encoding");
   config_.stream_id = readRequiredString(*this, "audio.stream_id");
   config_.layout = readRequiredString(*this, "audio.layout");
+  config_.audio_qos_depth = validation::requirePositiveUint32(
+    "audio.qos.depth",
+    readRequiredInt(*this, "audio.qos.depth"));
+  config_.audio_qos_reliable = readRequiredBool(*this, "audio.qos.reliable");
   config_.diagnostics_qos_depth = validation::requirePositiveUint32(
     "diagnostics.qos.depth",
     readRequiredInt(*this, "diagnostics.qos.depth"));
@@ -440,7 +456,7 @@ void FaInNode::publishDiagnostics()
     status.values.push_back(kv);
   };
 
-  status.values.reserve(11);
+  status.values.reserve(14);
   push_kv("device_id", active_device_id_);
   push_kv("output_topic", config_.output_topic);
   push_kv("stream_id", config_.stream_id);
@@ -451,6 +467,8 @@ void FaInNode::publishDiagnostics()
   push_kv("frames_published", std::to_string(frames_published_.load()));
   push_kv("xruns", std::to_string(xruns_.load()));
   push_kv("last_frame_age_ms", std::to_string(age_ms));
+  push_kv("audio.qos.depth", std::to_string(config_.audio_qos_depth));
+  push_kv("audio.qos.reliable", config_.audio_qos_reliable ? "true" : "false");
   push_kv("diagnostics.qos.depth", std::to_string(config_.diagnostics_qos_depth));
   push_kv("diagnostics.qos.reliable", config_.diagnostics_qos_reliable ? "true" : "false");
 

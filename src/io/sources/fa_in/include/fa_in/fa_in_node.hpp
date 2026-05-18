@@ -37,6 +37,8 @@ struct AudioConfig
   std::string encoding{};
   std::string stream_id{};
   std::string layout{};
+  uint32_t audio_qos_depth{0};
+  bool audio_qos_reliable{false};
   uint32_t diagnostics_qos_depth{0};
   bool diagnostics_qos_reliable{false};
   uint32_t diag_period_ms{0};
