@@ -1,7 +1,11 @@
 fa_noise_gate:
   ros__parameters:
-    input_topic: "audio/dc_offset_removed/mic"
-    output_topic: "audio/noise_gated/mic"
+    input_topic: "fa_noise_gate/input"
+    output_topic: "fa_noise_gate/output"
+    input_stream_id: "audio/dc_offset_removed/mic"
+
+    output:
+      stream_id: "audio/noise_gated/mic"
 
     gate:
       threshold_linear: 0.02
@@ -19,4 +23,7 @@ fa_noise_gate:
       reliable: false
 
     diagnostics:
+      qos:
+        depth: 10
+        reliable: false
       publish_period_ms: 1000

@@ -10,7 +10,7 @@ amplitude below `gate.threshold_linear` are multiplied by
 `gate.closed_gain_linear`; all other valid samples are preserved.
 
 ```bash
-ros2 launch fa_noise_gate fa_noise_gate.launch.py
+ros2 launch fa_noise_gate fa_noise_gate.launch.py node_name:=fa_noise_gate config_file:=/path/to/fa_noise_gate.yaml
 ```
 
 See `docs/仕様書.md` for the runtime contract and `docs/テスト設計.md` for the

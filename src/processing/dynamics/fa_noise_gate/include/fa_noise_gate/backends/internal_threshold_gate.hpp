@@ -8,9 +8,15 @@ namespace fa_noise_gate::backends
 
 struct InternalThresholdGateConfig
 {
-  int channels{-1};
-  double threshold_linear{-1.0};
-  double closed_gain_linear{-1.0};
+  InternalThresholdGateConfig() = delete;
+  InternalThresholdGateConfig(
+    int channels_value,
+    double threshold_linear_value,
+    double closed_gain_linear_value);
+
+  int channels;
+  double threshold_linear;
+  double closed_gain_linear;
 };
 
 enum class ProcessStatus

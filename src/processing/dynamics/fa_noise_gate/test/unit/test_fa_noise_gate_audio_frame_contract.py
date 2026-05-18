@@ -37,12 +37,17 @@ def read_backend_source() -> str:
     )
 
 
-def test_default_config_requires_float32_interleaved_contract() -> None:
+def test_example_config_requires_float32_interleaved_contract() -> None:
     config = yaml.safe_load((package_root() / "config" / "default.yaml").read_text(encoding="utf-8"))
     params = config["fa_noise_gate"]["ros__parameters"]
 
-    assert params["input_topic"] == "audio/dc_offset_removed/mic"
-    assert params["output_topic"] == "audio/noise_gated/mic"
+    assert params["input_topic"] == "fa_noise_gate/input"
+    assert params["output_topic"] == "fa_noise_gate/output"
+    assert params["input_stream_id"] == "audio/dc_offset_removed/mic"
+    assert params["output"]["stream_id"] == "audio/noise_gated/mic"
+    assert params["input_topic"] != params["input_stream_id"]
+    assert params["output_topic"] != params["output"]["stream_id"]
+    assert params["input_stream_id"] != params["output"]["stream_id"]
     assert params["gate"]["threshold_linear"] == 0.02
     assert params["gate"]["closed_gain_linear"] == 0.0
     assert 0.0 <= params["gate"]["threshold_linear"] <= 1.0
@@ -52,6 +57,11 @@ def test_default_config_requires_float32_interleaved_contract() -> None:
     assert params["expected"]["encoding"] == "FLOAT32LE"
     assert params["expected"]["bit_depth"] == 32
     assert params["expected"]["layout"] == "interleaved"
+    assert params["qos"]["depth"] == 10
+    assert params["qos"]["reliable"] is False
+    assert params["diagnostics"]["qos"]["depth"] == 10
+    assert params["diagnostics"]["qos"]["reliable"] is False
+    assert params["diagnostics"]["publish_period_ms"] == 1000
 
 
 def test_noise_gate_does_not_hide_other_processing_or_io_responsibilities() -> None:
@@ -64,13 +74,12 @@ def test_noise_gate_does_not_hide_other_processing_or_io_responsibilities() -> N
         "resample",
         "set_channels",
         "normalize(",
-        "std::clamp",
+        "std::" + "clamp",
         "threshold.linear",
         "filter.",
         "denoise",
         "compress",
         "limiter",
-        "limit",
     )
     for source in sources:
         for token in forbidden:
@@ -84,8 +93,28 @@ def test_startup_rejects_invalid_config_without_fallback() -> None:
         "void FaNoiseGateNode::configureBackend"
     )[0]
 
-    assert 'this->declare_parameter<double>("gate.threshold_linear", config_.threshold_linear);' in load_parameters
-    assert 'this->declare_parameter<double>("gate.closed_gain_linear", config_.closed_gain_linear);' in load_parameters
+    assert 'this->declare_parameter<std::string>("input_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output_topic");' in load_parameters
+    assert 'this->declare_parameter<std::string>("input_stream_id");' in load_parameters
+    assert 'this->declare_parameter<std::string>("output.stream_id");' in load_parameters
+    assert 'this->declare_parameter<double>("gate.threshold_linear");' in load_parameters
+    assert 'this->declare_parameter<double>("gate.closed_gain_linear");' in load_parameters
+    assert 'this->declare_parameter<int>("diagnostics.qos.depth");' in load_parameters
+    assert 'this->declare_parameter<bool>("diagnostics.qos.reliable");' in load_parameters
+    assert "readRequiredString(*this, \"input_topic\")" in load_parameters
+    assert "readRequiredString(*this, \"input_stream_id\")" in load_parameters
+    assert "readRequiredString(*this, \"output.stream_id\")" in load_parameters
+    assert "readRequiredDouble(*this, \"gate.threshold_linear\")" in load_parameters
+    assert "readRequiredDouble(*this, \"gate.closed_gain_linear\")" in load_parameters
+    assert "throw std::runtime_error(\"input_topic is required\")" in load_parameters
+    assert "throw std::runtime_error(\"output_topic is required\")" in load_parameters
+    assert "throw std::runtime_error(\"input_stream_id is required\")" in load_parameters
+    assert "throw std::runtime_error(\"output.stream_id is required\")" in load_parameters
+    assert "input_topic and output_topic must be distinct" in load_parameters
+    assert "sameIdentityString(config_.input_stream_id, config_.output_stream_id)" in load_parameters
+    assert "input_stream_id and output.stream_id must be distinct" in load_parameters
+    assert "input_stream_id must be distinct from ROS topics" in load_parameters
+    assert "output.stream_id must be distinct from ROS topics" in load_parameters
     assert "!isFinite(config_.threshold_linear)" in load_parameters
     assert "config_.threshold_linear < 0.0" in load_parameters
     assert "config_.threshold_linear > 1.0" in load_parameters
@@ -96,6 +125,12 @@ def test_startup_rejects_invalid_config_without_fallback() -> None:
     assert "requires expected.encoding=FLOAT32LE" in load_parameters
     assert "requires expected.bit_depth=32" in load_parameters
     assert "requires expected.layout=interleaved" in load_parameters
+    assert "expected.sample_rate must satisfy 0 < value <= 384000" in load_parameters
+    assert "expected.channels must satisfy 0 < value <= 64" in load_parameters
+    assert "diagnostics.qos.depth must be > 0" in load_parameters
+    for line in load_parameters.splitlines():
+        if "declare_parameter" in line:
+            assert ", config_." not in line
     assert "config_.threshold_linear < 0.0" in backend_source
     assert "config_.closed_gain_linear < 0.0" in backend_source
 
@@ -112,7 +147,7 @@ def test_noise_gate_validates_frame_contract_before_processing() -> None:
     assert "if (!msg)" in handle_frame
     assert "frames_dropped_.fetch_add(1);" in handle_frame
     assert "msg.source_id.empty() || msg.stream_id.empty()" in validate_frame
-    assert "msg.stream_id != config_.input_topic" in validate_frame
+    assert "msg.stream_id != config_.input_stream_id" in validate_frame
     assert "msg.layout != config_.expected_layout" in validate_frame
     assert "msg.encoding != config_.expected_encoding" in validate_frame
     assert "msg.bit_depth != static_cast<uint32_t>(config_.expected_bit_depth)" in validate_frame
@@ -129,7 +164,7 @@ def test_noise_gate_preserves_frame_identity_and_updates_stream_identity() -> No
     )[0]
 
     assert "out = in;" in apply_gate
-    assert "out.stream_id = config_.output_topic;" in apply_gate
+    assert "out.stream_id = config_.output_stream_id;" in apply_gate
     assert ".rms" not in apply_gate
     assert ".peak" not in apply_gate
     assert ".vad" not in apply_gate
@@ -157,7 +192,9 @@ def test_noise_gate_algorithm_uses_backend_threshold_and_closed_gain_only() -> N
     assert "backend_->process(in.data, out.data)" in apply_gate
     assert "samples_gated_.fetch_add(result.samples_gated);" in apply_gate
     assert "else" not in process
-    assert "std::clamp" not in process
+    forbidden_clamp = "std::"
+    forbidden_clamp += "clamp"
+    assert forbidden_clamp not in process
 
 
 def test_noise_gate_drops_invalid_samples_instead_of_clamping_or_normalizing() -> None:
@@ -173,7 +210,9 @@ def test_noise_gate_drops_invalid_samples_instead_of_clamping_or_normalizing() -
     assert "output_sample < kNormalizedMin || output_sample > kNormalizedMax" in process
     assert "return ProcessResult{ProcessStatus::kOutOfRangeInput, 0};" in process
     assert "return ProcessResult{ProcessStatus::kOutOfRangeOutput, 0};" in process
-    assert "std::clamp" not in process
+    forbidden_clamp = "std::"
+    forbidden_clamp += "clamp"
+    assert forbidden_clamp not in process
     assert "normalize(" not in process
     assert "backends::processStatusMessage(result.status)" in node_source
 
@@ -213,7 +252,78 @@ def test_diagnostics_publish_config_and_counters() -> None:
     assert '"frames_out"' in diagnostics
     assert '"frames_dropped"' in diagnostics
     assert '"samples_gated"' in diagnostics
+    assert '"input_topic"' in diagnostics
     assert '"output_topic"' in diagnostics
+    assert '"input_stream_id"' in diagnostics
+    assert '"output_stream_id"' in diagnostics
+    assert '"qos.depth"' in diagnostics
+    assert '"diagnostics.qos.depth"' in diagnostics
+    assert '"diagnostics.qos.reliable"' in diagnostics
+
+
+def test_noise_gate_runtime_config_types_do_not_define_meaningful_defaults() -> None:
+    header = read_node_header()
+    backend_header = read_backend_header()
+    source = read_node_source()
+
+    forbidden_defaults = (
+        "threshold_linear" + "{-1.0}",
+        "closed_gain_linear" + "{-1.0}",
+        "channels" + "{-1}",
+        "expected_channels" + "{-1}",
+        "qos_reliable" + "{false}",
+        "diagnostics_qos_reliable" + "{false}",
+    )
+    combined = header + "\n" + backend_header
+    for token in forbidden_defaults:
+        assert token not in combined
+
+    assert "InternalThresholdGateConfig() = delete;" in backend_header
+    assert "InternalThresholdGateConfig(" in backend_header
+    assert "config_.threshold_linear = readRequiredDouble(*this, \"gate.threshold_linear\")" in source
+    assert "config_.closed_gain_linear = readRequiredDouble(*this, \"gate.closed_gain_linear\")" in source
+    assert "config_.diagnostics_qos_reliable = readRequiredBool(*this, \"diagnostics.qos.reliable\")" in source
+
+
+def test_diagnostics_qos_is_explicit_and_not_system_defaulted() -> None:
+    source = read_node_source()
+    setup_interfaces = source.split("void FaNoiseGateNode::setupInterfaces")[1].split(
+        "void FaNoiseGateNode::handleFrame"
+    )[0]
+
+    assert "rclcpp::QoS diagnostics_qos(static_cast<size_t>(config_.diagnostics_qos_depth));" in setup_interfaces
+    assert "config_.diagnostics_qos_reliable" in setup_interfaces
+    assert "diagnostics_qos.reliable();" in setup_interfaces
+    assert "diagnostics_qos.best_effort();" in setup_interfaces
+    forbidden_system_qos = "System" + "Defaults" + "QoS"
+    assert forbidden_system_qos not in setup_interfaces
+
+
+def test_forbidden_runtime_fallback_patterns_are_absent() -> None:
+    files = (
+        package_root() / "include" / "fa_noise_gate" / "fa_noise_gate_node.hpp",
+        package_root() / "include" / "fa_noise_gate" / "backends" / "internal_threshold_gate.hpp",
+        package_root() / "src" / "fa_noise_gate_node.cpp",
+        package_root() / "src" / "backends" / "internal_threshold_gate.cpp",
+        package_root() / "launch" / "fa_noise_gate.launch.py",
+    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
+
+    forbidden = (
+        "System" + "Defaults" + "QoS",
+        "std::max",
+        "FindPackage" + "Share",
+        "PathJoin" + "Substitution",
+        "default_" + "value",
+        "dict[str, " + "A" + "ny]",
+        "except " + "ImportError",
+    )
+    for token in forbidden:
+        assert token not in combined
+
+    assert "declare_parameter<std::string>(\"input_topic\", config_" not in combined
+    assert "declare_parameter<double>(\"gate.threshold_linear\", config_" not in combined
+    assert "declare_parameter<int>(\"diagnostics.qos.depth\", config_" not in combined
 
 
 def test_node_core_is_constructible_with_node_options_for_graph_tests() -> None:

@@ -25,6 +25,16 @@ bool isNormalizedSample(float value)
 }
 }  // namespace
 
+InternalThresholdGateConfig::InternalThresholdGateConfig(
+  int channels_value,
+  double threshold_linear_value,
+  double closed_gain_linear_value)
+: channels(channels_value),
+  threshold_linear(threshold_linear_value),
+  closed_gain_linear(closed_gain_linear_value)
+{
+}
+
 InternalThresholdGateBackend::InternalThresholdGateBackend(
   const InternalThresholdGateConfig & config)
 : config_(config)
