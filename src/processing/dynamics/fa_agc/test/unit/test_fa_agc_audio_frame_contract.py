@@ -287,6 +287,8 @@ def test_agc_backend_reports_rejection_reason_and_keeps_ros_boundary() -> None:
     assert "ProcessStatus::kMisalignedInput" in backend_source
     assert "ProcessStatus::kNonFiniteInput" in backend_source
     assert "ProcessStatus::kOutOfRangeOutput" in backend_source
+    assert 'throw std::logic_error("unhandled AGC backend process status")' in backend_source
+    assert "unknown AGC backend status" not in backend_source
     assert "backends::processStatusMessage(result.status)" in node_source
     assert "GainDirection::kReduction" in node_source
     assert "GainDirection::kIncrease" in node_source

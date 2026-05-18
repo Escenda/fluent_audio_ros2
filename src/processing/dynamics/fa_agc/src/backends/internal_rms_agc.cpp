@@ -277,7 +277,7 @@ const char * processStatusMessage(ProcessStatus status)
     case ProcessStatus::kOutOfRangeOutput:
       return "AGC output sample is outside normalized FLOAT32LE range";
   }
-  return "unknown AGC backend status";
+  throw std::logic_error("unhandled AGC backend process status");
 }
 
 }  // namespace fa_agc::backends

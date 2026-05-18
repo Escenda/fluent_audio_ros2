@@ -65,6 +65,14 @@ TEST(InternalRmsAgcBackendContract, RejectsInvalidConfig)
     std::runtime_error);
 }
 
+TEST(InternalRmsAgcBackendContract, RejectsUnhandledStatusValues)
+{
+  EXPECT_THROW(
+    fa_agc::backends::processStatusMessage(
+      static_cast<fa_agc::backends::ProcessStatus>(999)),
+    std::logic_error);
+}
+
 TEST(InternalRmsAgcBackendContract, PassesStableUnityGainWhenTargetMatchesRms)
 {
   fa_agc::backends::InternalRmsAgcBackend backend(
