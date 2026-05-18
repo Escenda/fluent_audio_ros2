@@ -16,6 +16,9 @@
   <exec_depend>python3-yaml</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
+  <test_depend>fa_file_in</test_depend>
+  <test_depend>fa_file_out</test_depend>
+  <test_depend>fa_interfaces</test_depend>
 
   <export>
     <build_type>ament_python</build_type>
