@@ -1,0 +1,15 @@
+fa_stft:
+  ros__parameters:
+    input_topic: "audio/features/input"
+    output_topic: "audio/features/stft"
+    backend.name: "internal_stft"
+    expected.sample_rate: 16000
+    expected.channels: 1
+    expected.encoding: "FLOAT32LE"
+    expected.bit_depth: 32
+    expected.layout: "interleaved"
+    feature.n_fft: 400
+    feature.hop_length: 160
+    feature.window: "hann"
+    qos.depth: 10
+    qos.reliable: false

@@ -1,8 +1,12 @@
 # fa_stft
 
-Roadmap directory for the non-AI analysis node that converts PCM audio into
-short-time Fourier transform frames.
+`fa_stft` is a non-AI `processing/analysis` package that converts canonical
+`AudioFrame` PCM samples into STFT feature frames.
 
-This is not a ROS 2 package yet. Do not add `package.xml` until the package has
-its specification, algorithm notes, backend documentation, launch contract, and
-tests.
+It does not perform resampling, channel conversion, sample format conversion,
+VAD, ASR, or model inference. Input audio must already be mono `FLOAT32LE` /
+32-bit / interleaved / normalized `[-1.0, 1.0]` and match the configured stream
+contract.
+
+Details are in `docs/仕様書.md`, `docs/アルゴリズム詳細説明書.md`,
+`docs/テスト設計.md`, and `docs/backends/internal_stft.md`.

@@ -1,0 +1,14 @@
+std_msgs/Header header
+string source_id
+string stream_id
+uint32 sample_rate
+uint32 input_sample_count
+uint32 n_fft
+uint32 hop_length
+uint32 frame_count
+uint32 bin_count
+string window
+string layout
+string value_format
+float32[] real
+float32[] imag

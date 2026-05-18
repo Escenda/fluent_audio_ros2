@@ -4,6 +4,8 @@
 
 ## Messages
 - `fa_interfaces/msg/AudioFrame`
+- `fa_interfaces/msg/StftFrame`
+- `fa_interfaces/msg/LogMelFrame`
 - `fa_interfaces/msg/AsrResult`
 - `fa_interfaces/msg/PlaybackDone`
 - `fa_interfaces/msg/TurnContext`
