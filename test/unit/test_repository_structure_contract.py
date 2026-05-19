@@ -6,6 +6,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).parents[2]
 SRC_ROOT = REPO_ROOT / "src"
+BENCHMARK_TOOLS_ROOT = REPO_ROOT / "benchmarks" / "ns_chime7_udase" / "tools"
 
 
 TOP_LEVEL_LAYER_READMES = (
@@ -363,6 +364,12 @@ def _production_python_files() -> list[Path]:
         for path in SRC_ROOT.rglob("*.py")
         if "__pycache__" not in path.parts and "test" not in path.parts
     )
+
+
+def _benchmark_tool_python_files() -> list[Path]:
+    if not BENCHMARK_TOOLS_ROOT.is_dir():
+        return []
+    return sorted(BENCHMARK_TOOLS_ROOT.glob("*.py"))
 
 
 def _collect_yaml_keys(value: YamlValue) -> list[str]:
@@ -747,6 +754,20 @@ def test_production_python_does_not_use_ambiguous_type_escapes() -> None:
     violations: list[str] = []
 
     for code_file in _production_python_files():
+        source = code_file.read_text(encoding="utf-8")
+        for forbidden_token in FORBIDDEN_PYTHON_TYPE_ESCAPE_TOKENS:
+            if forbidden_token in source:
+                violations.append(
+                    f"{code_file.relative_to(REPO_ROOT)} contains {forbidden_token}"
+                )
+
+    assert violations == []
+
+
+def test_benchmark_tools_do_not_use_ambiguous_type_escapes() -> None:
+    violations: list[str] = []
+
+    for code_file in _benchmark_tool_python_files():
         source = code_file.read_text(encoding="utf-8")
         for forbidden_token in FORBIDDEN_PYTHON_TYPE_ESCAPE_TOKENS:
             if forbidden_token in source:

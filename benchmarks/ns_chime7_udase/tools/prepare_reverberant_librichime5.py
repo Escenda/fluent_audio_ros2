@@ -9,13 +9,22 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias
 
 import numpy as np
 import soundfile as sf
 import yaml
 from scipy import signal
 from tqdm import tqdm
+
+
+ScalarValue: TypeAlias = str | int | float | bool | None
+ConfigMapping: TypeAlias = dict[str, "ConfigValue"]
+ConfigSequence: TypeAlias = list["ConfigValue"]
+ConfigValue: TypeAlias = ScalarValue | ConfigMapping | ConfigSequence
+JsonMapping: TypeAlias = dict[str, "JsonValue"]
+JsonSequence: TypeAlias = list["JsonValue"]
+JsonValue: TypeAlias = ScalarValue | JsonMapping | JsonSequence
 
 
 def _sha256_file(path: Path, chunk_bytes: int = 1024 * 1024) -> str:
@@ -26,7 +35,7 @@ def _sha256_file(path: Path, chunk_bytes: int = 1024 * 1024) -> str:
     return h.hexdigest()
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
+def _load_yaml(path: Path) -> ConfigMapping:
     with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
@@ -34,7 +43,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
-def _require(mapping: dict[str, Any], key: str) -> Any:
+def _require(mapping: ConfigMapping | JsonMapping, key: str) -> ConfigValue | JsonValue:
     if key not in mapping:
         raise KeyError(f"Missing required key: {key}")
     return mapping[key]
@@ -85,7 +94,7 @@ class RunConfig:
     limit: int
 
 
-def _parse_config(cfg: dict[str, Any], root_dir: Path) -> tuple[
+def _parse_config(cfg: ConfigMapping, root_dir: Path) -> tuple[
     Chime5ExtractorConfig, DatasetPathsConfig, ReverberantLibriChime5Config, AudioConfig, SnrConfig, RunConfig
 ]:
     chime5 = _require(cfg, "chime5")
@@ -186,7 +195,7 @@ def _read_mono(path: Path, expected_sr: int, channel_index_if_multi: int) -> np.
 
 
 def _create_reverberant_speech(
-    mix_infos: dict[str, Any],
+    mix_infos: JsonMapping,
     dtype: np.dtype,
     mix_len: int,
     sr: int,
@@ -285,12 +294,17 @@ def _run_chime5_extractor(cfg: Chime5ExtractorConfig, root_dir: Path) -> None:
     subprocess.run(cmd, check=True)
 
 
-def _load_metadata(metadata_path: Path) -> list[dict[str, Any]]:
+def _load_metadata(metadata_path: Path) -> list[JsonMapping]:
     with metadata_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     if not isinstance(data, list):
         raise ValueError(f"Metadata must be a list: {metadata_path}")
-    return data
+    rows: list[JsonMapping] = []
+    for index, row in enumerate(data):
+        if not isinstance(row, dict):
+            raise ValueError(f"Metadata item must be a mapping: {metadata_path}[{index}]")
+        rows.append(row)
+    return rows
 
 
 def _maybe_skip(path: Path, overwrite: bool) -> bool:
@@ -309,7 +323,7 @@ def _generate_subset(
     audio_cfg: AudioConfig,
     snr_cfg: SnrConfig,
     run_cfg: RunConfig,
-) -> dict[str, Any]:
+) -> JsonMapping:
     metadata_path = (metadata_dir / f"{subset}.json").resolve()
     dataset = _load_metadata(metadata_path)
     if run_cfg.limit and run_cfg.limit > 0:
@@ -445,7 +459,7 @@ def main() -> int:
 
     rev_cfg.output_dir.mkdir(parents=True, exist_ok=True)
 
-    results: list[dict[str, Any]] = []
+    results: list[JsonMapping] = []
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     for subset in rev_cfg.subsets:

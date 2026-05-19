@@ -8,12 +8,19 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias
 
 import numpy as np
 import onnxruntime as ort
 import soundfile as sf
 import yaml
+
+
+ScalarValue: TypeAlias = str | int | float | bool | None
+ConfigMapping: TypeAlias = dict[str, "ConfigValue"]
+ConfigSequence: TypeAlias = list["ConfigValue"]
+ConfigValue: TypeAlias = ScalarValue | ConfigMapping | ConfigSequence
+CsvRow: TypeAlias = dict[str, ScalarValue]
 
 
 @dataclass
@@ -54,7 +61,7 @@ def _sha256_file(path: Path, chunk_bytes: int = 1024 * 1024) -> str:
     return h.hexdigest()
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
+def _load_yaml(path: Path) -> ConfigMapping:
     with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
@@ -62,13 +69,13 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
-def _require(mapping: dict[str, Any], key: str) -> Any:
+def _require(mapping: ConfigMapping, key: str) -> ConfigValue:
     if key not in mapping:
         raise KeyError(f"Missing required key: {key}")
     return mapping[key]
 
 
-def _parse_config(cfg: dict[str, Any], root_dir: Path) -> tuple[GtcrnConfig, AudioConfig, RunConfig]:
+def _parse_config(cfg: ConfigMapping, root_dir: Path) -> tuple[GtcrnConfig, AudioConfig, RunConfig]:
     gtcrn = _require(cfg, "gtcrn")
     audio = _require(cfg, "audio")
     run = _require(cfg, "run")
@@ -316,7 +323,7 @@ def main() -> int:
     total_proc_sec = 0.0
     max_rtf = 0.0
 
-    rows: list[dict[str, Any]] = []
+    rows: list[CsvRow] = []
 
     for wav_path in wav_paths:
         info = sf.info(str(wav_path))
@@ -452,4 +459,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

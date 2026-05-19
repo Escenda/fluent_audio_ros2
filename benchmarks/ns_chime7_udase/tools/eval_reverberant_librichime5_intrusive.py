@@ -8,7 +8,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias
 
 import numpy as np
 import soundfile as sf
@@ -16,6 +16,13 @@ import yaml
 
 from pesq import pesq as pesq_fn
 from pystoi import stoi as stoi_fn
+
+
+ScalarValue: TypeAlias = str | int | float | bool | None
+ConfigMapping: TypeAlias = dict[str, "ConfigValue"]
+ConfigSequence: TypeAlias = list["ConfigValue"]
+ConfigValue: TypeAlias = ScalarValue | ConfigMapping | ConfigSequence
+CsvRow: TypeAlias = dict[str, ScalarValue]
 
 
 def _sha256_file(path: Path, chunk_bytes: int = 1024 * 1024) -> str:
@@ -26,7 +33,7 @@ def _sha256_file(path: Path, chunk_bytes: int = 1024 * 1024) -> str:
     return h.hexdigest()
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
+def _load_yaml(path: Path) -> ConfigMapping:
     with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
@@ -34,7 +41,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
-def _require(mapping: dict[str, Any], key: str) -> Any:
+def _require(mapping: ConfigMapping, key: str) -> ConfigValue:
     if key not in mapping:
         raise KeyError(f"Missing required key: {key}")
     return mapping[key]
@@ -77,7 +84,7 @@ class RunConfig:
     sort: bool
 
 
-def _parse_config(cfg: dict[str, Any]) -> tuple[AudioConfig, AlignmentConfig, SiSdrConfig, PesqConfig, StoiConfig, RunConfig]:
+def _parse_config(cfg: ConfigMapping) -> tuple[AudioConfig, AlignmentConfig, SiSdrConfig, PesqConfig, StoiConfig, RunConfig]:
     audio = _require(cfg, "audio")
     alignment = _require(cfg, "alignment")
     si_sdr = _require(cfg, "si_sdr")
@@ -217,7 +224,7 @@ def main() -> int:
     dataset_name = "reverberant-LibriCHiME-5"
     subset_name = f"{subset}/{group}"
 
-    rows: list[dict[str, Any]] = []
+    rows: list[CsvRow] = []
     sig_sdr_in: list[float] = []
     sig_sdr_out: list[float] = []
     pesq_in: list[float] = []
