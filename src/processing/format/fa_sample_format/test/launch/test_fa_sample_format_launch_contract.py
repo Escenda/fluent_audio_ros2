@@ -1,12 +1,23 @@
+from __future__ import annotations
+
 from pathlib import Path
 import shutil
 import subprocess
+from typing import TypeAlias
 
 import pytest
 import yaml
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
+YamlValue: TypeAlias = str | int | bool | float | None | list["YamlValue"] | dict[str, "YamlValue"]
+YamlConfig: TypeAlias = dict[str, YamlValue]
+
+
+def _write_launch_config(tmp_path: Path, filename: str, config: YamlConfig) -> Path:
+    config_path = tmp_path / filename
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return config_path
 
 
 def _run_fa_sample_format_launch(config_path: Path) -> subprocess.CompletedProcess[str]:
@@ -75,8 +86,7 @@ def test_launch_fails_closed_when_conversion_is_unsupported(tmp_path: Path) -> N
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
     config["fa_sample_format"]["ros__parameters"]["input"]["encoding"] = "MULAW"
-    config_path = tmp_path / "unsupported_conversion.yaml"
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    config_path = _write_launch_config(tmp_path, "unsupported_conversion.yaml", config)
 
     result = _run_fa_sample_format_launch(config_path)
 
@@ -89,10 +99,61 @@ def test_launch_fails_closed_when_input_topic_is_missing(tmp_path: Path) -> None
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
     config["fa_sample_format"]["ros__parameters"]["input_topic"] = ""
-    config_path = tmp_path / "missing_input_topic.yaml"
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    config_path = _write_launch_config(tmp_path, "missing_input_topic.yaml", config)
 
     result = _run_fa_sample_format_launch(config_path)
 
     assert "process has died" in result.stdout
     assert "input_topic is required" in result.stdout
+
+
+def test_launch_fails_closed_when_output_topic_is_missing(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    config["fa_sample_format"]["ros__parameters"]["output_topic"] = ""
+    config_path = _write_launch_config(tmp_path, "missing_output_topic.yaml", config)
+
+    result = _run_fa_sample_format_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "output_topic is required" in result.stdout
+
+
+def test_launch_fails_closed_when_expected_contract_is_invalid(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    config["fa_sample_format"]["ros__parameters"]["expected"]["sample_rate"] = 0
+    config_path = _write_launch_config(tmp_path, "invalid_expected_contract.yaml", config)
+
+    result = _run_fa_sample_format_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "expected.sample_rate must be > 0" in result.stdout
+
+
+def test_launch_fails_closed_when_expected_channels_are_invalid(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    config["fa_sample_format"]["ros__parameters"]["expected"]["channels"] = 0
+    config_path = _write_launch_config(tmp_path, "invalid_expected_channels.yaml", config)
+
+    result = _run_fa_sample_format_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "expected.channels must be > 0" in result.stdout
+
+
+def test_launch_fails_closed_when_expected_layout_is_invalid(tmp_path: Path) -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
+    )
+    config["fa_sample_format"]["ros__parameters"]["expected"]["layout"] = "planar"
+    config_path = _write_launch_config(tmp_path, "invalid_expected_layout.yaml", config)
+
+    result = _run_fa_sample_format_launch(config_path)
+
+    assert "process has died" in result.stdout
+    assert "fa_sample_format requires expected.layout=interleaved" in result.stdout
