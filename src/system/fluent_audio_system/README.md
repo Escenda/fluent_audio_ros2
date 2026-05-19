@@ -43,9 +43,9 @@ VLAbor / Docker 側で system config から build 対象 package を解決する
 ros2 run fluent_audio_system list_required_packages --config /path/to/fluent_audio_system.yaml
 ```
 
-`--config` も同じカンマ区切り config path list を受け付けます。child-side FluentAudio config composition は package-local config / CLI で検証済みです。さらに Docker ROS2 環境で `fluent_audio_system` rebuild 後、combined launch smoke は `2 passed in 10.65s` として確認済みです。
+`--config` も同じカンマ区切り config path list を受け付けます。child-side FluentAudio config composition は package-local config / CLI で検証済みです。さらに Docker/VLAbor ROS2 環境で、combined launch smoke は `2 passed in 11.57s` として確認済みです。
 
-この smoke suite は、`config:=owner.yaml,adapter.yaml` 形式の generated owner/adapter config を使う launch-managed MCP HTTP relative-time tool-call smoke と、実 profile pair `${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml,${share:fluent_audio_system}/config/profiles/so101_agent_audio_tools.yaml` を `fluent_audio_system/run.py` 経由で起動する SO101 profile pair runtime smoke を含みます。後者は `fa_audio_mcp -> fa_asr/fa_audio_window` の runtime 経路を確認し、targeted 実行では `1 passed in 9.13s` です。ただし、この検証は child repo 内の実 FluentAudio profile pair smoke であり、親 VLAbor profile integration、親 Agent Runtime / MCP client integration、durable storage、World Station evidence linkage、実 SO101 device / model provisioning の検証完了を意味しません。
+この smoke suite は、`config:=owner.yaml,adapter.yaml` 形式の generated owner/adapter config を使う launch-managed MCP HTTP relative-time tool-call smoke と、実 profile pair `${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml,${share:fluent_audio_system}/config/profiles/so101_agent_audio_tools.yaml` を `fluent_audio_system/run.py` 経由で起動する SO101 profile pair runtime smoke を含みます。後者は `fa_audio_mcp -> fa_asr/fa_audio_window` の runtime 経路を確認します。ただし、この検証は child repo 内の実 FluentAudio profile pair smoke であり、親 VLAbor profile integration、親 Agent Runtime / MCP client integration、実 R2/S3 client upload、World Station evidence linkage、実 SO101 device / model provisioning の検証完了を意味しません。
 
 ## Profiles
 
