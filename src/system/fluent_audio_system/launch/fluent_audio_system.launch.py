@@ -49,6 +49,7 @@ def _launch_setup(context):
                 output=node.output,
                 parameters=node_launch_parameters(node, overrides),
                 remappings=node.launch_remappings(),
+                additional_env=node.env,
             )
             actions.append(
                 LogInfo(

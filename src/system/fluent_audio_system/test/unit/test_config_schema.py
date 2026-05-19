@@ -679,6 +679,121 @@ def test_ai_group_accepts_audio_embedding_package(tmp_path: Path) -> None:
     ]
 
 
+def test_apps_group_accepts_audio_mcp_and_expands_node_env(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_audio_mcp.yaml"
+    params_file.write_text("fa_audio_mcp:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "apps_agent_tools",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_audio_mcp",
+                            "enable": True,
+                            "package": "fa_audio_mcp",
+                            "exec": "fa_audio_mcp_server",
+                            "node_name": "fa_audio_mcp_server",
+                            "params_file": str(params_file),
+                            "env": {
+                                "FLUENT_AUDIO_MCP_TRANSPORT": "streamable-http",
+                                "FLUENT_AUDIO_MCP_HOST": "127.0.0.1",
+                                "FLUENT_AUDIO_MCP_PORT": "9110",
+                                "FLUENT_AUDIO_ARCHIVE_SCOPE_MIC": "mic",
+                                "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC": "audio/high_pass/mic",
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    node = spec.groups[0].nodes[0]
+    assert node.package == "fa_audio_mcp"
+    assert node.executable == "fa_audio_mcp_server"
+    assert node.env == {
+        "FLUENT_AUDIO_MCP_TRANSPORT": "streamable-http",
+        "FLUENT_AUDIO_MCP_HOST": "127.0.0.1",
+        "FLUENT_AUDIO_MCP_PORT": "9110",
+        "FLUENT_AUDIO_ARCHIVE_SCOPE_MIC": "mic",
+        "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC": "audio/high_pass/mic",
+    }
+    assert required_packages_for_system(spec) == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_audio_mcp",
+    ]
+
+
+def test_node_env_rejects_empty_key(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_audio_mcp.yaml"
+    params_file.write_text("fa_audio_mcp:\n  ros__parameters: {}\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="env keys must be non-empty strings"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "apps_agent_tools",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_audio_mcp",
+                                "enable": True,
+                                "package": "fa_audio_mcp",
+                                "exec": "fa_audio_mcp_server",
+                                "node_name": "fa_audio_mcp_server",
+                                "params_file": str(params_file),
+                                "env": {" ": "streamable-http"},
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_node_env_expands_inline_env_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    params_file = tmp_path / "fa_audio_mcp.yaml"
+    params_file.write_text("fa_audio_mcp:\n  ros__parameters: {}\n", encoding="utf-8")
+    monkeypatch.setenv("FLUENT_AUDIO_TEST_MCP_PORT", "9120")
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "apps_agent_tools",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_audio_mcp",
+                            "enable": True,
+                            "package": "fa_audio_mcp",
+                            "exec": "fa_audio_mcp_server",
+                            "node_name": "fa_audio_mcp_server",
+                            "params_file": str(params_file),
+                            "env": {
+                                "FLUENT_AUDIO_MCP_PORT": "${env:FLUENT_AUDIO_TEST_MCP_PORT}"
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert spec.groups[0].nodes[0].env == {"FLUENT_AUDIO_MCP_PORT": "9120"}
+
+
 @pytest.mark.parametrize(
     ("group_id", "package_name", "executable_name", "parameters"),
     [

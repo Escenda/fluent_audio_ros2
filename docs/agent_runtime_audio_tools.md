@@ -13,7 +13,7 @@
 
 この資料は完了済み機能の一覧ではない。DSP 全分類、backend 全種、VLAbor profile 連携、Agent Runtime 実装がすべて完了したことを示す資料ではない。ここで定義するのは、次工程で実装と検証を進めるための正本境界である。
 
-現時点の child-repo 実装として、`src/apps/agent_tools/fa_audio_mcp` に MCP adapter package が存在する。この package は `archive_audio_window` と `transcribe_audio` を MCP tools として公開し、numeric `<start_unix_ns>..<end_unix_ns>` range、archive / transcribe 別 scope mapping、ROS service error の tool error 変換を扱う。一方で、自然言語 time-range resolver、親 repo の Agent Runtime / VLAbor agent 統合、World Station evidence 連携は pending である。
+現時点の child-repo 実装として、`src/apps/agent_tools/fa_audio_mcp` に MCP adapter package が存在する。この package は `archive_audio_window` と `transcribe_audio` を MCP tools として公開し、numeric `<start_unix_ns>..<end_unix_ns>` range、archive / transcribe 別 scope mapping、ROS service error の tool error 変換を扱う。さらに `fluent_audio_system/config/profiles/so101_agent_audio_tools.yaml` から MCP adapter を起動できる。一方で、自然言語 time-range resolver、親 repo の Agent Runtime / VLAbor agent 統合、World Station evidence 連携、実 ROS service と接続した full smoke は pending である。
 
 ## 1. 基本方針
 
@@ -217,9 +217,11 @@ Agent Runtime から見える tool schema と、ROS2 service request / response 
 
 ### 8.4 launch / profile integration
 
-必要であれば、`fa_asr` と `fa_audio_window` を同じ FluentAudio system profile から起動できるようにする。
+`fa_asr` と `fa_audio_window` は `so101_voice_frontend.yaml` から同じ FluentAudio system profile で起動できる。MCP adapter は `so101_agent_audio_tools.yaml` から別 profile として起動できる。この分割により、voice frontend の audio service owner と Agent-facing tool adapter を同じ親側 include 方式で組み合わせられる。
 
 この作業では、ASR-ready stream と evidence stream の identity を明示する。`fa_audio_window` を `fa_asr` の暗黙入力にしない。必要な format conversion、resample、channel conversion は pipeline node として visible にする。
+
+現時点で確認済みなのは profile expansion と required package list である。`fa_audio_mcp` が実 ROS graph 上の `transcribe_audio` / `archive_audio_window` service と接続できることは、8.5 の full smoke で別途検証する。
 
 ### 8.5 end-to-end smoke test
 

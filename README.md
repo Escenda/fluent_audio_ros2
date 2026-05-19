@@ -20,6 +20,7 @@
 - `fa_kws`（`src/ai/fa_kws/`）: 外部 worker 境界の sherpa-onnx KWS、`voice/wake_word`を提供
 - `fa_asr`（`src/ai/fa_asr/`）: `local_command` / `whisper.cpp` / `parakeet_worker` / `openai_realtime` / `openai_transcriptions` backend を呼び出し、`voice/asr/result`を提供
 - `fa_turn_detector`（`src/ai/fa_turn_detector/`）: Smart Turn v3 ONNX によるターン終了推定、`voice/turn_end`を提供
+- `fa_audio_mcp`（`src/apps/agent_tools/fa_audio_mcp/`）: `archive_audio_window` / `transcribe_audio` を MCP tools として公開
 - `fa_tts`（`src/processing/generation/fa_tts/`）: pyopenjtalk(Open JTalk) によるTTS（`speak` サービス）/ `AudioFrame` 出力
 - `fa_resample`（`src/processing/format/fa_resample/`）: 16k ストリーム供給（`audio/frame`→`audio/resample16k/mic`）
 - `fa_aec_linear`（`src/processing/correction/fa_aec_linear/`）: 線形AEC（`mic/ref`→`audio/aec_linear/frame`）

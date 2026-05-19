@@ -34,6 +34,7 @@
 | `fa_tts` | TTS service と `audio/tts/frame` publish | 実 TTS backend、`fa_mix`、`fa_out` 連携が未検証 |
 | `fa_mix` | PCM16LE の MVP mixing | routing / ducking / limiter / barge-in 連携は未完了 |
 | `fa_voice_command_router` | MVP command router | structured command schema と KWS/ASR/TD 連携が未完了 |
+| `fa_audio_mcp` | `archive_audio_window` / `transcribe_audio` MCP adapter と SO101 agent audio tools profile | 実 Agent Runtime / MCP client と ROS service owner を接続した full smoke が未検証 |
 
 ## 4. 設計枠 / package 化前
 
@@ -104,7 +105,10 @@ VAD / KWS / ASR / Turn Detector は `FLOAT32LE/32/interleaved`、configured samp
 この経路では `fa_vad` の入力 stream と、`fa_kws` / `fa_asr` / `fa_turn_detector` が処理する audio stream を一致させる必要があります。`VadState.source_id` / `stream_id` が一致しない場合、後段 node はその VAD state を gate / finalize / turn-end trigger として使いません。ASR / Turn Detector の backend command、model path、provider、endpoint、credential env、health args は、それらを enabled にする FluentAudio system config 側に閉じます。
 SO101 で VAD/KWS/ASR/TD をまとめて起動する package-owned profile は `fluent_audio_system/config/profiles/so101_voice_frontend.yaml` です。この profile は `conversation/turn_context` の publisher を含まないため、wake word 後の session / turn 制御は `src/apps/dialogue` などの上位 app が担います。
 
-### 5.5 録音（WAV）
+### 5.5 Agent audio tools
+`fluent_audio_system/config/profiles/so101_agent_audio_tools.yaml` は `fa_audio_mcp` を起動し、`archive_audio_window` と `transcribe_audio` を Agent / MCP client から呼べる入口を用意します。この profile は `fa_asr` や `fa_audio_window` の service owner を起動しません。通常は `so101_voice_frontend.yaml` と同じ親側 include 方式で組み合わせます。
+
+### 5.6 録音（WAV）
 1. `fa_in`と`fa_record`を起動
 2. `record`サービスで開始/停止し、WAVを保存
 

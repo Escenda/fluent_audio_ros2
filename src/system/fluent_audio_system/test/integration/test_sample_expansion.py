@@ -38,6 +38,7 @@ def _patch_profile_package_shares(
         "fa_dc_offset_removal",
         "fa_high_pass",
         "fa_audio_window",
+        "fa_audio_mcp",
         "fa_vad",
         "fa_kws",
         "fa_asr",
@@ -51,6 +52,8 @@ def _patch_profile_package_shares(
             config_text = "fa_in:\n  ros__parameters:\n    backend.name: alsa_capture\n"
         elif package_name == "fa_out":
             config_text = "fa_out:\n  ros__parameters:\n    backend.name: alsa_playback\n"
+        elif package_name == "fa_audio_mcp":
+            config_text = "fa_audio_mcp:\n  ros__parameters: {}\n"
         elif package_name == "fa_vad":
             config_text = "fa_vad:\n  ros__parameters: {}\n"
         elif package_name == "fa_kws":
@@ -76,6 +79,7 @@ def _patch_profile_package_shares(
             "fa_dc_offset_removal",
             "fa_high_pass",
             "fa_audio_window",
+            "fa_audio_mcp",
             "fa_vad",
             "fa_kws",
             "fa_asr",
@@ -893,6 +897,51 @@ def test_required_packages_for_so101_voice_frontend_profile(
         "fa_kws",
         "fa_asr",
         "fa_turn_detector",
+    ]
+
+
+def test_so101_agent_audio_tools_profile_expands_mcp_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+
+    spec = load_system_config(
+        "${share:fluent_audio_system}/config/profiles/so101_agent_audio_tools.yaml"
+    )
+
+    enabled_nodes = [node for group in spec.groups for node in group.nodes]
+
+    assert [node.id for node in enabled_nodes] == ["fa_audio_mcp"]
+    node = enabled_nodes[0]
+    assert node.package == "fa_audio_mcp"
+    assert node.executable == "fa_audio_mcp_server"
+    assert node.node_name == "fa_audio_mcp_server"
+    assert node.env == {
+        "FLUENT_AUDIO_MCP_TRANSPORT": "streamable-http",
+        "FLUENT_AUDIO_MCP_HOST": "127.0.0.1",
+        "FLUENT_AUDIO_MCP_PORT": "9110",
+        "FLUENT_AUDIO_MCP_SERVICE_TIMEOUT_SEC": "10.0",
+        "FLUENT_AUDIO_ARCHIVE_AUDIO_WINDOW_SERVICE": "archive_audio_window",
+        "FLUENT_AUDIO_TRANSCRIBE_AUDIO_SERVICE": "transcribe_audio",
+        "FLUENT_AUDIO_ARCHIVE_SCOPE_MIC": "mic",
+        "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC": "audio/high_pass/mic",
+    }
+
+
+def test_required_packages_for_so101_agent_audio_tools_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_fluent_audio_system_share(monkeypatch)
+
+    packages = load_required_packages(
+        "${share:fluent_audio_system}/config/profiles/so101_agent_audio_tools.yaml"
+    )
+
+    assert packages == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_audio_mcp",
     ]
 
 

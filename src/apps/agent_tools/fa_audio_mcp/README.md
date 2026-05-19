@@ -55,6 +55,8 @@ export FLUENT_AUDIO_ARCHIVE_SCOPE_MIC=mic
 export FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC=audio/high_pass/mic
 ```
 
+`fluent_audio_system/config/profiles/so101_agent_audio_tools.yaml` は、この SO101 用 mapping と `streamable-http` transport を system profile 側の node environment として明示します。
+
 ## Run
 
 ROS2 workspace を source 済みの shell で起動します。

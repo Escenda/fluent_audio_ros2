@@ -1,0 +1,26 @@
+system:
+  default_start_delay: 0.2
+  inter_group_delay: 0.5
+
+groups:
+  - id: apps_agent_tools
+    enable: true
+    nodes:
+      - id: fa_audio_mcp
+        enable: true
+        package: fa_audio_mcp
+        exec: fa_audio_mcp_server
+        node_name: fa_audio_mcp_server
+        namespace: ""
+        params_file: "${share:fa_audio_mcp}/config/default.yaml"
+        remappings: {}
+        env:
+          FLUENT_AUDIO_MCP_TRANSPORT: "streamable-http"
+          FLUENT_AUDIO_MCP_HOST: "127.0.0.1"
+          FLUENT_AUDIO_MCP_PORT: "9110"
+          FLUENT_AUDIO_MCP_SERVICE_TIMEOUT_SEC: "10.0"
+          FLUENT_AUDIO_ARCHIVE_AUDIO_WINDOW_SERVICE: "archive_audio_window"
+          FLUENT_AUDIO_TRANSCRIBE_AUDIO_SERVICE: "transcribe_audio"
+          FLUENT_AUDIO_ARCHIVE_SCOPE_MIC: "mic"
+          FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC: "audio/high_pass/mic"
+        parameters: {}

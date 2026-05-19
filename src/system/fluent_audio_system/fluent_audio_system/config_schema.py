@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 from typing import TypeAlias, TypeGuard
 
@@ -101,6 +101,7 @@ _PACKAGE_CATEGORIES = {
     "fa_asr": frozenset(("ai",)),
     "fa_turn_detector": frozenset(("ai",)),
     "fa_audio_embedding": frozenset(("ai",)),
+    "fa_audio_mcp": frozenset(("apps",)),
     "fa_frame_buffer": frozenset(("streaming",)),
     "fa_jitter_buffer": frozenset(("streaming",)),
     "fa_clock_drift": frozenset(("streaming",)),
@@ -194,6 +195,7 @@ class _NodeConfig(BaseModel):
     params_file: str | None = None
     parameters: dict[str, ParamValue] | None = None
     remappings: RemappingConfigValue | None = None
+    env: dict[str, str] | None = None
 
     @model_validator(mode="after")
     def _validate_required_fields(self) -> "_NodeConfig":
@@ -257,6 +259,7 @@ class AudioNodeSpec:
     parameters: dict[str, ParamValue]
     remappings: list[RemappingSpec]
     backend_name: str | None
+    env: dict[str, str] = dataclass_field(default_factory=dict)
 
     def launch_parameters(self) -> list[str | dict[str, ParamValue]]:
         sources = []
@@ -569,6 +572,7 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
     parameters = _optional_parameters(node.parameters, node_id)
     _validate_parameter_identity_contract(package, node_id, parameters)
     remappings = _optional_remappings(node.remappings, node_id)
+    env = _optional_env(node.env, node_id)
     backend_name = _effective_backend_name(params_file_parameters, parameters, node_id)
     if package in _BACKEND_NAME_REQUIRED_PACKAGES and backend_name is None:
         raise RuntimeError(f"node {node_id}.backend.name is required for {package}")
@@ -582,6 +586,7 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
         params_file=params_file,
         parameters=parameters,
         remappings=remappings,
+        env=env,
         backend_name=backend_name,
     )
 
@@ -829,6 +834,22 @@ def _optional_remappings(
             raise RuntimeError(f"node {node_id} remapping target must be a non-empty string")
         remappings.append(RemappingSpec(source=source, target=target))
     return remappings
+
+
+def _optional_env(
+    value: dict[str, str] | None,
+    node_id: str,
+) -> dict[str, str]:
+    if value is None:
+        return {}
+    env: dict[str, str] = {}
+    for key, raw_value in value.items():
+        if not isinstance(key, str) or not key.strip():
+            raise RuntimeError(f"node {node_id} env keys must be non-empty strings")
+        if not isinstance(raw_value, str):
+            raise RuntimeError(f"node {node_id} env '{key}' must be a string")
+        env[key.strip()] = _resolve_config_refs(raw_value)
+    return env
 
 
 def _resolve_config_refs(value: str) -> str:
