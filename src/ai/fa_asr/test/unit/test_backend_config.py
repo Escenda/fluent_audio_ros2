@@ -637,14 +637,35 @@ def test_asr_node_maps_unexpected_backend_exception_to_error_result(
         sys.modules.pop("fa_asr_py.asr_node", None)
 
 
-def test_command_backend_does_not_clip_audio() -> None:
-    source_path = PACKAGE_ROOT / "fa_asr_py" / "backends" / "_command_process.py"
-    source = source_path.read_text(encoding="utf-8")
+def test_asr_backends_do_not_hide_audio_format_conversion() -> None:
+    backend_files = sorted((PACKAGE_ROOT / "fa_asr_py" / "backends").glob("*.py"))
+    command_backend = PACKAGE_ROOT / "fa_asr_py" / "backends" / "_command_process.py"
+    forbidden_conversion_tokens = (
+        "np.clip",
+        "_float_to_pcm16",
+        "astype(np.int16)",
+        "np.int16",
+        "PCM16",
+        "pcm16",
+        "wave.open",
+        "import wave",
+        "librosa",
+        "soundfile",
+        "samplerate",
+        "resample",
+        "downmix",
+        "bit_depth",
+        "sample_rate_convert",
+    )
 
-    assert "np.clip" not in source
-    assert "_float_to_pcm16" not in source
-    assert "astype(np.int16)" not in source
-    assert "ASR request samples must be normalized to [-1.0, 1.0]" in source
+    assert backend_files
+    for backend_file in backend_files:
+        source = backend_file.read_text(encoding="utf-8")
+        for token in forbidden_conversion_tokens:
+            assert token not in source
+
+    command_source = command_backend.read_text(encoding="utf-8")
+    assert "ASR request samples must be normalized to [-1.0, 1.0]" in command_source
 
 
 def test_asr_node_source_does_not_hide_parameter_type_conversion() -> None:
