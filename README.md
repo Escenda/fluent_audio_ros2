@@ -69,7 +69,7 @@ ros2 launch fa_in fa_in.launch.py node_name:=fa_in config_file:=/path/to/fa_in.y
 ros2 launch fa_vad fa_vad.launch.py node_name:=fa_vad config_file:=/path/to/fa_vad.yaml
 ```
 
-### 3) 音声対話コア（VAD/KWS/ASR/TD）
+### 3) SO101 VAD/KWS frontend
 ```bash
 ros2 launch fluent_audio_system run.py \
   config:=/path/to/so101_kws_frontend.yaml \
@@ -79,7 +79,9 @@ ros2 launch fluent_audio_system run.py \
   fa_out_sink_id:=disabled
 ```
 
-`fa_kws` / `fa_asr` / `fa_turn_detector` はローカルモデルまたは external worker の契約が必須です。KWS では `backend.command`、`backend.args`、`backend.health_args`、model files、provider、workspace、`output.qos.*` を node config または system config に明示します。未設定または存在しない場合は起動時に失敗します。
+この profile は `fa_in -> fa_sample_format -> fa_resample -> fa_vad / fa_kws` を起動します。ASR / Turn Detector は package-owned SO101 profile template に backend contract を持ちますが、この KWS frontend profile では起動しません。
+
+`fa_vad` / `fa_kws` / `fa_asr` / `fa_turn_detector` はローカルモデルまたは external worker の契約が必須です。VAD は `backend.command`、`backend.args`、model path、provider、workspace、QoS を明示します。KWS / ASR / Turn Detector はそれに加えて `backend.health_args` も node config または system config に明示します。未設定または存在しない場合は起動時に失敗します。
 
 `voice/vad_state` は `fa_vad` が判定した `AudioFrame.source_id` / `stream_id` を保持します。`fa_kws` / `fa_asr` / `fa_turn_detector` は topic 名だけで VAD state を信頼せず、自分が処理する audio stream と identity が一致しない VAD state を reject します。
 

@@ -41,12 +41,18 @@ fa_in
   ├ Pub: audio/frame (fa_interfaces/msg/AudioFrame)
   └ Srv: list_devices, switch_device
       │
+      ├──────────────► fa_record ── Srv: record (WAV保存)
+      ├──────────────► fa_stream ── Icecast等へ送出
+      ▼
+fa_sample_format
+      │
+      ▼
+fa_resample
+      │
       ├──────────────► fa_vad ─────── Pub: audio/vad / voice/vad_state
       ├──────────────► fa_kws ─────── Pub: voice/wake_word
       ├──────────────► fa_asr ─────── Pub: voice/asr/result
-      ├──────────────► fa_turn_detector ── Pub: voice/turn_end
-      ├──────────────► fa_record   ── Srv: record (WAV保存)
-      └──────────────► fa_stream ── Icecast等へ送出
+      └──────────────► fa_turn_detector ── Pub: voice/turn_end
 
 Text
   │
@@ -123,7 +129,7 @@ ros2 launch fa_asr fa_asr.launch.py node_name:=fa_asr config_file:=/path/to/fa_a
 ros2 launch fa_turn_detector fa_turn_detector.launch.py node_name:=fa_turn_detector config_file:=/path/to/fa_turn_detector.yaml
 ```
 
-VAD / KWS / ASR / Turn Detector の backend/model 詳細は、単体 launch 引数ではなく各 node config または `fluent_audio_system` の system config に置きます。SO101 で VAD + KWS をまとめて起動する場合は `fluent_audio_system/config/profiles/so101_kws_frontend.yaml` を使い、worker command と model path はその system config 内の `${env:...}` で明示します。
+VAD / KWS / ASR / Turn Detector の backend/model 詳細は、単体 launch 引数ではなく各 node config または `fluent_audio_system` の system config に置きます。SO101 で VAD + KWS をまとめて起動する場合は `fluent_audio_system/config/profiles/so101_kws_frontend.yaml` を使い、worker command と model path はその system config 内の `${env:...}` で明示します。この profile は `fa_asr` / `fa_turn_detector` を起動しません。ASR / Turn Detector は、それらを enabled にする別の system config 側で backend command、model path、provider、health args を明示します。
 
 ## 6. 実装フェーズ案（更新用メモ）
 1. `fa_interfaces`: `AudioFrame`/主要srvの確定

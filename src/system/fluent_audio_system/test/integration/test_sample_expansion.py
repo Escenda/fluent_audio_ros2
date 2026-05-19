@@ -218,22 +218,6 @@ def test_required_packages_for_so101_profile_excludes_disabled_pipelines(
     assert "fa_denoise" not in packages
 
 
-def test_so101_profile_does_not_embed_turn_detector_model_artifact_path() -> None:
-    config = yaml.safe_load(
-        (PACKAGE_ROOT / "config" / "profiles" / "so101.yaml").read_text(encoding="utf-8")
-    )
-    ai_group = next(group for group in config["groups"] if group["id"] == "ai")
-    turn_detector = next(
-        node for node in ai_group["nodes"] if node["id"] == "fa_turn_detector"
-    )
-
-    assert turn_detector["enable"] is False
-    assert turn_detector["parameters"] == {
-        "audio_topic": "audio/resample16k/mic",
-        "expected_stream_id": "audio/preprocessed/mono16k",
-    }
-
-
 def test_audio_embedding_profiles_keep_backend_and_model_out_of_profile_config() -> None:
     for profile_path, group_id in (
         ("config/fluent_audio_system.sample.yaml", "ai"),
@@ -463,6 +447,32 @@ def test_voice_frontend_profiles_bind_ai_consumers_to_resampled_mic_stream(
         ("config/profiles/so101_kws_frontend.yaml", "voice_frontend"),
     ),
 )
+def test_vad_profiles_carry_external_worker_contract_in_system_config(
+    profile_path: str,
+    group_id: str,
+) -> None:
+    config = yaml.safe_load((PACKAGE_ROOT / profile_path).read_text(encoding="utf-8"))
+    group = next(group for group in config["groups"] if group["id"] == group_id)
+    vad = next(node for node in group["nodes"] if node["id"] == "fa_vad")
+    params = vad["parameters"]
+
+    assert params["backend.name"] == "silero"
+    assert params["backend.model_path"] == "${env:FLUENT_AUDIO_VAD_MODEL_DIR}"
+    assert params["backend.execution_provider"] == "${env:FLUENT_AUDIO_VAD_PROVIDER}"
+    assert params["backend.command"] == "${env:FLUENT_AUDIO_VAD_WORKER}"
+    assert params["input_topic"] == "audio/resample16k/mic"
+    assert params["input_stream_id"] == "audio/preprocessed/mono16k"
+
+
+@pytest.mark.parametrize(
+    ("profile_path", "group_id"),
+    (
+        ("config/fluent_audio_system.sample.yaml", "ai"),
+        ("config/profiles/so101.yaml", "ai"),
+        ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
+        ("config/profiles/so101_kws_frontend.yaml", "voice_frontend"),
+    ),
+)
 def test_kws_profiles_carry_external_worker_contract_in_system_config(
     profile_path: str,
     group_id: str,
@@ -489,6 +499,82 @@ def test_kws_profiles_carry_external_worker_contract_in_system_config(
     assert "{audio}" not in params["backend.health_args"]
     assert "qos.depth" not in params
     assert "qos.reliable" not in params
+
+
+@pytest.mark.parametrize(
+    ("profile_path", "group_id"),
+    (
+        ("config/fluent_audio_system.sample.yaml", "ai"),
+        ("config/profiles/so101.yaml", "ai"),
+        ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
+    ),
+)
+def test_asr_profiles_carry_whisper_worker_contract_in_system_config(
+    profile_path: str,
+    group_id: str,
+) -> None:
+    config = yaml.safe_load((PACKAGE_ROOT / profile_path).read_text(encoding="utf-8"))
+    group = next(group for group in config["groups"] if group["id"] == group_id)
+    asr = next(node for node in group["nodes"] if node["id"] == "fa_asr")
+    params = asr["parameters"]
+
+    assert params["backend.name"] == "whisper.cpp"
+    assert params["backend.command"] == "${env:FLUENT_AUDIO_ASR_WORKER}"
+    assert params["backend.model_path"] == "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
+    assert params["vad_topic"] == "voice/vad_state"
+    assert params["turn_context_topic"] == "conversation/turn_context"
+    assert params["asr_result_topic"] == "voice/asr/result"
+    assert params["backend.timeout_sec"] == 120.0
+    assert params["workspace_dir"]
+    assert params["cleanup_audio_files"] is True
+    assert params["result.qos.depth"] == 10
+    assert params["result.qos.reliable"] is True
+    assert "{audio}" in params["backend.args"]
+    assert "{model}" in params["backend.args"]
+    assert "{sample_rate}" in params["backend.args"]
+    assert "{model}" in params["backend.health_args"]
+    assert "{audio}" not in params["backend.health_args"]
+
+
+@pytest.mark.parametrize(
+    ("profile_path", "group_id"),
+    (
+        ("config/fluent_audio_system.sample.yaml", "ai"),
+        ("config/profiles/so101.yaml", "ai"),
+        ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
+    ),
+)
+def test_turn_detector_profiles_carry_external_worker_contract_in_system_config(
+    profile_path: str,
+    group_id: str,
+) -> None:
+    config = yaml.safe_load((PACKAGE_ROOT / profile_path).read_text(encoding="utf-8"))
+    group = next(group for group in config["groups"] if group["id"] == group_id)
+    turn_detector = next(node for node in group["nodes"] if node["id"] == "fa_turn_detector")
+    params = turn_detector["parameters"]
+
+    assert params["backend.name"] == "smart_turn_onnx"
+    assert params["backend.command"] == "${env:FLUENT_AUDIO_TURN_DETECTOR_WORKER}"
+    assert params["backend.model_path"] == "${env:FLUENT_AUDIO_TURN_DETECTOR_MODEL}"
+    assert (
+        params["backend.execution_provider"]
+        == "${env:FLUENT_AUDIO_TURN_DETECTOR_PROVIDER}"
+    )
+    assert params["vad_topic"] == "voice/vad_state"
+    assert params["turn_context_topic"] == "conversation/turn_context"
+    assert params["output_topic"] == "voice/turn_end"
+    assert params["backend.timeout_sec"] == 5.0
+    assert params["backend.workspace_dir"]
+    assert params["backend.cleanup_audio_files"] is True
+    assert params["backend.threshold"] == 0.5
+    assert params["output.qos.depth"] == 10
+    assert params["output.qos.reliable"] is True
+    assert "{audio}" in params["backend.args"]
+    assert "{model}" in params["backend.args"]
+    assert "{provider}" in params["backend.args"]
+    assert "{model}" in params["backend.health_args"]
+    assert "{provider}" in params["backend.health_args"]
+    assert "{audio}" not in params["backend.health_args"]
 
 
 def test_required_packages_for_so101_mic_frontend_profile(

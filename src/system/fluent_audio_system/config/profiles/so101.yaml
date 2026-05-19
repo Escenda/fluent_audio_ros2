@@ -107,6 +107,10 @@ groups:
         parameters:
           input_topic: "audio/resample16k/mic"
           input_stream_id: "audio/preprocessed/mono16k"
+          backend.name: "silero"
+          backend.model_path: "${env:FLUENT_AUDIO_VAD_MODEL_DIR}"
+          backend.execution_provider: "${env:FLUENT_AUDIO_VAD_PROVIDER}"
+          backend.command: "${env:FLUENT_AUDIO_VAD_WORKER}"
 
       - id: fa_kws
         enable: false
@@ -205,6 +209,33 @@ groups:
         parameters:
           audio_topic: "audio/resample16k/mic"
           expected_stream_id: "audio/preprocessed/mono16k"
+          vad_topic: "voice/vad_state"
+          turn_context_topic: "conversation/turn_context"
+          asr_result_topic: "voice/asr/result"
+          backend.name: "whisper.cpp"
+          backend.model_path: "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
+          backend.command: "${env:FLUENT_AUDIO_ASR_WORKER}"
+          backend.args:
+            - "transcribe"
+            - "--audio"
+            - "{audio}"
+            - "--model"
+            - "{model}"
+            - "--sample-rate"
+            - "{sample_rate}"
+            - "--language"
+            - "{language}"
+          backend.health_args:
+            - "health"
+            - "--model"
+            - "{model}"
+            - "--language"
+            - "{language}"
+          backend.timeout_sec: 120.0
+          workspace_dir: "/tmp/fluent_audio/fa_asr/so101"
+          cleanup_audio_files: true
+          result.qos.depth: 10
+          result.qos.reliable: true
 
       - id: fa_audio_embedding
         enable: false
@@ -229,3 +260,30 @@ groups:
         parameters:
           audio_topic: "audio/resample16k/mic"
           expected_stream_id: "audio/preprocessed/mono16k"
+          vad_topic: "voice/vad_state"
+          turn_context_topic: "conversation/turn_context"
+          output_topic: "voice/turn_end"
+          backend.name: "smart_turn_onnx"
+          backend.model_path: "${env:FLUENT_AUDIO_TURN_DETECTOR_MODEL}"
+          backend.execution_provider: "${env:FLUENT_AUDIO_TURN_DETECTOR_PROVIDER}"
+          backend.command: "${env:FLUENT_AUDIO_TURN_DETECTOR_WORKER}"
+          backend.args:
+            - "detect"
+            - "--model"
+            - "{model}"
+            - "--provider"
+            - "{provider}"
+            - "--audio"
+            - "{audio}"
+          backend.health_args:
+            - "health"
+            - "--model"
+            - "{model}"
+            - "--provider"
+            - "{provider}"
+          backend.timeout_sec: 5.0
+          backend.workspace_dir: "/tmp/fluent_audio/fa_turn_detector/so101"
+          backend.cleanup_audio_files: true
+          backend.threshold: 0.5
+          output.qos.depth: 10
+          output.qos.reliable: true

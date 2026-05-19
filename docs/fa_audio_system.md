@@ -70,18 +70,24 @@ passthrough contract や skeleton 実装の package は、各 package の `docs/
 1. `fa_in`を起動（`audio/frame`をPublish）
 2. `fa_vad`を起動（`audio/vad`をPublish）
 
-### 5.3 VAD/KWS/ASR/TD
-1. `fa_in`と`fa_vad`を起動
-2. `fa_kws`を起動し、`voice/wake_word`で起動語を受ける
-3. 会話オーケストレータが`conversation/turn_context`をPublishする
-4. `fa_asr`が`voice/asr/result`をPublishする
-5. `fa_turn_detector`が`voice/turn_end`をPublishする
+### 5.3 SO101 VAD/KWS frontend
+1. `fa_in` が raw microphone frame を publish する
+2. `fa_sample_format` が `FLOAT32LE/32/interleaved` へ明示変換する
+3. `fa_resample` が 16kHz stream へ明示変換する
+4. `fa_vad` が `voice/vad_state` を publish する
+5. `fa_kws` が `voice/wake_word` を publish する
 
-この経路では `fa_vad` の入力 stream と、`fa_kws` / `fa_asr` / `fa_turn_detector` が処理する audio stream を一致させる必要があります。`VadState.source_id` / `stream_id` が一致しない場合、後段 node はその VAD state を gate / finalize / turn-end trigger として使いません。
+SO101 の VAD + KWS frontend は `fluent_audio_system/config/profiles/so101_kws_frontend.yaml` に system config として定義します。この profile は `fa_asr` / `fa_turn_detector` を起動しません。VLAbor profile には enable / config path / source binding だけを置き、Silero / sherpa-onnx の worker command、model path、provider、keywords file は system config 側の `${env:...}` で明示します。
 
-SO101 の VAD + KWS frontend は `fluent_audio_system/config/profiles/so101_kws_frontend.yaml` に system config として定義します。VLAbor profile には enable / config path / source binding だけを置き、Silero / sherpa-onnx の worker command、model path、provider、keywords file は system config 側の `${env:...}` で明示します。
+### 5.4 VAD/KWS/ASR/TD dialogue graph
+1. VAD/KWS frontend を起動し、`voice/wake_word` で起動語を受ける
+2. 会話オーケストレータが `conversation/turn_context` を publish する
+3. `fa_asr` が `voice/asr/result` を publish する
+4. `fa_turn_detector` が `voice/turn_end` を publish する
 
-### 5.4 録音（WAV）
+この経路では `fa_vad` の入力 stream と、`fa_kws` / `fa_asr` / `fa_turn_detector` が処理する audio stream を一致させる必要があります。`VadState.source_id` / `stream_id` が一致しない場合、後段 node はその VAD state を gate / finalize / turn-end trigger として使いません。ASR / Turn Detector の backend command、model path、provider、health args は、それらを enabled にする FluentAudio system config 側に閉じます。
+
+### 5.5 録音（WAV）
 1. `fa_in`と`fa_record`を起動
 2. `record`サービスで開始/停止し、WAVを保存
 
