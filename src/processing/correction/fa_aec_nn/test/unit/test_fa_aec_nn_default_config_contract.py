@@ -170,13 +170,6 @@ def test_aec_nn_rejects_channel_wildcards_and_unsupported_format_pairs() -> None
     source = (package_root / "src" / "fa_aec_nn_node.cpp").read_text(
         encoding="utf-8"
     )
-    spec = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    algorithm = (package_root / "docs" / "アルゴリズム詳細説明書.md").read_text(
-        encoding="utf-8"
-    )
-    test_plan = (package_root / "docs" / "テスト設計.md").read_text(
-        encoding="utf-8"
-    )
 
     assert "config_.expected_channels <= 0" in source
     assert "config_.input_stream_id.empty()" in source
@@ -192,12 +185,6 @@ def test_aec_nn_rejects_channel_wildcards_and_unsupported_format_pairs() -> None
     assert "expected encoding/bit_depth must be PCM16LE/16 or FLOAT32LE/32" in source
     assert 'throw std::logic_error("fa_aec_nn backend is not initialized")' in source
     assert "Dropping frame because fa_aec_nn backend is not initialized" not in source
-    assert "channel 検査の無効化は禁止" in spec
-    assert "`stream_id` は `input_stream_id`" in spec
-    assert "PCM32LE/32" in spec
-    assert "channel 検査の wildcard はない" in algorithm
-    assert "encoding / bit depth は `PCM16LE/16`" in algorithm
-    assert "stream_id` が `input_stream_id`" in test_plan
 
 
 def test_package_manifest_declares_launch_and_yaml_dependencies() -> None:

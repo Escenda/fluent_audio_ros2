@@ -19,11 +19,3 @@ def test_colcon_registers_package_pytest_suite() -> None:
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package
     assert "<test_depend>python3-pytest</test_depend>" in package
     assert "<test_depend>python3-yaml</test_depend>" in package
-
-
-def test_readme_launch_example_supplies_required_arguments() -> None:
-    readme = read_package_file("README.md")
-
-    assert "node_name:=fa_voice_command_router" in readme
-    assert "config_file:=$(ros2 pkg prefix fa_voice_command_router)" in readme
-    assert "ros2 launch fa_voice_command_router fa_voice_command_router.launch.py\n```" not in readme

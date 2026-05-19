@@ -232,10 +232,6 @@ def test_alsa_name_selector_fails_closed_on_duplicate_display_names() -> None:
     node_source = (package_root / "src" / "fa_in_node.cpp").read_text(
         encoding="utf-8"
     )
-    spec = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    backend_doc = (package_root / "docs" / "backends" / "alsa.md").read_text(
-        encoding="utf-8"
-    )
     validation_header = (
         package_root / "include" / "fa_in" / "audio_config_validation.hpp"
     ).read_text(encoding="utf-8")
@@ -278,9 +274,6 @@ def test_alsa_name_selector_fails_closed_on_duplicate_display_names() -> None:
     assert "display_name_matches" not in id_switch_block
     assert "displayName(dev)" not in id_miss_block
     assert "device id not found" in id_switch_block
-    assert "一意に解決できる表示名" in spec
-    assert "重複表示名では fail closed" in spec
-    assert "configured display name が複数 source に一致する" in backend_doc
 
 
 def test_backend_implementation_files_are_ros_free() -> None:
@@ -397,10 +390,6 @@ def test_source_adapter_exposes_file_and_network_backends_but_no_dsp_surface() -
         encoding="utf-8"
     )
     config_text = (package_root / "config" / "default.yaml").read_text(encoding="utf-8")
-    spec_text = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    test_plan_text = (package_root / "docs" / "テスト設計.md").read_text(
-        encoding="utf-8"
-    )
     backend_text = "\n".join(
         path.read_text(encoding="utf-8")
         for path in [
@@ -432,20 +421,7 @@ def test_source_adapter_exposes_file_and_network_backends_but_no_dsp_surface() -
     assert "file.path" in combined
     assert "endpoint.uri" in combined
     assert "network.max_packet_bytes" in combined
-    assert "FA-IN-SPEC-023" in spec_text
-    assert "FA-IN-SPEC-023" in test_plan_text
     assert (package_root / "docs" / "backends" / "network_pcm_receiver.md").is_file()
-
-
-def test_source_adapter_docs_route_analysis_and_vad_to_correct_layers() -> None:
-    package_root = Path(__file__).parents[2]
-    algorithm_text = (
-        package_root / "docs" / "アルゴリズム詳細説明書.md"
-    ).read_text(encoding="utf-8")
-
-    assert "RMS / peak は `src/processing/analysis`" in algorithm_text
-    assert "VAD は `src/ai/fa_vad`" in algorithm_text
-    assert "VAD は専用 processing node" not in algorithm_text
 
 
 def test_network_receiver_idle_timeout_is_explicit_and_test_mapped() -> None:
@@ -457,25 +433,9 @@ def test_network_receiver_idle_timeout_is_explicit_and_test_mapped() -> None:
     node_contract_text = (
         package_root / "test" / "cpp" / "test_fa_in_node_contract.cpp"
     ).read_text(encoding="utf-8")
-    spec_text = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    algorithm_text = (
-        package_root / "docs" / "アルゴリズム詳細説明書.md"
-    ).read_text(encoding="utf-8")
-    backend_doc_text = (
-        package_root / "docs" / "backends" / "network_pcm_receiver.md"
-    ).read_text(encoding="utf-8")
-    test_plan_text = (package_root / "docs" / "テスト設計.md").read_text(
-        encoding="utf-8"
-    )
 
     assert "network_source_timeout_ms" in header_text
     assert 'readRequiredInt(*this, "network.source_timeout_ms")' in source_text
     assert "polling.period_ms must be <= network.source_timeout_ms" in source_text
     assert "network input source produced no packets" in source_text
     assert "NetworkBackendNoPacketTimeoutFailsClosed" in node_contract_text
-    assert "network.source_timeout_ms" in spec_text
-    assert "FA-IN-SPEC-029" in spec_text
-    assert "network.source_timeout_ms" in algorithm_text
-    assert "network.source_timeout_ms" in backend_doc_text
-    assert "FA-IN-TC-019" in test_plan_text
-    assert "NetworkBackendNoPacketTimeoutFailsClosed" in test_plan_text

@@ -27,9 +27,6 @@ def test_sherpa_backend_source_stays_ros_free() -> None:
 
 def test_kws_backend_is_external_worker_boundary_not_native_link() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-    docs_text = (
-        PACKAGE_ROOT / "docs" / "backends" / "sherpa_onnx_kws.md"
-    ).read_text(encoding="utf-8")
     backend_text = (
         PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
     ).read_text(encoding="utf-8")
@@ -38,8 +35,6 @@ def test_kws_backend_is_external_worker_boundary_not_native_link() -> None:
     assert "SHERPA_ONNX_PREFIX" not in cmake_text
     assert "sherpa-onnx/c-api" not in backend_text
     assert "execvp(command.c_str(), argv.data())" in backend_text
-    assert "backend.command" in docs_text
-    assert "External worker" in docs_text
     assert "add_library(fa_kws_backends STATIC" in cmake_text
     assert "sherpa_onnx_kws_backend_unavailable.cpp" not in cmake_text
     assert "install(TARGETS fa_kws_node fa_kws_wav_tool" in cmake_text

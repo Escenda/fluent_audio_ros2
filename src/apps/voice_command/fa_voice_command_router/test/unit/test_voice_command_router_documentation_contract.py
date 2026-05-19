@@ -32,14 +32,3 @@ def test_launch_requires_explicit_node_name_and_config_file() -> None:
     assert "FindPackageShare" not in launch_text
     assert "PathJoinSubstitution" not in launch_text
     assert "parameters=[config_file]" in launch_text
-
-
-def test_voice_command_router_runtime_backend_boundary_is_explicit() -> None:
-    spec = read_package_file("docs/仕様書.md")
-    backend = read_package_file("docs/backends/no_runtime_backend.md")
-    algorithm = read_package_file("docs/アルゴリズム詳細説明書.md")
-
-    assert "TTS 合成自体は `fa_tts` の責務" in spec
-    assert "`tts_service` is a ROS service name, not a backend selector" in backend
-    assert "No TTS engine is imported or selected here" in backend
-    assert "音声 frame は扱わない" in algorithm

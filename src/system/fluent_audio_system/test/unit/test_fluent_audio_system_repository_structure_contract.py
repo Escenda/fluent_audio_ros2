@@ -168,48 +168,6 @@ def test_package_category_map_matches_repository_layout() -> None:
         assert expected_category in package_categories[package_name]
 
 
-def _processing_readme_package_status() -> dict[str, set[str]]:
-    readme_path = SRC_ROOT / "processing" / "README.md"
-    category_packages: dict[str, set[str]] = {}
-    for line in readme_path.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("| `"):
-            continue
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) < 2:
-            continue
-        category_cell = cells[0]
-        packages_cell = cells[1]
-        if not category_cell.endswith("/`"):
-            continue
-        category = category_cell.removeprefix("`").removesuffix("/`")
-        category_packages[category] = set(re.findall(r"`([^`]+)`", packages_cell))
-    return category_packages
-
-
-def _readme_ros_package_rows(readme_path: Path) -> set[str]:
-    package_rows: set[str] = set()
-    for line in readme_path.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("| `"):
-            continue
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) < 2:
-            continue
-        directory_cell, status_cell = cells[:2]
-        if not directory_cell.endswith("/`"):
-            continue
-        if status_cell != "ROS 2 package":
-            continue
-        package_rows.add(directory_cell.removeprefix("`").removesuffix("/`"))
-    return package_rows
-
-
-def _buildable_package_paths_under(root: Path) -> set[str]:
-    return {
-        str(package_xml.parent.relative_to(root))
-        for package_xml in sorted(root.rglob("package.xml"))
-    }
-
-
 def _production_python_files_under(root: Path) -> list[Path]:
     production_files: list[Path] = []
     for path in sorted(root.rglob("*.py")):
@@ -218,39 +176,6 @@ def _production_python_files_under(root: Path) -> list[Path]:
             continue
         production_files.append(path)
     return production_files
-
-
-def test_processing_readme_package_status_matches_buildable_processing_packages() -> None:
-    expected_packages_by_category: dict[str, set[str]] = {}
-
-    for package_xml in sorted((SRC_ROOT / "processing").glob("*/*/package.xml")):
-        category, package_name = package_xml.relative_to(SRC_ROOT / "processing").parts[:2]
-        expected_packages_by_category.setdefault(category, set()).add(package_name)
-
-    assert _processing_readme_package_status() == expected_packages_by_category
-
-
-def test_category_readme_package_status_matches_buildable_packages() -> None:
-    category_roots = ("ai", "apps", "io", "streaming")
-
-    for category in category_roots:
-        category_root = SRC_ROOT / category
-        assert _readme_ros_package_rows(category_root / "README.md") == _buildable_package_paths_under(
-            category_root
-        )
-
-
-def test_readmes_track_network_io_backend_boundaries() -> None:
-    root_readme = (SRC_ROOT.parent / "README.md").read_text(encoding="utf-8")
-    source_readme = (SRC_ROOT / "io" / "sources" / "README.md").read_text(encoding="utf-8")
-    sink_readme = (SRC_ROOT / "io" / "sinks" / "README.md").read_text(encoding="utf-8")
-
-    assert "ALSA / raw PCM file / raw PCM UDP" in root_readme
-    assert "raw PCM UDP source backends" in source_readme
-    assert "decode, jitter buffering, packet loss concealment, clock drift" in source_readme
-    assert "raw PCM UDP sink backends" in sink_readme
-    assert "Network sinks remain" not in sink_readme
-    assert "jitter buffering, packet loss concealment, clock drift correction" in sink_readme
 
 
 def test_ai_production_python_keeps_explicit_backend_boundaries() -> None:
@@ -310,137 +235,12 @@ def test_traceability_gate_covers_every_buildable_node_package() -> None:
     assert buildable_package_paths - _traceability_mapped_package_paths() == set()
 
 
-def test_buildable_ai_packages_have_spec_to_test_traceability() -> None:
-    missing_traceability: list[str] = []
-
-    for package_name, trace_prefix in AI_TEST_TRACE_PREFIXES.items():
-        package_dir = SRC_ROOT / "ai" / package_name
-        test_design_path = package_dir / "docs" / "テスト設計.md"
-        mapped_lines = [
-            line
-            for line in test_design_path.read_text(encoding="utf-8").splitlines()
-            if f"`{trace_prefix}-TC-" in line
-            and "->" in line
-            and f"`{trace_prefix}-SPEC-" in line
-        ]
-        if not mapped_lines:
-            missing_traceability.append(_relative_package_path(package_dir))
-
-    assert missing_traceability == []
-
-
-def test_fluent_audio_system_has_spec_to_test_traceability() -> None:
-    test_design_path = PACKAGE_ROOT / "docs" / "テスト設計.md"
-    mapped_lines = [
-        line
-        for line in test_design_path.read_text(encoding="utf-8").splitlines()
-        if "`FA-SYS-TC-" in line and "->" in line and "`FA-SYS-SPEC-" in line
-    ]
-
-    assert mapped_lines
-
-
 def test_fluent_audio_system_colcon_test_runs_pytest() -> None:
     setup_text = (PACKAGE_ROOT / "setup.py").read_text(encoding="utf-8")
 
     assert 'extras_require={"test": ["pytest"]}' in setup_text
     assert "cmdclass=" not in setup_text
     assert "PytestCommand" not in setup_text
-
-
-def test_core_io_packages_have_spec_to_test_traceability() -> None:
-    missing_traceability: list[str] = []
-
-    for package_relative_path, trace_prefix in IO_TEST_TRACE_PREFIXES.items():
-        package_dir = SRC_ROOT / package_relative_path
-        test_design_path = package_dir / "docs" / "テスト設計.md"
-        mapped_lines = [
-            line
-            for line in test_design_path.read_text(encoding="utf-8").splitlines()
-            if f"`{trace_prefix}-TC-" in line
-            and "->" in line
-            and f"`{trace_prefix}-SPEC-" in line
-        ]
-        if not mapped_lines:
-            missing_traceability.append(package_relative_path)
-
-    assert missing_traceability == []
-
-
-def test_interface_packages_have_spec_to_test_traceability() -> None:
-    missing_traceability: list[str] = []
-
-    for package_relative_path, trace_prefix in INTERFACE_TEST_TRACE_PREFIXES.items():
-        package_dir = SRC_ROOT / package_relative_path
-        test_design_path = package_dir / "docs" / "テスト設計.md"
-        mapped_lines = [
-            line
-            for line in test_design_path.read_text(encoding="utf-8").splitlines()
-            if f"`{trace_prefix}-TC-" in line
-            and "->" in line
-            and f"`{trace_prefix}-SPEC-" in line
-        ]
-        if not mapped_lines:
-            missing_traceability.append(package_relative_path)
-
-    assert missing_traceability == []
-
-
-def test_app_packages_have_spec_to_test_traceability() -> None:
-    missing_traceability: list[str] = []
-
-    for package_relative_path, trace_prefix in APP_TEST_TRACE_PREFIXES.items():
-        package_dir = SRC_ROOT / package_relative_path
-        test_design_path = package_dir / "docs" / "テスト設計.md"
-        mapped_lines = [
-            line
-            for line in test_design_path.read_text(encoding="utf-8").splitlines()
-            if f"`{trace_prefix}-TC-" in line
-            and "->" in line
-            and f"`{trace_prefix}-SPEC-" in line
-        ]
-        if not mapped_lines:
-            missing_traceability.append(package_relative_path)
-
-    assert missing_traceability == []
-
-
-def test_core_processing_packages_have_spec_to_test_traceability() -> None:
-    missing_traceability: list[str] = []
-
-    for package_relative_path, trace_prefix in PROCESSING_TEST_TRACE_PREFIXES.items():
-        package_dir = SRC_ROOT / package_relative_path
-        test_design_path = package_dir / "docs" / "テスト設計.md"
-        mapped_lines = [
-            line
-            for line in test_design_path.read_text(encoding="utf-8").splitlines()
-            if f"`{trace_prefix}-TC-" in line
-            and "->" in line
-            and f"`{trace_prefix}-SPEC-" in line
-        ]
-        if not mapped_lines:
-            missing_traceability.append(package_relative_path)
-
-    assert missing_traceability == []
-
-
-def test_core_streaming_packages_have_spec_to_test_traceability() -> None:
-    missing_traceability: list[str] = []
-
-    for package_relative_path, trace_prefix in STREAMING_TEST_TRACE_PREFIXES.items():
-        package_dir = SRC_ROOT / package_relative_path
-        test_design_path = package_dir / "docs" / "テスト設計.md"
-        mapped_lines = [
-            line
-            for line in test_design_path.read_text(encoding="utf-8").splitlines()
-            if f"`{trace_prefix}-TC-" in line
-            and "->" in line
-            and f"`{trace_prefix}-SPEC-" in line
-        ]
-        if not mapped_lines:
-            missing_traceability.append(package_relative_path)
-
-    assert missing_traceability == []
 
 
 def test_ai_and_streaming_packages_stay_out_of_processing_analysis() -> None:

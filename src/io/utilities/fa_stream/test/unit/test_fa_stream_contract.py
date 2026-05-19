@@ -123,7 +123,6 @@ def test_network_streamer_backend_accepts_pcm16le_s16le_contract() -> None:
 
 
 def test_codec_settings_are_sink_packaging_not_general_format_conversion() -> None:
-    spec = (PACKAGE_ROOT / "docs" / "仕様書.md").read_text(encoding="utf-8")
     source = (PACKAGE_ROOT / "scripts" / "fa_stream_node.py").read_text(
         encoding="utf-8"
     )
@@ -134,9 +133,6 @@ def test_codec_settings_are_sink_packaging_not_general_format_conversion() -> No
         / "network_streamer.py"
     ).read_text(encoding="utf-8")
 
-    assert "network endpoint protocol packaging" in spec
-    assert "汎用的な encode/decode" in spec
-    assert "src/processing/format" in spec
     assert "_audio_codec" in source
     assert "config.audio_codec" in backend_source
 

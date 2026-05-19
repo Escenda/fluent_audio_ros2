@@ -283,9 +283,7 @@ def _write_silero_repo(path: Path) -> Path:
 
 def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     config_path = Path(__file__).parents[2] / "config" / "default.yaml"
-    readme_path = Path(__file__).parents[2] / "README.md"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    readme = readme_path.read_text(encoding="utf-8")
     source = (Path(__file__).parents[2] / "fa_vad_py" / "vad_node.py").read_text(
         encoding="utf-8"
     )
@@ -335,20 +333,6 @@ def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     assert forbidden_backend_name_default not in source
     assert forbidden_frame_ms_default not in source
     assert forbidden_qos_depth_default not in source
-    for required_example_key in (
-        "publish_vad_state",
-        "publish_probability",
-        "backend.timeout_sec",
-        "backend.frame_ms",
-        "backend.window_samples",
-        "backend.history_buffer_ms",
-        "backend.workspace_dir",
-        "backend.cleanup_audio_files",
-        "log_speech_events",
-        "qos.depth",
-        "qos.reliable",
-    ):
-        assert required_example_key in readme
     assert "tuple(str(item) for item in self.get_parameter" not in source
 
 

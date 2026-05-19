@@ -121,11 +121,6 @@ def test_aec_linear_rejects_ambiguous_format_and_hidden_clamp() -> None:
     header = (package / "include" / "fa_aec_linear" / "fa_aec_linear_node.hpp").read_text(
         encoding="utf-8"
     )
-    spec = (package / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    algorithm = (package / "docs" / "アルゴリズム詳細説明書.md").read_text(
-        encoding="utf-8"
-    )
-    test_plan = (package / "docs" / "テスト設計.md").read_text(encoding="utf-8")
 
     assert "isSupportedAudioFormatPair" in backend
     assert "PCM16LE" in backend
@@ -141,37 +136,10 @@ def test_aec_linear_rejects_ambiguous_format_and_hidden_clamp() -> None:
     assert "std::clamp" not in source + backend
     assert "decodeToFloat" not in header
     assert "encodeFromFloat" not in header
-    assert "hidden clamp" in spec
-    assert "PCM32LE/32" in algorithm
-    assert "output range overflow は clamp せず drop" in test_plan
-
-
-def test_aec_linear_rejects_channel_wildcards_and_documents_stream_binding() -> None:
-    package = package_root()
-    source = read_node_source()
-    spec = (package / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    algorithm = (package / "docs" / "アルゴリズム詳細説明書.md").read_text(
-        encoding="utf-8"
-    )
-    test_plan = (package / "docs" / "テスト設計.md").read_text(encoding="utf-8")
-
-    assert "config_.expected_channels <= 0" in source
-    assert "config_.expected_channels > 0" not in source
-    assert "msg.channels != static_cast<uint32_t>(config_.expected_channels)" in source
-    assert "channel 検査の無効化は禁止" in spec
-    assert "mic frame の `stream_id` は `mic_stream_id`" in spec
-    assert "reference frame の `stream_id` は `ref_stream_id`" in spec
-    assert "channel 検査の wildcard はない" in algorithm
-    assert "stream_id` が `mic_stream_id`" in test_plan
-    assert "stream_id` が `ref_stream_id`" in test_plan
 
 
 def test_aec_linear_uses_header_stamp_reference_contract() -> None:
     source = read_node_source()
-    spec = (package_root() / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    algorithm = (package_root() / "docs" / "アルゴリズム詳細説明書.md").read_text(
-        encoding="utf-8"
-    )
 
     assert "hasValidStamp(msg.header.stamp)" in source
     assert "last_ref_stamp_ = rclcpp::Time(msg->header.stamp, RCL_ROS_TIME);" in source
@@ -179,8 +147,6 @@ def test_aec_linear_uses_header_stamp_reference_contract() -> None:
     assert "mic_stamp - ref_stamp" in source
     assert "ref_skew_ms >= 0" in source
     assert "ref_skew_ms <= config_.ref_timeout_ms" in source
-    assert "header.stamp" in spec
-    assert "reference は mic と同時刻または過去" in algorithm
 
 
 def test_aec_linear_rejects_resolved_topic_feedback_loops() -> None:

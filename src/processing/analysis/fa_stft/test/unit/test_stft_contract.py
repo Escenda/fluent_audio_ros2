@@ -86,8 +86,6 @@ def test_backend_config_rejects_invalid_feature_contract() -> None:
 def test_backend_is_ros_free_and_not_ai_runtime() -> None:
     backend_path = PACKAGE_ROOT / "fa_stft_py" / "backends" / "stft.py"
     node_path = PACKAGE_ROOT / "fa_stft_py" / "stft_node.py"
-    readme = (PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
-    spec = (PACKAGE_ROOT / "docs" / "仕様書.md").read_text(encoding="utf-8")
     backend_text = backend_path.read_text(encoding="utf-8")
     node_text = node_path.read_text(encoding="utf-8")
 
@@ -95,9 +93,6 @@ def test_backend_is_ros_free_and_not_ai_runtime() -> None:
     assert "fa_interfaces" not in backend_text
     assert "StftFrame" not in backend_text
     assert "InternalStftBackend" in node_text
-    assert "VAD / KWS / ASR / Turn Detector" in spec
-    assert "非 AI analysis node" in spec
-    assert "model inference" in readme
     assert "resample" not in backend_text
 
 

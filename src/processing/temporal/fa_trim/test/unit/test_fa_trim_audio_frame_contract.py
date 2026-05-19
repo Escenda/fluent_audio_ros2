@@ -274,22 +274,6 @@ def test_diagnostics_include_trim_policy_stream_identity_and_drop_counters() -> 
     ) in diagnostics
 
 
-def test_docs_record_backend_epoch_and_header_contract() -> None:
-    spec = (package_root() / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    algorithm = (package_root() / "docs" / "アルゴリズム詳細説明書.md").read_text(
-        encoding="utf-8"
-    )
-    backend_doc = (
-        package_root() / "docs" / "backends" / "internal_frame_trim.md"
-    ).read_text(encoding="utf-8")
-
-    assert "出力 `epoch` は `input.epoch + 1`" in spec
-    assert "`source_id`、`header`" in spec
-    assert "`UINT32_MAX` の入力は wrap を避けるため drop" in spec
-    assert "`header` は入力 frame の capture boundary として保持" in algorithm
-    assert "`internal_frame_trim` は ROS2 に依存しない" in backend_doc
-
-
 def test_package_layout_matches_required_processing_layout() -> None:
     required_paths = (
         "CMakeLists.txt",

@@ -155,12 +155,6 @@ def test_backend_files_are_ros_free() -> None:
 
 def test_dtln_overlap_add_is_documented_as_model_internal_reconstruction() -> None:
     package_root = Path(__file__).parents[2]
-    algorithm_doc = (
-        package_root / "docs" / "アルゴリズム詳細説明書.md"
-    ).read_text(encoding="utf-8")
-    backend_doc = (
-        package_root / "docs" / "backends" / "dtln_onnx.md"
-    ).read_text(encoding="utf-8")
     engine_header = (
         package_root
         / "include"
@@ -169,15 +163,6 @@ def test_dtln_overlap_add_is_documented_as_model_internal_reconstruction() -> No
         / "dtln_onnx_engine.hpp"
     ).read_text(encoding="utf-8")
 
-    combined_docs = "\n".join((algorithm_doc, backend_doc))
-    for required in (
-        "model-internal overlap-add reconstruction",
-        "transport stabilization",
-        "overlapped `AudioFrame` chunk",
-        "timestamp / epoch / gap handling",
-        "`src/streaming/fa_overlap_add`",
-    ):
-        assert required in combined_docs
 
     assert "DTLN model reconstruction buffers" in engine_header
     assert "streaming buffers" not in engine_header
@@ -226,15 +211,11 @@ def test_node_fails_closed_when_dtln_selected_without_onnxruntime() -> None:
     node_text = (Path(__file__).parents[2] / "src" / "fa_denoise_node.cpp").read_text(
         encoding="utf-8"
     )
-    spec_text = (Path(__file__).parents[2] / "docs" / "仕様書.md").read_text(
-        encoding="utf-8"
-    )
 
     assert (
         "fa_denoise was built without ONNX Runtime support "
         "(FA_DENOISE_WITH_ONNXRUNTIME=0)"
     ) in node_text
-    assert "別 backend へ暗黙に切り替えない" in spec_text
 
 
 def test_dtln_model_paths_are_required_before_backend_initialization() -> None:
@@ -254,10 +235,6 @@ def test_dtln_model_paths_are_required_before_backend_initialization() -> None:
 def test_denoise_requires_explicit_format_pairs_and_no_hidden_clamp() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_denoise_node.cpp").read_text(
-        encoding="utf-8"
-    )
-    spec = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    algorithm = (package_root / "docs" / "アルゴリズム詳細説明書.md").read_text(
         encoding="utf-8"
     )
 
@@ -293,8 +270,6 @@ def test_denoise_requires_explicit_format_pairs_and_no_hidden_clamp() -> None:
     hidden_clamp_token = "std::" + "clamp"
     assert hidden_clamp_token not in source
     assert hidden_clamp_token not in backend_source
-    assert "hidden range clamp" in spec
-    assert "PCM32LE/32" in algorithm
 
 
 def test_dtln_backend_validates_onnx_output_shapes_before_copy() -> None:

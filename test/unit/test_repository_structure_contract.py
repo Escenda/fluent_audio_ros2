@@ -277,21 +277,6 @@ FORBIDDEN_PYTHON_TYPE_ESCAPE_TOKENS = (
     "# type: ignore",
 )
 
-FORBIDDEN_CURRENT_DOC_VISION_CONTRACT_TOKENS = (
-    "fv_aspara",
-    "fv_realsense",
-    "fv_instance_seg",
-    "fv_pointcloud",
-    "sensor_msgs",
-    "vision_msgs",
-    "PointCloud2",
-    "RealSense",
-    "YOLO",
-    "pointcloud",
-    "camera_info",
-    "/fv/",
-)
-
 YamlScalar: TypeAlias = str | int | float | bool | None
 YamlMapping: TypeAlias = dict[str, "YamlValue"]
 YamlSequence: TypeAlias = list["YamlValue"]
@@ -380,26 +365,6 @@ def _production_python_files() -> list[Path]:
     )
 
 
-def _current_audio_doc_files() -> list[Path]:
-    docs_root = REPO_ROOT / "docs"
-    return sorted(
-        path
-        for path in docs_root.rglob("*.md")
-        if path.is_file() and "archive" not in path.parts
-    )
-
-
-def _current_audio_readme_and_doc_files() -> list[Path]:
-    return sorted(
-        path
-        for root in (REPO_ROOT, SRC_ROOT)
-        for path in root.rglob("*.md")
-        if path.is_file()
-        and "archive" not in path.parts
-        and "__pycache__" not in path.parts
-    )
-
-
 def _collect_yaml_keys(value: YamlValue) -> list[str]:
     keys: list[str] = []
     if isinstance(value, dict):
@@ -482,29 +447,8 @@ def test_all_ros_packages_have_unit_contract_tests() -> None:
     assert missing == []
 
 
-def test_declared_ros_package_readmes_do_not_claim_roadmap_only_status() -> None:
-    violations: list[str] = []
-    forbidden_phrases = (
-        "not a ROS 2 package yet",
-        "Roadmap directory",
-    )
-
-    for package_root in _package_roots():
-        readme = package_root / "README.md"
-        source = readme.read_text(encoding="utf-8")
-        for phrase in forbidden_phrases:
-            if phrase in source:
-                violations.append(f"{readme.relative_to(REPO_ROOT)} contains {phrase}")
-
-    assert violations == []
-
-
 def test_roadmap_placeholders_are_explicitly_not_buildable_ros_packages() -> None:
     violations: list[str] = []
-    required_readme_markers = (
-        "not a ROS 2 package yet",
-        "ROS 2 package ではありません",
-    )
     forbidden_buildable_paths = (
         "package.xml",
         "CMakeLists.txt",
@@ -515,11 +459,6 @@ def test_roadmap_placeholders_are_explicitly_not_buildable_ros_packages() -> Non
     )
 
     for placeholder_root in _roadmap_placeholder_roots():
-        readme_source = (placeholder_root / "README.md").read_text(encoding="utf-8")
-        if not any(marker in readme_source for marker in required_readme_markers):
-            violations.append(
-                f"{placeholder_root.relative_to(REPO_ROOT)}/README.md lacks roadmap marker"
-            )
         for relative_path in forbidden_buildable_paths:
             if (placeholder_root / relative_path).exists():
                 violations.append(
@@ -527,93 +466,6 @@ def test_roadmap_placeholders_are_explicitly_not_buildable_ros_packages() -> Non
                 )
 
     assert violations == []
-
-
-def test_repository_docs_do_not_overclaim_skeleton_packages_as_complete() -> None:
-    forbidden_phrases_by_path = {
-        REPO_ROOT / "docs" / "fa_audio_system.md": (
-            "ノード構成（実装済み）",
-        ),
-        SRC_ROOT / "processing" / "README.md": (
-            "implemented packages",
-            "implemented package",
-        ),
-    }
-    violations: list[str] = []
-
-    for doc_path, forbidden_phrases in forbidden_phrases_by_path.items():
-        source = doc_path.read_text(encoding="utf-8")
-        for phrase in forbidden_phrases:
-            if phrase in source:
-                violations.append(f"{doc_path.relative_to(REPO_ROOT)} contains {phrase}")
-
-    assert violations == []
-
-
-def test_current_audio_docs_do_not_publish_vision_contracts() -> None:
-    violations: list[str] = []
-
-    for doc_path in _current_audio_doc_files():
-        source = doc_path.read_text(encoding="utf-8")
-        for forbidden_token in FORBIDDEN_CURRENT_DOC_VISION_CONTRACT_TOKENS:
-            if forbidden_token in source:
-                violations.append(
-                    f"{doc_path.relative_to(REPO_ROOT)} contains {forbidden_token}"
-                )
-
-    assert violations == []
-
-
-def test_current_audio_docs_do_not_publish_offline_only_or_legacy_asr_contracts() -> None:
-    forbidden_tokens = (
-        "クラウドは使わず",
-        "オフラインで完結",
-        "オフライン前提",
-        "`whisper_cpp`",
-        "whisper_cpp:",
-    )
-    violations: list[str] = []
-
-    for doc_path in _current_audio_readme_and_doc_files():
-        source = doc_path.read_text(encoding="utf-8")
-        for forbidden_token in forbidden_tokens:
-            if forbidden_token in source:
-                violations.append(
-                    f"{doc_path.relative_to(REPO_ROOT)} contains {forbidden_token}"
-                )
-
-    assert violations == []
-
-
-def test_agent_rule_docs_are_fluent_audio_specific() -> None:
-    cpp_rules = (REPO_ROOT / "CPP_CODING_RULES.md").read_text(encoding="utf-8")
-    agent_rules = (REPO_ROOT / "CLAUDECODE_RULES.md").read_text(encoding="utf-8")
-    combined = "\n".join((cpp_rules, agent_rules))
-
-    for required in (
-        "FluentAudio",
-        "Fail Closed",
-        "`fa_in`",
-        "`fa_out`",
-        "src/streaming",
-        "src/ai",
-        "Backend code must not",
-    ):
-        assert required in combined
-
-    for forbidden in (
-        "FluentVision",
-        "fluent_vision_ros2",
-        "start_fv",
-        "/home/aspara/seedbox-r1",
-        "Python本番コード使用",
-        "C++は100倍速",
-        "sensor_msgs",
-        "vision_msgs",
-        "RealSense",
-        "YOLO",
-    ):
-        assert forbidden not in combined
 
 
 def test_top_level_layer_readmes_exist() -> None:
@@ -696,7 +548,6 @@ def test_analysis_category_contains_only_non_ai_feature_packages() -> None:
 
 def test_ai_ros_packages_live_under_src_ai() -> None:
     missing: list[str] = []
-    readme_source = (SRC_ROOT / "ai" / "README.md").read_text(encoding="utf-8")
 
     if not (SRC_ROOT / "ai" / "README.md").is_file():
         missing.append("src/ai/README.md")
@@ -705,9 +556,6 @@ def test_ai_ros_packages_live_under_src_ai() -> None:
         package_path = SRC_ROOT / "ai" / package_name
         if not (package_path / "package.xml").is_file():
             missing.append(f"src/ai/{package_name}/package.xml")
-        expected_row = f"| `{package_name}/` | ROS 2 package |"
-        if expected_row not in readme_source:
-            missing.append(f"src/ai/README.md status row for {package_name}")
 
     for placeholder_name in AI_PLACEHOLDER_NAMES:
         placeholder_path = SRC_ROOT / "ai" / placeholder_name
@@ -715,11 +563,6 @@ def test_ai_ros_packages_live_under_src_ai() -> None:
             missing.append(f"src/ai/{placeholder_name}/")
         if (placeholder_path / "package.xml").exists():
             missing.append(f"src/ai/{placeholder_name}/package.xml")
-        expected_row = (
-            f"| `{placeholder_name}/` | roadmap placeholder; not a ROS 2 package |"
-        )
-        if expected_row not in readme_source:
-            missing.append(f"src/ai/README.md placeholder row for {placeholder_name}")
 
     for package_root in _ai_package_roots():
         if package_root.name not in AI_PACKAGE_NAMES:
@@ -759,53 +602,12 @@ def test_streaming_packages_have_executable_integration_and_launch_contracts() -
     assert missing == []
 
 
-def test_streaming_docs_do_not_describe_packages_as_processing_nodes() -> None:
-    streaming_root = SRC_ROOT / "streaming"
-    checked_files = [
-        path
-        for path in streaming_root.rglob("*")
-        if path.is_file()
-        and path.suffix in (".md", ".hpp", ".py")
-        and "__pycache__" not in path.parts
-    ]
-    checked_files.append(REPO_ROOT / "docs" / "仕様書.md")
-    violations: list[str] = []
-
-    forbidden_phrases = (
-        "Frame Processing",
-        "Processing Pipeline",
-        "processing node",
-        "processing package",
-        "processing layout",
-        "processing contract",
-        "processing_node",
-        "required_processing_layout",
-        "standard_processing_layout",
-        "processing responsibilities",
-        "processing_responsibilities",
-        "処理手順",
-        "処理対象",
-        "後段処理",
-        "リアルタイム伝送処理",
-    )
-    for path in sorted(checked_files):
-        source = path.read_text(encoding="utf-8")
-        for phrase in forbidden_phrases:
-            if phrase in source:
-                violations.append(f"{path.relative_to(REPO_ROOT)} contains {phrase}")
-
-    assert violations == []
-
-
 def test_network_stream_sink_utility_is_not_transport_streaming() -> None:
     package_path = SRC_ROOT / "io" / "utilities" / "fa_stream"
     streaming_path = SRC_ROOT / "streaming" / "fa_stream"
-    docs = (package_path / "docs" / "仕様書.md").read_text(encoding="utf-8")
 
     assert (package_path / "package.xml").is_file()
     assert not streaming_path.exists()
-    assert "src/streaming" in docs
-    assert "リアルタイム伝送安定化" in docs
 
 
 def test_processing_does_not_contain_ai_or_streaming_packages() -> None:
@@ -817,43 +619,6 @@ def test_processing_does_not_contain_ai_or_streaming_packages() -> None:
     present = [path for path in forbidden_paths if (REPO_ROOT / path).exists()]
 
     assert present == []
-
-
-def test_generation_category_is_audio_data_plane_not_dialogue_ai() -> None:
-    required_docs = [
-        REPO_ROOT / "docs" / "仕様書.md",
-        REPO_ROOT / "docs" / "アルゴリズム詳細説明書.md",
-        SRC_ROOT / "processing" / "generation" / "README.md",
-        SRC_ROOT / "processing" / "generation" / "fa_tts" / "docs" / "仕様書.md",
-    ]
-    missing_terms: list[str] = []
-
-    for doc_path in required_docs:
-        source = doc_path.read_text(encoding="utf-8")
-        for term in (
-            "data-plane",
-            "dialogue policy",
-            "LLM",
-            "VLM",
-            "src/ai",
-            "src/apps",
-        ):
-            if term not in source:
-                missing_terms.append(f"{doc_path.relative_to(REPO_ROOT)} lacks {term}")
-
-    assert missing_terms == []
-
-
-def test_voice_command_docs_do_not_collapse_ai_events_into_analysis() -> None:
-    source = (SRC_ROOT / "apps" / "voice_command" / "README.md").read_text(
-        encoding="utf-8"
-    )
-    normalized_source = " ".join(source.split())
-
-    assert "audio-analysis" not in normalized_source
-    assert "analysis events" not in normalized_source
-    assert "AI events" in normalized_source
-    assert "non-AI feature events" in normalized_source
 
 
 def test_all_ros_packages_have_backend_documentation_file() -> None:

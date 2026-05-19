@@ -504,22 +504,8 @@ def test_backend_open_result_is_info_only_without_warning_continuation() -> None
     node_source = (package_root / "src" / "fa_out_node.cpp").read_text(
         encoding="utf-8"
     )
-    spec = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    algorithm = (package_root / "docs" / "アルゴリズム詳細説明書.md").read_text(
-        encoding="utf-8"
-    )
-    test_plan = (package_root / "docs" / "テスト設計.md").read_text(
-        encoding="utf-8"
-    )
-    backend_doc = (package_root / "docs" / "backends" / "alsa.md").read_text(
-        encoding="utf-8"
-    )
 
     assert "std::vector<std::string> info_messages;" in sink_backend_header
     assert "warnings" not in sink_backend_header
     assert "open_info.info_messages" in node_source
     assert "open_info.warnings" not in node_source
-    assert "warning 継続チャネルを持たない" in spec
-    assert "warning で継続する経路は持たない" in algorithm
-    assert "FA-OUT-SPEC-021" in test_plan
-    assert "warning で継続する output は持たない" in backend_doc

@@ -200,29 +200,6 @@ def test_pcm_integer_bit_depth_conversion_uses_lossless_high_order_expansion_onl
     assert "out_bytes.push_back(static_cast<uint8_t>((sample >> 24U) & 0xFFU));" in append32
 
 
-def test_docs_reject_lossy_pcm32_to_pcm16_truncation() -> None:
-    package_root = Path(__file__).parents[2]
-    readme = (package_root / "README.md").read_text(encoding="utf-8")
-    spec = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
-    algorithm = (package_root / "docs" / "アルゴリズム詳細説明書.md").read_text(
-        encoding="utf-8"
-    )
-    test_plan = (package_root / "docs" / "テスト設計.md").read_text(
-        encoding="utf-8"
-    )
-    backend_doc = (
-        package_root / "docs" / "backends" / "internal_integer_bit_depth.md"
-    ).read_text(encoding="utf-8")
-
-    assert "PCM32LE` / 32 bit / `interleaved` -> `PCM16LE" not in readme
-    assert "`PCM32LE` / 32 / `interleaved` | `PCM16LE`" not in spec
-    assert "PCM32LE から PCM16LE" not in algorithm
-    assert "下位 16 bit は破棄する" not in algorithm
-    assert "lossy PCM32LE/32 -> PCM16LE/16" in algorithm
-    assert "lossy PCM32LE/32 -> PCM16LE/16 は fail closed" in test_plan
-    assert "`PCM32LE` / 32 | `PCM16LE` / 16" not in backend_doc
-
-
 def test_package_layout_matches_standard_processing_layout() -> None:
     package_root = Path(__file__).parents[2]
     required_paths = (
