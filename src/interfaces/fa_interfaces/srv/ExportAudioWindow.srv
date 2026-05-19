@@ -1,0 +1,26 @@
+# Request
+# time_range_specは例: now-10s..now / action_12.start..action_12.end+2s。
+# audio_scopeはmic/system/mixedなど、実装側が明示的にsupported setとして扱う。
+
+string time_range_spec
+string audio_scope
+string codec
+string container
+string payload_format
+---
+# Response
+# failureは空clip成功に見せず、success=falseと明示error_codeで返す。
+
+string ERROR_NONE=none
+string ERROR_TIME_RANGE_UNRESOLVED=time_range_unresolved
+string ERROR_WINDOW_NOT_FOUND=window_not_found
+string ERROR_RANGE_OUTSIDE_WINDOW=range_outside_window
+string ERROR_UNSUPPORTED_AUDIO_SCOPE=unsupported_audio_scope
+string ERROR_UNSUPPORTED_EXPORT_FORMAT=unsupported_export_format
+string ERROR_EXPORT_FAILED=export_failed
+
+bool success
+string error_code
+string message
+fa_interfaces/AudioClipRef audio_clip_ref
+fa_interfaces/ResolvedTimeRange time_range

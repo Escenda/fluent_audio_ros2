@@ -8,8 +8,11 @@ find_package(std_msgs REQUIRED)
 
 set(message_files
   "msg/AsrResult.msg"
+  "msg/AudioClipRef.msg"
   "msg/AudioEmbeddingFrame.msg"
   "msg/AudioFrame.msg"
+  "msg/AudioModelRef.msg"
+  "msg/AudioWindowRef.msg"
   "msg/CqtFrame.msg"
   "msg/EncodedAudioChunk.msg"
   "msg/LoudnessFrame.msg"
@@ -18,8 +21,10 @@ set(message_files
   "msg/OnsetFrame.msg"
   "msg/PlaybackDone.msg"
   "msg/PitchFrame.msg"
+  "msg/ResolvedTimeRange.msg"
   "msg/StftFrame.msg"
   "msg/TempoFrame.msg"
+  "msg/TranscriptSegment.msg"
   "msg/TurnContext.msg"
   "msg/TurnEnd.msg"
   "msg/VadState.msg"
@@ -27,11 +32,14 @@ set(message_files
 )
 
 set(service_files
+  "srv/ArchiveAudioWindow.srv"
+  "srv/ExportAudioWindow.srv"
   "srv/ListDevices.srv"
   "srv/PlaybackControl.srv"
   "srv/SwitchDevice.srv"
   "srv/Record.srv"
   "srv/Speak.srv"
+  "srv/TranscribeAudio.srv"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

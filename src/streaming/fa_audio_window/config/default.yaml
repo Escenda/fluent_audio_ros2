@@ -1,0 +1,36 @@
+fa_audio_window:
+  ros__parameters:
+    input_topic: "fa_audio_window/input"
+    service_name: "export_audio_window"
+    archive_service_name: "archive_audio_window"
+
+    input:
+      source_id: "mic"
+      stream_id: "audio/mic"
+
+    expected:
+      encoding: "PCM16LE"
+      sample_rate: 16000
+      channels: 1
+      bit_depth: 16
+      layout: "interleaved"
+
+    window:
+      retention_seconds: 1800
+      id: "fa_audio_window"
+      epoch: 1
+
+    audio:
+      default_scope: "mic"
+      supported_scopes:
+        - "mic"
+
+    export:
+      output_directory: "/tmp/fa_audio_window"
+      codec: "pcm_s16le"
+      container: "wav"
+      payload_format: "audio/wav"
+
+    qos:
+      depth: 10
+      reliable: false

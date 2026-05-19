@@ -1,0 +1,29 @@
+# Request
+# ArchiveはAgent LLMが保存すべきと判断した理由と根拠artifactを受ける。
+
+string time_range_spec
+string audio_scope
+string reason
+string[] related_artifact_ids
+string codec
+string container
+string payload_format
+---
+# Response
+# window不在やrange外は空clip成功ではなく明示失敗として返す。
+
+string ERROR_NONE=none
+string ERROR_TIME_RANGE_UNRESOLVED=time_range_unresolved
+string ERROR_INVALID_ARCHIVE_REQUEST=invalid_archive_request
+string ERROR_WINDOW_NOT_FOUND=window_not_found
+string ERROR_RANGE_OUTSIDE_WINDOW=range_outside_window
+string ERROR_RANGE_NOT_CONTINUOUS=range_not_continuous
+string ERROR_UNSUPPORTED_AUDIO_SCOPE=unsupported_audio_scope
+string ERROR_UNSUPPORTED_ARCHIVE_FORMAT=unsupported_archive_format
+string ERROR_ARCHIVE_FAILED=archive_failed
+
+bool success
+string error_code
+string message
+fa_interfaces/AudioClipRef audio_clip_ref
+fa_interfaces/ResolvedTimeRange time_range

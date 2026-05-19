@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fa_audio_window</name>
+  <version>0.1.0</version>
+  <description>Rolling AudioFrame window and deterministic WAV export service for FluentAudio.</description>
+  <maintainer email="maintainer@example.com">FluentAudio</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>fa_interfaces</depend>
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

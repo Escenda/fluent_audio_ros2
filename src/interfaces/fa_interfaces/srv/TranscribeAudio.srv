@@ -1,0 +1,23 @@
+# Request
+# TranscribeAudioは自然言語questionを受け取らない。time rangeの音声を文字起こしするだけ。
+
+string time_range_spec
+string audio_scope
+---
+# Response
+# 空transcriptを成功扱いにせず、入力不成立やASR失敗はsuccess=falseで明示する。
+
+string ERROR_NONE=none
+string ERROR_TIME_RANGE_UNRESOLVED=time_range_unresolved
+string ERROR_WINDOW_NOT_FOUND=window_not_found
+string ERROR_RANGE_OUTSIDE_WINDOW=range_outside_window
+string ERROR_UNSUPPORTED_AUDIO_SCOPE=unsupported_audio_scope
+string ERROR_TRANSCRIBE_FAILED=transcribe_failed
+
+bool success
+string error_code
+string message
+fa_interfaces/TranscriptSegment[] segments
+fa_interfaces/AudioWindowRef audio_window_ref
+fa_interfaces/AudioModelRef model_ref
+fa_interfaces/ResolvedTimeRange time_range
