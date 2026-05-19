@@ -21,6 +21,13 @@ REQUIRED_TEST_DIRS = (
     "test/launch",
     "test/fixtures",
 )
+AI_TEST_TRACE_PREFIXES = {
+    "fa_asr": "FA-ASR",
+    "fa_audio_embedding": "FA-AUDIO-EMBEDDING",
+    "fa_kws": "FA-KWS",
+    "fa_turn_detector": "FA-TD",
+    "fa_vad": "FA-VAD",
+}
 
 
 def _buildable_package_dirs() -> list[Path]:
@@ -97,6 +104,25 @@ def test_buildable_packages_have_standard_test_layout() -> None:
                 missing_paths.append(f"{_relative_package_path(package_dir)}/{required_test_dir}")
 
     assert missing_paths == []
+
+
+def test_buildable_ai_packages_have_spec_to_test_traceability() -> None:
+    missing_traceability: list[str] = []
+
+    for package_name, trace_prefix in AI_TEST_TRACE_PREFIXES.items():
+        package_dir = SRC_ROOT / "ai" / package_name
+        test_design_path = package_dir / "docs" / "テスト設計.md"
+        mapped_lines = [
+            line
+            for line in test_design_path.read_text(encoding="utf-8").splitlines()
+            if f"`{trace_prefix}-TC-" in line
+            and "->" in line
+            and f"`{trace_prefix}-SPEC-" in line
+        ]
+        if not mapped_lines:
+            missing_traceability.append(_relative_package_path(package_dir))
+
+    assert missing_traceability == []
 
 
 def test_ai_and_streaming_packages_stay_out_of_processing_analysis() -> None:
