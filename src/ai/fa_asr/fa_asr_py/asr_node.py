@@ -96,6 +96,7 @@ class FaAsrNode(Node):
         self._samples: list[float] = []
         self._samples_lock = threading.Lock()
         self._jobs: queue.Queue[TranscriptionJob | None] = queue.Queue()
+        self._fail_closed_triggered = False
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
 
@@ -420,6 +421,7 @@ class FaAsrNode(Node):
                 "backend_timeout",
                 "",
             )
+            self._fail_closed("ASR backend timed out")
         except Exception as exc:
             self.get_logger().error("ASR transcription failed: %s", exc)
             self._publish_result(
@@ -429,6 +431,14 @@ class FaAsrNode(Node):
                 "backend_error",
                 "",
             )
+            self._fail_closed(f"ASR backend failed: {exc}")
+
+    def _fail_closed(self, reason: str) -> None:
+        if getattr(self, "_fail_closed_triggered", False):
+            return
+        self._fail_closed_triggered = True
+        self.get_logger().fatal("ASR fail closed: %s", reason)
+        rclpy.shutdown()
 
     @staticmethod
     def _frame_to_float(

@@ -107,9 +107,13 @@ class _FakeNode:
 class _FakeLogger:
     def __init__(self) -> None:
         self.error_records: list[tuple[str, Exception]] = []
+        self.fatal_records: list[tuple[str, str]] = []
 
     def error(self, message: str, exc: Exception) -> None:
         self.error_records.append((message, exc))
+
+    def fatal(self, message: str, reason: str) -> None:
+        self.fatal_records.append((message, reason))
 
 
 class _FakeParameter:
@@ -221,11 +225,15 @@ class _TimeoutAsrBackend:
         raise TimeoutError("asr backend timed out")
 
 
-def _install_asr_node_import_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
+def _install_asr_node_import_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    shutdown_calls: list[bool] | None = None,
+) -> None:
     rclpy_module = ModuleType("rclpy")
 
     def shutdown() -> None:
-        pass
+        if shutdown_calls is not None:
+            shutdown_calls.append(True)
 
     def init(args: list[str] | None = None) -> None:
         del args
@@ -760,7 +768,8 @@ def test_asr_node_finalizes_current_buffer_on_vad_end(
 def test_asr_node_maps_unexpected_backend_exception_to_error_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _install_asr_node_import_fakes(monkeypatch)
+    shutdown_calls: list[bool] = []
+    _install_asr_node_import_fakes(monkeypatch, shutdown_calls)
     monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
     sys.modules.pop("fa_asr_py.asr_node", None)
 
@@ -792,11 +801,15 @@ def test_asr_node_maps_unexpected_backend_exception_to_error_result(
         node._run_transcription(job)
 
         assert published == [("session-1", 9, _FakeAsrResult.STATUS_ERROR, "backend_error", "")]
+        assert shutdown_calls == [True]
         assert len(node._logger.error_records) == 1
         error_message, error_exception = node._logger.error_records[0]
         assert error_message == "ASR transcription failed: %s"
         assert isinstance(error_exception, _BackendCrash)
         assert str(error_exception) == "asr backend crashed"
+        assert node._logger.fatal_records == [
+            ("ASR fail closed: %s", "ASR backend failed: asr backend crashed")
+        ]
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
@@ -804,13 +817,15 @@ def test_asr_node_maps_unexpected_backend_exception_to_error_result(
 def test_asr_node_maps_backend_timeout_to_error_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _install_asr_node_import_fakes(monkeypatch)
+    shutdown_calls: list[bool] = []
+    _install_asr_node_import_fakes(monkeypatch, shutdown_calls)
     monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
     sys.modules.pop("fa_asr_py.asr_node", None)
 
     try:
         module = importlib.import_module("fa_asr_py.asr_node")
         node = module.FaAsrNode.__new__(module.FaAsrNode)
+        node._logger = _FakeLogger()
         node.backend = _TimeoutAsrBackend()
         published: list[tuple[str, int, int, str, str]] = []
 
@@ -835,6 +850,10 @@ def test_asr_node_maps_backend_timeout_to_error_result(
         node._run_transcription(job)
 
         assert published == [("session-1", 9, _FakeAsrResult.STATUS_ERROR, "backend_timeout", "")]
+        assert shutdown_calls == [True]
+        assert node._logger.fatal_records == [
+            ("ASR fail closed: %s", "ASR backend timed out")
+        ]
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
