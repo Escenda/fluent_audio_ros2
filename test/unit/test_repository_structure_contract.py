@@ -553,6 +553,37 @@ def test_current_audio_docs_do_not_publish_vision_contracts() -> None:
     assert violations == []
 
 
+def test_agent_rule_docs_are_fluent_audio_specific() -> None:
+    cpp_rules = (REPO_ROOT / "CPP_CODING_RULES.md").read_text(encoding="utf-8")
+    agent_rules = (REPO_ROOT / "CLAUDECODE_RULES.md").read_text(encoding="utf-8")
+    combined = "\n".join((cpp_rules, agent_rules))
+
+    for required in (
+        "FluentAudio",
+        "Fail Closed",
+        "`fa_in`",
+        "`fa_out`",
+        "src/streaming",
+        "src/ai",
+        "Backend code must not",
+    ):
+        assert required in combined
+
+    for forbidden in (
+        "FluentVision",
+        "fluent_vision_ros2",
+        "start_fv",
+        "/home/aspara/seedbox-r1",
+        "Python本番コード使用",
+        "C++は100倍速",
+        "sensor_msgs",
+        "vision_msgs",
+        "RealSense",
+        "YOLO",
+    ):
+        assert forbidden not in combined
+
+
 def test_top_level_layer_readmes_exist() -> None:
     missing: list[str] = []
 
