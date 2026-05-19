@@ -34,7 +34,11 @@ PACKAGE_TEST_CODE_SUFFIXES = (".py", ".cpp")
 
 IO_ROADMAP_PACKAGE_PATHS = (
     "io/sources/fa_in",
+    "io/sources/fa_file_in",
+    "io/sources/fa_network_in",
     "io/sinks/fa_out",
+    "io/sinks/fa_file_out",
+    "io/sinks/fa_network_out",
     "io/utilities/fa_record",
     "io/utilities/fa_stream",
 )
@@ -846,16 +850,25 @@ def test_legacy_fa_capture_and_fa_output_paths_are_not_present() -> None:
     assert legacy_paths == []
 
 
-def test_source_sink_backend_packages_are_not_split_into_standalone_ros_packages() -> None:
-    forbidden_paths = [
+def test_file_network_source_sink_roadmap_dirs_are_not_declared_packages() -> None:
+    roadmap_paths = (
         "src/io/sources/fa_file_in",
         "src/io/sources/fa_network_in",
         "src/io/sinks/fa_file_out",
         "src/io/sinks/fa_network_out",
-    ]
-    present = [path for path in forbidden_paths if (REPO_ROOT / path).exists()]
+    )
+    violations: list[str] = []
 
-    assert present == []
+    for roadmap_path in roadmap_paths:
+        package_root = REPO_ROOT / roadmap_path
+        if not package_root.is_dir():
+            violations.append(f"{roadmap_path}/")
+        if (package_root / "package.xml").exists():
+            violations.append(f"{roadmap_path}/package.xml")
+        if (package_root / "CMakeLists.txt").exists():
+            violations.append(f"{roadmap_path}/CMakeLists.txt")
+
+    assert violations == []
 
 
 def test_runtime_backends_do_not_import_ros2_or_audio_messages() -> None:
