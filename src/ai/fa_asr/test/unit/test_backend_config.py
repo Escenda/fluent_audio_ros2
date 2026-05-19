@@ -213,6 +213,14 @@ class _FailingAsrBackend:
         raise _BackendCrash("asr backend crashed")
 
 
+class _TimeoutAsrBackend:
+    name = "timeout"
+
+    def transcribe(self, request: AsrRequest) -> str:
+        del request
+        raise TimeoutError("asr backend timed out")
+
+
 def _install_asr_node_import_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
     rclpy_module = ModuleType("rclpy")
 
@@ -712,6 +720,43 @@ def test_asr_node_rejects_unbound_vad_identity(
         sys.modules.pop("fa_asr_py.asr_node", None)
 
 
+def test_asr_node_finalizes_current_buffer_on_vad_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        node = module.FaAsrNode.__new__(module.FaAsrNode)
+        node._context_active = True
+        node.finalize_on_vad_end = True
+        node.expected_source_id = "mic0"
+        node.expected_stream_id = "stream0"
+        submissions: list[tuple[str, bool]] = []
+
+        def submit_current_buffer(
+            reason: str,
+            *,
+            publish_timeout_if_empty: bool,
+        ) -> None:
+            submissions.append((reason, publish_timeout_if_empty))
+
+        node._submit_current_buffer = submit_current_buffer
+        msg = _FakeVadState()
+        msg.source_id = "mic0"
+        msg.stream_id = "stream0"
+        msg.is_speech = False
+        msg.end = True
+
+        node.on_vad(msg)
+
+        assert submissions == [("vad_end", False)]
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
 def test_asr_node_maps_unexpected_backend_exception_to_error_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -752,6 +797,44 @@ def test_asr_node_maps_unexpected_backend_exception_to_error_result(
         assert error_message == "ASR transcription failed: %s"
         assert isinstance(error_exception, _BackendCrash)
         assert str(error_exception) == "asr backend crashed"
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
+def test_asr_node_maps_backend_timeout_to_error_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        node = module.FaAsrNode.__new__(module.FaAsrNode)
+        node.backend = _TimeoutAsrBackend()
+        published: list[tuple[str, int, int, str, str]] = []
+
+        def publish_result(
+            session_id: str,
+            user_turn_id: int,
+            status: int,
+            reason: str,
+            text: str,
+        ) -> None:
+            published.append((session_id, user_turn_id, status, reason, text))
+
+        node._publish_result = publish_result
+        job = module.TranscriptionJob(
+            session_id="session-1",
+            user_turn_id=9,
+            samples=np.zeros(1, dtype=np.float32),
+            sample_rate=16000,
+            reason="vad_end",
+        )
+
+        node._run_transcription(job)
+
+        assert published == [("session-1", 9, _FakeAsrResult.STATUS_ERROR, "backend_timeout", "")]
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
