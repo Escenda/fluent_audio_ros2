@@ -5,6 +5,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -422,7 +423,14 @@ private:
       return;
     }
 
-    auto detection = kws_backend_->process(samples, target_sample_rate_, vad_prob, now);
+    std::optional<KwsDetection> detection;
+    try {
+      detection = kws_backend_->process(samples, target_sample_rate_, vad_prob, now);
+    } catch (const std::exception &e) {
+      RCLCPP_FATAL(this->get_logger(), "KWS backend failed: %s", e.what());
+      rclcpp::shutdown();
+      throw;
+    }
     if (!detection) {
       return;
     }

@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -138,6 +139,14 @@ def _prepare_model_files(tmp_path: Path) -> None:
         (tmp_path / filename).write_text(filename + "\n", encoding="utf-8")
 
 
+def _prepare_worker(tmp_path: Path) -> Path:
+    source = PACKAGE_ROOT / "test" / "fixtures" / "fake_kws_worker.py"
+    worker = tmp_path / "fake_kws_worker.py"
+    shutil.copy2(source, worker)
+    worker.chmod(worker.stat().st_mode | 0o111)
+    return worker
+
+
 def _build_probe(tmp_path: Path) -> Path:
     source_path = tmp_path / "kws_external_probe.cpp"
     binary_path = tmp_path / "kws_external_probe"
@@ -160,8 +169,7 @@ def _build_probe(tmp_path: Path) -> Path:
 
 def test_external_kws_worker_detects_keyword(tmp_path: Path) -> None:
     _prepare_model_files(tmp_path)
-    worker = PACKAGE_ROOT / "test" / "fixtures" / "fake_kws_worker.py"
-    worker.chmod(worker.stat().st_mode | 0o111)
+    worker = _prepare_worker(tmp_path)
     binary = _build_probe(tmp_path)
 
     result = subprocess.run(
@@ -177,8 +185,7 @@ def test_external_kws_worker_detects_keyword(tmp_path: Path) -> None:
 
 def test_external_kws_worker_no_detection_is_not_error(tmp_path: Path) -> None:
     _prepare_model_files(tmp_path)
-    worker = PACKAGE_ROOT / "test" / "fixtures" / "fake_kws_worker.py"
-    worker.chmod(worker.stat().st_mode | 0o111)
+    worker = _prepare_worker(tmp_path)
     binary = _build_probe(tmp_path)
     env = os.environ.copy()
     env["FA_KWS_FAKE_MODE"] = "none"
@@ -196,8 +203,7 @@ def test_external_kws_worker_no_detection_is_not_error(tmp_path: Path) -> None:
 
 def test_external_kws_worker_invalid_stdout_fails_closed(tmp_path: Path) -> None:
     _prepare_model_files(tmp_path)
-    worker = PACKAGE_ROOT / "test" / "fixtures" / "fake_kws_worker.py"
-    worker.chmod(worker.stat().st_mode | 0o111)
+    worker = _prepare_worker(tmp_path)
     binary = _build_probe(tmp_path)
     env = os.environ.copy()
     env["FA_KWS_FAKE_MODE"] = "bad"

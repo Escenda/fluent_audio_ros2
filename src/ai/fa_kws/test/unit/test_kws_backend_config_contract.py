@@ -405,6 +405,21 @@ def test_kws_backend_writes_explicit_float32le_payload() -> None:
     assert "samples.size() * sizeof(float)" not in backend_text
 
 
+def test_kws_node_fails_closed_on_backend_runtime_exception() -> None:
+    node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
+    process_block = node_text.split(
+        "std::optional<KwsDetection> detection;",
+        1,
+    )[1].split("if (!detection)", 1)[0]
+
+    assert "try {" in process_block
+    assert "detection = kws_backend_->process(samples, target_sample_rate_, vad_prob, now);" in process_block
+    assert "catch (const std::exception &e)" in process_block
+    assert 'RCLCPP_FATAL(this->get_logger(), "KWS backend failed: %s", e.what());' in process_block
+    assert "rclcpp::shutdown();" in process_block
+    assert "throw;" in process_block
+
+
 def test_detection_score_is_owned_by_backend() -> None:
     interface_path = (
         PACKAGE_ROOT / "include" / "fa_kws" / "backends" / "kws_backend.hpp"
