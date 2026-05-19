@@ -12,6 +12,17 @@
 
 backend は POSIX socket と raw byte buffer だけを扱い、ROS2 topic、ROS2 message、`rclcpp` を知りません。受信 payload は expected frame byte size で割り切れる場合だけ `AudioFrame.data` へ渡されます。decode、resample、gain、jitter buffer、PLC、clock drift correction は行いません。
 
+Supported AudioFrame / packet capability:
+
+- `encoding`: raw PCM として configured `audio.encoding` を metadata に使う。現行 executable test は `PCM16LE` を代表 format として検証する。
+- `bit_depth`: positive かつ byte-aligned。`channels * bit_depth / 8` が packet frame byte size になる。
+- `sample_rate`: configured `audio.sample_rate` を publish metadata として使い、network payload から推定しない。
+- `channels`: positive configured channel count。payload は configured layout の interleaved frame 列として扱う。
+- `layout`: `interleaved`。non-interleaved packet を暗黙に interleave/deinterleave しない。
+- packet contract: accepted UDP packet は 1 `AudioFrame.data` になる。packet は empty ではなく、`network.max_packet_bytes` 以下で、expected frame byte size で割り切れる必要がある。
+
+unsupported endpoint / encoding / bit depth / sample_rate / channels / layout / packet shape は startup fail、runtime fatal、または explicit read error にする。hidden resample、downmix、format conversion、jitter buffer、PLC、clock drift correction は行わない。
+
 Fail closed / explicit status 条件:
 
 - `endpoint.uri` が空、`udp://IPv4:port` でない、host が IPv4 address でない、port が空 / 非数 / `0` / `65535` 超過

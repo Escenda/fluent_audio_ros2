@@ -10,6 +10,17 @@
 
 この backend は ROS-free である。filesystem / binary file read / EOF / loop だけを扱い、ROS2 topic、ROS message、`rclcpp` を知らない。
 
+## Supported AudioFrame Capability
+
+- `encoding`: headerless raw PCM として configured `audio.encoding` を metadata に使う。現行 executable test は `PCM16LE` を代表 format として検証する。
+- `bit_depth`: positive かつ byte-aligned。`channels * bit_depth / 8` が file frame byte size になる。
+- `sample_rate`: configured `audio.sample_rate` を publish metadata として使い、file から推定しない。
+- `channels`: positive configured channel count。payload は configured layout の interleaved frame 列として扱う。
+- `layout`: `interleaved`。non-interleaved file を暗黙に interleave/deinterleave しない。
+- file contract: file は headerless raw PCM payload だけを含む。file size は expected frame byte size で割り切れる必要がある。
+
+unsupported encoding / bit depth / sample_rate / channels / layout / file shape は startup fail または explicit read error にする。hidden decode、resample、downmix、channel conversion、bit-depth conversion は行わない。
+
 ## Required Parameters
 
 - `file.path`: 既存 regular file。empty、missing、directory、empty file は fail closed。

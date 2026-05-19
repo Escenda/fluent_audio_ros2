@@ -8,32 +8,46 @@
 3. **明示 backend 前提**: local model、external worker、cloud API を同じ backend 境界で扱い、`backend.name` と必要な model / endpoint / credential を config で明示する。
 4. **再利用可能なインターフェース**: 音声フレームは `fa_interfaces/msg/AudioFrame` に統一する。
 
-## 2. ノード構成（現在のROS 2 package）
+## 2. 完了済み runtime package
 
-この表は package / topic contract の俯瞰であり、全 package の DSP / backend 実装完了を意味しない。
-passthrough contract や skeleton 実装の package は、各 package の `docs/仕様書.md` と `docs/backends/` を正とする。
+この節には、機能実装、fail-closed validation、launch 経路、代表テスト、必要な実 backend / worker / model provisioning が揃い、現在の検証記録で完了扱いできる runtime package だけを記載する。
+`package.xml`、README、launch file、topic contract、docs、skeleton、passthrough backend の存在だけでは完了済みに数えない。
 
-| ノード | 役割 | 主な入出力 |
+| package | 完了範囲 | 代表検証 |
 | --- | --- | --- |
-| `fa_in` | 明示 source からPCMを配信 | Pub: `audio/frame` など / Srv: `list_devices`, `switch_device` |
-| `fa_vad` | Silero VAD | Sub: `audio/frame` → Pub: `audio/vad`, `voice/vad_state` |
-| `fa_kws` | ローカルKWS | Sub: `audio/frame`, `voice/vad_state` → Pub: `voice/wake_word` |
-| `fa_asr` | ASR backend の呼び出し（`local_command` / `whisper.cpp` / `parakeet_worker` / `openai_realtime` / `openai_transcriptions`） | Sub: `audio/frame`, `voice/vad_state`, `conversation/turn_context` → Pub: `voice/asr/result` |
-| `fa_turn_detector` | Smart Turn v3 ONNX によるターン終了推定 | Sub: `audio/frame`, `voice/vad_state`, `conversation/turn_context` → Pub: `voice/turn_end` |
-| `fa_record` | `audio/frame` をWAVへ録音 | Sub: `audio/frame` / Srv: `record` |
-| `fa_tts` | テキスト→音声合成 | Srv: `speak` → Pub: `audio/tts/frame` |
-| `fa_mix` | routing / mixing | Sub: `audio/tts/frame` 等 → Pub: `audio/output/frame` |
-| `fa_out` | スピーカーを開いてPCMを再生 | Sub: `audio/output/frame` |
-| `fa_stream` | 配信 sink（Icecast等） | Sub: `audio/frame` → 外部へ送出（`ffmpeg`） |
-| `fa_voice_command_router` | 起動/停止/モード切替の状態管理 | Sub: `voice/command` → Pub: `voice/router/state` / Srv: `start`, `stop`, `status` |
+| 現時点では未記載 | 完了判定には最新の代表検証が必要 | 未検証 |
 
-## 3. 将来のノード（予定）
-- `src/ai/fa_sed`: 音イベント検出
-- `src/ai/fa_speaker`: 話者認識
-- `src/apps/dialogue/fa_dialogue`: Wakeword/ASR/TD を合流する会話オーケストレーション
-- `src/apps/safety/fa_safety_policy`: 危険操作の拒否/確認要求など
-- `src/processing/<category>/*`: ノイズ抑制/AEC/特徴量などの DSP / feature extraction
-- `src/streaming/*`: jitter buffer、clock drift、PLC、time alignment などのリアルタイム伝送安定化
+## 3. 実装中 / 代表検証待ち
+
+以下は runtime package または node 実装が存在するが、この資料では完了済みとして扱わない。完了済み一覧へ移すには、各 package の実装範囲に応じた代表検証を実行し、検証結果を残す必要がある。
+
+| package | 現在確認できる実装範囲 | 完了扱いしない理由 |
+| --- | --- | --- |
+| `fa_in` | `alsa_capture`、`pcm_file_reader`、`network_pcm_receiver` source backend | 実 device / file / network source を含む代表 graph 起動と VLAbor site binding 経路が未検証 |
+| `fa_out` | `alsa_playback`、`pcm_file_writer`、`network_pcm_sender` sink backend | 実 speaker / file / network sink と playback control を含む代表 graph 起動が未検証 |
+| `fa_vad` | Silero external worker 境界と VAD state publish | 実 model / worker / provider provisioning を含む SO101 graph が未検証 |
+| `fa_kws` | sherpa-onnx external worker 境界と wake word publish | 実 sherpa-onnx model / keywords / worker provisioning を含む SO101 graph が未検証 |
+| `fa_asr` | `local_command`、`whisper.cpp`、`parakeet_worker`、`openai_realtime`、`openai_transcriptions` backend 枠 | 実 worker command / model / credential / health check を含む代表 graph が未検証 |
+| `fa_turn_detector` | Smart Turn ONNX external worker 境界と turn end publish | 実 model / worker / provider provisioning と `conversation/turn_context` publisher が未検証 |
+| `fa_record` | `AudioFrame` の WAV 録音 utility | `fa_in` からの実 graph 録音 smoke が未検証 |
+| `fa_stream` | `ffmpeg` network streamer utility | 実 endpoint への streaming smoke と transport failure contract が未検証 |
+| `fa_tts` | TTS service と `audio/tts/frame` publish | 実 TTS backend、`fa_mix`、`fa_out` 連携が未検証 |
+| `fa_mix` | PCM16LE の MVP mixing | routing / ducking / limiter / barge-in 連携は未完了 |
+| `fa_voice_command_router` | MVP command router | structured command schema と KWS/ASR/TD 連携が未完了 |
+
+## 4. 設計枠 / package 化前
+
+以下は package 化前または roadmap placeholder として扱う。`fluent_audio_system` config から参照してはならない。
+
+| path | 位置づけ |
+| --- | --- |
+| `src/ai/fa_sed` | 音イベント検出。package 化前 |
+| `src/ai/fa_speaker` | 話者認識。package 化前 |
+| `src/apps/dialogue/fa_dialogue` | Wakeword / ASR / TD を合流する会話 orchestration。package 化前 |
+| `src/apps/safety/fa_safety_policy` | 危険操作の拒否 / 確認要求などの safety policy。package 化前 |
+| `src/io/sources/fa_file_in`, `src/io/sources/fa_network_in` | 現在は `fa_in` backend として実装。standalone package 化前 |
+| `src/io/sinks/fa_file_out`, `src/io/sinks/fa_network_out` | 現在は `fa_out` backend として実装。standalone package 化前 |
+| `src/processing/*` の README-only directory | `docs/roadmap_placeholders.md` の分類に従う |
 
 ## 4. インターフェース
 
@@ -78,6 +92,8 @@ passthrough contract や skeleton 実装の package は、各 package の `docs/
 5. `fa_kws` が `voice/wake_word` を publish する
 
 SO101 の VAD + KWS frontend は `fluent_audio_system/config/profiles/so101_kws_frontend.yaml` に system config として定義します。この profile は `fa_asr` / `fa_turn_detector` を起動しません。VLAbor profile には enable / config path / source binding だけを置き、Silero / sherpa-onnx の worker command、model path、provider、keywords file は system config 側の `${env:...}` で明示します。
+
+VAD / KWS / ASR / Turn Detector は `FLOAT32LE/32/interleaved`、configured sample rate、mono などの supported AudioFrame contract を各 node/backend で検証します。`PCM16LE` や sample-rate mismatch を受けた場合に AI node 内で resample / format conversion / downmix は行いません。必要な変換は `fa_sample_format`、`fa_resample`、`fa_channel_convert` を pipeline に明示し、未対応入力は frame rejection または fail-closed として扱います。
 
 ### 5.4 VAD/KWS/ASR/TD dialogue graph
 1. VAD/KWS frontend を起動し、`voice/wake_word` で起動語を受ける
