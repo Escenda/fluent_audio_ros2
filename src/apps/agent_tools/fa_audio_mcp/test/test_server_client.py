@@ -11,6 +11,7 @@ from fa_audio_mcp.errors import AudioToolError
 from fa_audio_mcp.json_types import JsonValue
 from fa_audio_mcp.requests import (
     ArchiveAudioRequestValues,
+    ExportAudioRequestValues,
     TranscribeAudioRequestValues,
 )
 from fa_audio_mcp.scopes import AudioScopeConfig
@@ -37,6 +38,10 @@ class _FakeRequest:
 
 
 class _FakeArchiveAudioWindow:
+    Request = _FakeRequest
+
+
+class _FakeExportAudioWindow:
     Request = _FakeRequest
 
 
@@ -101,7 +106,7 @@ class _FakeAudioModelRef:
         self.model_revision = "r1"
 
 
-class _FakeTranscribeResponse:
+class _FakeTranscribeResponse(_FakeResponse):
     def __init__(self, *, start_unix_ns: int, end_unix_ns: int) -> None:
         time_range = _FakeTimeRange(
             start_unix_ns=start_unix_ns,
@@ -157,8 +162,14 @@ class _FakeNode:
         archive_client: _FakeClient,
         transcribe_client: _FakeClient,
         *,
+        export_client: _FakeClient | None = None,
         now_unix_ns: int = 20,
     ) -> None:
+        self._export_client = (
+            export_client
+            if export_client is not None
+            else _FakeClient(available=True, response=_FakeResponse())
+        )
         self._archive_client = archive_client
         self._transcribe_client = transcribe_client
         self._now_unix_ns = now_unix_ns
@@ -166,6 +177,8 @@ class _FakeNode:
 
     def create_client(self, service_type, service_name: str) -> _FakeClient:
         self.created_service_names.append(service_name)
+        if service_type is _FakeExportAudioWindow:
+            return self._export_client
         if service_type is _FakeArchiveAudioWindow:
             return self._archive_client
         if service_type is _FakeTranscribeAudio:
@@ -190,6 +203,7 @@ def _install_fake_server_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
     fa_interfaces_module = ModuleType("fa_interfaces")
     srv_module = ModuleType("fa_interfaces.srv")
     srv_module.ArchiveAudioWindow = _FakeArchiveAudioWindow
+    srv_module.ExportAudioWindow = _FakeExportAudioWindow
     srv_module.TranscribeAudio = _FakeTranscribeAudio
 
     monkeypatch.setitem(sys.modules, "mcp", mcp_module)
@@ -221,11 +235,24 @@ def _server_config() -> ServerConfig:
         transport="stdio",
         host="0.0.0.0",
         port=9110,
+        export_service_name="export_audio_window",
         archive_service_name="archive_audio_window",
         transcribe_service_name="transcribe_audio",
         service_timeout_sec=3.5,
+        export_scope_config=AudioScopeConfig(mic="mic"),
         archive_scope_config=AudioScopeConfig(mic="mic"),
         transcribe_scope_config=AudioScopeConfig(mic="audio/high_pass/mic"),
+    )
+
+
+def _export_values() -> ExportAudioRequestValues:
+    return ExportAudioRequestValues(
+        time_range=NumericTimeRange(10, 20),
+        time_range_spec="10..20",
+        audio_scope="mic",
+        codec="pcm_s16le",
+        container="wav",
+        payload_format="audio/wav",
     )
 
 
@@ -299,7 +326,34 @@ def test_ros_client_returns_response_and_populates_request(
     assert result is response
     assert transcribe_client.request.time_range_spec == "10..20"
     assert transcribe_client.request.audio_scope == "audio/high_pass/mic"
-    assert node.created_service_names == ["archive_audio_window", "transcribe_audio"]
+    assert node.created_service_names == [
+        "export_audio_window",
+        "archive_audio_window",
+        "transcribe_audio",
+    ]
+
+
+def test_ros_client_populates_export_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = _import_server(monkeypatch)
+    response = _FakeResponse()
+    export_client = _FakeClient(available=True, response=response)
+    node = _FakeNode(
+        _FakeClient(available=True, response=_FakeResponse()),
+        _FakeClient(available=True, response=_FakeResponse()),
+        export_client=export_client,
+    )
+    client = server.RosAudioTimelineClient(node, _server_config())
+
+    result = client.export_audio_window(_export_values())
+
+    assert result is response
+    assert export_client.request.time_range_spec == "10..20"
+    assert export_client.request.audio_scope == "mic"
+    assert export_client.request.codec == "pcm_s16le"
+    assert export_client.request.container == "wav"
+    assert export_client.request.payload_format == "audio/wav"
 
 
 def test_ros_client_populates_archive_request(
@@ -341,6 +395,7 @@ def test_mcp_tools_make_audio_scope_omittable(
             _server_config(),
         ),
         server.AudioScopeResolver(AudioScopeConfig(mic="mic", default_scope_key="mic")),
+        server.AudioScopeResolver(AudioScopeConfig(mic="mic", default_scope_key="mic")),
         server.AudioScopeResolver(
             AudioScopeConfig(
                 mic="audio/high_pass/mic",
@@ -350,9 +405,11 @@ def test_mcp_tools_make_audio_scope_omittable(
     )
 
     archive_signature = inspect.signature(mcp.tools["archive_audio_window"])
+    export_signature = inspect.signature(mcp.tools["export_audio_window"])
     transcribe_signature = inspect.signature(mcp.tools["transcribe_audio"])
 
     assert archive_signature.parameters["audio_scope"].default is None
+    assert export_signature.parameters["audio_scope"].default is None
     assert transcribe_signature.parameters["audio_scope"].default is None
 
 
@@ -378,6 +435,7 @@ def test_transcribe_mcp_tool_resolves_now_relative_range_before_ros_service(
     mcp = server.build_mcp_server(
         _server_config(),
         ros_client,
+        server.AudioScopeResolver(AudioScopeConfig(mic="mic", default_scope_key="mic")),
         server.AudioScopeResolver(AudioScopeConfig(mic="mic", default_scope_key="mic")),
         server.AudioScopeResolver(
             AudioScopeConfig(

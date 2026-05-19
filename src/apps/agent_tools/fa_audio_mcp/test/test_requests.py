@@ -3,6 +3,7 @@ import pytest
 from fa_audio_mcp.errors import AudioToolError
 from fa_audio_mcp.requests import (
     build_archive_audio_request_values,
+    build_export_audio_request_values,
     build_transcribe_audio_request_values,
 )
 from fa_audio_mcp.scopes import AudioScopeConfig, AudioScopeResolver
@@ -46,6 +47,27 @@ def test_archive_request_validation_produces_deterministic_values() -> None:
     assert values.payload_format == "file"
 
 
+def test_export_request_validation_produces_deterministic_values() -> None:
+    resolver = AudioScopeResolver(AudioScopeConfig(mic="robot_mic"))
+
+    values = build_export_audio_request_values(
+        time_range="100..300",
+        audio_scope="mic",
+        scope_resolver=resolver,
+        codec="flac",
+        container="wav",
+        payload_format="file",
+    )
+
+    assert values.time_range_spec == "100..300"
+    assert values.time_range.start_unix_ns == 100
+    assert values.time_range.end_unix_ns == 300
+    assert values.audio_scope == "robot_mic"
+    assert values.codec == "flac"
+    assert values.container == "wav"
+    assert values.payload_format == "file"
+
+
 def test_archive_request_uses_supported_format_defaults_when_omitted() -> None:
     resolver = AudioScopeResolver(AudioScopeConfig(mic="mic"))
 
@@ -54,6 +76,20 @@ def test_archive_request_uses_supported_format_defaults_when_omitted() -> None:
         audio_scope="mic",
         reason="incident evidence",
         related_artifact_ids=[],
+        scope_resolver=resolver,
+    )
+
+    assert values.codec == "pcm_s16le"
+    assert values.container == "wav"
+    assert values.payload_format == "audio/wav"
+
+
+def test_export_request_uses_supported_format_defaults_when_omitted() -> None:
+    resolver = AudioScopeResolver(AudioScopeConfig(mic="mic"))
+
+    values = build_export_audio_request_values(
+        time_range="100..300",
+        audio_scope="mic",
         scope_resolver=resolver,
     )
 

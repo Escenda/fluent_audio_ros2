@@ -2,12 +2,12 @@
 
 `fa_audio_mcp` は FluentAudio timeline services を MCP tools として公開する ROS2 `ament_python` package です。
 
-公開する tool は `archive_audio_window` と `transcribe_audio` です。どちらも numeric time range と `now` relative time range を受け付け、ROS2 service request へ渡す前に `<start_unix_ns>..<end_unix_ns>` 形式へ解決します。
+公開する tool は `export_audio_window`、`archive_audio_window`、`transcribe_audio` です。いずれも numeric time range と `now` relative time range を受け付け、ROS2 service request へ渡す前に `<start_unix_ns>..<end_unix_ns>` 形式へ解決します。
 
 ## 目的
 
-- Agent / MCP client から FluentAudio の音声 window archive と文字起こし service を呼び出せるようにする。
-- Agent-facing な `audio_scope` を、archive 用 scope mapping と transcribe 用 scope mapping で別々に解決する。
+- Agent / MCP client から FluentAudio の音声 window export、archive、文字起こし service を呼び出せるようにする。
+- Agent-facing な `audio_scope` を、export 用 scope mapping、archive 用 scope mapping、transcribe 用 scope mapping で別々に解決する。
 - omitted / null / blank の `audio_scope` を tool ごとの explicit default scope key で解決する。
 - ROS2 service の `success=false`、service timeout、service unavailable を tool error として返す。
 
@@ -26,14 +26,15 @@
 
 | Tool | ROS2 service | 主な入力 | scope mapping |
 | --- | --- | --- | --- |
+| `export_audio_window` | `ExportAudioWindow` | `time_range`, `audio_scope`, optional format fields | `FLUENT_AUDIO_EXPORT_SCOPE_*` |
 | `archive_audio_window` | `ArchiveAudioWindow` | `time_range`, `audio_scope`, `reason`, `related_artifact_ids`, optional format fields | `FLUENT_AUDIO_ARCHIVE_SCOPE_*` |
 | `transcribe_audio` | `TranscribeAudio` | `time_range`, `audio_scope` | `FLUENT_AUDIO_TRANSCRIBE_SCOPE_*` |
 
 `time_range` は `<start_unix_ns>..<end_unix_ns>`、または `now-10s..now` / `now-1500ms..now-500ms` / `now-2m..now-1m` のような `now[-duration]..now[-duration]` を受け付けます。`now` は `fa_audio_mcp_server` の ROS node clock で一度だけ解決され、下流 service には numeric range だけを渡します。marker、turn id、action id、自然言語表現はここでは解決しません。
 
-`archive_audio_window` の format 省略時は adapter 側で `pcm_s16le` / `wav` / `audio/wav` を明示値として request に入れます。これは archive request の default contract であり、音声 decode や hidden conversion ではありません。
+`export_audio_window` / `archive_audio_window` の format 省略時は adapter 側で `pcm_s16le` / `wav` / `audio/wav` を明示値として request に入れます。これは audio clip request の default contract であり、音声 decode や hidden conversion ではありません。
 
-`audio_scope` が省略、null または blank の場合は、tool ごとの default scope key で解決します。archive は config loading 上の明示 default として `mic` を持ちます。transcribe は `FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE` が明示されている場合だけ省略 / null / blank scope を受け付けます。default scope key が未設定、または key の指す scope mapping が未設定の場合は tool error です。
+`audio_scope` が省略、null または blank の場合は、tool ごとの default scope key で解決します。export / archive は config loading 上の明示 default として `mic` を持ちます。transcribe は `FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE` が明示されている場合だけ省略 / null / blank scope を受け付けます。default scope key が未設定、または key の指す scope mapping が未設定の場合は tool error です。
 
 ## Environment Variables
 
@@ -43,8 +44,13 @@
 | `FLUENT_AUDIO_MCP_HOST` | `0.0.0.0` | `sse` / `streamable-http` 用 bind host |
 | `FLUENT_AUDIO_MCP_PORT` | `9110` | `sse` / `streamable-http` 用 port。正の整数 |
 | `FLUENT_AUDIO_MCP_SERVICE_TIMEOUT_SEC` | `10.0` | ROS service wait / response timeout。正の数 |
+| `FLUENT_AUDIO_EXPORT_AUDIO_WINDOW_SERVICE` | `export_audio_window` | export 用 ROS service 名 |
 | `FLUENT_AUDIO_ARCHIVE_AUDIO_WINDOW_SERVICE` | `archive_audio_window` | archive 用 ROS service 名 |
 | `FLUENT_AUDIO_TRANSCRIBE_AUDIO_SERVICE` | `transcribe_audio` | transcribe 用 ROS service 名 |
+| `FLUENT_AUDIO_EXPORT_SCOPE_MIC` | `mic` | export tool の `mic` scope 解決先 |
+| `FLUENT_AUDIO_EXPORT_SCOPE_SYSTEM` | 未設定 | export tool の `system` scope 解決先 |
+| `FLUENT_AUDIO_EXPORT_SCOPE_MIXED` | 未設定 | export tool の `mixed` scope 解決先 |
+| `FLUENT_AUDIO_EXPORT_DEFAULT_SCOPE` | `mic` | export tool の null / blank `audio_scope` 解決 key |
 | `FLUENT_AUDIO_ARCHIVE_SCOPE_MIC` | `mic` | archive tool の `mic` scope 解決先 |
 | `FLUENT_AUDIO_ARCHIVE_SCOPE_SYSTEM` | 未設定 | archive tool の `system` scope 解決先 |
 | `FLUENT_AUDIO_ARCHIVE_SCOPE_MIXED` | 未設定 | archive tool の `mixed` scope 解決先 |
@@ -54,11 +60,12 @@
 | `FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIXED` | 未設定 | transcribe tool の `mixed` scope 解決先 |
 | `FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE` | 未設定 | transcribe tool の null / blank `audio_scope` 解決 key |
 
-未設定 scope は unsupported scope として fail closed します。`archive` と `transcribe` は別 mapping なので、archive の `mic` default が transcribe に流用されることはありません。
+未設定 scope は unsupported scope として fail closed します。`export`、`archive`、`transcribe` は別 mapping なので、export / archive の `mic` default が transcribe に流用されることはありません。
 
 SO101 voice frontend で ASR と archive branch を分ける場合の典型値は次の通りです。
 
 ```bash
+export FLUENT_AUDIO_EXPORT_SCOPE_MIC=mic
 export FLUENT_AUDIO_ARCHIVE_SCOPE_MIC=mic
 export FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC=audio/high_pass/mic
 export FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE=mic

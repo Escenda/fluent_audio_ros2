@@ -4,19 +4,22 @@ from mcp.server.fastmcp import FastMCP
 import rclpy
 from rclpy.node import Node
 
-from fa_interfaces.srv import ArchiveAudioWindow, TranscribeAudio
+from fa_interfaces.srv import ArchiveAudioWindow, ExportAudioWindow, TranscribeAudio
 
 from fa_audio_mcp.config import ServerConfig, load_server_config
 from fa_audio_mcp.errors import AudioToolError
 from fa_audio_mcp.json_types import JsonValue
 from fa_audio_mcp.requests import (
     ArchiveAudioRequestValues,
+    ExportAudioRequestValues,
     TranscribeAudioRequestValues,
     build_archive_audio_request_values,
+    build_export_audio_request_values,
     build_transcribe_audio_request_values,
 )
 from fa_audio_mcp.responses import (
     format_archive_audio_result,
+    format_export_audio_result,
     format_transcribe_audio_result,
 )
 from fa_audio_mcp.scopes import AudioScopeResolver
@@ -26,6 +29,10 @@ class RosAudioTimelineClient:
     def __init__(self, node: Node, config: ServerConfig) -> None:
         self._node = node
         self._timeout_sec = config.service_timeout_sec
+        self._export_client = node.create_client(
+            ExportAudioWindow,
+            config.export_service_name,
+        )
         self._archive_client = node.create_client(
             ArchiveAudioWindow,
             config.archive_service_name,
@@ -37,6 +44,19 @@ class RosAudioTimelineClient:
 
     def now_unix_ns(self) -> int:
         return self._node.get_clock().now().nanoseconds
+
+    def export_audio_window(self, values: ExportAudioRequestValues):
+        request = ExportAudioWindow.Request()
+        request.time_range_spec = values.time_range_spec
+        request.audio_scope = values.audio_scope
+        request.codec = values.codec
+        request.container = values.container
+        request.payload_format = values.payload_format
+        return self._call_service(
+            self._export_client,
+            request,
+            "export_audio_window",
+        )
 
     def archive_audio_window(self, values: ArchiveAudioRequestValues):
         request = ArchiveAudioWindow.Request()
@@ -83,10 +103,31 @@ class RosAudioTimelineClient:
 def build_mcp_server(
     config: ServerConfig,
     ros_client: RosAudioTimelineClient,
+    export_scope_resolver: AudioScopeResolver,
     archive_scope_resolver: AudioScopeResolver,
     transcribe_scope_resolver: AudioScopeResolver,
 ) -> FastMCP:
     mcp = FastMCP("fluent-audio")
+
+    @mcp.tool()
+    def export_audio_window(
+        time_range: str,
+        audio_scope: str | None = None,
+        codec: str | None = None,
+        container: str | None = None,
+        payload_format: str | None = None,
+    ) -> dict[str, JsonValue]:
+        values = build_export_audio_request_values(
+            time_range=time_range,
+            audio_scope=audio_scope,
+            scope_resolver=export_scope_resolver,
+            codec=codec,
+            container=container,
+            payload_format=payload_format,
+            now_unix_ns=ros_client.now_unix_ns(),
+        )
+        response = ros_client.export_audio_window(values)
+        return format_export_audio_result(response, values.time_range)
 
     @mcp.tool()
     def archive_audio_window(
@@ -135,11 +176,13 @@ def main() -> None:
     node = rclpy.create_node("fa_audio_mcp_server")
     try:
         ros_client = RosAudioTimelineClient(node, config)
+        export_scope_resolver = AudioScopeResolver(config.export_scope_config)
         archive_scope_resolver = AudioScopeResolver(config.archive_scope_config)
         transcribe_scope_resolver = AudioScopeResolver(config.transcribe_scope_config)
         mcp = build_mcp_server(
             config,
             ros_client,
+            export_scope_resolver,
             archive_scope_resolver,
             transcribe_scope_resolver,
         )

@@ -12,9 +12,11 @@ class ServerConfig:
     transport: str
     host: str
     port: int
+    export_service_name: str
     archive_service_name: str
     transcribe_service_name: str
     service_timeout_sec: float
+    export_scope_config: AudioScopeConfig
     archive_scope_config: AudioScopeConfig
     transcribe_scope_config: AudioScopeConfig
 
@@ -31,6 +33,10 @@ def load_server_config() -> ServerConfig:
         transport=transport,
         host=environ.get("FLUENT_AUDIO_MCP_HOST", "0.0.0.0"),
         port=_read_positive_int("FLUENT_AUDIO_MCP_PORT", "9110"),
+        export_service_name=_read_non_empty_string(
+            "FLUENT_AUDIO_EXPORT_AUDIO_WINDOW_SERVICE",
+            "export_audio_window",
+        ),
         archive_service_name=_read_non_empty_string(
             "FLUENT_AUDIO_ARCHIVE_AUDIO_WINDOW_SERVICE",
             "archive_audio_window",
@@ -42,6 +48,15 @@ def load_server_config() -> ServerConfig:
         service_timeout_sec=_read_positive_float(
             "FLUENT_AUDIO_MCP_SERVICE_TIMEOUT_SEC",
             "10.0",
+        ),
+        export_scope_config=AudioScopeConfig(
+            mic=_read_non_empty_string("FLUENT_AUDIO_EXPORT_SCOPE_MIC", "mic"),
+            system=_read_optional_scope("FLUENT_AUDIO_EXPORT_SCOPE_SYSTEM"),
+            mixed=_read_optional_scope("FLUENT_AUDIO_EXPORT_SCOPE_MIXED"),
+            default_scope_key=_read_optional_scope_key(
+                "FLUENT_AUDIO_EXPORT_DEFAULT_SCOPE",
+                "mic",
+            ),
         ),
         archive_scope_config=AudioScopeConfig(
             mic=_read_non_empty_string("FLUENT_AUDIO_ARCHIVE_SCOPE_MIC", "mic"),

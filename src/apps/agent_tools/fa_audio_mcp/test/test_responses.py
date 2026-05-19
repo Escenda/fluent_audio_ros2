@@ -5,6 +5,7 @@ import pytest
 from fa_audio_mcp.errors import AudioToolError
 from fa_audio_mcp.responses import (
     format_archive_audio_result,
+    format_export_audio_result,
     format_transcribe_audio_result,
 )
 from fa_audio_mcp.time_range import NumericTimeRange
@@ -89,6 +90,16 @@ def test_archive_response_formatter_raises_tool_error_on_failure() -> None:
     assert exc_info.value.message == "range_outside_window message"
 
 
+def test_export_response_formatter_raises_tool_error_on_failure() -> None:
+    response = _archive_response(success=False, error_code="export_failed")
+
+    with pytest.raises(AudioToolError) as exc_info:
+        format_export_audio_result(response, NumericTimeRange(10, 20))
+
+    assert exc_info.value.error_code == "export_failed"
+    assert exc_info.value.message == "export_failed message"
+
+
 def test_archive_response_formatter_returns_clip_and_time_range_data() -> None:
     response = _archive_response(success=True, error_code="none")
 
@@ -111,6 +122,27 @@ def test_archive_response_formatter_returns_clip_and_time_range_data() -> None:
             "uncertainty_reason": "",
         },
     }
+    assert result["time_range"] == {
+        "start_unix_ns": 10,
+        "end_unix_ns": 20,
+        "clock": "robot",
+        "uncertainty_ns": 0,
+        "uncertainty_reason": "",
+    }
+    assert result["requested_time_range"] == {
+        "start_unix_ns": 10,
+        "end_unix_ns": 20,
+        "spec": "10..20",
+    }
+
+
+def test_export_response_formatter_returns_clip_and_time_range_data() -> None:
+    response = _archive_response(success=True, error_code="none")
+
+    result = format_export_audio_result(response, NumericTimeRange(10, 20))
+
+    assert result["audio_clip_ref"]["clip_id"] == "clip-1"
+    assert result["audio_clip_ref"]["uri"] == "s3://daihen/v2/audio/clip-1.flac"
     assert result["time_range"] == {
         "start_unix_ns": 10,
         "end_unix_ns": 20,

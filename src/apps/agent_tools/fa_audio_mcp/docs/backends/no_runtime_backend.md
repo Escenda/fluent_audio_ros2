@@ -7,12 +7,13 @@
 | 項目 | 所有者 |
 | --- | --- |
 | MCP transport / tool schema | `fa_audio_mcp` |
-| numeric time range validation | `fa_audio_mcp` |
+| time range validation / `now` relative resolution | `fa_audio_mcp` |
 | Agent-facing scope mapping | `fa_audio_mcp` |
 | ROS service client | `fa_audio_mcp` |
 | ASR-ready timeline | `fa_asr` |
 | `TranscribeAudio` service 実行 | `fa_asr` |
 | archive PCM16 window | `fa_audio_window` |
+| `ExportAudioWindow` service 実行 | `fa_audio_window` |
 | `ArchiveAudioWindow` service 実行 | `fa_audio_window` |
 | audio format conversion | `fa_sample_format` などの processing package |
 | resample | `fa_resample` |
@@ -30,4 +31,4 @@
 
 SO101 voice frontend では、ASR は `audio/high_pass/frame` / `audio/high_pass/mic` を入力にします。archive branch は同じ high-pass stream から `fa_archive_sample_format` で PCM16 に変換し、`audio/archive_pcm16/frame` / `audio/archive_pcm16/mic` を `fa_audio_window` に渡します。
 
-`fa_audio_mcp` はこの 2 系統を隠して統合しません。transcribe tool は transcribe scope mapping に従って ASR service を呼び、archive tool は archive scope mapping に従って archive service を呼びます。
+`fa_audio_mcp` はこの 2 系統を隠して統合しません。transcribe tool は transcribe scope mapping に従って ASR service を呼び、export / archive tool はそれぞれの scope mapping に従って `fa_audio_window` service を呼びます。

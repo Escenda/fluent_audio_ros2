@@ -27,7 +27,7 @@ class AudioClipRefLike(Protocol):
     time_range: TimeRangeLike
 
 
-class ArchiveAudioResponseLike(Protocol):
+class AudioClipResponseLike(Protocol):
     success: bool
     error_code: str
     message: str
@@ -69,8 +69,22 @@ class TranscribeAudioResponseLike(Protocol):
     time_range: TimeRangeLike
 
 
+def format_export_audio_result(
+    response: AudioClipResponseLike,
+    requested_time_range: NumericTimeRange,
+) -> dict[str, JsonValue]:
+    return _format_audio_clip_result(response, requested_time_range)
+
+
 def format_archive_audio_result(
-    response: ArchiveAudioResponseLike,
+    response: AudioClipResponseLike,
+    requested_time_range: NumericTimeRange,
+) -> dict[str, JsonValue]:
+    return _format_audio_clip_result(response, requested_time_range)
+
+
+def _format_audio_clip_result(
+    response: AudioClipResponseLike,
     requested_time_range: NumericTimeRange,
 ) -> dict[str, JsonValue]:
     if not response.success:

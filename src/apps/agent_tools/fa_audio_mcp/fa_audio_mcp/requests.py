@@ -7,9 +7,19 @@ from fa_audio_mcp.scopes import AudioScopeResolver
 from fa_audio_mcp.time_range import NumericTimeRange, resolve_time_range
 
 
-DEFAULT_ARCHIVE_CODEC = "pcm_s16le"
-DEFAULT_ARCHIVE_CONTAINER = "wav"
-DEFAULT_ARCHIVE_PAYLOAD_FORMAT = "audio/wav"
+DEFAULT_AUDIO_CLIP_CODEC = "pcm_s16le"
+DEFAULT_AUDIO_CLIP_CONTAINER = "wav"
+DEFAULT_AUDIO_CLIP_PAYLOAD_FORMAT = "audio/wav"
+
+
+@dataclass(frozen=True)
+class ExportAudioRequestValues:
+    time_range: NumericTimeRange
+    time_range_spec: str
+    audio_scope: str
+    codec: str
+    container: str
+    payload_format: str
 
 
 @dataclass(frozen=True)
@@ -29,6 +39,28 @@ class TranscribeAudioRequestValues:
     time_range: NumericTimeRange
     time_range_spec: str
     audio_scope: str
+
+
+def build_export_audio_request_values(
+    *,
+    time_range: str,
+    audio_scope: str | None,
+    scope_resolver: AudioScopeResolver,
+    codec: str | None = None,
+    container: str | None = None,
+    payload_format: str | None = None,
+    now_unix_ns: int | None = None,
+) -> ExportAudioRequestValues:
+    parsed_time_range = resolve_time_range(time_range, now_unix_ns=now_unix_ns)
+    resolved_scope = scope_resolver.resolve(audio_scope)
+    return ExportAudioRequestValues(
+        time_range=parsed_time_range,
+        time_range_spec=parsed_time_range.spec,
+        audio_scope=resolved_scope,
+        codec=_optional_string(codec, DEFAULT_AUDIO_CLIP_CODEC),
+        container=_optional_string(container, DEFAULT_AUDIO_CLIP_CONTAINER),
+        payload_format=_optional_string(payload_format, DEFAULT_AUDIO_CLIP_PAYLOAD_FORMAT),
+    )
 
 
 def build_archive_audio_request_values(
@@ -55,9 +87,9 @@ def build_archive_audio_request_values(
         audio_scope=resolved_scope,
         reason=normalized_reason,
         related_artifact_ids=list(related_artifact_ids),
-        codec=_optional_string(codec, DEFAULT_ARCHIVE_CODEC),
-        container=_optional_string(container, DEFAULT_ARCHIVE_CONTAINER),
-        payload_format=_optional_string(payload_format, DEFAULT_ARCHIVE_PAYLOAD_FORMAT),
+        codec=_optional_string(codec, DEFAULT_AUDIO_CLIP_CODEC),
+        container=_optional_string(container, DEFAULT_AUDIO_CLIP_CONTAINER),
+        payload_format=_optional_string(payload_format, DEFAULT_AUDIO_CLIP_PAYLOAD_FORMAT),
     )
 
 
