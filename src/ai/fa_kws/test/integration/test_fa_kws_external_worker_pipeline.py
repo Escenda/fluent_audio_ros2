@@ -61,6 +61,16 @@ int main(int argc, char **argv)
       "{provider}",
       "--sample-rate",
       "{sample_rate}",
+      "--num-threads",
+      "{num_threads}",
+      "--max-active-paths",
+      "{max_active_paths}",
+      "--num-trailing-blanks",
+      "{num_trailing_blanks}",
+      "--keywords-score",
+      "{keywords_score}",
+      "--keywords-threshold",
+      "{keywords_threshold}",
     };
     cfg.health_args = {
       "health",
@@ -76,6 +86,18 @@ int main(int argc, char **argv)
       "{keywords}",
       "--provider",
       "{provider}",
+      "--sample-rate",
+      "{sample_rate}",
+      "--num-threads",
+      "{num_threads}",
+      "--max-active-paths",
+      "{max_active_paths}",
+      "--num-trailing-blanks",
+      "{num_trailing_blanks}",
+      "--keywords-score",
+      "{keywords_score}",
+      "--keywords-threshold",
+      "{keywords_threshold}",
     };
     cfg.timeout_sec = 2.0;
     cfg.workspace_dir = (tmp_dir / "workspace").string();

@@ -33,11 +33,11 @@ fa_kws:
     backend.execution_provider: ""
     # Required external worker command. The ROS2 node never links sherpa-onnx directly.
     backend.command: ""
-    # Required inference args. Must include {audio}, {encoder}, {decoder}, {joiner},
-    # {tokens}, {keywords}, {provider}, and {sample_rate}.
+    # Required inference args. Must include {audio}, model files, provider, sample_rate,
+    # and numeric KWS config placeholders.
     backend.args: []
-    # Required startup health-check args. Must include {encoder}, {decoder}, {joiner},
-    # {tokens}, {keywords}, and {provider}; must not include {audio}.
+    # Required startup health-check args. Must include model files, provider, sample_rate,
+    # and numeric KWS config placeholders; must not include {audio}.
     backend.health_args: []
     backend.timeout_sec: 5.0
     backend.workspace_dir: "/tmp/fluent_audio_fa_kws"

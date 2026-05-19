@@ -569,8 +569,8 @@ std::vector<std::string> SherpaOnnxKwsBackend::formatArgs(
 
   const std::set<std::string> required_fields =
     allow_audio_placeholder
-      ? std::set<std::string>{"audio", "encoder", "decoder", "joiner", "tokens", "keywords", "provider", "sample_rate"}
-      : std::set<std::string>{"encoder", "decoder", "joiner", "tokens", "keywords", "provider"};
+      ? std::set<std::string>{"audio", "encoder", "decoder", "joiner", "tokens", "keywords", "provider", "sample_rate", "num_threads", "max_active_paths", "num_trailing_blanks", "keywords_score", "keywords_threshold"}
+      : std::set<std::string>{"encoder", "decoder", "joiner", "tokens", "keywords", "provider", "sample_rate", "num_threads", "max_active_paths", "num_trailing_blanks", "keywords_score", "keywords_threshold"};
   for (const std::string &required : required_fields) {
     if (seen_fields.count(required) == 0) {
       throw std::invalid_argument("backend args missing required placeholder: " + required);

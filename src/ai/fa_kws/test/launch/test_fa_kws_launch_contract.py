@@ -79,3 +79,5 @@ def test_launch_and_install_use_only_declared_kws_node_executable() -> None:
     assert "fa_kws_stub" not in launch_text
     assert "add_executable(fa_kws_node" in cmake_text
     assert "install(TARGETS fa_kws_node fa_kws_wav_tool" in cmake_text
+    assert "install(PROGRAMS" in cmake_text
+    assert "scripts/sherpa_onnx_kws_worker" in cmake_text

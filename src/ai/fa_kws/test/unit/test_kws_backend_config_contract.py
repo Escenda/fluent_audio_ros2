@@ -95,6 +95,8 @@ def test_cmake_builds_runtime_targets_with_external_worker_backend() -> None:
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "install(TARGETS fa_kws_node fa_kws_wav_tool" in cmake_text
+    assert "install(PROGRAMS" in cmake_text
+    assert "scripts/sherpa_onnx_kws_worker" in cmake_text
     assert "target_link_libraries(fa_kws_backends PUBLIC" not in cmake_text
 
 
@@ -198,6 +200,26 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     gate_index = node_text.index("passesVadGate(vad_prob, static_cast<float>(probability_gate_))")
     process_index = node_text.index("kws_backend_->process")
     assert gate_index < process_index
+
+
+def test_reference_worker_is_external_entrypoint() -> None:
+    worker_path = PACKAGE_ROOT / "scripts" / "sherpa_onnx_kws_worker"
+    node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
+    worker_text = worker_path.read_text(encoding="utf-8")
+
+    assert worker_path.is_file()
+    assert worker_text.startswith("#!/usr/bin/env python3")
+    assert "import sherpa_onnx" in worker_text
+    assert "argparse.ArgumentParser" in worker_text
+    assert 'subparsers.add_parser("health"' in worker_text
+    assert 'subparsers.add_parser("detect"' in worker_text
+    assert "raw mono float32le audio path" in worker_text
+    assert "DETECTED\\t{keyword}" in worker_text
+    assert "NO_DETECTION" in worker_text
+    assert "ImportError" not in worker_text
+    assert "getattr(" not in worker_text
+    assert "import sherpa_onnx" not in node_text
+    assert "sherpa-onnx/c-api" not in node_text
 
 
 def test_model_file_validation_rejects_non_regular_or_unreadable_paths() -> None:

@@ -18,4 +18,6 @@ audio / VAD / output topic QoS は `audio.qos.*`、`vad.qos.*`、`output.qos.*` 
 
 `fa_kws_node` は sherpa-onnx C API を直接 link しません。`backend.command` / `backend.args` / `backend.health_args` で外部 worker を明示し、その worker が sherpa-onnx runtime、Python / C++ runtime、venv、container、GPU provider を所有します。worker 欠落、health check failure、timeout、invalid stdout は起動または推論時に fail closed します。
 
+同梱の `scripts/sherpa_onnx_kws_worker` は Python `sherpa_onnx` runtime 向け reference worker です。
+
 通常の workspace build では `fa_kws_node` と `fa_kws_wav_tool` を build します。native sherpa-onnx link mode、unavailable backend、dummy backend、別 backend への暗黙 fallback はありません。

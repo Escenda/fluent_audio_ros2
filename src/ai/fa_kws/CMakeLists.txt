@@ -49,6 +49,11 @@ install(TARGETS fa_kws_node fa_kws_wav_tool
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/sherpa_onnx_kws_worker
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 install(DIRECTORY
   launch
   config
