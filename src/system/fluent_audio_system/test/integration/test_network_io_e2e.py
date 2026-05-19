@@ -61,6 +61,7 @@ def _write_network_io_params(
                     "audio.chunk_ms": 10,
                     "network.max_packet_bytes": 1024,
                     "polling.period_ms": 10,
+                    "network.source_timeout_ms": 1000,
                     "audio.qos.depth": 10,
                     "audio.qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
