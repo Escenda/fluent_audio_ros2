@@ -34,6 +34,7 @@ IO_TEST_TRACE_PREFIXES = {
 }
 STREAMING_TEST_TRACE_PREFIXES = {
     "streaming/fa_clock_drift": "FA-CLOCK-DRIFT",
+    "streaming/fa_overlap_add": "FA-OA",
     "streaming/fa_packet_loss_concealment": "FA-PLC",
 }
 PROCESSING_TEST_TRACE_PREFIXES = {
