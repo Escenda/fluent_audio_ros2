@@ -35,6 +35,9 @@ IO_TEST_TRACE_PREFIXES = {
 PROCESSING_TEST_TRACE_PREFIXES = {
     "processing/format/fa_decode": "FA-DECODE",
     "processing/format/fa_encode": "FA-ENCODE",
+    "processing/format/fa_resample": "FA-RESAMPLE",
+    "processing/format/fa_sample_format": "FA-SAMPLE-FORMAT",
+    "processing/dynamics/fa_gain": "FA-GAIN",
 }
 
 
