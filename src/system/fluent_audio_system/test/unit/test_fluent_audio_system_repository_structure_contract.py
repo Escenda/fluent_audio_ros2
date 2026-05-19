@@ -9,22 +9,26 @@ config_schema = importlib.import_module("fluent_audio_system.config_schema")
 
 SRC_ROOT = PACKAGE_ROOT.parents[1]
 BASE_PACKAGES = frozenset(("fa_interfaces", "fluent_audio_system"))
+REQUIRED_PACKAGE_DOCS = (
+    "README.md",
+    "docs/仕様書.md",
+    "docs/アルゴリズム詳細説明書.md",
+    "docs/テスト設計.md",
+)
+REQUIRED_TEST_DIRS = (
+    "test/unit",
+    "test/integration",
+    "test/launch",
+    "test/fixtures",
+)
 
 
-def _documented_package_dirs() -> list[Path]:
-    package_dirs: list[Path] = []
-    for candidate in SRC_ROOT.rglob("fa_*"):
-        if not candidate.is_dir():
-            continue
-        if not (candidate / "README.md").is_file():
-            continue
-        if not (candidate / "docs" / "仕様書.md").is_file():
-            continue
-        if not (candidate / "package.xml").is_file():
-            continue
-        package_dirs.append(candidate)
-    package_dirs.append(PACKAGE_ROOT)
-    return sorted(package_dirs)
+def _buildable_package_dirs() -> list[Path]:
+    return sorted({package_xml.parent for package_xml in SRC_ROOT.rglob("package.xml")})
+
+
+def _relative_package_path(package_dir: Path) -> str:
+    return str(package_dir.relative_to(SRC_ROOT))
 
 
 def _path_category(package_dir: Path) -> str | None:
@@ -40,22 +44,22 @@ def _path_category(package_dir: Path) -> str | None:
     return None
 
 
-def test_package_category_map_covers_every_documented_node_package() -> None:
-    documented_package_names = {
+def test_package_category_map_covers_every_buildable_node_package() -> None:
+    buildable_package_names = {
         package_dir.name
-        for package_dir in _documented_package_dirs()
+        for package_dir in _buildable_package_dirs()
         if package_dir.name not in BASE_PACKAGES
     }
     mapped_package_names = set(config_schema._PACKAGE_CATEGORIES)
 
-    assert documented_package_names - mapped_package_names == set()
-    assert mapped_package_names - documented_package_names == set()
+    assert buildable_package_names - mapped_package_names == set()
+    assert mapped_package_names - buildable_package_names == set()
 
 
 def test_package_category_map_matches_repository_layout() -> None:
     package_categories: dict[str, frozenset[str]] = config_schema._PACKAGE_CATEGORIES
 
-    for package_dir in _documented_package_dirs():
+    for package_dir in _buildable_package_dirs():
         package_name = package_dir.name
         if package_name in BASE_PACKAGES:
             continue
@@ -64,6 +68,35 @@ def test_package_category_map_matches_repository_layout() -> None:
             continue
 
         assert expected_category in package_categories[package_name]
+
+
+def test_buildable_packages_have_standard_documentation_layout() -> None:
+    missing_paths: list[str] = []
+
+    for package_dir in _buildable_package_dirs():
+        for required_doc in REQUIRED_PACKAGE_DOCS:
+            if not (package_dir / required_doc).is_file():
+                missing_paths.append(f"{_relative_package_path(package_dir)}/{required_doc}")
+
+        backend_docs_dir = package_dir / "docs" / "backends"
+        if not backend_docs_dir.is_dir():
+            missing_paths.append(f"{_relative_package_path(package_dir)}/docs/backends")
+            continue
+        if not any(backend_doc.is_file() for backend_doc in backend_docs_dir.glob("*.md")):
+            missing_paths.append(f"{_relative_package_path(package_dir)}/docs/backends/*.md")
+
+    assert missing_paths == []
+
+
+def test_buildable_packages_have_standard_test_layout() -> None:
+    missing_paths: list[str] = []
+
+    for package_dir in _buildable_package_dirs():
+        for required_test_dir in REQUIRED_TEST_DIRS:
+            if not (package_dir / required_test_dir).is_dir():
+                missing_paths.append(f"{_relative_package_path(package_dir)}/{required_test_dir}")
+
+    assert missing_paths == []
 
 
 def test_ai_and_streaming_packages_stay_out_of_processing_analysis() -> None:
