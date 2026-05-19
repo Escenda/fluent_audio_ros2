@@ -4,7 +4,7 @@ from typing import Protocol
 
 from fa_audio_mcp.errors import AudioToolError
 from fa_audio_mcp.json_types import JsonValue
-from fa_audio_mcp.time_range import NumericTimeRange
+from fa_audio_mcp.time_range import NumericTimeRange, requested_time_range_spec
 
 
 class TimeRangeLike(Protocol):
@@ -124,7 +124,7 @@ def _format_requested_time_range(time_range: NumericTimeRange) -> dict[str, Json
     return {
         "start_unix_ns": time_range.start_unix_ns,
         "end_unix_ns": time_range.end_unix_ns,
-        "spec": time_range.spec,
+        "spec": requested_time_range_spec(time_range),
     }
 
 

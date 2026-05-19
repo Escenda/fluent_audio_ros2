@@ -52,6 +52,76 @@ class _FakeResponse:
     pass
 
 
+class _FakeClockNow:
+    def __init__(self, nanoseconds: int) -> None:
+        self.nanoseconds = nanoseconds
+
+
+class _FakeClock:
+    def __init__(self, now_unix_ns: int) -> None:
+        self._now_unix_ns = now_unix_ns
+
+    def now(self) -> _FakeClockNow:
+        return _FakeClockNow(self._now_unix_ns)
+
+
+class _FakeTimeRange:
+    def __init__(self, *, start_unix_ns: int, end_unix_ns: int) -> None:
+        self.start_unix_ns = start_unix_ns
+        self.end_unix_ns = end_unix_ns
+        self.clock = "media"
+        self.uncertainty_ns = 0
+        self.uncertainty_reason = ""
+
+
+class _FakeTranscriptSegment:
+    def __init__(self, *, start_unix_ns: int, end_unix_ns: int, text: str) -> None:
+        self.start_unix_ns = start_unix_ns
+        self.end_unix_ns = end_unix_ns
+        self.text = text
+        self.speaker_label = ""
+
+
+class _FakeAudioWindowRef:
+    def __init__(self, time_range: _FakeTimeRange) -> None:
+        self.window_id = "window-1"
+        self.window_epoch = 1
+        self.source_id = "mic"
+        self.stream_id = "audio/high_pass/mic"
+        self.time_range = time_range
+
+
+class _FakeAudioModelRef:
+    def __init__(self) -> None:
+        self.backend_name = "test-asr"
+        self.backend_kind = "asr"
+        self.model_id = "test-model"
+        self.model_path = "/models/test-model"
+        self.model_version = "1"
+        self.model_revision = "r1"
+
+
+class _FakeTranscribeResponse:
+    def __init__(self, *, start_unix_ns: int, end_unix_ns: int) -> None:
+        time_range = _FakeTimeRange(
+            start_unix_ns=start_unix_ns,
+            end_unix_ns=end_unix_ns,
+        )
+        self.success = True
+        self.error_code = "none"
+        self.message = ""
+        self.segments = [
+            _FakeTranscriptSegment(
+                start_unix_ns=start_unix_ns,
+                end_unix_ns=end_unix_ns,
+                text="hello",
+            )
+        ]
+        self.audio_window_ref = _FakeAudioWindowRef(time_range)
+        self.model_ref = _FakeAudioModelRef()
+        self.time_range = time_range
+
+
 class _FakeFuture:
     def __init__(self, response: _FakeResponse | None) -> None:
         self._response = response
@@ -82,9 +152,16 @@ class _FakeClient:
 
 
 class _FakeNode:
-    def __init__(self, archive_client: _FakeClient, transcribe_client: _FakeClient) -> None:
+    def __init__(
+        self,
+        archive_client: _FakeClient,
+        transcribe_client: _FakeClient,
+        *,
+        now_unix_ns: int = 20,
+    ) -> None:
         self._archive_client = archive_client
         self._transcribe_client = transcribe_client
+        self._now_unix_ns = now_unix_ns
         self.created_service_names: list[str] = []
 
     def create_client(self, service_type, service_name: str) -> _FakeClient:
@@ -94,6 +171,9 @@ class _FakeNode:
         if service_type is _FakeTranscribeAudio:
             return self._transcribe_client
         raise RuntimeError("unexpected service type")
+
+    def get_clock(self) -> _FakeClock:
+        return _FakeClock(self._now_unix_ns)
 
 
 def _install_fake_server_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -274,3 +354,53 @@ def test_mcp_tools_make_audio_scope_omittable(
 
     assert archive_signature.parameters["audio_scope"].default is None
     assert transcribe_signature.parameters["audio_scope"].default is None
+
+
+def test_transcribe_mcp_tool_resolves_now_relative_range_before_ros_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = _import_server(monkeypatch)
+    transcribe_client = _FakeClient(
+        available=True,
+        response=_FakeTranscribeResponse(
+            start_unix_ns=10_000_000_000,
+            end_unix_ns=20_000_000_000,
+        ),
+    )
+    ros_client = server.RosAudioTimelineClient(
+        _FakeNode(
+            _FakeClient(available=True, response=_FakeResponse()),
+            transcribe_client,
+            now_unix_ns=20_000_000_000,
+        ),
+        _server_config(),
+    )
+    mcp = server.build_mcp_server(
+        _server_config(),
+        ros_client,
+        server.AudioScopeResolver(AudioScopeConfig(mic="mic", default_scope_key="mic")),
+        server.AudioScopeResolver(
+            AudioScopeConfig(
+                mic="audio/high_pass/mic",
+                default_scope_key="mic",
+            )
+        ),
+    )
+
+    result = mcp.tools["transcribe_audio"](time_range="now-10s..now")
+
+    assert transcribe_client.request.time_range_spec == "10000000000..20000000000"
+    assert transcribe_client.request.audio_scope == "audio/high_pass/mic"
+    assert result["requested_time_range"] == {
+        "start_unix_ns": 10_000_000_000,
+        "end_unix_ns": 20_000_000_000,
+        "spec": "now-10s..now",
+    }
+    assert result["segments"] == [
+        {
+            "start_unix_ns": 10_000_000_000,
+            "end_unix_ns": 20_000_000_000,
+            "text": "hello",
+            "speaker_label": "",
+        }
+    ]

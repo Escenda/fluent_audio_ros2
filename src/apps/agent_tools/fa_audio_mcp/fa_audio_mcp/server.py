@@ -35,6 +35,9 @@ class RosAudioTimelineClient:
             config.transcribe_service_name,
         )
 
+    def now_unix_ns(self) -> int:
+        return self._node.get_clock().now().nanoseconds
+
     def archive_audio_window(self, values: ArchiveAudioRequestValues):
         request = ArchiveAudioWindow.Request()
         request.time_range_spec = values.time_range_spec
@@ -104,6 +107,7 @@ def build_mcp_server(
             codec=codec,
             container=container,
             payload_format=payload_format,
+            now_unix_ns=ros_client.now_unix_ns(),
         )
         response = ros_client.archive_audio_window(values)
         return format_archive_audio_result(response, values.time_range)
@@ -117,6 +121,7 @@ def build_mcp_server(
             time_range=time_range,
             audio_scope=audio_scope,
             scope_resolver=transcribe_scope_resolver,
+            now_unix_ns=ros_client.now_unix_ns(),
         )
         response = ros_client.transcribe_audio(values)
         return format_transcribe_audio_result(response, values.time_range)

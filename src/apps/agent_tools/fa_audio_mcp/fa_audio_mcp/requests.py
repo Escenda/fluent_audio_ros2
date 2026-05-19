@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from fa_audio_mcp.errors import AudioToolError
 from fa_audio_mcp.scopes import AudioScopeResolver
-from fa_audio_mcp.time_range import NumericTimeRange, parse_numeric_time_range
+from fa_audio_mcp.time_range import NumericTimeRange, resolve_time_range
 
 
 DEFAULT_ARCHIVE_CODEC = "pcm_s16le"
@@ -41,12 +41,13 @@ def build_archive_audio_request_values(
     codec: str | None = None,
     container: str | None = None,
     payload_format: str | None = None,
+    now_unix_ns: int | None = None,
 ) -> ArchiveAudioRequestValues:
     normalized_reason = reason.strip()
     if normalized_reason == "":
         raise AudioToolError("invalid_archive_request", "reason must be non-empty")
 
-    parsed_time_range = parse_numeric_time_range(time_range)
+    parsed_time_range = resolve_time_range(time_range, now_unix_ns=now_unix_ns)
     resolved_scope = scope_resolver.resolve(audio_scope)
     return ArchiveAudioRequestValues(
         time_range=parsed_time_range,
@@ -65,8 +66,9 @@ def build_transcribe_audio_request_values(
     time_range: str,
     audio_scope: str | None,
     scope_resolver: AudioScopeResolver,
+    now_unix_ns: int | None = None,
 ) -> TranscribeAudioRequestValues:
-    parsed_time_range = parse_numeric_time_range(time_range)
+    parsed_time_range = resolve_time_range(time_range, now_unix_ns=now_unix_ns)
     resolved_scope = scope_resolver.resolve(audio_scope)
     return TranscribeAudioRequestValues(
         time_range=parsed_time_range,

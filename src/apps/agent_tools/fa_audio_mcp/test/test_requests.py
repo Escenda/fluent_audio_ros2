@@ -122,3 +122,24 @@ def test_transcribe_request_uses_configured_default_scope_when_omitted() -> None
     )
 
     assert values.audio_scope == "audio/high_pass/mic"
+
+
+def test_transcribe_request_resolves_now_relative_range_at_input_boundary() -> None:
+    resolver = AudioScopeResolver(
+        AudioScopeConfig(
+            mic="audio/high_pass/mic",
+            default_scope_key="mic",
+        )
+    )
+
+    values = build_transcribe_audio_request_values(
+        time_range="now-10s..now",
+        audio_scope=None,
+        scope_resolver=resolver,
+        now_unix_ns=1700000010000000000,
+    )
+
+    assert values.time_range.start_unix_ns == 1700000000000000000
+    assert values.time_range.end_unix_ns == 1700000010000000000
+    assert values.time_range.requested_spec == "now-10s..now"
+    assert values.time_range_spec == "1700000000000000000..1700000010000000000"

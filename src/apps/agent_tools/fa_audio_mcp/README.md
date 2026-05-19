@@ -2,7 +2,7 @@
 
 `fa_audio_mcp` は FluentAudio timeline services を MCP tools として公開する ROS2 `ament_python` package です。
 
-公開する tool は `archive_audio_window` と `transcribe_audio` です。どちらも `<start_unix_ns>..<end_unix_ns>` 形式の numeric time range だけを受け付け、ROS2 service request に変換します。
+公開する tool は `archive_audio_window` と `transcribe_audio` です。どちらも numeric time range と `now` relative time range を受け付け、ROS2 service request へ渡す前に `<start_unix_ns>..<end_unix_ns>` 形式へ解決します。
 
 ## 目的
 
@@ -28,6 +28,8 @@
 | --- | --- | --- | --- |
 | `archive_audio_window` | `ArchiveAudioWindow` | `time_range`, `audio_scope`, `reason`, `related_artifact_ids`, optional format fields | `FLUENT_AUDIO_ARCHIVE_SCOPE_*` |
 | `transcribe_audio` | `TranscribeAudio` | `time_range`, `audio_scope` | `FLUENT_AUDIO_TRANSCRIBE_SCOPE_*` |
+
+`time_range` は `<start_unix_ns>..<end_unix_ns>`、または `now-10s..now` / `now-1500ms..now-500ms` / `now-2m..now-1m` のような `now[-duration]..now[-duration]` を受け付けます。`now` は `fa_audio_mcp_server` の ROS node clock で一度だけ解決され、下流 service には numeric range だけを渡します。marker、turn id、action id、自然言語表現はここでは解決しません。
 
 `archive_audio_window` の format 省略時は adapter 側で `pcm_s16le` / `wav` / `audio/wav` を明示値として request に入れます。これは archive request の default contract であり、音声 decode や hidden conversion ではありません。
 
@@ -81,4 +83,4 @@ export FLUENT_AUDIO_MCP_PORT=9110
 ros2 run fa_audio_mcp fa_audio_mcp_server
 ```
 
-この package 単体の unit tests は request validation、scope mapping、numeric time range parsing、response formatting を対象にします。実際の ROS launch / service smoke は、`fa_asr` / `fa_audio_window` service と接続した別検証です。
+この package 単体の unit tests は request validation、scope mapping、time range resolution、response formatting を対象にします。実際の ROS launch / service smoke は、`fa_asr` / `fa_audio_window` service と接続した別検証です。
