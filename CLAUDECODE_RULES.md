@@ -1,127 +1,293 @@
-# FluentAudio Agent Rules
+# 🤖 ClaudeCode用 FluentVision ROS2 統合開発ルール
 
-This file is for AI agents working inside `fluent_audio_ros2`. It defines the
-FluentAudio-specific workflow for this child repository.
+## 🎯 プロジェクトの本質
+**ミッション**: 「いかに便利に、楽に、簡単に、スムースに、高速に映像や情報を美しくさまざまなコンピュータに配信できるか」
 
-## 1. Repository Boundaries
+### 6つのコア価値（絶対遵守）
+1. **🛠️ 便利** - ワンライン起動、自動設定
+2. **😌 楽** - 設定レス、自動回復
+3. **🎯 簡単** - 直感的API、1行完結
+4. **🌊 スムース** - フレーム落ちゼロ、適応的品質
+5. **⚡ 高速** - C++最適化、GPU加速
+6. **🎨 美しい** - エレガントAPI、美しい映像品質
 
-- Do not push.
-- Do not commit the parent repository from this child repository workflow.
-- Commit inside `ros2_ws/src/fluent_audio_ros2` only when the change is
-  coherent, tested, and scoped to FluentAudio.
-- Do not commit parent gitlink updates unless the user explicitly asks.
-- Before every commit, run `git status --short` inside `fluent_audio_ros2`.
-- If `git add` or `git commit` fails because the submodule index lives under the
-  parent `.git/modules`, rerun the same submodule command with escalation.
-- Never modify `ros2_ws/src/vlabor_ros2` as part of FluentAudio-only work unless
-  the user explicitly reopens VLAbor changes.
-- In tracked docs, configs, and launch files, use repository-relative,
-  package-relative, or environment-derived paths. Do not hard-code developer
-  machine paths such as `/home/...`; runtime artifact paths must be explicit
-  config or environment inputs.
+## 📋 ClaudeCode作業開始チェックリスト
 
-## 2. Required Context
+### 🧠 記憶再構築（必須実行）
+```bash
+# 1. プロジェクト状況確認
+cat /home/aspara/seedbox-r1/fluent_vision_ros2/README.md
+find /home/aspara/seedbox-r1/fluent_vision_ros2 -name "TODO*.md" -o -name "TODO*.txt" | xargs cat
 
-Before design or implementation work, read the relevant files:
+# 2. 最新の作業履歴確認
+ls -la /home/aspara/seedbox-r1/fluent_vision_ros2/_history/sessions/
 
-- parent `AGENTS.md`
-- `docs/fa_audio_design.md`
-- `docs/fa_audio_system.md`
-- `docs/仕様書.md`
-- this file
-- `CPP_CODING_RULES.md`
+# 3. git状況確認
+cd /home/aspara/seedbox-r1/fluent_vision_ros2 && git status
+```
 
-Treat active FluentAudio docs as the source of truth. If implementation
-disagrees, update implementation and the directly relevant package docs. Do not
-preserve legacy paths, aliases, backend names, or config keys.
+### 報告テンプレート
+```
+🧠 **記憶再構築完了**
+- ✅ ドキュメント確認: [確認した文書]
+- ✅ 履歴確認: [前回作業内容]
+- ✅ 現状把握: [現在の状況]
+- ⚠️ 不明点: [確認必要事項]
+```
 
-## 3. Architecture Rules
+## 🚫 絶対禁止事項
 
-- `fa_in` and `fa_out` are I/O adapters only.
-- All audio editing and DSP must be explicit processing nodes.
-- Streaming stability logic belongs under `src/streaming`, not hidden inside
-  source/sink adapters.
-- VAD, KWS, ASR, turn detector, SED, speaker, and audio embedding model nodes
-  live under `src/ai`.
-- Engine runtimes live behind `backends/` or external worker/process/container
-  boundaries.
-- Backend code must not know ROS2 topics, ROS messages, `rclpy`, `rclcpp`, or
-  `fa_interfaces`.
-- Python is allowed for ROS adapters and worker boundaries when the package is
-  designed for it. Do not mix incompatible Python versions or venv-dependent
-  model engines into a ROS node process; use an external worker boundary.
-- External worker, process, and container backends are allowed when the backend
-  contract is explicit and the ROS node still owns parameters, topics,
-  lifecycle, and message conversion.
+### ファイル・ディレクトリ
+- `xxx_final.cpp`などの悪い命名
+- メインディレクトリへのテスト/デバッグファイル作成
+- 車輪の再発明・既存ライブラリの再実装
+- 設計書なしの「いきなり実装」
+- 未テストファイルのGitコミット
+- Python本番コード使用（C++は100倍速）
+- src/内への.mdファイル直接配置
 
-## 4. Fail-Closed Policy
+### ROS2システム起動
+- **単体ノード起動禁止**: `ros2 run`での個別起動は不可
+- **必須**: `./launch/start_fv.sh`でシステム全体を起動
 
-Do not add fallback that changes semantics.
+### コマンド実行
+- **ターミナルロック禁止**: 長時間コマンドの同期実行
+- **タイムアウト必須**: 10秒以内、失敗時は30秒まで延長
 
-Forbidden examples:
+## ⏰ コマンド実行ルール
 
-- missing device -> choose another device
-- missing model -> use package default model
-- unsupported backend -> use a different backend
-- missing ASR/KWS/VAD result -> publish success/no detection as if inference ran
-- invalid format -> resample/downmix/convert inside the AI node
-- missing source/stream identity -> accept by topic name only
-- stale state -> treat as current
+### 実行前チェックリスト
+```
+❓ このコマンドは30秒以上かかる可能性があるか？
+❓ ネットワーク・IO・ビルド処理を含むか？
+❓ ユーザー入力待ちの可能性があるか？
+❓ 無限ループ・デッドロックの危険性があるか？
+```
 
-Allowed responses are startup failure, runtime fatal shutdown, explicit error
-result when the message contract requires it, or explicit frame rejection with a
-clear reason.
+### 実行方式
+- **短時間（<30秒）**: 同期実行OK
+- **中時間（30秒-5分）**: `timeout 300`必須
+- **長時間（>5分）**: バックグラウンド実行必須
+- **危険コマンド（ROS2ノード等）**: 事前確認・バックグラウンド必須
 
-## 5. Documentation Rules
+### 実行例
+```bash
+# 短時間
+ls -la
 
-Each real ROS package should have:
+# 中時間
+timeout 300 colcon build --packages-select package_name
 
-- `README.md`
-- `docs/仕様書.md`
-- `docs/アルゴリズム詳細説明書.md`
-- `docs/テスト設計.md`
-- `docs/backends/*.md`
-- `test/unit`
-- `test/integration`
-- `test/launch`
-- `test/fixtures`
+# 長時間
+colcon build --symlink-install &
+BUILD_PID=$!
+echo "ビルド実行中 (PID: $BUILD_PID)"
+echo "停止方法: kill $BUILD_PID"
 
-README is the entrance. Contracts, algorithms, backend details, and test mapping
-belong under `docs/`.
+# ROS2ノード（危険）
+ros2 run package_name node_name &
+NODE_PID=$!
+echo "ノード起動完了 (PID: $NODE_PID)"
+echo "停止方法: kill $NODE_PID"
+```
 
-If a directory is only a roadmap placeholder, its README must clearly say it is
-not a buildable ROS 2 package yet. Do not add `package.xml`, `CMakeLists.txt`,
-`config`, or `launch` to placeholders until the package is ready to be buildable
-and testable.
+## 🔄 失敗ループ防止
 
-## 6. Implementation Rules
+### 自動検知トリガー
+- 同一エラーを2回経験 → 別アプローチ検討
+- 同一ファイルを3回連続編集 → 作業停止・再評価
+- 進捗なしに20分経過 → 状況報告・方針転換
 
-- Prefer existing package patterns over new abstractions.
-- Do not add compatibility aliases, deprecated config keys, or legacy launch
-  paths.
-- Do not add `Any`, `dict[str, Any]`, or `object` as type escapes in Python.
-- Do not use `ImportError` as runtime feature selection.
-- Do not write generated bytecode, build outputs, or local environment paths into
-  tracked files.
-- Do not place Markdown docs directly under a package `src/` directory.
-- Keep package tests runnable with read-only source mounts. Tests that need
-  executable or mutable fixtures must copy them to a temporary directory.
+### ループ検出時の対応
+```
+🔄 **失敗ループ検出**
+1. 即座に作業停止
+2. 過去の解決策を検索
+3. 代替アプローチの提案
+4. 必要なら専門エージェントへ相談
+```
 
-## 7. Validation Rules
+## 📊 コンテキスト管理
 
-Completion requires representative verification.
+### 制限検知レベル
+- **注意（20回）**: 効率低下の可能性
+- **警戒（30回）**: 新チャット移行検討
+- **緊急（40回）**: 即座に移行推奨
 
-For touched Python package code, run the focused pytest command. For touched C++
-or ROS package code, run `colcon build` and `colcon test` for the touched package
-and direct dependencies. If full runtime validation is not possible, say exactly
-what was not verified.
+### 新チャット移行時の申し送り
+```markdown
+## 申し送り事項
+- 目標: [具体的な目標]
+- 進捗: [現在の状況]
+- 課題: [解決すべき問題]
+- 制約: [重要な制約]
+- 失敗: [避けるべき手法]
+- 推奨: [推奨アプローチ]
+```
 
-Report at the end:
+## 🔧 開発フロー
 
-- implemented changes
-- docs updated
-- tests added or changed
-- commits made inside `fluent_audio_ros2`
-- parent repository uncommitted state
-- validation commands and results
-- remaining unverified work
+### 必須ステップ
+1. **設計書作成** → docs/design/
+2. **仕様確定** → 協議・レビュー
+3. **TODO管理** → TodoWriteツール使用
+4. **実装前検索** → 英語・日本語・中国語
+5. **実装** → 1クラス1ファイル、関数20行以内
+6. **テスト** → ビルド・単体・統合テスト
+7. **ドキュメント更新** → README.md必須
+
+### ビルドコマンド
+```bash
+cd /home/aspara/seedbox-r1/fluent_vision_ros2
+
+# 標準ビルド
+colcon build --symlink-install
+
+# 特定パッケージ
+colcon build --packages-select [package_name]
+
+# fluent_lib更新時（必須）
+colcon build --packages-select fluent_lib
+source install/setup.bash
+```
+
+### システム起動
+```bash
+# 起動（必須方法）
+./script/start_fv
+
+# 停止
+./script/stop_fv
+
+# 状態確認
+ros2 topic list
+ros2 node list
+```
+
+## 💡 能動的最適化
+
+### AIの義務
+- より効率的な方法を発見したら即座に提案
+- 非効率な手法を発見したら代替案を提示
+- 最新技術・ツールを積極的に紹介
+- リスク・問題の早期警告
+
+### 提案テンプレート
+```
+💡 **より良い方法を発見**
+現在: [現在の方法]
+提案: [改善方法]
+メリット: 
+- ⏰ 時間: X分→Y分
+- 🚀 性能: [具体的数値]
+試してみますか？
+```
+
+## 📝 ドキュメント作成
+
+### 実装ログ（/seedbox-r1/_docs/）
+```bash
+# 日付確認（必須）
+date
+
+# ファイル名形式
+yyyymmdd/hhmm_種別_機能名.md
+
+# 種別
+- plan: 計画ログ
+- fix: 解決ログ
+- report: レポート
+- memo: 備忘録
+- halfway: 途中経過
+- [IMPORTANT]: 重要マーカー
+```
+
+### 作成前の確認
+**必ずユーザーに確認すること**
+
+## 🏗️ FluentLib設計原則
+
+### 美しいAPI例
+```cpp
+// Image処理
+Image::load("input.jpg")
+    .resize(640, 480)
+    .blur(2.0)
+    .bright(1.2)
+    .save("output.jpg");
+
+// Cloud処理  
+Cloud::fromRGBD(rgb, depth)
+    .filter(0.1, 5.0)
+    .downsample(0.01)
+    .publish("/processed_cloud");
+
+// 配信
+UniversalBroadcaster::from(camera)
+    .to_web("http://localhost:8080")
+    .to_mobile("rtmp://mobile")
+    .to_unity("ws://unity")
+    .start();
+```
+
+## 🚨 トラブルシューティング
+
+### カメラ接続問題
+```bash
+pkill -f realsense
+# デバイス再接続
+sudo chmod 666 /dev/video*
+```
+
+### ビルドエラー
+```bash
+# キャッシュクリア
+rm -rf build/ install/ log/
+colcon build --symlink-install
+```
+
+### ROS2デッドロック回避
+- CallbackGroupの使用
+- MultiThreadedExecutorの使用
+- サービス呼び出し時のスピン処理
+
+## 📊 性能目標
+- メモリ使用量: 5-10MB（現在10-20MB）
+- 処理時間: 50-100ms（現在100-200ms）
+- C++ vs Python: 100倍速
+
+## 🔗 重要トピック
+
+### カメラストリーム
+- `/fv/d415/color/image_raw`
+- `/fv/d405/depth/image_rect_raw`
+
+### AI処理結果
+- `/fv/object_detection/result`
+- `/fv/aspara_detection/result`
+- `/fv/aspara_analysis/result`
+
+### サービス
+- `/fv_realsense/set_mode`
+- `/fv_realsense/get_distance`
+- `/fv_realsense/get_point_cloud`
+
+## 🌟 作業の心得
+
+### Flow Like Water哲学
+- 思考がそのままコードに表現される
+- 障害に遭遇したら迂回路を見つける
+- 必要に応じて器を変える（新チャット移行）
+- 水晶のように透明な責任分散
+
+### 品質判断基準
+「このコードを読んで美しいと感じるか？」
+
+### 継続的改善
+- 月次での技術動向調査
+- ベストプラクティスの更新
+- プロジェクト固有知識の蓄積
+
+---
+
+**統合ミッション**: FluentVisionの"Flow Like Water"哲学で、世界最高の映像配信プラットフォームを構築する。AIの限界を謙虚に受け入れ、記憶保存・エスカレーション・協力により、継続的に高品質なソリューションを提供する。
