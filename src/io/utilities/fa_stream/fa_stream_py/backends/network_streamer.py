@@ -51,9 +51,10 @@ class NetworkStreamerBackend:
             raise RuntimeError("network streamer backend is not started")
         try:
             self._process.stdin.write(data)
-        except BrokenPipeError as exc:
+            self._process.stdin.flush()
+        except (BrokenPipeError, OSError) as exc:
             self.close()
-            raise RuntimeError("ffmpeg pipe closed unexpectedly") from exc
+            raise RuntimeError("ffmpeg pipe write failed") from exc
 
     def close(self) -> None:
         if self._process is None:

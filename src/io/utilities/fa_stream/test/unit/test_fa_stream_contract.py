@@ -89,6 +89,7 @@ def test_streamer_rejects_frame_contract_mismatch_without_conversion() -> None:
     assert "Audio stream format changed during stream" in backend_source
     assert 'audio_format.encoding != "PCM16LE"' in backend_source
     assert '"s16le"' in backend_source
+    assert "self._process.stdin.flush()" in backend_source
     assert "resample" not in source
     assert "normalize" not in source
     assert "gain" not in source.lower()
@@ -169,4 +170,5 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "<buildtool_depend>ament_cmake_python</buildtool_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
+    assert "<test_depend>rclpy</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml

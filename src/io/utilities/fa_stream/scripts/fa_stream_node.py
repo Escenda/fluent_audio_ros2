@@ -60,9 +60,9 @@ class FaStreamNode(Node):
             )
         )
 
+        topic_name = self._subscription.topic_name
         self.get_logger().info(
-            "Initialized FA Stream. Waiting for audio frames on %s",
-            self._subscription.topic_name,
+            f"Initialized FA Stream. Waiting for audio frames on {topic_name}"
         )
 
     def _required_string_parameter(self, name: str) -> str:
@@ -86,27 +86,24 @@ class FaStreamNode(Node):
             return
         if msg.layout != "interleaved":
             self.get_logger().error(
-                "Only interleaved AudioFrame layout is supported. Received %s",
-                msg.layout,
+                f"Only interleaved AudioFrame layout is supported. Received {msg.layout}"
             )
             return
         if msg.encoding != "PCM16LE":
             self.get_logger().error(
-                "Only PCM16LE AudioFrame encoding is supported. Received %s",
-                msg.encoding,
+                f"Only PCM16LE AudioFrame encoding is supported. Received {msg.encoding}"
             )
             return
         if msg.bit_depth != 16:
             self.get_logger().error(
-                "Only 16-bit PCM is supported. Received %d-bit frame", msg.bit_depth
+                f"Only 16-bit PCM is supported. Received {msg.bit_depth}-bit frame"
             )
             return
         if msg.sample_rate == 0 or msg.channels == 0 or not msg.data:
+            frame_bytes = len(msg.data)
             self.get_logger().error(
-                "Invalid audio frame: sample_rate=%d channels=%d bytes=%d",
-                msg.sample_rate,
-                msg.channels,
-                len(msg.data),
+                "Invalid audio frame: "
+                f"sample_rate={msg.sample_rate} channels={msg.channels} bytes={frame_bytes}"
             )
             return
 
