@@ -250,6 +250,14 @@ FORBIDDEN_AI_BACKEND_FORMAT_CONVERSION_TOKENS = (
 )
 
 
+FORBIDDEN_NATIVE_FLOAT32_AUDIO_DECODE_TOKENS = (
+    "np.frombuffer(bytes(msg.data), dtype=np.float32)",
+    "np.frombuffer(bytes(msg.data), dtype='float32')",
+    'np.frombuffer(bytes(msg.data), dtype="float32")',
+    "np.dtype(np.float32).itemsize",
+)
+
+
 FORBIDDEN_PYTHON_TYPE_ESCAPE_TOKENS = (
     "from typing import Any",
     "typing.Any",
@@ -870,6 +878,22 @@ def test_ai_runtime_backends_do_not_perform_hidden_pcm16_conversion() -> None:
     for code_file in _ai_backend_code_files():
         source = code_file.read_text(encoding="utf-8")
         for forbidden_token in FORBIDDEN_AI_BACKEND_FORMAT_CONVERSION_TOKENS:
+            if forbidden_token in source:
+                violations.append(
+                    f"{code_file.relative_to(REPO_ROOT)} contains {forbidden_token}"
+                )
+
+    assert violations == []
+
+
+def test_python_audio_frame_decoders_use_explicit_float32le_dtype() -> None:
+    violations: list[str] = []
+
+    for code_file in sorted((SRC_ROOT / "processing" / "analysis").rglob("*_node.py")):
+        source = code_file.read_text(encoding="utf-8")
+        if "FLOAT32LE" not in source:
+            continue
+        for forbidden_token in FORBIDDEN_NATIVE_FLOAT32_AUDIO_DECODE_TOKENS:
             if forbidden_token in source:
                 violations.append(
                     f"{code_file.relative_to(REPO_ROOT)} contains {forbidden_token}"

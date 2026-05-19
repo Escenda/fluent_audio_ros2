@@ -168,9 +168,9 @@ class FaStftNode(Node):
             )
         if int(msg.channels) != self.expected_channels:
             raise ValueError(f"AudioFrame channels must be {self.expected_channels}")
-        if len(msg.data) % np.dtype(np.float32).itemsize != 0:
+        if len(msg.data) % np.dtype("<f4").itemsize != 0:
             raise ValueError("AudioFrame float32 data length is not byte-aligned")
-        samples = np.frombuffer(bytes(msg.data), dtype=np.float32)
+        samples = np.frombuffer(bytes(msg.data), dtype="<f4")
         if not np.all(np.isfinite(samples)):
             raise ValueError("AudioFrame contains non-finite samples")
         if np.any(samples < -1.0) or np.any(samples > 1.0):
