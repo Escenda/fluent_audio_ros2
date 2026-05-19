@@ -553,6 +553,27 @@ def test_current_audio_docs_do_not_publish_vision_contracts() -> None:
     assert violations == []
 
 
+def test_current_audio_docs_do_not_publish_offline_only_or_legacy_asr_contracts() -> None:
+    forbidden_tokens = (
+        "クラウドは使わず",
+        "オフラインで完結",
+        "オフライン前提",
+        "`whisper_cpp`",
+        "whisper_cpp:",
+    )
+    violations: list[str] = []
+
+    for doc_path in _current_audio_doc_files() + [REPO_ROOT / "README.md"]:
+        source = doc_path.read_text(encoding="utf-8")
+        for forbidden_token in forbidden_tokens:
+            if forbidden_token in source:
+                violations.append(
+                    f"{doc_path.relative_to(REPO_ROOT)} contains {forbidden_token}"
+                )
+
+    assert violations == []
+
+
 def test_agent_rule_docs_are_fluent_audio_specific() -> None:
     cpp_rules = (REPO_ROOT / "CPP_CODING_RULES.md").read_text(encoding="utf-8")
     agent_rules = (REPO_ROOT / "CLAUDECODE_RULES.md").read_text(encoding="utf-8")

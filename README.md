@@ -18,7 +18,7 @@
 - `fa_stream`（`src/io/utilities/fa_stream/`）: `audio/frame` を外部へ配信する utility（Icecast向け `fa_stream_node.py`）
 - `fa_vad`（`src/ai/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と source / stream identity 付き `voice/vad_state` を提供
 - `fa_kws`（`src/ai/fa_kws/`）: 外部 worker 境界の sherpa-onnx KWS、`voice/wake_word`を提供
-- `fa_asr`（`src/ai/fa_asr/`）: ローカルASRコマンド（whisper.cpp等）を呼び出し、`voice/asr/result`を提供
+- `fa_asr`（`src/ai/fa_asr/`）: `local_command` / `whisper.cpp` / `parakeet_worker` / `openai_realtime` / `openai_transcriptions` backend を呼び出し、`voice/asr/result`を提供
 - `fa_turn_detector`（`src/ai/fa_turn_detector/`）: Smart Turn v3 ONNX によるターン終了推定、`voice/turn_end`を提供
 - `fa_tts`（`src/processing/generation/fa_tts/`）: pyopenjtalk(Open JTalk) によるTTS（`speak` サービス）/ `AudioFrame` 出力
 - `fa_resample`（`src/processing/format/fa_resample/`）: 16k ストリーム供給（`audio/frame`→`audio/resample16k/mic`）
@@ -35,7 +35,7 @@
 - ROS 2（Humble/Jazzy など）
 - ALSA: `libasound2-dev`
 - TTS: `pyopenjtalk`, `python3-numpy`
-- VAD/ASR/TD: `python3-numpy`, 外部 VAD worker command, `onnxruntime`（TD）, ローカルASR実行ファイル（例: whisper.cpp）
+- VAD/ASR/TD: `python3-numpy`, 外部 VAD worker command, `onnxruntime`（TD）, ASR backend が要求する外部 worker / command / endpoint credential（例: whisper.cpp, Parakeet worker, OpenAI API key env）
 - KWS: 外部 sherpa-onnx worker command（例: `fa_kws/scripts/sherpa_onnx_kws_worker`）
 - （任意）`ffmpeg`: `fa_stream` の `fa_stream_node.py` で使用
 
@@ -82,7 +82,7 @@ ros2 launch fluent_audio_system run.py \
 この profile は `fa_in -> fa_sample_format -> fa_resample -> fa_vad / fa_kws` を起動します。ASR / Turn Detector は package-owned SO101 profile template に backend contract を持ちますが、この KWS frontend profile では起動しません。
 ASR / Turn Detector まで同時起動する検証用 profile は `so101_voice_frontend.yaml` です。この profile も会話 orchestration は含まず、`conversation/turn_context` は上位 app から publish される前提です。
 
-`fa_vad` / `fa_kws` / `fa_asr` / `fa_turn_detector` はローカルモデルまたは external worker の契約が必須です。VAD は `backend.command`、`backend.args`、model path、provider、workspace、QoS を明示します。KWS / ASR / Turn Detector はそれに加えて `backend.health_args` も node config または system config に明示します。未設定または存在しない場合は起動時に失敗します。
+`fa_vad` / `fa_kws` / `fa_asr` / `fa_turn_detector` は local model、external worker、cloud API のいずれも明示 backend として扱います。VAD は `backend.command`、`backend.args`、model path、provider、workspace、QoS を明示します。KWS / ASR / Turn Detector はそれに加えて `backend.health_args` も node config または system config に明示します。ASR の cloud API backend は model、endpoint contract、credential env を明示し、未設定または存在しない場合は起動時に失敗します。
 
 `voice/vad_state` は `fa_vad` が判定した `AudioFrame.source_id` / `stream_id` を保持します。`fa_kws` / `fa_asr` / `fa_turn_detector` は topic 名だけで VAD state を信頼せず、自分が処理する audio stream と identity が一致しない VAD state を reject します。
 
