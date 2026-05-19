@@ -29,7 +29,7 @@
 | `fa_kws` | sherpa-onnx external worker 境界と wake word publish | 実 sherpa-onnx model / keywords / worker provisioning を含む SO101 graph が未検証 |
 | `fa_asr` | `local_command`、`whisper.cpp`、`parakeet_worker`、`openai_realtime`、`openai_transcriptions` backend 枠 | 実 worker command / model / credential / health check を含む代表 graph が未検証 |
 | `fa_turn_detector` | Smart Turn ONNX external worker 境界と turn end publish | 実 model / worker / provider provisioning と `fa_dialogue` 接続済み graph が未検証 |
-| `fa_dialogue` | `WakeWordResult` / `AsrResult` / `TurnEnd` から `TurnContext` を publish する最小 turn context publisher | ROS graph 上の pub/sub smoke と reasoning / TTS / safety 連携は未検証または未実装 |
+| `fa_dialogue` | `WakeWordResult` / `AsrResult` / `TurnEnd` から `TurnContext` を publish する最小 turn context publisher。Docker/ROS smoke で WakeWord -> active `TurnContext`、ASR terminal / TurnEnd terminal -> inactive `TurnContext` の pub/sub 契約を確認済み | reasoning / TTS / safety policy / external dialogue backend / robot command proposal / SO101 全体の VAD/KWS/ASR/TD model provisioning は未実装または未検証 |
 | `fa_record` | `AudioFrame` の WAV 録音 utility | `fa_in` からの実 graph 録音 smoke が未検証 |
 | `fa_stream` | `ffmpeg` network streamer utility | 実 endpoint への streaming smoke と transport failure contract が未検証 |
 | `fa_tts` | TTS service と `audio/tts/frame` publish | 実 TTS backend、`fa_mix`、`fa_out` 連携が未検証 |
@@ -104,6 +104,8 @@ VAD / KWS / ASR / Turn Detector は `FLOAT32LE/32/interleaved`、configured samp
 
 この経路では `fa_vad` の入力 stream と、`fa_kws` / `fa_asr` / `fa_turn_detector` が処理する audio stream を一致させる必要があります。`VadState.source_id` / `stream_id` が一致しない場合、後段 node はその VAD state を gate / finalize / turn-end trigger として使いません。ASR / Turn Detector の backend command、model path、provider、endpoint、credential env、health args は、それらを enabled にする FluentAudio system config 側に閉じます。
 SO101 で VAD/KWS/ASR/TD と `fa_dialogue` をまとめて起動する package-owned profile は `fluent_audio_system/config/profiles/so101_voice_frontend.yaml` です。この profile は wake word 後の session / turn 制御として `fa_dialogue` を起動しますが、LLM reasoning、TTS、safety policy、robot command proposal は含みません。
+
+`src/apps/dialogue/fa_dialogue/test/integration/test_fa_dialogue_ros_graph_contract.py::test_fa_dialogue_ros_graph_publishes_active_then_inactive_turn_context` は、Docker/ROS 環境で `fa_dialogue` rebuild 後に `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest src/apps/dialogue/fa_dialogue/test/integration/test_fa_dialogue_ros_graph_contract.py -q` を実行し、`2 passed in 1.20s` として確認済みです。この smoke は real `fa_dialogue_node` を `ros2 run` で起動し、`WakeWordResult` publish 後の active `TurnContext`、`AsrResult.STATUS_FINAL` と `TurnEnd.is_end=true` の両 terminal 経路による inactive `TurnContext` を pub/sub として検証します。local non-ROS shell では `PYTHONPATH=src/apps/dialogue/fa_dialogue pytest -q src/apps/dialogue/fa_dialogue/test` が `13 passed, 1 skipped` です。これは `fa_dialogue` turn-context publisher の検証であり、reasoning、TTS、safety policy、external dialogue backend、robot command proposal、full SO101 VAD/KWS/ASR/TD model provisioning の検証ではありません。
 
 ### 5.5 Agent audio tools
 `fluent_audio_system/config/profiles/so101_agent_audio_tools.yaml` は `fa_audio_mcp` を起動し、`archive_audio_window` と `transcribe_audio` を Agent / MCP client から呼べる入口を用意します。この profile は `fa_asr` や `fa_audio_window` の service owner を起動しません。通常は `so101_voice_frontend.yaml` と同じ親側 include 方式で組み合わせます。

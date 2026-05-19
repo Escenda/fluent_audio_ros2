@@ -76,11 +76,11 @@ class FaDialogueNode(Node):
         )
 
         self.get_logger().info(
-            "fa_dialogue started: wake=%s asr_result=%s turn_end=%s turn_context=%s",
-            self.wake_word_topic,
-            self.asr_result_topic,
-            self.turn_end_topic,
-            self.turn_context_topic,
+            "fa_dialogue started: "
+            f"wake={self.wake_word_topic} "
+            f"asr_result={self.asr_result_topic} "
+            f"turn_end={self.turn_end_topic} "
+            f"turn_context={self.turn_context_topic}"
         )
 
     def on_wake_word(self, msg: WakeWordResult) -> None:
@@ -97,9 +97,7 @@ class FaDialogueNode(Node):
         )
         if decision.context is None:
             self.get_logger().debug(
-                "wake ignored: kind=%s reason=%s",
-                decision.kind,
-                decision.reason,
+                f"wake ignored: kind={decision.kind} reason={decision.reason}"
             )
             return
         self._publish_context(decision.context)
@@ -114,7 +112,7 @@ class FaDialogueNode(Node):
             status=msg.status,
         )
         if decision.context is None:
-            self.get_logger().debug("asr result ignored: reason=%s", decision.reason)
+            self.get_logger().debug(f"asr result ignored: reason={decision.reason}")
             return
         self._publish_context(decision.context)
 
@@ -127,7 +125,7 @@ class FaDialogueNode(Node):
             )
         )
         if decision.context is None:
-            self.get_logger().debug("turn end ignored: reason=%s", decision.reason)
+            self.get_logger().debug(f"turn end ignored: reason={decision.reason}")
             return
         self._publish_context(decision.context)
 
