@@ -153,6 +153,36 @@ def test_backend_files_are_ros_free() -> None:
             assert token not in source
 
 
+def test_dtln_overlap_add_is_documented_as_model_internal_reconstruction() -> None:
+    package_root = Path(__file__).parents[2]
+    algorithm_doc = (
+        package_root / "docs" / "アルゴリズム詳細説明書.md"
+    ).read_text(encoding="utf-8")
+    backend_doc = (
+        package_root / "docs" / "backends" / "dtln_onnx.md"
+    ).read_text(encoding="utf-8")
+    engine_header = (
+        package_root
+        / "include"
+        / "fa_denoise"
+        / "backends"
+        / "dtln_onnx_engine.hpp"
+    ).read_text(encoding="utf-8")
+
+    combined_docs = "\n".join((algorithm_doc, backend_doc))
+    for required in (
+        "model-internal overlap-add reconstruction",
+        "transport stabilization",
+        "overlapped `AudioFrame` chunk",
+        "timestamp / epoch / gap handling",
+        "`src/streaming/fa_overlap_add`",
+    ):
+        assert required in combined_docs
+
+    assert "DTLN model reconstruction buffers" in engine_header
+    assert "streaming buffers" not in engine_header
+
+
 def test_cmake_builds_backend_library_and_registers_pytest() -> None:
     package_root = Path(__file__).parents[2]
     cmake_text = (package_root / "CMakeLists.txt").read_text(encoding="utf-8")

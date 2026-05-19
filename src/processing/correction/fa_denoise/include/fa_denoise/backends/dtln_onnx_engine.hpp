@@ -47,7 +47,7 @@ private:
 
   DtlnOnnxConfig config_;
 
-  // streaming buffers
+  // DTLN model reconstruction buffers, not ROS transport streaming state.
   std::vector<float> pending_input_;
   size_t pending_offset_{0};
 

@@ -17,6 +17,10 @@
 - `output.encoding` / `output.bit_depth` で明示された denoise 後の PCM bytes
 - DTLN engine の内部入出力は normalized float32 PCM
 
+## overlap-add 境界
+
+DTLN overlap-add は ROS-free `dtln_onnx` backend 内部の model reconstruction である。decode 後の normalized PCM samples を消費し、encode 前の denoised PCM samples を返す。transport stabilization ではなく、overlapped `AudioFrame` chunk、timestamp / epoch / gap handling、jitter buffer、clock drift correction は扱わない。streaming pipeline の overlap-add は `src/streaming/fa_overlap_add` の責務であり、この backend はそれを置き換えない。
+
 ## runtime dependency
 
 ONNX Runtime C++ が backend build 時に必要。CMake の `FA_DENOISE_ONNXRUNTIME` は `AUTO` / `ON` / `OFF` を取る。
