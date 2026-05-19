@@ -11,6 +11,7 @@ string ERROR_NONE=none
 string ERROR_TIME_RANGE_UNRESOLVED=time_range_unresolved
 string ERROR_WINDOW_NOT_FOUND=window_not_found
 string ERROR_RANGE_OUTSIDE_WINDOW=range_outside_window
+string ERROR_RANGE_NOT_CONTINUOUS=range_not_continuous
 string ERROR_UNSUPPORTED_AUDIO_SCOPE=unsupported_audio_scope
 string ERROR_TRANSCRIBE_FAILED=transcribe_failed
 

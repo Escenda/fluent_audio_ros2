@@ -9,6 +9,7 @@ import numpy as np
 ERROR_TIME_RANGE_UNRESOLVED = "time_range_unresolved"
 ERROR_WINDOW_NOT_FOUND = "window_not_found"
 ERROR_RANGE_OUTSIDE_WINDOW = "range_outside_window"
+ERROR_RANGE_NOT_CONTINUOUS = "range_not_continuous"
 
 _NSEC_PER_SEC = 1_000_000_000
 _NUMERIC_RANGE_PATTERN = re.compile(r"^([0-9]+)\.\.([0-9]+)$")
@@ -140,7 +141,7 @@ class RollingAsrTimeline:
                 continue
             if frame.start_unix_ns > cursor_unix_ns:
                 raise TimelineRangeError(
-                    ERROR_WINDOW_NOT_FOUND,
+                    ERROR_RANGE_NOT_CONTINUOUS,
                     "requested ASR timeline range crosses an audio gap",
                 )
             piece_end_unix_ns = min(time_range.end_unix_ns, frame.end_unix_ns)
@@ -160,7 +161,7 @@ class RollingAsrTimeline:
                 )
 
         raise TimelineRangeError(
-            ERROR_WINDOW_NOT_FOUND,
+            ERROR_RANGE_NOT_CONTINUOUS,
             "requested ASR timeline range is not covered by retained audio",
         )
 

@@ -9,6 +9,7 @@ import pytest
 
 from fa_asr_py.backends.base import AsrRequest
 from fa_asr_py.timeline import (
+    ERROR_RANGE_NOT_CONTINUOUS,
     ERROR_RANGE_OUTSIDE_WINDOW,
     ERROR_TIME_RANGE_UNRESOLVED,
     ERROR_WINDOW_NOT_FOUND,
@@ -215,6 +216,7 @@ class _FakeTranscribeAudioResponse:
     ERROR_TIME_RANGE_UNRESOLVED = "time_range_unresolved"
     ERROR_WINDOW_NOT_FOUND = "window_not_found"
     ERROR_RANGE_OUTSIDE_WINDOW = "range_outside_window"
+    ERROR_RANGE_NOT_CONTINUOUS = "range_not_continuous"
     ERROR_UNSUPPORTED_AUDIO_SCOPE = "unsupported_audio_scope"
     ERROR_TRANSCRIBE_FAILED = "transcribe_failed"
 
@@ -420,7 +422,18 @@ def test_timeline_detects_gap_for_range_crossing_missing_audio() -> None:
     with pytest.raises(TimelineRangeError) as exc_info:
         timeline.slice(parse_numeric_time_range("1000000000..1500000000"))
 
-    assert exc_info.value.error_code == ERROR_WINDOW_NOT_FOUND
+    assert exc_info.value.error_code == ERROR_RANGE_NOT_CONTINUOUS
+
+
+def test_timeline_reports_non_continuous_when_requested_start_is_inside_gap() -> None:
+    timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
+    timeline.append(start_unix_ns=1_000_000_000, samples=np.array([1.0, 2.0], dtype=np.float32))
+    timeline.append(start_unix_ns=1_500_000_000, samples=np.array([5.0, 6.0], dtype=np.float32))
+
+    with pytest.raises(TimelineRangeError) as exc_info:
+        timeline.slice(parse_numeric_time_range("1300000000..1600000000"))
+
+    assert exc_info.value.error_code == ERROR_RANGE_NOT_CONTINUOUS
 
 
 def test_timeline_rejects_overlap_without_corrupting_prior_audio() -> None:
@@ -551,6 +564,25 @@ def test_invalid_timestamp_is_not_admitted_to_timeline(
 
     assert result.success is False
     assert result.error_code == _FakeTranscribeAudioResponse.ERROR_WINDOW_NOT_FOUND
+
+
+def test_transcribe_audio_gap_returns_range_not_continuous_and_does_not_call_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingBackend("hello")
+    node = _node(module, backend=backend)
+    node.on_audio(_FakeAudioFrame(samples=np.array([0.1, 0.2], dtype=np.float32), sec=1))
+    node.on_audio(_FakeAudioFrame(samples=np.array([0.5, 0.6], dtype=np.float32), sec=1, nanosec=400_000_000))
+
+    result = node.handle_transcribe_audio(
+        _FakeTranscribeAudioRequest(time_range_spec="1000000000..1500000000"),
+        _response(),
+    )
+
+    assert result.success is False
+    assert result.error_code == _FakeTranscribeAudioResponse.ERROR_RANGE_NOT_CONTINUOUS
+    assert backend.requests == []
 
 
 def test_active_turn_invalid_timestamp_is_not_buffered_or_submitted_on_vad_end(

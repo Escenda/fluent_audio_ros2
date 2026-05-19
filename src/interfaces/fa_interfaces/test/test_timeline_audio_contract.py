@@ -154,6 +154,11 @@ def test_export_and_archive_return_explicit_clip_or_error_contracts() -> None:
         error_code=ArchiveAudioWindow.Response.ERROR_RANGE_NOT_CONTINUOUS,
         message="requested time range is not continuously covered by retained audio",
     )
+    transcribe_gap_failure = TranscribeAudio.Response(
+        success=False,
+        error_code=TranscribeAudio.Response.ERROR_RANGE_NOT_CONTINUOUS,
+        message="requested ASR timeline range crosses an audio gap",
+    )
 
     assert export_request.payload_format == "audio/wav"
     assert archive_request.related_artifact_ids == ["action_12"]
@@ -161,3 +166,4 @@ def test_export_and_archive_return_explicit_clip_or_error_contracts() -> None:
     assert failure.error_code == ArchiveAudioWindow.Response.ERROR_RANGE_OUTSIDE_WINDOW
     assert invalid_archive_request.error_code == ArchiveAudioWindow.Response.ERROR_INVALID_ARCHIVE_REQUEST
     assert gap_failure.error_code == ArchiveAudioWindow.Response.ERROR_RANGE_NOT_CONTINUOUS
+    assert transcribe_gap_failure.error_code == TranscribeAudio.Response.ERROR_RANGE_NOT_CONTINUOUS
