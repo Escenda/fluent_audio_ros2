@@ -67,6 +67,8 @@ PROCESSING_TEST_TRACE_PREFIXES = {
     "processing/format/fa_interleave": "FA-INTERLEAVE",
     "processing/format/fa_resample": "FA-RESAMPLE",
     "processing/format/fa_sample_format": "FA-SAMPLE-FORMAT",
+    "processing/routing/fa_patchbay": "FA-PATCHBAY",
+    "processing/temporal/fa_reverb": "FA-REVERB",
 }
 
 
