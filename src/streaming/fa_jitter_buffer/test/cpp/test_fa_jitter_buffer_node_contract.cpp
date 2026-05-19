@@ -17,6 +17,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 constexpr const char * kInputTopic = "audio/test/jitter_input";
 constexpr const char * kOutputTopic = "audio/test/jitter_output";
 constexpr const char * kInputStreamId = "audio/test/jitter_input_stream";
@@ -41,7 +50,7 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("jitter.max_depth_frames", 4),
     rclcpp::Parameter("jitter.reset_on_epoch_regression", false),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
@@ -63,7 +72,7 @@ void replaceParameter(
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -145,12 +154,12 @@ TEST_F(RclcppContractTest, PublishesEpochOrderedFramesAfterTargetDepth)
 {
   auto node = std::make_shared<fa_jitter_buffer::FaJitterBufferNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_jitter_buffer_order_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_jitter_buffer_order_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -187,12 +196,12 @@ TEST_F(RclcppContractTest, DropsInvalidFloatSamplesWithoutPublishing)
   replaceParameter(parameters, rclcpp::Parameter("jitter.target_depth_frames", 0));
   auto node = std::make_shared<fa_jitter_buffer::FaJitterBufferNode>(
     optionsWith(std::move(parameters)));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_jitter_buffer_invalid_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_jitter_buffer_invalid_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -216,12 +225,12 @@ TEST_F(RclcppContractTest, DropsDuplicatePublishedEpochs)
   replaceParameter(parameters, rclcpp::Parameter("jitter.target_depth_frames", 0));
   auto node = std::make_shared<fa_jitter_buffer::FaJitterBufferNode>(
     optionsWith(std::move(parameters)));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_jitter_buffer_duplicate_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_jitter_buffer_duplicate_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -248,12 +257,12 @@ TEST_F(RclcppContractTest, SourceContractChangeResetsBufferedFrames)
 {
   auto node = std::make_shared<fa_jitter_buffer::FaJitterBufferNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_jitter_buffer_reset_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_jitter_buffer_reset_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });

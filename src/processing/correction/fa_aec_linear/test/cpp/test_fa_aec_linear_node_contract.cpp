@@ -18,6 +18,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 constexpr const char * kMicTopic = "audio/test/aec_mic";
 constexpr const char * kRefTopic = "audio/test/aec_ref";
 constexpr const char * kOutputTopic = "audio/test/aec_output";
@@ -47,7 +56,7 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("reference_failure_policy", "drop"),
     rclcpp::Parameter("cancel_gain", 1.0),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
@@ -69,7 +78,7 @@ void replaceParameter(
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -188,14 +197,14 @@ TEST_F(RclcppContractTest, RejectsInvalidExpectedFormatAtStartup)
 TEST_F(RclcppContractTest, PublishesSubtractedPcm16WhenMicAndReferenceAreBound)
 {
   auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_subtract_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_subtract_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto mic_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kMicTopic, rclcpp::QoS(10).reliable());
+    kMicTopic, rclcpp::QoS(10).best_effort());
   auto ref_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kRefTopic, rclcpp::QoS(10).reliable());
+    kRefTopic, rclcpp::QoS(10).best_effort());
   auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -233,14 +242,14 @@ TEST_F(RclcppContractTest, DropsMicFrameWhenDisabled)
   auto parameters = validParameters();
   replaceParameter(parameters, rclcpp::Parameter("enabled", false));
   auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(std::move(parameters)));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_disabled_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_disabled_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto mic_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kMicTopic, rclcpp::QoS(10).reliable());
+    kMicTopic, rclcpp::QoS(10).best_effort());
   auto ref_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kRefTopic, rclcpp::QoS(10).reliable());
+    kRefTopic, rclcpp::QoS(10).best_effort());
   auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -266,14 +275,14 @@ TEST_F(RclcppContractTest, DropsMicFrameWhenDisabled)
 TEST_F(RclcppContractTest, DropsMicFrameWithMismatchedStreamId)
 {
   auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_mic_stream_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_mic_stream_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto mic_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kMicTopic, rclcpp::QoS(10).reliable());
+    kMicTopic, rclcpp::QoS(10).best_effort());
   auto ref_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kRefTopic, rclcpp::QoS(10).reliable());
+    kRefTopic, rclcpp::QoS(10).best_effort());
   auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -299,14 +308,14 @@ TEST_F(RclcppContractTest, DropsMicFrameWithMismatchedStreamId)
 TEST_F(RclcppContractTest, DoesNotCacheReferenceWithMismatchedStreamId)
 {
   auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_ref_stream_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_ref_stream_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto mic_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kMicTopic, rclcpp::QoS(10).reliable());
+    kMicTopic, rclcpp::QoS(10).best_effort());
   auto ref_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kRefTopic, rclcpp::QoS(10).reliable());
+    kRefTopic, rclcpp::QoS(10).best_effort());
   auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -332,14 +341,14 @@ TEST_F(RclcppContractTest, DoesNotCacheReferenceWithMismatchedStreamId)
 TEST_F(RclcppContractTest, DropsMicFrameWhenReferenceTimestampIsNewerThanMic)
 {
   auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_negative_skew_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_negative_skew_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto mic_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kMicTopic, rclcpp::QoS(10).reliable());
+    kMicTopic, rclcpp::QoS(10).best_effort());
   auto ref_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kRefTopic, rclcpp::QoS(10).reliable());
+    kRefTopic, rclcpp::QoS(10).best_effort());
   auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -365,14 +374,14 @@ TEST_F(RclcppContractTest, DropsMicFrameWhenReferenceTimestampIsNewerThanMic)
 TEST_F(RclcppContractTest, DropsMicFrameWhenReferenceTimestampIsTooOld)
 {
   auto node = std::make_shared<fa_aec_linear::FaAecLinearNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_stale_ref_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_aec_linear_stale_ref_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto mic_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kMicTopic, rclcpp::QoS(10).reliable());
+    kMicTopic, rclcpp::QoS(10).best_effort());
   auto ref_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kRefTopic, rclcpp::QoS(10).reliable());
+    kRefTopic, rclcpp::QoS(10).best_effort());
   auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });

@@ -19,6 +19,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 constexpr const char * kInputTopic = "audio/test/clock_drift_input";
 constexpr const char * kOutputTopic = "audio/test/clock_drift_output";
 constexpr const char * kInputStreamId = "audio/test/clock_drift_input_stream";
@@ -44,7 +53,7 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("drift.max_correction_ms_per_frame", 0.5),
     rclcpp::Parameter("drift.reset_threshold_ms", 50.0),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
@@ -66,7 +75,7 @@ void replaceParameter(
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -163,12 +172,12 @@ TEST_F(RclcppContractTest, PublishesBaselineFrameAndPreservesPayloadContract)
 {
   auto node = std::make_shared<fa_clock_drift::FaClockDriftNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_clock_drift_baseline_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_clock_drift_baseline_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -198,12 +207,12 @@ TEST_F(RclcppContractTest, AppliesBoundedCorrectionToSmallObservedDrift)
 {
   auto node = std::make_shared<fa_clock_drift::FaClockDriftNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_clock_drift_correction_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_clock_drift_correction_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -240,12 +249,12 @@ TEST_F(RclcppContractTest, ResetThresholdPublishesNewBaselineTimestamp)
   replaceParameter(parameters, rclcpp::Parameter("drift.reset_threshold_ms", 5.0));
   auto node = std::make_shared<fa_clock_drift::FaClockDriftNode>(
     optionsWith(std::move(parameters)));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_clock_drift_reset_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_clock_drift_reset_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -276,12 +285,12 @@ TEST_F(RclcppContractTest, SourceChangeStartsNewTimelineWithoutMixingDriftState)
 {
   auto node = std::make_shared<fa_clock_drift::FaClockDriftNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_clock_drift_source_switch_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_clock_drift_source_switch_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -314,12 +323,12 @@ TEST_F(RclcppContractTest, DropsInvalidFormatFramesWithoutPublishing)
 {
   auto node = std::make_shared<fa_clock_drift::FaClockDriftNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_clock_drift_invalid_format_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_clock_drift_invalid_format_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });

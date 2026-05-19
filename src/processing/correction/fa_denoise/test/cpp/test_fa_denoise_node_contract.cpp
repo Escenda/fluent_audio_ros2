@@ -18,6 +18,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 constexpr const char * kInputTopic = "audio/test/denoise_input";
 constexpr const char * kOutputTopic = "audio/test/denoise_output";
 constexpr const char * kInputStreamId = "audio/test/resampled_mic";
@@ -50,7 +59,7 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("dtln.inter_op_num_threads", 1),
     rclcpp::Parameter("dtln.enable_ort_optimizations", true),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
@@ -72,7 +81,7 @@ void replaceParameter(
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -225,12 +234,12 @@ TEST_F(RclcppContractTest, RejectsPassthroughOutputFormatChangeAtStartup)
 TEST_F(RclcppContractTest, PublishesPassthroughFrameWithOutputStreamId)
 {
   auto node = std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_denoise_passthrough_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_denoise_passthrough_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto input_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -265,12 +274,12 @@ TEST_F(RclcppContractTest, DropsFrameWhenDisabled)
   auto parameters = validParameters();
   replaceParameter(parameters, rclcpp::Parameter("enabled", false));
   auto node = std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(std::move(parameters)));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_denoise_disabled_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_denoise_disabled_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto input_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -292,12 +301,12 @@ TEST_F(RclcppContractTest, DropsFrameWhenDisabled)
 TEST_F(RclcppContractTest, DropsFrameWithMismatchedStreamId)
 {
   auto node = std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_denoise_stream_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_denoise_stream_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto input_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -319,12 +328,12 @@ TEST_F(RclcppContractTest, DropsFrameWithMismatchedStreamId)
 TEST_F(RclcppContractTest, DropsUnsupportedRuntimeEncoding)
 {
   auto node = std::make_shared<fa_denoise::FaDenoiseNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_denoise_encoding_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_denoise_encoding_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto input_pub = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto output_sub = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });

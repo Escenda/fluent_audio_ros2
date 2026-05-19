@@ -19,6 +19,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 constexpr const char * kInputTopic = "audio/test/plc_input";
 constexpr const char * kOutputTopic = "audio/test/plc_output";
 constexpr const char * kInputStreamId = "audio/test/plc_input_stream";
@@ -43,7 +52,7 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("plc.max_gap_frames", 3),
     rclcpp::Parameter("plc.attenuation_per_gap", 0.5),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
@@ -65,7 +74,7 @@ void replaceParameter(
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -169,12 +178,12 @@ TEST_F(RclcppContractTest, SynthesizesMissingEpochsWithAttenuatedPreviousFrame)
 {
   auto node = std::make_shared<fa_packet_loss_concealment::FaPacketLossConcealmentNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_plc_gap_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_plc_gap_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -218,12 +227,12 @@ TEST_F(RclcppContractTest, OversizedGapPublishesCurrentFrameOnly)
   replaceParameter(parameters, rclcpp::Parameter("plc.max_gap_frames", 1));
   auto node = std::make_shared<fa_packet_loss_concealment::FaPacketLossConcealmentNode>(
     optionsWith(std::move(parameters)));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_plc_oversized_gap_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_plc_oversized_gap_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -255,12 +264,12 @@ TEST_F(RclcppContractTest, DuplicateEpochDropsWithoutPublishing)
 {
   auto node = std::make_shared<fa_packet_loss_concealment::FaPacketLossConcealmentNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_plc_duplicate_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_plc_duplicate_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -288,12 +297,12 @@ TEST_F(RclcppContractTest, SourceChangeResetsBaselineAndAvoidsConcealment)
 {
   auto node = std::make_shared<fa_packet_loss_concealment::FaPacketLossConcealmentNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_plc_source_switch_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_plc_source_switch_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -325,12 +334,12 @@ TEST_F(RclcppContractTest, DropsInvalidNormalizedFloatSamplesWithoutPublishing)
 {
   auto node = std::make_shared<fa_packet_loss_concealment::FaPacketLossConcealmentNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_plc_invalid_sample_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_plc_invalid_sample_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });

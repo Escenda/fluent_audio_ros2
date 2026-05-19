@@ -18,6 +18,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 constexpr const char * kInputTopic = "audio/test/input";
 constexpr const char * kOutputTopic = "audio/test/output";
 constexpr const char * kInputStreamId = "audio/test/input_stream";
@@ -43,7 +52,7 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("buffering.frames_per_chunk", static_cast<int>(kFramesPerChunk)),
     rclcpp::Parameter("buffering.max_buffered_chunks", 2),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
@@ -52,7 +61,7 @@ std::vector<rclcpp::Parameter> validParameters()
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -136,12 +145,12 @@ TEST_F(RclcppContractTest, DoesNotPublishPartialChunks)
 {
   auto node = std::make_shared<fa_frame_buffer::FaFrameBufferNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_frame_buffer_partial_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_frame_buffer_partial_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -163,12 +172,12 @@ TEST_F(RclcppContractTest, PublishesOneChunkWhenAccumulatedFramesReachConfigured
 {
   auto node = std::make_shared<fa_frame_buffer::FaFrameBufferNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_frame_buffer_chunk_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_frame_buffer_chunk_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -206,12 +215,12 @@ TEST_F(RclcppContractTest, PublishesTwoChunksFromDoubleSizedInput)
 {
   auto node = std::make_shared<fa_frame_buffer::FaFrameBufferNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_frame_buffer_double_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_frame_buffer_double_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -237,12 +246,12 @@ TEST_F(RclcppContractTest, DropsInvalidFormatFramesWithoutPublishing)
 {
   auto node = std::make_shared<fa_frame_buffer::FaFrameBufferNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_frame_buffer_invalid_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_frame_buffer_invalid_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -267,12 +276,12 @@ TEST_F(RclcppContractTest, ClearsPartialBufferOnStreamIdentityChange)
 {
   auto node = std::make_shared<fa_frame_buffer::FaFrameBufferNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_frame_buffer_identity_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_frame_buffer_identity_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
-    kInputTopic, rclcpp::QoS(10).reliable());
+    kInputTopic, rclcpp::QoS(10).best_effort());
   auto subscription = io_node->create_subscription<fa_interfaces::msg::AudioFrame>(
-    kOutputTopic, rclcpp::QoS(10).reliable(),
+    kOutputTopic, rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
