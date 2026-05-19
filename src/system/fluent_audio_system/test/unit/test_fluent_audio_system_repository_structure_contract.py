@@ -33,6 +33,12 @@ IO_TEST_TRACE_PREFIXES = {
     "io/sources/fa_in": "FA-IN",
 }
 PROCESSING_TEST_TRACE_PREFIXES = {
+    "processing/correction/fa_aec_linear": "FA-AEC-LINEAR",
+    "processing/correction/fa_aec_nn": "FA-AEC-NN",
+    "processing/correction/fa_dc_offset_removal": "FA-DC-OFFSET-REMOVAL",
+    "processing/correction/fa_declick": "FA-DECLICK",
+    "processing/correction/fa_denoise": "FA-DENOISE",
+    "processing/correction/fa_hum": "FA-HUM",
     "processing/dynamics/fa_agc": "FA-AGC",
     "processing/dynamics/fa_compressor": "FA-COMPRESSOR",
     "processing/dynamics/fa_expander": "FA-EXPANDER",
