@@ -340,6 +340,14 @@ def test_fluent_audio_system_has_spec_to_test_traceability() -> None:
     assert mapped_lines
 
 
+def test_fluent_audio_system_colcon_test_runs_pytest() -> None:
+    setup_text = (PACKAGE_ROOT / "setup.py").read_text(encoding="utf-8")
+
+    assert 'extras_require={"test": ["pytest"]}' in setup_text
+    assert "cmdclass=" not in setup_text
+    assert "PytestCommand" not in setup_text
+
+
 def test_core_io_packages_have_spec_to_test_traceability() -> None:
     missing_traceability: list[str] = []
 

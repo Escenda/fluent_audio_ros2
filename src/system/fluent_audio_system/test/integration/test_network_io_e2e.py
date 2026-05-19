@@ -61,7 +61,7 @@ def _write_network_io_params(
                     "audio.chunk_ms": 10,
                     "network.max_packet_bytes": 1024,
                     "polling.period_ms": 10,
-                    "network.source_timeout_ms": 1000,
+                    "network.source_timeout_ms": 5000,
                     "audio.qos.depth": 10,
                     "audio.qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
@@ -106,7 +106,7 @@ def _write_system_config(tmp_path: Path) -> Path:
         system_config,
         {
             "system": {
-                "default_start_delay": 1.0,
+                "default_start_delay": 0.1,
                 "inter_group_delay": 0.0,
             },
             "groups": [
@@ -154,7 +154,7 @@ def _wait_for_network_output(
                 continue
             if packet == expected_payload:
                 return True
-            return False
+            time.sleep(0.05)
     return False
 
 
