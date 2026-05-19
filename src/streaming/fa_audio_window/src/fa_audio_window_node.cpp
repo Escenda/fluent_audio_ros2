@@ -6,10 +6,12 @@
 #include <cinttypes>
 #include <cctype>
 #include <cstddef>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -108,6 +110,73 @@ bool hasNonWhitespace(const std::string & value)
   return std::any_of(value.begin(), value.end(), [](const char c) {
     return std::isspace(static_cast<unsigned char>(c)) == 0;
   });
+}
+
+std::string trimWhitespace(const std::string & value)
+{
+  auto first = value.begin();
+  while (first != value.end() && std::isspace(static_cast<unsigned char>(*first)) != 0) {
+    ++first;
+  }
+  auto last = value.end();
+  while (last != first && std::isspace(static_cast<unsigned char>(*(last - 1))) != 0) {
+    --last;
+  }
+  return {first, last};
+}
+
+std::string jsonEscape(const std::string & value)
+{
+  std::ostringstream escaped;
+  for (const char c : value) {
+    switch (c) {
+      case '"':
+        escaped << "\\\"";
+        break;
+      case '\\':
+        escaped << "\\\\";
+        break;
+      case '\b':
+        escaped << "\\b";
+        break;
+      case '\f':
+        escaped << "\\f";
+        break;
+      case '\n':
+        escaped << "\\n";
+        break;
+      case '\r':
+        escaped << "\\r";
+        break;
+      case '\t':
+        escaped << "\\t";
+        break;
+      default:
+        if (static_cast<unsigned char>(c) < 0x20u) {
+          escaped << "\\u";
+          escaped << "00";
+          const char * digits = "0123456789abcdef";
+          escaped << digits[(static_cast<unsigned char>(c) >> 4u) & 0x0fu];
+          escaped << digits[static_cast<unsigned char>(c) & 0x0fu];
+        } else {
+          escaped << c;
+        }
+        break;
+    }
+  }
+  return escaped.str();
+}
+
+void writeJsonStringArray(std::ostream & out, const std::vector<std::string> & values)
+{
+  out << "[";
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i > 0u) {
+      out << ",";
+    }
+    out << "\"" << jsonEscape(values[i]) << "\"";
+  }
+  out << "]";
 }
 }  // namespace
 
@@ -291,6 +360,8 @@ void FaAudioWindowNode::handleExportRequest(
       request->container,
       request->payload_format,
       "export",
+      "",
+      {},
     });
   response->time_range = result.time_range;
   response->audio_clip_ref = result.audio_clip_ref;
@@ -327,6 +398,8 @@ void FaAudioWindowNode::handleArchiveRequest(
       request->container,
       request->payload_format,
       "archive",
+      trimWhitespace(request->reason),
+      request->related_artifact_ids,
     });
   response->time_range = result.time_range;
   response->audio_clip_ref = result.audio_clip_ref;
@@ -413,6 +486,26 @@ FaAudioWindowNode::ClipOperationResult FaAudioWindowNode::writeWindowClip(
     output_path.stem().string(),
     output_path,
     query);
+  if (request.operation_name == "archive") {
+    std::filesystem::path metadata_path;
+    try {
+      metadata_path = output_path.string() + ".metadata.json";
+      writeArchiveMetadata(request, result.audio_clip_ref, output_path, query.exported_range);
+    } catch (const std::exception & e) {
+      std::error_code remove_error;
+      std::filesystem::remove(output_path, remove_error);
+      if (!metadata_path.empty()) {
+        std::filesystem::remove(metadata_path, remove_error);
+        std::filesystem::remove(metadata_path.string() + ".tmp", remove_error);
+      }
+      result.success = false;
+      result.error = ClipOperationError::kWriteFailed;
+      result.message = e.what();
+      result.audio_clip_ref = fa_interfaces::msg::AudioClipRef{};
+      result.time_range = fa_interfaces::msg::ResolvedTimeRange{};
+      return result;
+    }
+  }
   return result;
 }
 
@@ -620,6 +713,65 @@ std::filesystem::path FaAudioWindowNode::clipPathFor(
            << sanitizeForFile(config_.stream_id) << "_"
            << range.start_unix_ns << "_" << range.end_unix_ns << "_" << sequence << ".wav";
   return config_.output_directory / filename.str();
+}
+
+void FaAudioWindowNode::writeArchiveMetadata(
+  const ClipOperationRequest & request,
+  const fa_interfaces::msg::AudioClipRef & clip_ref,
+  const std::filesystem::path & clip_path,
+  const TimeRange & exported_range) const
+{
+  const std::filesystem::path metadata_path = clip_path.string() + ".metadata.json";
+  const std::filesystem::path temp_metadata_path = metadata_path.string() + ".tmp";
+  std::filesystem::create_directories(metadata_path.parent_path());
+  std::ofstream out(temp_metadata_path, std::ios::binary | std::ios::trunc);
+  if (!out.is_open()) {
+    throw std::runtime_error("failed to open archive metadata file");
+  }
+
+  out << "{\n";
+  out << "  \"schema\":\"fluent_audio.archive_metadata.v1\",\n";
+  out << "  \"operation\":\"archive_audio_window\",\n";
+  out << "  \"reason\":\"" << jsonEscape(request.archive_reason) << "\",\n";
+  out << "  \"related_artifact_ids\":";
+  writeJsonStringArray(out, request.related_artifact_ids);
+  out << ",\n";
+  out << "  \"source_id\":\"" << jsonEscape(config_.source_id) << "\",\n";
+  out << "  \"stream_id\":\"" << jsonEscape(config_.stream_id) << "\",\n";
+  out << "  \"window_id\":\"" << jsonEscape(config_.window_id) << "\",\n";
+  out << "  \"window_epoch\":" << config_.window_epoch << ",\n";
+  out << "  \"audio_scope\":\"" << jsonEscape(resolveAudioScope(request.audio_scope)) << "\",\n";
+  out << "  \"time_range\":{";
+  out << "\"start_unix_ns\":" << exported_range.start_unix_ns << ",";
+  out << "\"end_unix_ns\":" << exported_range.end_unix_ns << ",";
+  out << "\"clock\":\"" << jsonEscape(fa_interfaces::msg::ResolvedTimeRange::CLOCK_MEDIA) << "\",";
+  out << "\"uncertainty_ns\":0,";
+  out << "\"uncertainty_reason\":\"\"";
+  out << "},\n";
+  out << "  \"audio_clip_ref\":{";
+  out << "\"clip_id\":\"" << jsonEscape(clip_ref.clip_id) << "\",";
+  out << "\"uri\":\"" << jsonEscape(clip_ref.uri) << "\",";
+  out << "\"codec\":\"" << jsonEscape(clip_ref.codec) << "\",";
+  out << "\"container\":\"" << jsonEscape(clip_ref.container) << "\",";
+  out << "\"payload_format\":\"" << jsonEscape(clip_ref.payload_format) << "\",";
+  out << "\"sample_rate\":" << clip_ref.sample_rate << ",";
+  out << "\"channels\":" << clip_ref.channels << ",";
+  out << "\"duration_ns\":" << clip_ref.duration_ns;
+  out << "}\n";
+  out << "}\n";
+
+  out.close();
+  if (!out.good()) {
+    throw std::runtime_error("failed to write archive metadata file");
+  }
+
+  std::error_code rename_error;
+  std::filesystem::rename(temp_metadata_path, metadata_path, rename_error);
+  if (rename_error) {
+    std::error_code remove_error;
+    std::filesystem::remove(temp_metadata_path, remove_error);
+    throw std::runtime_error("failed to publish archive metadata file: " + rename_error.message());
+  }
 }
 
 }  // namespace fa_audio_window

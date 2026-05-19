@@ -2,8 +2,10 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -11,6 +13,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 namespace
@@ -119,17 +122,30 @@ std::shared_ptr<ArchiveAudioWindow::Request> archiveRequestFor(
   const std::string & reason,
   const std::string & codec = "pcm_s16le",
   const std::string & container = "wav",
-  const std::string & payload_format = "audio/wav")
+  const std::string & payload_format = "audio/wav",
+  const std::vector<std::string> & related_artifact_ids =
+    std::vector<std::string>{"action_12"})
 {
   auto request = std::make_shared<ArchiveAudioWindow::Request>();
   request->time_range_spec = time_range_spec;
   request->audio_scope = scope;
   request->reason = reason;
-  request->related_artifact_ids = {"action_12"};
+  request->related_artifact_ids = related_artifact_ids;
   request->codec = codec;
   request->container = container;
   request->payload_format = payload_format;
   return request;
+}
+
+std::string readTextFile(const std::filesystem::path & path)
+{
+  std::ifstream in(path, std::ios::binary);
+  if (!in.is_open()) {
+    throw std::runtime_error("failed to open test file");
+  }
+  std::ostringstream content;
+  content << in.rdbuf();
+  return content.str();
 }
 
 bool spinUntil(
@@ -325,7 +341,14 @@ TEST_F(AudioWindowServiceContractTest, ArchiveServiceReturnsClipOrExplicitErrors
   executor.spin_some(100ms);
 
   auto success = client->async_send_request(
-    archiveRequestFor("10000000000..10400000000", "", "operator evidence"));
+    archiveRequestFor(
+      "10000000000..10400000000",
+      "",
+      " operator \"evidence\" \\ line\nnext\tend ",
+      "pcm_s16le",
+      "wav",
+      "audio/wav",
+      std::vector<std::string>{"action_12", "video\\observation\n9"}));
   ASSERT_EQ(executor.spin_until_future_complete(success, 2s), rclcpp::FutureReturnCode::SUCCESS);
   const auto success_response = success.get();
   ASSERT_TRUE(success_response->success);
@@ -343,6 +366,39 @@ TEST_F(AudioWindowServiceContractTest, ArchiveServiceReturnsClipOrExplicitErrors
   ASSERT_EQ(success_response->audio_clip_ref.uri.rfind(file_prefix, 0u), 0u);
   const std::filesystem::path archived_path = success_response->audio_clip_ref.uri.substr(file_prefix.size());
   EXPECT_TRUE(std::filesystem::exists(archived_path));
+  const std::filesystem::path metadata_path = archived_path.string() + ".metadata.json";
+  ASSERT_TRUE(std::filesystem::exists(metadata_path));
+  EXPECT_FALSE(std::filesystem::exists(metadata_path.string() + ".tmp"));
+  const nlohmann::json metadata = nlohmann::json::parse(readTextFile(metadata_path));
+  EXPECT_EQ(metadata.at("schema").get<std::string>(), "fluent_audio.archive_metadata.v1");
+  EXPECT_EQ(metadata.at("operation").get<std::string>(), "archive_audio_window");
+  EXPECT_EQ(metadata.at("reason").get<std::string>(), "operator \"evidence\" \\ line\nnext\tend");
+  ASSERT_TRUE(metadata.at("related_artifact_ids").is_array());
+  ASSERT_EQ(metadata.at("related_artifact_ids").size(), 2u);
+  EXPECT_EQ(metadata.at("related_artifact_ids").at(0).get<std::string>(), "action_12");
+  EXPECT_EQ(metadata.at("related_artifact_ids").at(1).get<std::string>(), "video\\observation\n9");
+  EXPECT_EQ(metadata.at("source_id").get<std::string>(), "test-mic");
+  EXPECT_EQ(metadata.at("stream_id").get<std::string>(), "audio/test/mic");
+  EXPECT_EQ(metadata.at("window_id").get<std::string>(), "fa_audio_window_test");
+  EXPECT_EQ(metadata.at("window_epoch").get<uint64_t>(), 1u);
+  EXPECT_EQ(metadata.at("audio_scope").get<std::string>(), "mic");
+
+  const nlohmann::json time_range = metadata.at("time_range");
+  EXPECT_EQ(time_range.at("start_unix_ns").get<int64_t>(), 10000000000LL);
+  EXPECT_EQ(time_range.at("end_unix_ns").get<int64_t>(), 10400000000LL);
+  EXPECT_EQ(time_range.at("clock").get<std::string>(), "media");
+  EXPECT_EQ(time_range.at("uncertainty_ns").get<uint64_t>(), 0u);
+  EXPECT_EQ(time_range.at("uncertainty_reason").get<std::string>(), "");
+
+  const nlohmann::json clip_ref = metadata.at("audio_clip_ref");
+  EXPECT_EQ(clip_ref.at("clip_id").get<std::string>(), success_response->audio_clip_ref.clip_id);
+  EXPECT_EQ(clip_ref.at("uri").get<std::string>(), success_response->audio_clip_ref.uri);
+  EXPECT_EQ(clip_ref.at("codec").get<std::string>(), "pcm_s16le");
+  EXPECT_EQ(clip_ref.at("container").get<std::string>(), "wav");
+  EXPECT_EQ(clip_ref.at("payload_format").get<std::string>(), "audio/wav");
+  EXPECT_EQ(clip_ref.at("sample_rate").get<uint32_t>(), 10u);
+  EXPECT_EQ(clip_ref.at("channels").get<uint32_t>(), 1u);
+  EXPECT_EQ(clip_ref.at("duration_ns").get<uint64_t>(), 400000000u);
 
   publisher->publish(validFrameAt(11000000000LL, 2u));
   executor.spin_some(100ms);

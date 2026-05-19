@@ -7,6 +7,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -68,6 +69,8 @@ private:
     std::string container{};
     std::string payload_format{};
     std::string operation_name{};
+    std::string archive_reason{};
+    std::vector<std::string> related_artifact_ids{};
   };
 
   struct ClipOperationResult
@@ -122,6 +125,11 @@ private:
     const std::string & operation_name,
     const TimeRange & range,
     uint64_t sequence) const;
+  void writeArchiveMetadata(
+    const ClipOperationRequest & request,
+    const fa_interfaces::msg::AudioClipRef & clip_ref,
+    const std::filesystem::path & clip_path,
+    const TimeRange & exported_range) const;
 
   AudioWindowConfig config_{};
   std::unique_ptr<AudioWindowBuffer> buffer_{};

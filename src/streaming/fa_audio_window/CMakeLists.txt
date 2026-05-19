@@ -57,6 +57,7 @@ install(DIRECTORY
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+  find_package(nlohmann_json REQUIRED)
 
   ament_add_gtest(${PROJECT_NAME}_buffer_test
     test/cpp/test_audio_window_buffer.cpp
@@ -79,6 +80,7 @@ if(BUILD_TESTING)
     rclcpp
   )
   target_link_libraries(${PROJECT_NAME}_service_contract_test fa_audio_window_core)
+  target_link_libraries(${PROJECT_NAME}_service_contract_test nlohmann_json::nlohmann_json)
 
   ament_lint_auto_find_test_dependencies()
 endif()
