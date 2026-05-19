@@ -98,7 +98,14 @@ PROCESSING_TEST_TRACE_PREFIXES = {
     "processing/spatial/fa_pan": "FA-PAN",
     "processing/spatial/fa_stereo_widening": "FA-STEREO-WIDENING",
     "processing/spatial/fa_upmix": "FA-UPMIX",
+    "processing/temporal/fa_crossfade": "FA-CROSSFADE",
+    "processing/temporal/fa_delay": "FA-DELAY",
+    "processing/temporal/fa_echo": "FA-ECHO",
+    "processing/temporal/fa_fade": "FA-FADE",
     "processing/temporal/fa_reverb": "FA-REVERB",
+    "processing/temporal/fa_silence_removal": "FA-SILENCE-REMOVAL",
+    "processing/temporal/fa_trim": "FA-TRIM",
+    "processing/temporal/fa_window": "FA-WINDOW",
 }
 
 
