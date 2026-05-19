@@ -93,6 +93,11 @@ PROCESSING_TEST_TRACE_PREFIXES = {
     "processing/routing/fa_monitor_mix": "FA-MONITOR-MIX",
     "processing/routing/fa_patchbay": "FA-PATCHBAY",
     "processing/routing/fa_sidechain": "FA-SIDECHAIN",
+    "processing/spatial/fa_beamforming": "FA-BEAMFORMING",
+    "processing/spatial/fa_downmix": "FA-DOWNMIX",
+    "processing/spatial/fa_pan": "FA-PAN",
+    "processing/spatial/fa_stereo_widening": "FA-STEREO-WIDENING",
+    "processing/spatial/fa_upmix": "FA-UPMIX",
     "processing/temporal/fa_reverb": "FA-REVERB",
 }
 
