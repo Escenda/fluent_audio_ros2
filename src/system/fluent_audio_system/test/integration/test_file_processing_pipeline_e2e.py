@@ -159,7 +159,7 @@ def _write_system_config(tmp_path: Path) -> Path:
             },
             "groups": [
                 {
-                    "id": "io",
+                    "id": "io_sink",
                     "enable": True,
                     "nodes": [
                         {
@@ -173,7 +173,7 @@ def _write_system_config(tmp_path: Path) -> Path:
                     ],
                 },
                 {
-                    "id": "format",
+                    "id": "format_sample",
                     "enable": True,
                     "nodes": [
                         {
@@ -187,7 +187,7 @@ def _write_system_config(tmp_path: Path) -> Path:
                     ],
                 },
                 {
-                    "id": "dynamics",
+                    "id": "dynamics_gain",
                     "enable": True,
                     "nodes": [
                         {
@@ -201,7 +201,7 @@ def _write_system_config(tmp_path: Path) -> Path:
                     ],
                 },
                 {
-                    "id": "io",
+                    "id": "io_source",
                     "enable": True,
                     "nodes": [
                         {
