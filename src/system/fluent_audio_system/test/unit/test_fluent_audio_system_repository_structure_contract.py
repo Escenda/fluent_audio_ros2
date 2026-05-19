@@ -196,6 +196,16 @@ def test_processing_readme_package_status_matches_buildable_processing_packages(
     assert _processing_readme_package_status() == expected_packages_by_category
 
 
+def test_readmes_track_network_io_backend_boundaries() -> None:
+    root_readme = (SRC_ROOT.parent / "README.md").read_text(encoding="utf-8")
+    sink_readme = (SRC_ROOT / "io" / "sinks" / "README.md").read_text(encoding="utf-8")
+
+    assert "ALSA / raw PCM file / raw PCM UDP" in root_readme
+    assert "raw PCM UDP sink backends" in sink_readme
+    assert "Network sinks remain" not in sink_readme
+    assert "jitter buffering, packet loss concealment, clock drift correction" in sink_readme
+
+
 def test_buildable_packages_have_standard_documentation_layout() -> None:
     missing_paths: list[str] = []
 
