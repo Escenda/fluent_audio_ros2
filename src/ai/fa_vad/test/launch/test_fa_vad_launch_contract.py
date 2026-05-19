@@ -35,6 +35,8 @@ def test_default_config_requires_explicit_backend_and_external_worker_command() 
     assert params["input_topic"] != params["input_stream_id"]
     assert params["backend.command"] == ""
     assert params["backend.frame_ms"] == 20
+    assert params["backend.window_samples"] == 512
+    assert params["backend.history_buffer_ms"] == 200
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""
     assert params["expected_source_id"] == ""
@@ -45,7 +47,13 @@ def test_default_config_requires_explicit_backend_and_external_worker_command() 
     assert params["qos.reliable"] is False
 
     rendered_args = " ".join(params["backend.args"])
-    for placeholder in ("{audio}", "{model}", "{provider}", "{sample_rate}"):
+    for placeholder in (
+        "{audio}",
+        "{model}",
+        "{provider}",
+        "{sample_rate}",
+        "{window_samples}",
+    ):
         assert placeholder in rendered_args
 
 

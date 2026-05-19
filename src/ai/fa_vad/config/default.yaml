@@ -18,6 +18,10 @@ fa_vad:
     backend.name: ""
     # Required Silero decision frame duration. hangover_ms must be divisible by this value.
     backend.frame_ms: 20
+    # Required Silero model input window. Must match the selected sample-rate contract.
+    backend.window_samples: 512
+    # Required rolling buffer duration for overlapped Silero windows.
+    backend.history_buffer_ms: 200
     # Required local torch.hub Silero repository path. Empty means startup fails closed.
     backend.model_path: ""
     # Required PyTorch device: cpu, cuda, or cuda:<index>. Empty means startup fails closed.
@@ -33,6 +37,8 @@ fa_vad:
       - "{provider}"
       - "--sample-rate"
       - "{sample_rate}"
+      - "--window-samples"
+      - "{window_samples}"
     backend.timeout_sec: 1.0
     backend.workspace_dir: "/tmp/fluent_audio/fa_vad"
     backend.cleanup_audio_files: true

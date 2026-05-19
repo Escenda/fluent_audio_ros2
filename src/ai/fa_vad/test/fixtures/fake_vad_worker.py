@@ -11,6 +11,7 @@ def main() -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--provider", required=True)
     parser.add_argument("--sample-rate", required=True, type=int)
+    parser.add_argument("--window-samples", required=True, type=int)
     parser.add_argument("--probability", default="")
     args = parser.parse_args()
 

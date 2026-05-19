@@ -11,6 +11,8 @@ class VadBackendSettings:
     name: str
     sample_rate: int
     frame_ms: int
+    window_samples: int
+    history_buffer_ms: int
     hangover_ms: int
     threshold_start: float
     threshold_end: float
@@ -31,6 +33,8 @@ def build_vad_backend(settings: VadBackendSettings) -> VADBackend:
         return SileroVAD(
             sample_rate=settings.sample_rate,
             frame_ms=settings.frame_ms,
+            window_samples=settings.window_samples,
+            history_buffer_ms=settings.history_buffer_ms,
             hangover_ms=settings.hangover_ms,
             threshold_start=settings.threshold_start,
             threshold_end=settings.threshold_end,

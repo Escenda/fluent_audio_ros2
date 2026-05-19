@@ -15,7 +15,9 @@ External Silero VAD process。
 - `Float32MonoWindow`
 - mono raw float32le bytes
 - target sample rate
-- explicit Silero decision frame duration in `backend.frame_ms`
+- explicit decision cadence / hangover unit in `backend.frame_ms`
+- explicit Silero model window in `backend.window_samples`
+- explicit rolling history buffer in `backend.history_buffer_ms`
 - local `.f32` path passed as `{audio}`
 - model path passed as `{model}`
 - execution provider string passed as `{provider}`
@@ -31,6 +33,10 @@ External Silero VAD process。
 
 - `backend.model_path` が空
 - `backend.frame_ms <= 0`
+- `backend.window_samples <= 0`
+- `backend.history_buffer_ms <= 0`
+- `backend.window_samples` が sample rate ごとの Silero model contract と一致しない
+- `backend.history_buffer_ms` が `backend.window_samples` を保持できない
 - `hangover_ms < backend.frame_ms`
 - `hangover_ms` が `backend.frame_ms` で割り切れない
 - `backend.model_path` が存在しない local torch.hub repository directory を指す
@@ -39,7 +45,7 @@ External Silero VAD process。
 - `backend.execution_provider` が未対応
 - `backend.command` が空
 - `backend.command` が実行不能
-- `backend.args` に `{audio}`, `{model}`, `{provider}`, `{sample_rate}` が含まれない
+- `backend.args` に `{audio}`, `{model}`, `{provider}`, `{sample_rate}`, `{window_samples}` が含まれない
 - `backend.args` に unknown placeholder / malformed format / conversion / format spec が含まれる
 - `Float32MonoWindow` の sample rate / byte alignment / finite / normalized range が契約外
 - worker `--sample-rate` が 8kHz / 16kHz 以外
@@ -49,10 +55,14 @@ External Silero VAD process。
 
 `backend.model_path` は必須です。local Silero torch hub repository directory を指し、起動時に `hubconf.py` の存在を検証します。空の場合や `~/.cache/torch/hub` などを推測する fallback はありません。online download fallback はありません。`backend.execution_provider` は `cpu`, `cuda`, `cuda:<index>` のいずれかを明示します。
 
-`backend.frame_ms` は Silero backend の decision frame duration です。node はこの値を ROS integer parameter として必須扱いで読み、`hangover_ms` が `backend.frame_ms` 以上かつ割り切れることを起動時に検証します。未設定・不正値を 20ms に丸める fallback はありません。
+`backend.frame_ms` は Silero backend の decision cadence / hangover accounting unit です。node はこの値を ROS integer parameter として必須扱いで読み、`hangover_ms` が `backend.frame_ms` 以上かつ割り切れることを起動時に検証します。未設定・不正値を 20ms に丸める fallback はありません。
+
+`backend.window_samples` は Silero model input window sample 数です。16kHz では 512 samples、8kHz では 256 samples を明示します。backend は sample rate から暗黙に窓長を選ばず、設定値が Silero model contract と一致することを検証します。worker へは `--window-samples` / `{window_samples}` で渡します。
+
+`backend.history_buffer_ms` は overlapped window を作るための rolling buffer duration です。未設定時に 200ms に丸める fallback はありません。buffer duration が `backend.window_samples` を保持できない場合は起動失敗します。
 
 `backend.command` は ROS2 node と異なる Python / venv / container runtime を指すための境界です。path 指定された command は起動時に実体解決され、実行不能なら起動失敗します。command が失敗しても別 backend へ fallback しません。
 Silero VAD backend は startup health check 用の `backend.health_args` を定義しません。起動時には command / model path / provider / args の contract を検証し、worker の実行失敗、timeout、invalid probability は runtime failure として fail closed にします。
 
-`fa_vad` は `scripts/silero_vad_worker` を reference worker として同梱します。この script は entrypoint のみを持ち、実装は `fa_vad_py.backends.silero_worker` に置きます。運用では同梱 script をそのまま使っても、別 venv / 別 container に配置した互換 worker command を指定してもかまいません。互換 worker は `--audio`, `--model`, `--provider`, `--sample-rate` を受け取り、stdout の最終非空行に probability float を出力します。
+`fa_vad` は `scripts/silero_vad_worker` を reference worker として同梱します。この script は entrypoint のみを持ち、実装は `fa_vad_py.backends.silero_worker` に置きます。運用では同梱 script をそのまま使っても、別 venv / 別 container に配置した互換 worker command を指定してもかまいません。互換 worker は `--audio`, `--model`, `--provider`, `--sample-rate`, `--window-samples` を受け取り、stdout の最終非空行に probability float を出力します。
 window が Silero 必要 sample 数に満たない場合、backend は `None` を返します。これは no-decision であり、node は `VadState` / probability / Bool を publish しません。

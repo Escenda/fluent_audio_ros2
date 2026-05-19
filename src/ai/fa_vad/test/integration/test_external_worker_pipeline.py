@@ -25,6 +25,8 @@ def _backend(
     return SileroVAD(
         sample_rate=16000,
         frame_ms=20,
+        window_samples=512,
+        history_buffer_ms=200,
         hangover_ms=hangover_ms,
         threshold_start=threshold_start,
         threshold_end=threshold_end,
@@ -41,6 +43,8 @@ def _backend(
             "{provider}",
             "--sample-rate",
             "{sample_rate}",
+            "--window-samples",
+            "{window_samples}",
         ),
         timeout_sec=1.0,
         workspace_dir=str(tmp_path / "workspace"),

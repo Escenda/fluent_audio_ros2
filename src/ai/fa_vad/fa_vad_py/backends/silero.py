@@ -12,8 +12,16 @@ from fa_vad_py.backends.base import Float32MonoWindow, VADDecision, VADResult
 
 
 _PAYLOAD_ENCODING = "float32le_raw"
-_ALLOWED_ARG_FIELDS = frozenset(("audio", "model", "provider", "sample_rate"))
-_REQUIRED_ARG_FIELDS = frozenset(("audio", "model", "provider", "sample_rate"))
+_ALLOWED_ARG_FIELDS = frozenset(
+    ("audio", "model", "provider", "sample_rate", "window_samples")
+)
+_REQUIRED_ARG_FIELDS = frozenset(
+    ("audio", "model", "provider", "sample_rate", "window_samples")
+)
+_WINDOW_SAMPLES_BY_SAMPLE_RATE = {
+    8000: 256,
+    16000: 512,
+}
 
 
 class SileroVAD:
@@ -31,6 +39,8 @@ class SileroVAD:
         *,
         sample_rate: int,
         frame_ms: int,
+        window_samples: int,
+        history_buffer_ms: int,
         hangover_ms: int,
         threshold_start: float,
         threshold_end: float,
@@ -44,6 +54,15 @@ class SileroVAD:
     ) -> None:
         self.sample_rate = self._validate_sample_rate(sample_rate)
         self.frame_ms = self._validate_frame_ms(frame_ms)
+        self._required_samples = self._validate_window_samples(
+            sample_rate=self.sample_rate,
+            window_samples=window_samples,
+        )
+        self._max_samples = self._validate_history_buffer_samples(
+            sample_rate=self.sample_rate,
+            history_buffer_ms=history_buffer_ms,
+            window_samples=self._required_samples,
+        )
         self.threshold_start, self.threshold_end = self._validate_thresholds(
             threshold_start=threshold_start,
             threshold_end=threshold_end,
@@ -64,8 +83,6 @@ class SileroVAD:
 
         self._triggered = False
         self._hang_counter = 0
-        self._required_samples = 512 if self.sample_rate == 16000 else 256
-        self._max_samples = max(self._required_samples, int(self.sample_rate * 0.2))
         self._buffer = bytearray()
         self._buf_ready = False
 
@@ -144,6 +161,7 @@ class SileroVAD:
                 model=str(self._model_path),
                 provider=self._execution_provider,
                 sample_rate=str(self.sample_rate),
+                window_samples=str(self._required_samples),
             )
             for item in self._args
         ]
@@ -168,6 +186,43 @@ class SileroVAD:
         if frame_ms <= 0:
             raise RuntimeError("frame_ms must be > 0")
         return frame_ms
+
+    @staticmethod
+    def _validate_window_samples(*, sample_rate: int, window_samples: int) -> int:
+        if type(window_samples) is not int:
+            raise RuntimeError("backend.window_samples must be an integer")
+        if window_samples <= 0:
+            raise RuntimeError("backend.window_samples must be > 0")
+        expected_samples = _WINDOW_SAMPLES_BY_SAMPLE_RATE[sample_rate]
+        if window_samples != expected_samples:
+            raise RuntimeError(
+                "backend.window_samples must match Silero sample-rate contract: "
+                f"{expected_samples} for {sample_rate} Hz"
+            )
+        return window_samples
+
+    @staticmethod
+    def _validate_history_buffer_samples(
+        *,
+        sample_rate: int,
+        history_buffer_ms: int,
+        window_samples: int,
+    ) -> int:
+        if type(history_buffer_ms) is not int:
+            raise RuntimeError("backend.history_buffer_ms must be an integer")
+        if history_buffer_ms <= 0:
+            raise RuntimeError("backend.history_buffer_ms must be > 0")
+        product = sample_rate * history_buffer_ms
+        if product % 1000 != 0:
+            raise RuntimeError(
+                "backend.history_buffer_ms must produce an integral sample count"
+            )
+        history_samples = product // 1000
+        if history_samples < window_samples:
+            raise RuntimeError(
+                "backend.history_buffer_ms must hold at least backend.window_samples"
+            )
+        return history_samples
 
     @staticmethod
     def _validate_thresholds(

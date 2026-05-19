@@ -27,6 +27,8 @@ DEFAULT_ARGS = (
     "{provider}",
     "--sample-rate",
     "{sample_rate}",
+    "--window-samples",
+    "{window_samples}",
 )
 
 
@@ -204,6 +206,8 @@ def _silero_backend(
     cleanup_audio_files: bool = True,
     sample_rate: int = 16000,
     frame_ms: int = 20,
+    window_samples: int = 512,
+    history_buffer_ms: int = 200,
     threshold_start: float = 0.5,
     threshold_end: float = 0.1,
     hangover_ms: int = 300,
@@ -211,6 +215,8 @@ def _silero_backend(
     return SileroVAD(
         sample_rate=sample_rate,
         frame_ms=frame_ms,
+        window_samples=window_samples,
+        history_buffer_ms=history_buffer_ms,
         threshold_start=threshold_start,
         threshold_end=threshold_end,
         hangover_ms=hangover_ms,
@@ -236,6 +242,8 @@ def _vad_backend_settings(
         name=backend_name,
         sample_rate=16000,
         frame_ms=20,
+        window_samples=512,
+        history_buffer_ms=200,
         threshold_start=0.5,
         threshold_end=0.1,
         hangover_ms=300,
@@ -294,6 +302,8 @@ def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     assert params["backend.execution_provider"] == ""
     assert params["backend.command"] == ""
     assert params["backend.frame_ms"] == 20
+    assert params["backend.window_samples"] == 512
+    assert params["backend.history_buffer_ms"] == 200
     assert params["expected_source_id"] == ""
     assert params["qos.depth"] == 10
     assert params["qos.reliable"] is False
@@ -301,15 +311,20 @@ def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     assert "{model}" in params["backend.args"]
     assert "{provider}" in params["backend.args"]
     assert "{sample_rate}" in params["backend.args"]
+    assert "{window_samples}" in params["backend.args"]
     assert "silero" not in params
     assert '"backend.args",' in source
     assert '"backend.frame_ms",' in source
+    assert '"backend.window_samples",' in source
+    assert '"backend.history_buffer_ms",' in source
     assert "VadBackendSettings" in source
     assert "build_vad_backend" in source
     assert "from fa_vad_py.backends.silero import SileroVAD" not in source
     assert "SileroVAD(" not in source
     assert "Parameter.Type.STRING_ARRAY" in source
     assert 'declare_parameter("backend.frame_ms", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("backend.window_samples", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("backend.history_buffer_ms", Parameter.Type.INTEGER)' in source
     assert 'declare_parameter("input_topic", Parameter.Type.STRING)' in source
     assert 'declare_parameter("input_stream_id", Parameter.Type.STRING)' in source
     forbidden_input_topic_default = 'declare_parameter("input_topic", ' + '"audio/frame")'
@@ -325,6 +340,8 @@ def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
         "publish_probability",
         "backend.timeout_sec",
         "backend.frame_ms",
+        "backend.window_samples",
+        "backend.history_buffer_ms",
         "backend.workspace_dir",
         "backend.cleanup_audio_files",
         "log_speech_events",
@@ -536,6 +553,8 @@ def test_vad_node_backend_runtime_failure_is_fail_closed(
         ({"threshold_start": 0.2, "threshold_end": 0.8}, "threshold_end must be <= threshold_start"),
         ({"hangover_ms": 0}, "hangover_ms must be > 0"),
         ({"backend_frame_ms": 0}, "backend.frame_ms must be > 0"),
+        ({"backend_window_samples": 0}, "backend.window_samples must be > 0"),
+        ({"backend_history_buffer_ms": 0}, "backend.history_buffer_ms must be > 0"),
         ({"hangover_ms": 10, "backend_frame_ms": 20}, "hangover_ms must be >= backend.frame_ms"),
         (
             {"hangover_ms": 25, "backend_frame_ms": 20},
@@ -553,6 +572,8 @@ def test_vad_node_rejects_invalid_runtime_config_without_fallback(
         "threshold_end": 0.1,
         "hangover_ms": 300,
         "backend_frame_ms": 20,
+        "backend_window_samples": 512,
+        "backend_history_buffer_ms": 200,
     }
     base_kwargs.update(kwargs)
 
@@ -619,6 +640,8 @@ def test_silero_backend_rejects_missing_command(tmp_path: Path) -> None:
         ({"sample_rate": "16000"}, "sample_rate must be an integer"),
         ({"sample_rate": True}, "sample_rate must be an integer"),
         ({"frame_ms": "20"}, "frame_ms must be an integer"),
+        ({"window_samples": "512"}, "backend.window_samples must be an integer"),
+        ({"history_buffer_ms": "200"}, "backend.history_buffer_ms must be an integer"),
         ({"threshold_start": "0.5"}, "threshold_start must be a float"),
         ({"threshold_end": 0}, "threshold_end must be a float"),
         ({"hangover_ms": "300"}, "hangover_ms must be an integer"),
@@ -705,6 +728,8 @@ def test_silero_backend_rejects_invalid_sample_rate(tmp_path: Path) -> None:
         SileroVAD(
             sample_rate=44100,
             frame_ms=20,
+            window_samples=512,
+            history_buffer_ms=200,
             hangover_ms=300,
             threshold_start=0.5,
             threshold_end=0.1,
@@ -751,6 +776,8 @@ def test_silero_backend_constructor_requires_explicit_vad_config() -> None:
 
     assert "sample_rate: int = 16000" not in source
     assert "frame_ms: int = 20" not in source
+    assert "window_samples: int = 512" not in source
+    assert "history_buffer_ms: int = 200" not in source
     assert "hangover_ms: int = 250" not in source
     assert "threshold_start: float | None" not in source
     assert "threshold_end: float | None" not in source
@@ -758,6 +785,8 @@ def test_silero_backend_constructor_requires_explicit_vad_config() -> None:
     assert "VAD_THRESHOLD_END" not in source
     assert "int(sample_rate)" not in source
     assert "int(frame_ms)" not in source
+    assert "int(window_samples)" not in source
+    assert "int(history_buffer_ms)" not in source
     assert "int(hangover_ms)" not in source
     assert "float(threshold_start)" not in source
     assert "float(threshold_end)" not in source
@@ -811,6 +840,8 @@ def test_silero_backend_runs_external_worker_contract(tmp_path: Path) -> None:
             "{provider}",
             "--sample-rate",
             "{sample_rate}",
+            "--window-samples",
+            "{window_samples}",
         ),
         workspace_dir=str(workspace_dir),
     )
@@ -831,6 +862,29 @@ def test_silero_backend_returns_explicit_no_decision_for_short_window(tmp_path: 
     backend = _silero_backend(model_path=str(model_dir))
 
     assert backend.update(_float32_window(sample_count=128)) is None
+
+
+def test_silero_backend_rejects_implicit_window_and_history_config(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
+    with pytest.raises(RuntimeError, match="backend.window_samples must match Silero"):
+        _silero_backend(model_path=str(model_dir), window_samples=320)
+    with pytest.raises(RuntimeError, match="backend.history_buffer_ms must hold"):
+        _silero_backend(model_path=str(model_dir), history_buffer_ms=20)
+
+
+def test_silero_backend_windowing_contract_is_explicit_source() -> None:
+    backend_path = Path(__file__).parents[2] / "fa_vad_py" / "backends" / "silero.py"
+    worker_path = Path(__file__).parents[2] / "fa_vad_py" / "backends" / "silero_worker.py"
+    backend_source = backend_path.read_text(encoding="utf-8")
+    worker_source = worker_path.read_text(encoding="utf-8")
+
+    assert "512 if" not in backend_source
+    assert "512 if" not in worker_source
+    assert "int(self.sample_rate * 0.2)" not in backend_source
+    assert "backend.window_samples" in backend_source
+    assert "backend.history_buffer_ms" in backend_source
+    assert "--window-samples" in worker_source
 
 
 def test_silero_backend_rejects_window_sample_rate_mismatch(tmp_path: Path) -> None:
@@ -876,6 +930,8 @@ def test_silero_worker_rejects_unsupported_sample_rate(
             "cpu",
             "--sample-rate",
             "44100",
+            "--window-samples",
+            "512",
         ],
     )
 

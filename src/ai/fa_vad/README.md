@@ -40,6 +40,8 @@ fa_vad:
     hangover_ms: 300
     backend.name: "silero"
     backend.frame_ms: 20
+    backend.window_samples: 512
+    backend.history_buffer_ms: 200
     backend.model_path: "~/.cache/torch/hub/snakers4_silero-vad_master"
     backend.execution_provider: "cpu"
     backend.command: "/ros2_ws/install/fa_vad/lib/fa_vad/silero_vad_worker"
@@ -52,6 +54,8 @@ fa_vad:
       - "{provider}"
       - "--sample-rate"
       - "{sample_rate}"
+      - "--window-samples"
+      - "{window_samples}"
     backend.timeout_sec: 1.0
     backend.workspace_dir: "/tmp/fluent_audio/fa_vad"
     backend.cleanup_audio_files: true

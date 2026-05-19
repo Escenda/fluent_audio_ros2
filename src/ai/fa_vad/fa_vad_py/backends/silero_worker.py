@@ -14,6 +14,13 @@ class WorkerConfig:
     model_path: Path
     provider: str
     sample_rate: int
+    window_samples: int
+
+
+WINDOW_SAMPLES_BY_SAMPLE_RATE = {
+    8000: 256,
+    16000: 512,
+}
 
 
 def parse_args() -> WorkerConfig:
@@ -22,6 +29,12 @@ def parse_args() -> WorkerConfig:
     parser.add_argument("--model", required=True, help="Local torch.hub Silero repository")
     parser.add_argument("--provider", required=True, help="cpu, cuda, or cuda:<index>")
     parser.add_argument("--sample-rate", required=True, type=int, help="Expected sample rate")
+    parser.add_argument(
+        "--window-samples",
+        required=True,
+        type=int,
+        help="Expected model window",
+    )
     args = parser.parse_args()
 
     audio_path = Path(args.audio).expanduser()
@@ -32,12 +45,19 @@ def parse_args() -> WorkerConfig:
         raise RuntimeError(f"model directory does not exist: {model_path}")
     if args.sample_rate not in (8000, 16000):
         raise RuntimeError("sample-rate must be 8000 or 16000")
+    expected_window_samples = WINDOW_SAMPLES_BY_SAMPLE_RATE[int(args.sample_rate)]
+    if args.window_samples != expected_window_samples:
+        raise RuntimeError(
+            "window-samples must match Silero sample-rate contract: "
+            f"{expected_window_samples} for {args.sample_rate} Hz"
+        )
 
     return WorkerConfig(
         audio_path=audio_path,
         model_path=model_path,
         provider=validate_provider(str(args.provider)),
         sample_rate=int(args.sample_rate),
+        window_samples=int(args.window_samples),
     )
 
 
@@ -69,12 +89,12 @@ def read_audio_window(config: WorkerConfig) -> np.ndarray:
         raise RuntimeError("audio file contains non-finite samples")
     if np.any(samples < -1.0) or np.any(samples > 1.0):
         raise RuntimeError("audio samples must be normalized to [-1.0, 1.0]")
-    required_samples = 512 if config.sample_rate == 16000 else 256
-    if samples.size < required_samples:
+    if samples.size < config.window_samples:
         raise RuntimeError(
-            f"audio window too short: need {required_samples} samples, got {samples.size}"
+            "audio window too short: "
+            f"need {config.window_samples} samples, got {samples.size}"
         )
-    return samples[-required_samples:]
+    return samples[-config.window_samples:]
 
 
 def main() -> int:

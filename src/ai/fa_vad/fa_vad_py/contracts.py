@@ -10,6 +10,8 @@ def validate_node_config(
     threshold_end: float,
     hangover_ms: int,
     backend_frame_ms: int,
+    backend_window_samples: int,
+    backend_history_buffer_ms: int,
 ) -> None:
     if target_sample_rate <= 0:
         raise RuntimeError("target_sample_rate must be > 0")
@@ -23,6 +25,10 @@ def validate_node_config(
         raise RuntimeError("hangover_ms must be > 0")
     if backend_frame_ms <= 0:
         raise RuntimeError("backend.frame_ms must be > 0")
+    if backend_window_samples <= 0:
+        raise RuntimeError("backend.window_samples must be > 0")
+    if backend_history_buffer_ms <= 0:
+        raise RuntimeError("backend.history_buffer_ms must be > 0")
     if hangover_ms < backend_frame_ms:
         raise RuntimeError("hangover_ms must be >= backend.frame_ms")
     if hangover_ms % backend_frame_ms != 0:

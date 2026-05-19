@@ -42,12 +42,16 @@ class FaVadNode(Node):
         threshold_end = self._double_parameter("threshold_end")
         hangover_ms = self._integer_parameter("hangover_ms")
         backend_frame_ms = self._integer_parameter("backend.frame_ms")
+        backend_window_samples = self._integer_parameter("backend.window_samples")
+        backend_history_buffer_ms = self._integer_parameter("backend.history_buffer_ms")
         validate_node_config(
             target_sample_rate=self._target_sample_rate,
             threshold_start=threshold_start,
             threshold_end=threshold_end,
             hangover_ms=hangover_ms,
             backend_frame_ms=backend_frame_ms,
+            backend_window_samples=backend_window_samples,
+            backend_history_buffer_ms=backend_history_buffer_ms,
         )
 
         backend_name = self._string_parameter("backend.name").strip()
@@ -86,6 +90,8 @@ class FaVadNode(Node):
                 name=backend_name,
                 sample_rate=self._target_sample_rate,
                 frame_ms=backend_frame_ms,
+                window_samples=backend_window_samples,
+                history_buffer_ms=backend_history_buffer_ms,
                 hangover_ms=hangover_ms,
                 threshold_start=threshold_start,
                 threshold_end=threshold_end,
@@ -109,6 +115,8 @@ class FaVadNode(Node):
             f"vad_state={self._vad_state_topic if self._publish_vad_state else '(disabled)'} "
             f"target_sr={self._target_sample_rate} start={threshold_start:.2f} "
             f"end={threshold_end:.2f} hangover={hangover_ms}ms "
+            f"window_samples={backend_window_samples} "
+            f"history_buffer={backend_history_buffer_ms}ms "
             f"backend.name={backend_name} provider={execution_provider} "
             f"model_path={model_path} command={command}"
         )
@@ -130,6 +138,8 @@ class FaVadNode(Node):
 
         self.declare_parameter("backend.name", Parameter.Type.STRING)
         self.declare_parameter("backend.frame_ms", Parameter.Type.INTEGER)
+        self.declare_parameter("backend.window_samples", Parameter.Type.INTEGER)
+        self.declare_parameter("backend.history_buffer_ms", Parameter.Type.INTEGER)
         self.declare_parameter("backend.model_path", Parameter.Type.STRING)
         self.declare_parameter("backend.execution_provider", Parameter.Type.STRING)
         self.declare_parameter("backend.command", Parameter.Type.STRING)
