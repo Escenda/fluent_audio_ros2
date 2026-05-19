@@ -33,9 +33,14 @@ IO_TEST_TRACE_PREFIXES = {
     "io/sources/fa_in": "FA-IN",
 }
 STREAMING_TEST_TRACE_PREFIXES = {
+    "streaming/fa_chunk_overlap": "FA-CHUNK-OVERLAP",
     "streaming/fa_clock_drift": "FA-CLOCK-DRIFT",
+    "streaming/fa_frame_buffer": "FA-FRAME-BUFFER",
+    "streaming/fa_jitter_buffer": "FA-JITTER-BUFFER",
+    "streaming/fa_latency_compensation": "FA-LATENCY-COMPENSATION",
     "streaming/fa_overlap_add": "FA-OA",
     "streaming/fa_packet_loss_concealment": "FA-PLC",
+    "streaming/fa_time_alignment": "FA-TIME-ALIGNMENT",
 }
 PROCESSING_TEST_TRACE_PREFIXES = {
     "processing/analysis/fa_cqt": "FA-CQT",
