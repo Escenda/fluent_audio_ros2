@@ -130,6 +130,7 @@ ros2 launch fa_turn_detector fa_turn_detector.launch.py node_name:=fa_turn_detec
 ```
 
 VAD / KWS / ASR / Turn Detector の backend/model 詳細は、単体 launch 引数ではなく各 node config または `fluent_audio_system` の system config に置きます。SO101 で VAD + KWS をまとめて起動する場合は `fluent_audio_system/config/profiles/so101_kws_frontend.yaml` を使い、worker command と model path はその system config 内の `${env:...}` で明示します。この profile は `fa_asr` / `fa_turn_detector` を起動しません。ASR / Turn Detector は、それらを enabled にする別の system config 側で backend command、model path、provider、health args を明示します。
+SO101 で VAD/KWS/ASR/Turn Detector をまとめて起動する場合は `fluent_audio_system/config/profiles/so101_voice_frontend.yaml` を使います。この profile は TurnContext publisher や dialogue state machine を含まず、`conversation/turn_context` は上位 app が publish します。
 
 ## 6. 実装フェーズ案（更新用メモ）
 1. `fa_interfaces`: `AudioFrame`/主要srvの確定

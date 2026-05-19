@@ -80,6 +80,7 @@ ros2 launch fluent_audio_system run.py \
 ```
 
 この profile は `fa_in -> fa_sample_format -> fa_resample -> fa_vad / fa_kws` を起動します。ASR / Turn Detector は package-owned SO101 profile template に backend contract を持ちますが、この KWS frontend profile では起動しません。
+ASR / Turn Detector まで同時起動する検証用 profile は `so101_voice_frontend.yaml` です。この profile も会話 orchestration は含まず、`conversation/turn_context` は上位 app から publish される前提です。
 
 `fa_vad` / `fa_kws` / `fa_asr` / `fa_turn_detector` はローカルモデルまたは external worker の契約が必須です。VAD は `backend.command`、`backend.args`、model path、provider、workspace、QoS を明示します。KWS / ASR / Turn Detector はそれに加えて `backend.health_args` も node config または system config に明示します。未設定または存在しない場合は起動時に失敗します。
 

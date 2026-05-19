@@ -32,6 +32,8 @@ def _patch_profile_package_shares(
         "fa_resample",
         "fa_vad",
         "fa_kws",
+        "fa_asr",
+        "fa_turn_detector",
         "fa_tts",
         "fa_mix",
     ):
@@ -45,6 +47,10 @@ def _patch_profile_package_shares(
             config_text = "fa_vad:\n  ros__parameters: {}\n"
         elif package_name == "fa_kws":
             config_text = "fa_kws:\n  ros__parameters: {}\n"
+        elif package_name == "fa_asr":
+            config_text = "fa_asr:\n  ros__parameters: {}\n"
+        elif package_name == "fa_turn_detector":
+            config_text = "fa_turn_detector:\n  ros__parameters: {}\n"
         elif package_name == "fa_tts":
             config_text = "fa_tts:\n  ros__parameters:\n    backend.name: pyopenjtalk\n"
         else:
@@ -61,6 +67,8 @@ def _patch_profile_package_shares(
             "fa_resample",
             "fa_vad",
             "fa_kws",
+            "fa_asr",
+            "fa_turn_detector",
             "fa_tts",
             "fa_mix",
         ):
@@ -82,6 +90,25 @@ def _set_kws_frontend_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         "FLUENT_AUDIO_KWS_JOINER": str(tmp_path / "models" / "kws" / "joiner.onnx"),
         "FLUENT_AUDIO_KWS_TOKENS": str(tmp_path / "models" / "kws" / "tokens.txt"),
         "FLUENT_AUDIO_KWS_KEYWORDS": str(tmp_path / "models" / "kws" / "keywords.txt"),
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+
+
+def _set_voice_frontend_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _set_kws_frontend_env(monkeypatch, tmp_path)
+    values = {
+        "FLUENT_AUDIO_ASR_MODEL_PATH": str(
+            tmp_path / "models" / "asr" / "ggml-large-v3.bin"
+        ),
+        "FLUENT_AUDIO_ASR_WORKER": str(tmp_path / "bin" / "whisper_cpp_worker"),
+        "FLUENT_AUDIO_TURN_DETECTOR_MODEL": str(
+            tmp_path / "models" / "turn_detector" / "smart_turn.onnx"
+        ),
+        "FLUENT_AUDIO_TURN_DETECTOR_PROVIDER": "cpu",
+        "FLUENT_AUDIO_TURN_DETECTOR_WORKER": str(
+            tmp_path / "bin" / "smart_turn_worker"
+        ),
     }
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -409,6 +436,101 @@ def test_so101_kws_frontend_profile_requires_worker_and_model_env(
         )
 
 
+def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+    _set_voice_frontend_env(monkeypatch, tmp_path)
+
+    spec = load_system_config(
+        "${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml"
+    )
+
+    enabled_nodes = [node for group in spec.groups for node in group.nodes]
+    params_by_id = {node.id: node.parameters for node in enabled_nodes}
+
+    assert [node.id for node in enabled_nodes] == [
+        "fa_in",
+        "fa_sample_format",
+        "fa_resample",
+        "fa_vad",
+        "fa_kws",
+        "fa_asr",
+        "fa_turn_detector",
+    ]
+    assert [node.package for node in enabled_nodes] == [
+        "fa_in",
+        "fa_sample_format",
+        "fa_resample",
+        "fa_vad",
+        "fa_kws",
+        "fa_asr",
+        "fa_turn_detector",
+    ]
+
+    vad_params = params_by_id["fa_vad"]
+    asr_params = params_by_id["fa_asr"]
+    turn_detector_params = params_by_id["fa_turn_detector"]
+
+    assert asr_params["audio_topic"] == vad_params["input_topic"]
+    assert asr_params["expected_stream_id"] == vad_params["input_stream_id"]
+    assert asr_params["vad_topic"] == "voice/vad_state"
+    assert asr_params["turn_context_topic"] == "conversation/turn_context"
+    assert asr_params["asr_result_topic"] == "voice/asr/result"
+    assert asr_params["backend.name"] == "whisper.cpp"
+    assert asr_params["backend.model_path"] == str(
+        tmp_path / "models" / "asr" / "ggml-large-v3.bin"
+    )
+    assert asr_params["backend.command"] == str(
+        tmp_path / "bin" / "whisper_cpp_worker"
+    )
+    assert asr_params["workspace_dir"] == "/tmp/fluent_audio/fa_asr/so101_voice_frontend"
+    assert "{audio}" in asr_params["backend.args"]
+    assert "{model}" in asr_params["backend.args"]
+    assert "{sample_rate}" in asr_params["backend.args"]
+    assert "{audio}" not in asr_params["backend.health_args"]
+    assert "{model}" in asr_params["backend.health_args"]
+
+    assert turn_detector_params["audio_topic"] == vad_params["input_topic"]
+    assert turn_detector_params["expected_stream_id"] == vad_params["input_stream_id"]
+    assert turn_detector_params["vad_topic"] == "voice/vad_state"
+    assert turn_detector_params["turn_context_topic"] == "conversation/turn_context"
+    assert turn_detector_params["output_topic"] == "voice/turn_end"
+    assert turn_detector_params["backend.name"] == "smart_turn_onnx"
+    assert turn_detector_params["backend.model_path"] == str(
+        tmp_path / "models" / "turn_detector" / "smart_turn.onnx"
+    )
+    assert turn_detector_params["backend.execution_provider"] == "cpu"
+    assert turn_detector_params["backend.command"] == str(
+        tmp_path / "bin" / "smart_turn_worker"
+    )
+    assert (
+        turn_detector_params["backend.workspace_dir"]
+        == "/tmp/fluent_audio/fa_turn_detector/so101_voice_frontend"
+    )
+    assert "{audio}" in turn_detector_params["backend.args"]
+    assert "{audio}" not in turn_detector_params["backend.health_args"]
+    assert "{model}" in turn_detector_params["backend.health_args"]
+    assert "{provider}" in turn_detector_params["backend.health_args"]
+
+
+def test_so101_voice_frontend_profile_requires_asr_and_turn_detector_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+    _set_kws_frontend_env(monkeypatch, tmp_path)
+
+    with pytest.raises(
+        RuntimeError,
+        match="environment variable FLUENT_AUDIO_ASR_MODEL_PATH is required",
+    ):
+        load_system_config(
+            "${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml"
+        )
+
+
 @pytest.mark.parametrize(
     ("profile_path", "group_id"),
     (
@@ -445,6 +567,7 @@ def test_voice_frontend_profiles_bind_ai_consumers_to_resampled_mic_stream(
         ("config/profiles/so101.yaml", "ai"),
         ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
         ("config/profiles/so101_kws_frontend.yaml", "voice_frontend"),
+        ("config/profiles/so101_voice_frontend.yaml", "voice_frontend"),
     ),
 )
 def test_vad_profiles_carry_external_worker_contract_in_system_config(
@@ -471,6 +594,7 @@ def test_vad_profiles_carry_external_worker_contract_in_system_config(
         ("config/profiles/so101.yaml", "ai"),
         ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
         ("config/profiles/so101_kws_frontend.yaml", "voice_frontend"),
+        ("config/profiles/so101_voice_frontend.yaml", "voice_frontend"),
     ),
 )
 def test_kws_profiles_carry_external_worker_contract_in_system_config(
@@ -507,6 +631,7 @@ def test_kws_profiles_carry_external_worker_contract_in_system_config(
         ("config/fluent_audio_system.sample.yaml", "ai"),
         ("config/profiles/so101.yaml", "ai"),
         ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
+        ("config/profiles/so101_voice_frontend.yaml", "voice_frontend"),
     ),
 )
 def test_asr_profiles_carry_whisper_worker_contract_in_system_config(
@@ -542,6 +667,7 @@ def test_asr_profiles_carry_whisper_worker_contract_in_system_config(
         ("config/fluent_audio_system.sample.yaml", "ai"),
         ("config/profiles/so101.yaml", "ai"),
         ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
+        ("config/profiles/so101_voice_frontend.yaml", "voice_frontend"),
     ),
 )
 def test_turn_detector_profiles_carry_external_worker_contract_in_system_config(
@@ -613,6 +739,28 @@ def test_required_packages_for_so101_kws_frontend_profile(
         "fa_resample",
         "fa_vad",
         "fa_kws",
+    ]
+
+
+def test_required_packages_for_so101_voice_frontend_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_fluent_audio_system_share(monkeypatch)
+
+    packages = load_required_packages(
+        "${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml"
+    )
+
+    assert packages == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_in",
+        "fa_sample_format",
+        "fa_resample",
+        "fa_vad",
+        "fa_kws",
+        "fa_asr",
+        "fa_turn_detector",
     ]
 
 

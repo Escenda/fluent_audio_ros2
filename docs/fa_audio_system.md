@@ -86,6 +86,7 @@ SO101 の VAD + KWS frontend は `fluent_audio_system/config/profiles/so101_kws_
 4. `fa_turn_detector` が `voice/turn_end` を publish する
 
 この経路では `fa_vad` の入力 stream と、`fa_kws` / `fa_asr` / `fa_turn_detector` が処理する audio stream を一致させる必要があります。`VadState.source_id` / `stream_id` が一致しない場合、後段 node はその VAD state を gate / finalize / turn-end trigger として使いません。ASR / Turn Detector の backend command、model path、provider、health args は、それらを enabled にする FluentAudio system config 側に閉じます。
+SO101 で VAD/KWS/ASR/TD をまとめて起動する package-owned profile は `fluent_audio_system/config/profiles/so101_voice_frontend.yaml` です。この profile は `conversation/turn_context` の publisher を含まないため、wake word 後の session / turn 制御は `src/apps/dialogue` などの上位 app が担います。
 
 ### 5.5 録音（WAV）
 1. `fa_in`と`fa_record`を起動
