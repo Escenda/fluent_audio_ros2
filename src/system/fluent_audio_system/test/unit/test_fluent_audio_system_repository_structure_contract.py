@@ -31,6 +31,14 @@ AI_TEST_TRACE_PREFIXES = {
 IO_TEST_TRACE_PREFIXES = {
     "io/sinks/fa_out": "FA-OUT",
     "io/sources/fa_in": "FA-IN",
+    "io/utilities/fa_record": "FA-RECORD",
+    "io/utilities/fa_stream": "FA-STREAM",
+}
+INTERFACE_TEST_TRACE_PREFIXES = {
+    "interfaces/fa_interfaces": "FA-INTERFACES",
+}
+APP_TEST_TRACE_PREFIXES = {
+    "apps/voice_command/fa_voice_command_router": "FA-VOICE-COMMAND-ROUTER",
 }
 STREAMING_TEST_TRACE_PREFIXES = {
     "streaming/fa_chunk_overlap": "FA-CHUNK-OVERLAP",
@@ -192,6 +200,44 @@ def test_core_io_packages_have_spec_to_test_traceability() -> None:
     missing_traceability: list[str] = []
 
     for package_relative_path, trace_prefix in IO_TEST_TRACE_PREFIXES.items():
+        package_dir = SRC_ROOT / package_relative_path
+        test_design_path = package_dir / "docs" / "テスト設計.md"
+        mapped_lines = [
+            line
+            for line in test_design_path.read_text(encoding="utf-8").splitlines()
+            if f"`{trace_prefix}-TC-" in line
+            and "->" in line
+            and f"`{trace_prefix}-SPEC-" in line
+        ]
+        if not mapped_lines:
+            missing_traceability.append(package_relative_path)
+
+    assert missing_traceability == []
+
+
+def test_interface_packages_have_spec_to_test_traceability() -> None:
+    missing_traceability: list[str] = []
+
+    for package_relative_path, trace_prefix in INTERFACE_TEST_TRACE_PREFIXES.items():
+        package_dir = SRC_ROOT / package_relative_path
+        test_design_path = package_dir / "docs" / "テスト設計.md"
+        mapped_lines = [
+            line
+            for line in test_design_path.read_text(encoding="utf-8").splitlines()
+            if f"`{trace_prefix}-TC-" in line
+            and "->" in line
+            and f"`{trace_prefix}-SPEC-" in line
+        ]
+        if not mapped_lines:
+            missing_traceability.append(package_relative_path)
+
+    assert missing_traceability == []
+
+
+def test_app_packages_have_spec_to_test_traceability() -> None:
+    missing_traceability: list[str] = []
+
+    for package_relative_path, trace_prefix in APP_TEST_TRACE_PREFIXES.items():
         package_dir = SRC_ROOT / package_relative_path
         test_design_path = package_dir / "docs" / "テスト設計.md"
         mapped_lines = [
