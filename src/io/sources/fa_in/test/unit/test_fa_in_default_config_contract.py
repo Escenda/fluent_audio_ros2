@@ -281,12 +281,18 @@ def test_alsa_name_selector_fails_closed_on_duplicate_display_names() -> None:
 
 def test_backend_implementation_files_are_ros_free() -> None:
     package_root = Path(__file__).parents[2]
-    backend_paths = sorted((package_root / "src" / "backends").glob("*.cpp"))
+    backend_paths = sorted(
+        [
+            *(package_root / "include" / "fa_in" / "backends").glob("*.hpp"),
+            *(package_root / "src" / "backends").glob("*.cpp"),
+        ]
+    )
     forbidden_tokens = (
         "rclcpp",
         "fa_interfaces",
         "diagnostic_msgs",
         "std_msgs/msg",
+        "rosidl",
     )
 
     assert backend_paths

@@ -280,14 +280,14 @@ def test_missing_sink_backend_fails_closed_while_running() -> None:
     assert "return false;" in is_backend_running
 
 
-def test_alsa_backend_files_are_ros_free() -> None:
+def test_backend_implementation_files_are_ros_free() -> None:
     package_root = Path(__file__).parents[2]
-    backend_paths = [
-        package_root / "include" / "fa_out" / "backends" / "sink_backend.hpp",
-        package_root / "include" / "fa_out" / "backends" / "alsa_playback_backend.hpp",
-        package_root / "src" / "backends" / "sink_backend.cpp",
-        package_root / "src" / "backends" / "alsa_playback_backend.cpp",
-    ]
+    backend_paths = sorted(
+        [
+            *(package_root / "include" / "fa_out" / "backends").glob("*.hpp"),
+            *(package_root / "src" / "backends").glob("*.cpp"),
+        ]
+    )
     forbidden_tokens = [
         "rclcpp",
         "fa_interfaces",
@@ -296,8 +296,9 @@ def test_alsa_backend_files_are_ros_free() -> None:
         "rosidl",
     ]
 
-    for backend_path in backend_paths:
-        backend_text = backend_path.read_text(encoding="utf-8")
+    assert backend_paths
+    for path in backend_paths:
+        backend_text = path.read_text(encoding="utf-8")
         for token in forbidden_tokens:
             assert token not in backend_text
 
