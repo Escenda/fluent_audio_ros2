@@ -2,7 +2,7 @@
 <package format="3">
   <name>fa_kws</name>
   <version>0.1.0</version>
-  <description>Offline keyword spotting node for FluentAudio using sherpa-onnx C API.</description>
+  <description>Offline keyword spotting node for FluentAudio using an explicit external sherpa-onnx worker backend.</description>
   <maintainer email="maintainer@example.com">FluentAudio</maintainer>
   <license>MIT</license>
 

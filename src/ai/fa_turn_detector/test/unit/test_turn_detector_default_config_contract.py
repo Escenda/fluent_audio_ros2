@@ -837,6 +837,23 @@ def test_turn_detector_node_does_not_import_onnxruntime() -> None:
     assert "subprocess.run" in backend_source
 
 
+def test_turn_detector_onnxruntime_import_stays_inside_worker_runtime() -> None:
+    package_root = Path(__file__).parents[2]
+    package_py_root = package_root / "fa_turn_detector_py"
+    runtime_path = package_py_root / "backends" / "smart_turn_onnx_runtime.py"
+    violations: list[str] = []
+
+    for source_path in sorted(package_py_root.rglob("*.py")):
+        source = source_path.read_text(encoding="utf-8")
+        if source_path == runtime_path:
+            assert "import onnxruntime as ort" in source
+            continue
+        if "import onnxruntime" in source or "from onnxruntime" in source:
+            violations.append(str(source_path.relative_to(package_root)))
+
+    assert violations == []
+
+
 def test_smart_turn_backend_external_worker_contract(tmp_path: Path) -> None:
     backend = _smart_turn_backend(tmp_path)
     audio = np.full(backend.sample_rate, 0.1, dtype=np.float32)

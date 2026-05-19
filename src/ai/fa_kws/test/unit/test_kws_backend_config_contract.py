@@ -1,9 +1,18 @@
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import yaml
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
+
+
+def test_package_metadata_describes_external_worker_backend_boundary() -> None:
+    description = ET.parse(PACKAGE_ROOT / "package.xml").getroot().findtext("description")
+
+    assert description is not None
+    assert "external sherpa-onnx worker backend" in description
+    assert "C API" not in description
 
 
 def test_default_config_requires_explicit_backend_and_execution_provider() -> None:
