@@ -1,5 +1,6 @@
 import importlib
 from pathlib import Path
+import re
 import sys
 
 PACKAGE_ROOT = Path(__file__).parents[2]
@@ -165,6 +166,34 @@ def test_package_category_map_matches_repository_layout() -> None:
             continue
 
         assert expected_category in package_categories[package_name]
+
+
+def _processing_readme_package_status() -> dict[str, set[str]]:
+    readme_path = SRC_ROOT / "processing" / "README.md"
+    category_packages: dict[str, set[str]] = {}
+    for line in readme_path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("| `"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        category_cell = cells[0]
+        packages_cell = cells[1]
+        if not category_cell.endswith("/`"):
+            continue
+        category = category_cell.removeprefix("`").removesuffix("/`")
+        category_packages[category] = set(re.findall(r"`([^`]+)`", packages_cell))
+    return category_packages
+
+
+def test_processing_readme_package_status_matches_buildable_processing_packages() -> None:
+    expected_packages_by_category: dict[str, set[str]] = {}
+
+    for package_xml in sorted((SRC_ROOT / "processing").glob("*/*/package.xml")):
+        category, package_name = package_xml.relative_to(SRC_ROOT / "processing").parts[:2]
+        expected_packages_by_category.setdefault(category, set()).add(package_name)
+
+    assert _processing_readme_package_status() == expected_packages_by_category
 
 
 def test_buildable_packages_have_standard_documentation_layout() -> None:

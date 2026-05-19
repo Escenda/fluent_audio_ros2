@@ -43,10 +43,10 @@ and must not be counted as functional implementation coverage.
 
 | Category | Current ROS 2 packages | Status |
 | --- | --- | --- |
-| `format/` | `fa_resample`, `fa_sample_format`, `fa_bit_depth`, `fa_channel_convert`, `fa_interleave` | declared ROS 2 packages with package-local contracts |
+| `format/` | `fa_resample`, `fa_sample_format`, `fa_bit_depth`, `fa_channel_convert`, `fa_interleave`, `fa_decode`, `fa_encode` | declared ROS 2 packages with package-local contracts |
 | `dynamics/` | `fa_gain`, `fa_normalize`, `fa_compressor`, `fa_limiter`, `fa_expander`, `fa_noise_gate`, `fa_agc` | declared ROS 2 packages with package-local contracts |
 | `frequency/` | `fa_eq`, `fa_high_pass`, `fa_low_pass`, `fa_band_pass`, `fa_notch`, `fa_deesser` | declared ROS 2 packages with package-local contracts |
-| `temporal/` | `fa_delay`, `fa_echo`, `fa_reverb`, `fa_trim`, `fa_silence_removal`, `fa_fade`, `fa_window` | declared ROS 2 packages with package-local contracts |
+| `temporal/` | `fa_delay`, `fa_echo`, `fa_reverb`, `fa_trim`, `fa_silence_removal`, `fa_fade`, `fa_window`, `fa_crossfade` | declared ROS 2 packages with package-local contracts |
 | `correction/` | `fa_aec_linear`, `fa_aec_nn`, `fa_denoise`, `fa_declick`, `fa_hum`, `fa_dc_offset_removal` | declared ROS 2 packages with package-local contracts |
 | `spatial/` | `fa_pan`, `fa_stereo_widening`, `fa_downmix`, `fa_upmix`, `fa_beamforming` | declared ROS 2 packages with package-local contracts |
 | `analysis/` | `fa_cqt`, `fa_log_mel`, `fa_loudness`, `fa_mfcc`, `fa_onset`, `fa_pitch`, `fa_stft`, `fa_tempo` | declared ROS 2 packages with package-local contracts |
