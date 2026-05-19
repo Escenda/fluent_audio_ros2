@@ -16,6 +16,18 @@ PACKAGE_ROOT = Path(__file__).parents[2]
 RUNTIME_BACKEND_PACKAGE_CASES = (
     ("io", "fa_in", "fa_in_node"),
     ("io", "fa_out", "fa_out_node"),
+    ("format", "fa_encode", "fa_encode_node"),
+    ("format", "fa_decode", "fa_decode_node"),
+    ("correction", "fa_aec_nn", "fa_aec_nn_node"),
+    ("correction", "fa_denoise", "fa_denoise_node"),
+    ("analysis", "fa_cqt", "fa_cqt_node"),
+    ("analysis", "fa_log_mel", "fa_log_mel_node"),
+    ("analysis", "fa_loudness", "fa_loudness_node"),
+    ("analysis", "fa_mfcc", "fa_mfcc_node"),
+    ("analysis", "fa_onset", "fa_onset_node"),
+    ("analysis", "fa_pitch", "fa_pitch_node"),
+    ("analysis", "fa_stft", "fa_stft_node"),
+    ("analysis", "fa_tempo", "fa_tempo_node"),
     ("ai", "fa_vad", "fa_vad_node"),
     ("ai", "fa_kws", "fa_kws_node"),
     ("ai", "fa_asr", "fa_asr_node"),
@@ -27,6 +39,31 @@ RUNTIME_BACKEND_PACKAGE_CASES = (
 
 def _valid_system() -> dict[str, float]:
     return {"default_start_delay": 0.0, "inter_group_delay": 0.0}
+
+
+def _default_backend_name(package_name: str) -> str:
+    return {
+        "fa_in": "alsa_capture",
+        "fa_out": "alsa_playback",
+        "fa_encode": "external_codec_encoder",
+        "fa_decode": "external_codec_decoder",
+        "fa_aec_nn": "passthrough",
+        "fa_denoise": "passthrough",
+        "fa_cqt": "internal_cqt",
+        "fa_log_mel": "internal_log_mel",
+        "fa_loudness": "internal_frame_meter",
+        "fa_mfcc": "internal_mfcc",
+        "fa_onset": "internal_spectral_flux",
+        "fa_pitch": "internal_autocorrelation",
+        "fa_stft": "internal_stft",
+        "fa_tempo": "internal_onset_autocorrelation",
+        "fa_vad": "silero",
+        "fa_kws": "sherpa_onnx_kws",
+        "fa_asr": "local_command",
+        "fa_turn_detector": "smart_turn_onnx",
+        "fa_audio_embedding": "external_worker",
+        "fa_tts": "pyopenjtalk",
+    }[package_name]
 
 
 def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
@@ -943,7 +980,10 @@ def test_generation_routing_group_accepts_generation_and_routing_packages(
 
 def test_analysis_group_accepts_non_ai_feature_package(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_log_mel.yaml"
-    params_file.write_text("fa_log_mel:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text(
+        "fa_log_mel:\n  ros__parameters:\n    backend.name: internal_log_mel\n",
+        encoding="utf-8",
+    )
 
     spec = parse_system_config(
         {
@@ -1462,6 +1502,7 @@ def test_inline_parameter_share_path_expansion(
                             "node_name": "fa_denoise",
                             "params_file": "${share:params_pkg}/fa_denoise.yaml",
                             "parameters": {
+                                "backend.name": "passthrough",
                                 "dtln.model_1_path": "${share:fa_denoise}/models/model_1.onnx",
                                 "model_paths": [
                                     "${share:fa_denoise}/models/model_1.onnx",
@@ -1476,6 +1517,7 @@ def test_inline_parameter_share_path_expansion(
     )
 
     assert spec.groups[0].nodes[0].parameters == {
+        "backend.name": "passthrough",
         "dtln.model_1_path": str(tmp_path / "fa_denoise" / "models" / "model_1.onnx"),
         "model_paths": [
             str(tmp_path / "fa_denoise" / "models" / "model_1.onnx"),
