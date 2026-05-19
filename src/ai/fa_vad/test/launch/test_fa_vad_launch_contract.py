@@ -34,6 +34,7 @@ def test_default_config_requires_explicit_backend_and_external_worker_command() 
     assert params["input_stream_id"] == "audio/raw/mic"
     assert params["input_topic"] != params["input_stream_id"]
     assert params["backend.command"] == ""
+    assert params["backend.frame_ms"] == 20
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""
     assert params["expected_source_id"] == ""

@@ -41,11 +41,13 @@ class FaVadNode(Node):
         threshold_start = self._double_parameter("threshold_start")
         threshold_end = self._double_parameter("threshold_end")
         hangover_ms = self._integer_parameter("hangover_ms")
+        backend_frame_ms = self._integer_parameter("backend.frame_ms")
         validate_node_config(
             target_sample_rate=self._target_sample_rate,
             threshold_start=threshold_start,
             threshold_end=threshold_end,
             hangover_ms=hangover_ms,
+            backend_frame_ms=backend_frame_ms,
         )
 
         model_path = self._string_parameter("backend.model_path").strip()
@@ -82,6 +84,7 @@ class FaVadNode(Node):
             threshold_start=threshold_start,
             threshold_end=threshold_end,
             hangover_ms=hangover_ms,
+            frame_ms=backend_frame_ms,
             model_path=model_path,
             execution_provider=execution_provider,
             command=command,
@@ -120,6 +123,7 @@ class FaVadNode(Node):
         self.declare_parameter("hangover_ms", Parameter.Type.INTEGER)
 
         self.declare_parameter("backend.name", Parameter.Type.STRING)
+        self.declare_parameter("backend.frame_ms", Parameter.Type.INTEGER)
         self.declare_parameter("backend.model_path", Parameter.Type.STRING)
         self.declare_parameter("backend.execution_provider", Parameter.Type.STRING)
         self.declare_parameter("backend.command", Parameter.Type.STRING)
@@ -161,6 +165,7 @@ class FaVadNode(Node):
         threshold_start: float,
         threshold_end: float,
         hangover_ms: int,
+        frame_ms: int,
         model_path: str,
         execution_provider: str,
         command: str,
@@ -176,7 +181,7 @@ class FaVadNode(Node):
             raise RuntimeError(f"unsupported VAD backend.name: {backend_name}")
         return SileroVAD(
             sample_rate=self._target_sample_rate,
-            frame_ms=20,
+            frame_ms=frame_ms,
             hangover_ms=hangover_ms,
             threshold_start=threshold_start,
             threshold_end=threshold_end,

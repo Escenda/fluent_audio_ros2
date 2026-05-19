@@ -15,6 +15,7 @@ External Silero VAD process。
 - `Float32MonoWindow`
 - mono raw float32le bytes
 - target sample rate
+- explicit Silero decision frame duration in `backend.frame_ms`
 - local `.f32` path passed as `{audio}`
 - model path passed as `{model}`
 - execution provider string passed as `{provider}`
@@ -29,6 +30,9 @@ External Silero VAD process。
 ## Failure Conditions
 
 - `backend.model_path` が空
+- `backend.frame_ms <= 0`
+- `hangover_ms < backend.frame_ms`
+- `hangover_ms` が `backend.frame_ms` で割り切れない
 - `backend.model_path` が存在しない local torch.hub repository directory を指す
 - `backend.model_path` が `hubconf.py` を持たない directory を指す
 - `backend.execution_provider` が空
@@ -44,6 +48,8 @@ External Silero VAD process。
 - probability が `[0.0, 1.0]` の範囲外
 
 `backend.model_path` は必須です。local Silero torch hub repository directory を指し、起動時に `hubconf.py` の存在を検証します。空の場合や `~/.cache/torch/hub` などを推測する fallback はありません。online download fallback はありません。`backend.execution_provider` は `cpu`, `cuda`, `cuda:<index>` のいずれかを明示します。
+
+`backend.frame_ms` は Silero backend の decision frame duration です。node はこの値を ROS integer parameter として必須扱いで読み、`hangover_ms` が `backend.frame_ms` 以上かつ割り切れることを起動時に検証します。未設定・不正値を 20ms に丸める fallback はありません。
 
 `backend.command` は ROS2 node と異なる Python / venv / container runtime を指すための境界です。path 指定された command は起動時に実体解決され、実行不能なら起動失敗します。command が失敗しても別 backend へ fallback しません。
 

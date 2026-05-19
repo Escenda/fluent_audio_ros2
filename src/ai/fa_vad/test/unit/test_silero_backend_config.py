@@ -267,6 +267,7 @@ def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""
     assert params["backend.command"] == ""
+    assert params["backend.frame_ms"] == 20
     assert params["expected_source_id"] == ""
     assert params["qos.depth"] == 10
     assert params["qos.reliable"] is False
@@ -276,19 +277,24 @@ def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     assert "{sample_rate}" in params["backend.args"]
     assert "silero" not in params
     assert '"backend.args",' in source
+    assert '"backend.frame_ms",' in source
     assert "Parameter.Type.STRING_ARRAY" in source
+    assert 'declare_parameter("backend.frame_ms", Parameter.Type.INTEGER)' in source
     assert 'declare_parameter("input_topic", Parameter.Type.STRING)' in source
     assert 'declare_parameter("input_stream_id", Parameter.Type.STRING)' in source
     forbidden_input_topic_default = 'declare_parameter("input_topic", ' + '"audio/frame")'
     forbidden_backend_name_default = 'declare_parameter("backend.name", ' + '"")'
+    forbidden_frame_ms_default = 'declare_parameter("backend.frame_ms", ' + "20)"
     forbidden_qos_depth_default = 'declare_parameter("qos.depth", ' + "10)"
     assert forbidden_input_topic_default not in source
     assert forbidden_backend_name_default not in source
+    assert forbidden_frame_ms_default not in source
     assert forbidden_qos_depth_default not in source
     for required_example_key in (
         "publish_vad_state",
         "publish_probability",
         "backend.timeout_sec",
+        "backend.frame_ms",
         "backend.workspace_dir",
         "backend.cleanup_audio_files",
         "log_speech_events",
@@ -323,6 +329,7 @@ def test_vad_node_backend_name_validation_rejects_missing_and_unknown(
                 threshold_start=0.5,
                 threshold_end=0.1,
                 hangover_ms=300,
+                frame_ms=20,
                 model_path="/tmp/model",
                 execution_provider="cpu",
                 command="/tmp/worker",
@@ -342,6 +349,7 @@ def test_vad_node_backend_name_validation_rejects_missing_and_unknown(
                 threshold_start=0.5,
                 threshold_end=0.1,
                 hangover_ms=300,
+                frame_ms=20,
                 model_path="/tmp/model",
                 execution_provider="cpu",
                 command="/tmp/worker",
@@ -537,6 +545,12 @@ def test_vad_node_backend_runtime_failure_is_fail_closed(
         ({"threshold_end": 1.1}, "threshold_end must be in \\[0.0, 1.0\\]"),
         ({"threshold_start": 0.2, "threshold_end": 0.8}, "threshold_end must be <= threshold_start"),
         ({"hangover_ms": 0}, "hangover_ms must be > 0"),
+        ({"backend_frame_ms": 0}, "backend.frame_ms must be > 0"),
+        ({"hangover_ms": 10, "backend_frame_ms": 20}, "hangover_ms must be >= backend.frame_ms"),
+        (
+            {"hangover_ms": 25, "backend_frame_ms": 20},
+            "hangover_ms must be divisible by backend.frame_ms",
+        ),
     ),
 )
 def test_vad_node_rejects_invalid_runtime_config_without_fallback(
@@ -548,6 +562,7 @@ def test_vad_node_rejects_invalid_runtime_config_without_fallback(
         "threshold_start": 0.5,
         "threshold_end": 0.1,
         "hangover_ms": 300,
+        "backend_frame_ms": 20,
     }
     base_kwargs.update(kwargs)
 

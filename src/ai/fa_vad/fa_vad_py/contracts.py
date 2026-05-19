@@ -9,6 +9,7 @@ def validate_node_config(
     threshold_start: float,
     threshold_end: float,
     hangover_ms: int,
+    backend_frame_ms: int,
 ) -> None:
     if target_sample_rate <= 0:
         raise RuntimeError("target_sample_rate must be > 0")
@@ -20,6 +21,12 @@ def validate_node_config(
         raise RuntimeError("threshold_end must be <= threshold_start")
     if hangover_ms <= 0:
         raise RuntimeError("hangover_ms must be > 0")
+    if backend_frame_ms <= 0:
+        raise RuntimeError("backend.frame_ms must be > 0")
+    if hangover_ms < backend_frame_ms:
+        raise RuntimeError("hangover_ms must be >= backend.frame_ms")
+    if hangover_ms % backend_frame_ms != 0:
+        raise RuntimeError("hangover_ms must be divisible by backend.frame_ms")
 
 
 def validate_qos_depth(depth: int) -> int:

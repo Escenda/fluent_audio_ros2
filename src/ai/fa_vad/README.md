@@ -39,6 +39,7 @@ fa_vad:
     hangover_ms: 300
     expected_source_id: "mic0"
     backend.name: "silero"
+    backend.frame_ms: 20
     backend.model_path: "~/.cache/torch/hub/snakers4_silero-vad_master"
     backend.execution_provider: "cpu"
     backend.command: "/ros2_ws/install/fa_vad/lib/fa_vad/silero_vad_worker"
