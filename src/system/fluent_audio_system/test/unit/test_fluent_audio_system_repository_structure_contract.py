@@ -86,7 +86,13 @@ PROCESSING_TEST_TRACE_PREFIXES = {
     "processing/format/fa_resample": "FA-RESAMPLE",
     "processing/format/fa_sample_format": "FA-SAMPLE-FORMAT",
     "processing/generation/fa_tts": "FA-TTS",
+    "processing/routing/fa_bus_router": "FA-BUS-ROUTER",
+    "processing/routing/fa_ducking": "FA-DUCKING",
+    "processing/routing/fa_loopback": "FA-LOOPBACK",
+    "processing/routing/fa_mix": "FA-MIX",
+    "processing/routing/fa_monitor_mix": "FA-MONITOR-MIX",
     "processing/routing/fa_patchbay": "FA-PATCHBAY",
+    "processing/routing/fa_sidechain": "FA-SIDECHAIN",
     "processing/temporal/fa_reverb": "FA-REVERB",
 }
 
