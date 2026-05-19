@@ -1,9 +1,15 @@
+from __future__ import annotations
+
 import shutil
 import subprocess
 from pathlib import Path
+from typing import TypeAlias
 
 import pytest
 import yaml
+
+YamlValue: TypeAlias = str | int | bool | float | None | list["YamlValue"] | dict[str, "YamlValue"]
+YamlConfig: TypeAlias = dict[str, YamlValue]
 
 
 def _run_fa_out_launch(*launch_args: str) -> str:
@@ -22,32 +28,63 @@ def _run_fa_out_launch(*launch_args: str) -> str:
     return result.stdout
 
 
-def _write_file_backend_config(path: Path, target: str, *, overwrite_enabled: bool) -> Path:
-    config = {
-        "fa_out": {
-            "ros__parameters": {
-                "backend.name": "pcm_file_writer",
-                "file.path": target,
-                "input_topic": "fa_out/file_input",
-                "input_stream_id": "audio/file/output",
-                "playback_done_topic": "fa_out/file_playback_done",
-                "playback_control_service": "fa_out/file_playback_control",
-                "audio.encoding": "PCM16LE",
-                "audio.sample_rate": 16000,
-                "audio.channels": 1,
-                "audio.bit_depth": 16,
-                "audio.chunk_duration_ms": 1,
-                "queue.max_frames": 32,
-                "audio.qos.depth": 10,
-                "audio.qos.reliable": True,
-                "lifecycle.qos.depth": 10,
-                "lifecycle.qos.reliable": True,
-                "overwrite.enabled": overwrite_enabled,
-            }
-        }
-    }
+def _write_config(path: Path, params: YamlConfig) -> Path:
+    config: YamlConfig = {"fa_out": {"ros__parameters": params}}
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return path
+
+
+def _write_file_backend_config(path: Path, target: str, *, overwrite_enabled: bool) -> Path:
+    params: YamlConfig = {
+        "backend.name": "pcm_file_writer",
+        "file.path": target,
+        "input_topic": "fa_out/file_input",
+        "input_stream_id": "audio/file/output",
+        "playback_done_topic": "fa_out/file_playback_done",
+        "playback_control_service": "fa_out/file_playback_control",
+        "audio.encoding": "PCM16LE",
+        "audio.sample_rate": 16000,
+        "audio.channels": 1,
+        "audio.bit_depth": 16,
+        "audio.chunk_duration_ms": 1,
+        "queue.max_frames": 32,
+        "audio.qos.depth": 10,
+        "audio.qos.reliable": True,
+        "lifecycle.qos.depth": 10,
+        "lifecycle.qos.reliable": True,
+        "overwrite.enabled": overwrite_enabled,
+    }
+    return _write_config(path, params)
+
+
+def _write_network_backend_config(
+    path: Path,
+    *,
+    endpoint_uri: str,
+    transport_identity: str,
+    max_packet_bytes: int,
+) -> Path:
+    params: YamlConfig = {
+        "backend.name": "network_pcm_sender",
+        "endpoint.uri": endpoint_uri,
+        "transport.identity": transport_identity,
+        "network.max_packet_bytes": max_packet_bytes,
+        "input_topic": "fa_out/network_input",
+        "input_stream_id": "audio/network/output",
+        "playback_done_topic": "fa_out/network_playback_done",
+        "playback_control_service": "fa_out/network_playback_control",
+        "audio.encoding": "PCM16LE",
+        "audio.sample_rate": 16000,
+        "audio.channels": 1,
+        "audio.bit_depth": 16,
+        "audio.chunk_duration_ms": 1,
+        "queue.max_frames": 32,
+        "audio.qos.depth": 10,
+        "audio.qos.reliable": True,
+        "lifecycle.qos.depth": 10,
+        "lifecycle.qos.reliable": True,
+    }
+    return _write_config(path, params)
 
 
 def test_default_launch_fails_closed_without_explicit_sink_binding() -> None:
@@ -97,3 +134,63 @@ def test_file_backend_launch_fails_closed_when_overwrite_disabled_target_exists(
 
     assert "process has died" in output
     assert "overwrite.enabled=false" in output
+
+
+def test_network_backend_launch_fails_closed_when_endpoint_uri_is_missing(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_network_backend_config(
+        tmp_path / "missing_endpoint_uri.yaml",
+        endpoint_uri="",
+        transport_identity="audio/network/transport",
+        max_packet_bytes=320,
+    )
+    output = _run_fa_out_launch("node_name:=fa_out", f"config_file:={config_path}")
+
+    assert "process has died" in output
+    assert "endpoint.uri is required for backend.name=network_pcm_sender" in output
+
+
+def test_network_backend_launch_fails_closed_when_transport_identity_is_missing(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_network_backend_config(
+        tmp_path / "missing_transport_identity.yaml",
+        endpoint_uri="udp://127.0.0.1:40100",
+        transport_identity="",
+        max_packet_bytes=320,
+    )
+    output = _run_fa_out_launch("node_name:=fa_out", f"config_file:={config_path}")
+
+    assert "process has died" in output
+    assert "transport.identity is required for backend.name=network_pcm_sender" in output
+
+
+def test_network_backend_launch_fails_closed_when_endpoint_uri_is_invalid(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_network_backend_config(
+        tmp_path / "invalid_endpoint_uri.yaml",
+        endpoint_uri="tcp://127.0.0.1:40100",
+        transport_identity="audio/network/transport",
+        max_packet_bytes=320,
+    )
+    output = _run_fa_out_launch("node_name:=fa_out", f"config_file:={config_path}")
+
+    assert "process has died" in output
+    assert "endpoint.uri must use udp://host:port" in output
+
+
+def test_network_backend_launch_fails_closed_when_max_packet_bytes_is_not_frame_aligned(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_network_backend_config(
+        tmp_path / "unaligned_max_packet_bytes.yaml",
+        endpoint_uri="udp://127.0.0.1:40100",
+        transport_identity="audio/network/transport",
+        max_packet_bytes=3,
+    )
+    output = _run_fa_out_launch("node_name:=fa_out", f"config_file:={config_path}")
+
+    assert "process has died" in output
+    assert "network.max_packet_bytes must be divisible by expected frame byte size" in output
