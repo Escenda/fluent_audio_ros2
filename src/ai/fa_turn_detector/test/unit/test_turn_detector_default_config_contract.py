@@ -557,6 +557,48 @@ def test_turn_detector_rejects_unbound_vad_identity(
         sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
 
 
+def test_turn_context_replacement_clears_audio_buffer_and_vad_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = Path(__file__).parents[2]
+    shutdown_calls: list[bool] = []
+    _install_turn_detector_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(package_root))
+    sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+    try:
+        module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
+        node = module.FaTurnDetectorNode.__new__(module.FaTurnDetectorNode)
+        node.audio_buffer = deque([0.1, 0.2, 0.3], maxlen=10)
+        node.is_speech = True
+        node._active_session_id = "session-a"
+        node._active_user_turn_id = 1
+        node._context_active = True
+
+        same_turn = _FakeTurnContext()
+        same_turn.active = True
+        same_turn.session_id = "session-a"
+        same_turn.user_turn_id = 1
+        node.on_turn_context(same_turn)
+
+        assert list(node.audio_buffer) == [0.1, 0.2, 0.3]
+        assert node.is_speech is True
+
+        next_turn = _FakeTurnContext()
+        next_turn.active = True
+        next_turn.session_id = "session-a"
+        next_turn.user_turn_id = 2
+        node.on_turn_context(next_turn)
+
+        assert list(node.audio_buffer) == []
+        assert node.is_speech is False
+        assert node._active_session_id == "session-a"
+        assert node._active_user_turn_id == 2
+        assert node._context_active is True
+    finally:
+        sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+
 def test_turn_detector_node_source_does_not_hide_parameter_type_conversion() -> None:
     package_root = Path(__file__).parents[2]
     source = (

@@ -189,11 +189,29 @@ class FaTurnDetectorNode(Node):
         return parameter.value
 
     def on_turn_context(self, msg: TurnContext) -> None:
-        self._active_session_id = str(msg.session_id)
-        self._active_user_turn_id = int(msg.user_turn_id)
-        self._context_active = bool(msg.active) and bool(msg.session_id)
-        if not self._context_active:
+        context_active = bool(msg.active) and bool(msg.session_id)
+        if not context_active:
+            self._active_session_id = ""
+            self._active_user_turn_id = 0
+            self._context_active = False
             self.audio_buffer.clear()
+            self.is_speech = False
+            return
+
+        session_id = str(msg.session_id)
+        user_turn_id = int(msg.user_turn_id)
+        turn_changed = (
+            not self._context_active
+            or self._active_session_id != session_id
+            or self._active_user_turn_id != user_turn_id
+        )
+        if turn_changed:
+            self.audio_buffer.clear()
+            self.is_speech = False
+
+        self._active_session_id = session_id
+        self._active_user_turn_id = user_turn_id
+        self._context_active = True
 
     def on_audio(self, msg: AudioFrame) -> None:
         if not self._context_active:

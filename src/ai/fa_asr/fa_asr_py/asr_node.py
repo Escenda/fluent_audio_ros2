@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import math
 import queue
 import threading
 from dataclasses import dataclass
@@ -44,9 +45,9 @@ class FaAsrNode(Node):
         self.expected_stream_id = self._string_parameter("expected_stream_id").strip()
         if not self.expected_stream_id:
             raise RuntimeError("expected_stream_id is required")
-        self.target_sample_rate = self._integer_parameter("target_sample_rate")
-        self.min_audio_sec = self._double_parameter("min_audio_sec")
-        self.silence_timeout_sec = self._double_parameter("silence_timeout_sec")
+        self.target_sample_rate = self._positive_integer_parameter("target_sample_rate")
+        self.min_audio_sec = self._positive_double_parameter("min_audio_sec")
+        self.silence_timeout_sec = self._positive_double_parameter("silence_timeout_sec")
         self.finalize_on_vad_end = self._bool_parameter("finalize_on_vad_end")
         self.finalize_on_context_inactive = self._bool_parameter(
             "finalize_on_context_inactive"
@@ -213,6 +214,12 @@ class FaAsrNode(Node):
             raise RuntimeError(f"{name} must be an integer")
         return value
 
+    def _positive_integer_parameter(self, name: str) -> int:
+        value = FaAsrNode._integer_parameter(self, name)
+        if value <= 0:
+            raise RuntimeError(f"{name} must be greater than zero")
+        return value
+
     def _double_parameter(self, name: str) -> float:
         try:
             parameter = self.get_parameter(name)
@@ -221,6 +228,12 @@ class FaAsrNode(Node):
             raise RuntimeError(f"{name} is required") from exc
         if parameter.type_ != Parameter.Type.DOUBLE:
             raise RuntimeError(f"{name} must be a double")
+        return value
+
+    def _positive_double_parameter(self, name: str) -> float:
+        value = FaAsrNode._double_parameter(self, name)
+        if not math.isfinite(value) or value <= 0.0:
+            raise RuntimeError(f"{name} must be finite and greater than zero")
         return value
 
     def _string_array_parameter(self, name: str) -> tuple[str, ...]:
@@ -306,7 +319,7 @@ class FaAsrNode(Node):
             self._samples.extend(samples.tolist())
 
     def _check_timeout(self) -> None:
-        if not self._context_active or self.silence_timeout_sec <= 0.0:
+        if not self._context_active:
             return
         elapsed = (self.get_clock().now() - self._last_speech).nanoseconds / 1e9
         if elapsed < self.silence_timeout_sec:

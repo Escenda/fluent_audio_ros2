@@ -345,7 +345,15 @@ def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
             _TypedNode(_TypedParameter(_FakeParameter.Type.INTEGER, 16000)),
             "target_sample_rate",
         ) == 16000
+        assert module.FaAsrNode._positive_integer_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.INTEGER, 16000)),
+            "target_sample_rate",
+        ) == 16000
         assert module.FaAsrNode._double_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, 0.3)),
+            "min_audio_sec",
+        ) == 0.3
+        assert module.FaAsrNode._positive_double_parameter(
             _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, 0.3)),
             "min_audio_sec",
         ) == 0.3
@@ -364,10 +372,28 @@ def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
                 _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "16000")),
                 "target_sample_rate",
             )
+        with pytest.raises(RuntimeError, match="target_sample_rate must be greater than zero"):
+            module.FaAsrNode._positive_integer_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.INTEGER, 0)),
+                "target_sample_rate",
+            )
         with pytest.raises(RuntimeError, match="min_audio_sec must be a double"):
             module.FaAsrNode._double_parameter(
                 _TypedNode(_TypedParameter(_FakeParameter.Type.INTEGER, 1)),
                 "min_audio_sec",
+            )
+        with pytest.raises(RuntimeError, match="min_audio_sec must be finite and greater than zero"):
+            module.FaAsrNode._positive_double_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, 0.0)),
+                "min_audio_sec",
+            )
+        with pytest.raises(
+            RuntimeError,
+            match="silence_timeout_sec must be finite and greater than zero",
+        ):
+            module.FaAsrNode._positive_double_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, float("nan"))),
+                "silence_timeout_sec",
             )
         with pytest.raises(RuntimeError, match="backend.args must be a string array"):
             module.FaAsrNode._string_array_parameter(
