@@ -78,6 +78,10 @@ TEST(SinkBackendFactoryTest, BuildsNetworkPcmSenderBackend)
 {
   auto settings = settingsWithName("network_pcm_sender");
   settings.network_pcm_sender.endpoint_uri = "udp://127.0.0.1:49000";
+  settings.network_pcm_sender.encoding = "PCM16LE";
+  settings.network_pcm_sender.channels = 1;
+  settings.network_pcm_sender.bit_depth = 16;
+  settings.network_pcm_sender.max_packet_bytes = 320;
 
   auto backend = fa_out::backends::buildSinkBackend(settings);
 
