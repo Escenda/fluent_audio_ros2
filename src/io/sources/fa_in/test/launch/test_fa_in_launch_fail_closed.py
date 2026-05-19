@@ -43,6 +43,7 @@ def _write_network_backend_config(
     source_id: str,
     max_packet_bytes: int,
     polling_period_ms: int,
+    source_timeout_ms: int = 100,
 ) -> Path:
     params: YamlConfig = {
         "backend.name": "network_pcm_receiver",
@@ -51,6 +52,7 @@ def _write_network_backend_config(
         "audio.source_id": source_id,
         "network.max_packet_bytes": max_packet_bytes,
         "polling.period_ms": polling_period_ms,
+        "network.source_timeout_ms": source_timeout_ms,
         "output_topic": "fa_in/network_output",
         "audio.sample_rate": 16000,
         "audio.channels": 1,
@@ -192,3 +194,61 @@ def test_network_backend_launch_fails_closed_when_polling_period_is_invalid(
 
     assert "process has died" in output
     assert "polling.period_ms must be > 0" in output
+
+
+def test_network_backend_launch_fails_closed_when_source_timeout_is_missing(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_network_backend_config(
+        tmp_path / "missing_source_timeout.yaml",
+        endpoint_uri="udp://127.0.0.1:40200",
+        transport_identity="audio/network/transport",
+        source_id="audio/network/source",
+        max_packet_bytes=320,
+        polling_period_ms=5,
+    )
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    params = config["fa_in"]["ros__parameters"]
+    del params["network.source_timeout_ms"]
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    output = _run_fa_in_launch("node_name:=fa_in", f"config_file:={config_path}")
+
+    assert "process has died" in output
+    assert "network.source_timeout_ms is required" in output
+
+
+def test_network_backend_launch_fails_closed_when_source_timeout_is_invalid(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_network_backend_config(
+        tmp_path / "invalid_source_timeout.yaml",
+        endpoint_uri="udp://127.0.0.1:40200",
+        transport_identity="audio/network/transport",
+        source_id="audio/network/source",
+        max_packet_bytes=320,
+        polling_period_ms=5,
+        source_timeout_ms=0,
+    )
+    output = _run_fa_in_launch("node_name:=fa_in", f"config_file:={config_path}")
+
+    assert "process has died" in output
+    assert "network.source_timeout_ms must be > 0" in output
+
+
+def test_network_backend_launch_fails_closed_when_polling_exceeds_source_timeout(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_network_backend_config(
+        tmp_path / "polling_exceeds_source_timeout.yaml",
+        endpoint_uri="udp://127.0.0.1:40200",
+        transport_identity="audio/network/transport",
+        source_id="audio/network/source",
+        max_packet_bytes=320,
+        polling_period_ms=20,
+        source_timeout_ms=5,
+    )
+    output = _run_fa_in_launch("node_name:=fa_in", f"config_file:={config_path}")
+
+    assert "process has died" in output
+    assert "polling.period_ms must be <= network.source_timeout_ms" in output

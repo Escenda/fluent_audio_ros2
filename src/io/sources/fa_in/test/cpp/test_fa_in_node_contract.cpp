@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -16,6 +18,11 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <gtest/gtest.h>
 #include <rclcpp/rclcpp.hpp>
@@ -36,6 +43,42 @@ rclcpp::NodeOptions quietContractNodeOptions()
 constexpr const char * kFileOutputTopic = "audio/test/file_in";
 constexpr const char * kFileSourceId = "fixture_source";
 constexpr const char * kFileStreamId = "fixture_stream";
+
+struct TestEndpoint
+{
+  uint16_t port{0};
+  std::string uri{};
+};
+
+class ScopedSocket
+{
+public:
+  ScopedSocket()
+  {
+    socket_fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (socket_fd_ < 0) {
+      throw std::runtime_error("failed to create test UDP socket: " + std::string(std::strerror(errno)));
+    }
+  }
+
+  ~ScopedSocket()
+  {
+    if (socket_fd_ >= 0) {
+      ::close(socket_fd_);
+    }
+  }
+
+  ScopedSocket(const ScopedSocket &) = delete;
+  ScopedSocket & operator=(const ScopedSocket &) = delete;
+
+  int get() const
+  {
+    return socket_fd_;
+  }
+
+private:
+  int socket_fd_{-1};
+};
 
 struct FakeSourceState
 {
@@ -72,6 +115,28 @@ std::string openedDevice(const std::shared_ptr<FakeSourceState> & state)
 {
   std::lock_guard<std::mutex> lock(state->opened_device_mutex);
   return state->opened_device;
+}
+
+TestEndpoint reserveLoopbackEndpoint()
+{
+  ScopedSocket socket;
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = 0;
+  if (::bind(socket.get(), reinterpret_cast<const sockaddr *>(&address), sizeof(address)) < 0) {
+    throw std::runtime_error("failed to bind temporary UDP socket: " + std::string(std::strerror(errno)));
+  }
+
+  socklen_t address_length = sizeof(address);
+  if (::getsockname(socket.get(), reinterpret_cast<sockaddr *>(&address), &address_length) < 0) {
+    throw std::runtime_error("failed to inspect temporary UDP socket: " + std::string(std::strerror(errno)));
+  }
+
+  TestEndpoint endpoint;
+  endpoint.port = ntohs(address.sin_port);
+  endpoint.uri = "udp://127.0.0.1:" + std::to_string(endpoint.port);
+  return endpoint;
 }
 
 class FakeSourceBackend final : public fa_in::backends::SourceBackend
@@ -240,6 +305,32 @@ std::vector<rclcpp::Parameter> validFileParameters(const std::filesystem::path &
     rclcpp::Parameter("audio.stream_id", kFileStreamId),
     rclcpp::Parameter("audio.layout", "interleaved"),
     rclcpp::Parameter("playback.loop", true),
+    rclcpp::Parameter("audio.qos.depth", 10),
+    rclcpp::Parameter("audio.qos.reliable", false),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", false),
+    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+  };
+}
+
+std::vector<rclcpp::Parameter> validNetworkParameters(const TestEndpoint & endpoint)
+{
+  return {
+    rclcpp::Parameter("backend.name", "network_pcm_receiver"),
+    rclcpp::Parameter("endpoint.uri", endpoint.uri),
+    rclcpp::Parameter("transport.identity", "audio/network/transport"),
+    rclcpp::Parameter("audio.source_id", "audio/network/source"),
+    rclcpp::Parameter("network.max_packet_bytes", 320),
+    rclcpp::Parameter("polling.period_ms", 1),
+    rclcpp::Parameter("network.source_timeout_ms", 20),
+    rclcpp::Parameter("output_topic", "fa_in_contract/network_output"),
+    rclcpp::Parameter("audio.sample_rate", 16000),
+    rclcpp::Parameter("audio.channels", 1),
+    rclcpp::Parameter("audio.bit_depth", 16),
+    rclcpp::Parameter("audio.chunk_ms", 20),
+    rclcpp::Parameter("audio.encoding", "PCM16LE"),
+    rclcpp::Parameter("audio.stream_id", "audio/network/input"),
+    rclcpp::Parameter("audio.layout", "interleaved"),
     rclcpp::Parameter("audio.qos.depth", 10),
     rclcpp::Parameter("audio.qos.reliable", false),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
@@ -479,6 +570,20 @@ TEST_F(RclcppContractTest, FileBackendFailsClosedWhenFilePathIsMissing)
   EXPECT_THROW(
     { auto node = std::make_shared<fa_in::FaInNode>(optionsWith(parameters)); },
     std::runtime_error);
+}
+
+TEST_F(RclcppContractTest, NetworkBackendNoPacketTimeoutFailsClosed)
+{
+  const TestEndpoint endpoint = reserveLoopbackEndpoint();
+  auto node = std::make_shared<fa_in::FaInNode>(optionsWith(validNetworkParameters(endpoint)));
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+
+  EXPECT_TRUE(spinUntil(executor, [&node]() {
+    return node->hasFatalError();
+  }));
+  EXPECT_TRUE(node->hasFatalError());
 }
 
 TEST_F(RclcppContractTest, NameSelectorMatchesDisplayNameOnly)

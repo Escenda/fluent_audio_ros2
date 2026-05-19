@@ -60,6 +60,7 @@ def test_source_backend_has_no_struct_default() -> None:
     assert "uint32_t diag_period_ms{0};" in header_text
     assert "uint32_t network_max_packet_bytes{0};" in header_text
     assert "uint32_t polling_period_ms{0};" in header_text
+    assert "uint32_t network_source_timeout_ms{0};" in header_text
     assert "size_t bytes_per_buffer_{0};" in header_text
     assert 'declare_parameter<std::string>("output_topic")' in source_text
     assert 'declare_parameter<int>("audio.sample_rate")' in source_text
@@ -73,6 +74,7 @@ def test_source_backend_has_no_struct_default() -> None:
     assert 'declare_parameter("transport.identity", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
     assert 'declare_parameter("network.max_packet_bytes", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
     assert 'declare_parameter("polling.period_ms", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
+    assert 'declare_parameter("network.source_timeout_ms", rclcpp::ParameterValue{}, dynamic_parameter)' in source_text
     assert 'declare_parameter<int>("audio.qos.depth")' in source_text
     assert 'declare_parameter<bool>("audio.qos.reliable")' in source_text
     assert 'declare_parameter<int>("diagnostics.qos.depth")' in source_text
@@ -180,6 +182,8 @@ def test_runtime_read_failure_fails_closed_without_prepare_retry() -> None:
     assert "capture loop started without required source backend" in capture_loop
     assert "ReadStatus::kNoData" in capture_loop
     assert "std::this_thread::sleep_for" in capture_loop
+    assert "network.source_timeout_ms" in capture_loop
+    assert "network input source produced no packets" in capture_loop
     assert "read_result.frames != frames_per_buffer_" in capture_loop
     assert "expected configured capture chunk" in capture_loop
     assert "snd_pcm_prepare" not in capture_loop
@@ -397,7 +401,16 @@ def test_source_adapter_exposes_file_and_network_backends_but_no_dsp_surface() -
     test_plan_text = (package_root / "docs" / "テスト設計.md").read_text(
         encoding="utf-8"
     )
-    combined = "\n".join([source_text, header_text, config_text])
+    backend_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in [
+            package_root / "src" / "backends" / "pcm_file_reader_backend.cpp",
+            package_root / "src" / "backends" / "network_pcm_receiver_backend.cpp",
+            package_root / "include" / "fa_in" / "backends" / "pcm_file_reader_backend.hpp",
+            package_root / "include" / "fa_in" / "backends" / "network_pcm_receiver_backend.hpp",
+        ]
+    )
+    combined = "\n".join([source_text, header_text, config_text, backend_text])
 
     forbidden_tokens = [
         "audio.file",
@@ -422,3 +435,36 @@ def test_source_adapter_exposes_file_and_network_backends_but_no_dsp_surface() -
     assert "FA-IN-SPEC-023" in spec_text
     assert "FA-IN-SPEC-023" in test_plan_text
     assert (package_root / "docs" / "backends" / "network_pcm_receiver.md").is_file()
+
+
+def test_network_receiver_idle_timeout_is_explicit_and_test_mapped() -> None:
+    package_root = Path(__file__).parents[2]
+    source_text = (package_root / "src" / "fa_in_node.cpp").read_text(encoding="utf-8")
+    header_text = (package_root / "include" / "fa_in" / "fa_in_node.hpp").read_text(
+        encoding="utf-8"
+    )
+    node_contract_text = (
+        package_root / "test" / "cpp" / "test_fa_in_node_contract.cpp"
+    ).read_text(encoding="utf-8")
+    spec_text = (package_root / "docs" / "仕様書.md").read_text(encoding="utf-8")
+    algorithm_text = (
+        package_root / "docs" / "アルゴリズム詳細説明書.md"
+    ).read_text(encoding="utf-8")
+    backend_doc_text = (
+        package_root / "docs" / "backends" / "network_pcm_receiver.md"
+    ).read_text(encoding="utf-8")
+    test_plan_text = (package_root / "docs" / "テスト設計.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "network_source_timeout_ms" in header_text
+    assert 'readRequiredInt(*this, "network.source_timeout_ms")' in source_text
+    assert "polling.period_ms must be <= network.source_timeout_ms" in source_text
+    assert "network input source produced no packets" in source_text
+    assert "NetworkBackendNoPacketTimeoutFailsClosed" in node_contract_text
+    assert "network.source_timeout_ms" in spec_text
+    assert "FA-IN-SPEC-029" in spec_text
+    assert "network.source_timeout_ms" in algorithm_text
+    assert "network.source_timeout_ms" in backend_doc_text
+    assert "FA-IN-TC-019" in test_plan_text
+    assert "NetworkBackendNoPacketTimeoutFailsClosed" in test_plan_text

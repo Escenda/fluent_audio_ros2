@@ -219,6 +219,7 @@ void FaInNode::loadParameters()
   this->declare_parameter("playback.loop", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("network.max_packet_bytes", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("polling.period_ms", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter("network.source_timeout_ms", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter<int>("audio.sample_rate");
   this->declare_parameter<int>("audio.channels");
   this->declare_parameter<int>("audio.bit_depth");
@@ -252,6 +253,9 @@ void FaInNode::loadParameters()
     config_.polling_period_ms = validation::requirePositiveUint32(
       "polling.period_ms",
       readRequiredInt(*this, "polling.period_ms"));
+    config_.network_source_timeout_ms = validation::requirePositiveUint32(
+      "network.source_timeout_ms",
+      readRequiredInt(*this, "network.source_timeout_ms"));
   }
   config_.sample_rate = validation::requirePositiveUint32(
     "audio.sample_rate", readRequiredInt(*this, "audio.sample_rate"));
@@ -328,6 +332,9 @@ void FaInNode::loadParameters()
   if (config_.backend_name == kBackendNetworkPcmReceiver) {
     if ((config_.network_max_packet_bytes % bytes_per_frame_) != 0) {
       throw std::runtime_error("network.max_packet_bytes must be divisible by expected frame byte size");
+    }
+    if (config_.polling_period_ms > config_.network_source_timeout_ms) {
+      throw std::runtime_error("polling.period_ms must be <= network.source_timeout_ms");
     }
     frames_per_buffer_ = config_.network_max_packet_bytes / bytes_per_frame_;
     bytes_per_buffer_ = config_.network_max_packet_bytes;
@@ -456,6 +463,15 @@ void FaInNode::captureLoop()
     if (read_result.status == backends::ReadStatus::kNoData) {
       if (config_.backend_name != kBackendNetworkPcmReceiver) {
         failClosed("source backend returned no data on required input source " + active_device_id_);
+        break;
+      }
+      const auto idle_age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - last_frame_time_).count();
+      if (idle_age_ms >= static_cast<int64_t>(config_.network_source_timeout_ms)) {
+        failClosed(
+          "network input source produced no packets for network.source_timeout_ms=" +
+          std::to_string(config_.network_source_timeout_ms) +
+          " on required endpoint " + active_device_id_);
         break;
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(config_.polling_period_ms));

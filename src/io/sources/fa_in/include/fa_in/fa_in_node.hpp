@@ -50,6 +50,7 @@ struct AudioConfig
   uint32_t diag_period_ms{0};
   uint32_t network_max_packet_bytes{0};
   uint32_t polling_period_ms{0};
+  uint32_t network_source_timeout_ms{0};
 };
 
 class FaInNode : public rclcpp::Node

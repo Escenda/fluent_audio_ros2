@@ -420,7 +420,16 @@ def test_sink_adapter_exposes_only_playback_lifecycle_control_surface() -> None:
         encoding="utf-8"
     )
     config_text = (package_root / "config" / "default.yaml").read_text(encoding="utf-8")
-    combined = "\n".join([source_text, header_text, config_text])
+    backend_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in [
+            package_root / "src" / "backends" / "pcm_file_writer_backend.cpp",
+            package_root / "src" / "backends" / "network_pcm_sender_backend.cpp",
+            package_root / "include" / "fa_out" / "backends" / "pcm_file_writer_backend.hpp",
+            package_root / "include" / "fa_out" / "backends" / "network_pcm_sender_backend.hpp",
+        ]
+    )
+    combined = "\n".join([source_text, header_text, config_text, backend_text])
 
     assert "create_service<fa_interfaces::srv::PlaybackControl>" in source_text
     assert "fa_interfaces::msg::PlaybackDone" in combined

@@ -2,7 +2,7 @@
 <package format="3">
   <name>fa_out</name>
   <version>0.1.0</version>
-  <description>Audio playback node for FluentAudio, consuming fa_interfaces/msg/AudioFrame and writing to ALSA devices.</description>
+  <description>Audio sink adapter for FluentAudio, consuming fa_interfaces/msg/AudioFrame and writing to explicit ALSA, raw PCM file, or UDP sink backends.</description>
   <maintainer email="maintainer@example.com">FluentAudio</maintainer>
   <license>MIT</license>
 
