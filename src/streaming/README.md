@@ -21,3 +21,18 @@ backend selection or device binding.
 Network endpoint sinks such as `fa_stream` live under `src/io/utilities`; they
 may publish audio to an external stream, but they are not transport-stability
 nodes.
+
+## Package Status
+
+Only directories with `package.xml` are ROS 2 packages.
+
+| Directory | Status |
+| --- | --- |
+| `fa_chunk_overlap/` | ROS 2 package |
+| `fa_clock_drift/` | ROS 2 package |
+| `fa_frame_buffer/` | ROS 2 package |
+| `fa_jitter_buffer/` | ROS 2 package |
+| `fa_latency_compensation/` | ROS 2 package |
+| `fa_overlap_add/` | ROS 2 package |
+| `fa_packet_loss_concealment/` | ROS 2 package |
+| `fa_time_alignment/` | ROS 2 package |

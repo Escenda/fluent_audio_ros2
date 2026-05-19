@@ -186,6 +186,30 @@ def _processing_readme_package_status() -> dict[str, set[str]]:
     return category_packages
 
 
+def _readme_ros_package_rows(readme_path: Path) -> set[str]:
+    package_rows: set[str] = set()
+    for line in readme_path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("| `"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        directory_cell, status_cell = cells[:2]
+        if not directory_cell.endswith("/`"):
+            continue
+        if status_cell != "ROS 2 package":
+            continue
+        package_rows.add(directory_cell.removeprefix("`").removesuffix("/`"))
+    return package_rows
+
+
+def _buildable_package_paths_under(root: Path) -> set[str]:
+    return {
+        str(package_xml.parent.relative_to(root))
+        for package_xml in sorted(root.rglob("package.xml"))
+    }
+
+
 def test_processing_readme_package_status_matches_buildable_processing_packages() -> None:
     expected_packages_by_category: dict[str, set[str]] = {}
 
@@ -196,11 +220,24 @@ def test_processing_readme_package_status_matches_buildable_processing_packages(
     assert _processing_readme_package_status() == expected_packages_by_category
 
 
+def test_category_readme_package_status_matches_buildable_packages() -> None:
+    category_roots = ("ai", "apps", "io", "streaming")
+
+    for category in category_roots:
+        category_root = SRC_ROOT / category
+        assert _readme_ros_package_rows(category_root / "README.md") == _buildable_package_paths_under(
+            category_root
+        )
+
+
 def test_readmes_track_network_io_backend_boundaries() -> None:
     root_readme = (SRC_ROOT.parent / "README.md").read_text(encoding="utf-8")
+    source_readme = (SRC_ROOT / "io" / "sources" / "README.md").read_text(encoding="utf-8")
     sink_readme = (SRC_ROOT / "io" / "sinks" / "README.md").read_text(encoding="utf-8")
 
     assert "ALSA / raw PCM file / raw PCM UDP" in root_readme
+    assert "raw PCM UDP source backends" in source_readme
+    assert "decode, jitter buffering, packet loss concealment, clock drift" in source_readme
     assert "raw PCM UDP sink backends" in sink_readme
     assert "Network sinks remain" not in sink_readme
     assert "jitter buffering, packet loss concealment, clock drift correction" in sink_readme
