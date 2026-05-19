@@ -20,6 +20,8 @@ def _documented_package_dirs() -> list[Path]:
             continue
         if not (candidate / "docs" / "仕様書.md").is_file():
             continue
+        if not (candidate / "package.xml").is_file():
+            continue
         package_dirs.append(candidate)
     package_dirs.append(PACKAGE_ROOT)
     return sorted(package_dirs)
@@ -83,3 +85,11 @@ def test_ai_and_streaming_packages_have_top_level_categories() -> None:
     for package_name in config_schema._STREAMING_PACKAGE_NAMES:
         assert (SRC_ROOT / "streaming" / package_name).is_dir()
         assert config_schema._PACKAGE_CATEGORIES[package_name] == frozenset(("streaming",))
+
+
+def test_ai_roadmap_placeholders_are_not_launchable_system_packages() -> None:
+    for package_name in ("fa_sed", "fa_speaker"):
+        assert (SRC_ROOT / "ai" / package_name).is_dir()
+        assert not (SRC_ROOT / "ai" / package_name / "package.xml").exists()
+        assert package_name not in config_schema._PACKAGE_CATEGORIES
+        assert package_name not in config_schema._AI_PACKAGE_NAMES

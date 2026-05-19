@@ -357,8 +357,6 @@ def test_list_required_packages_cli_returns_error_for_invalid_config(
         "fa_asr",
         "fa_audio_embedding",
         "fa_kws",
-        "fa_sed",
-        "fa_speaker",
         "fa_turn_detector",
         "fa_vad",
     ],
@@ -376,6 +374,34 @@ def test_analysis_group_rejects_ai_package_even_when_node_disabled(
                 "groups": [
                     {
                         "id": "analysis",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": package_name,
+                                "enable": False,
+                                "package": package_name,
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize("package_name", ["fa_sed", "fa_speaker"])
+def test_system_config_rejects_ai_roadmap_placeholders_even_when_disabled(
+    package_name: str,
+) -> None:
+    with pytest.raises(
+        RuntimeError,
+        match=f"group ai contains unsupported FluentAudio package {package_name}",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "ai",
                         "enable": True,
                         "nodes": [
                             {
