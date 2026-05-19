@@ -77,7 +77,7 @@ def _settings(
     )
 
 
-def test_default_config_requires_explicit_backend_identity_and_dimension() -> None:
+def test_default_config_requires_explicit_backend_name_but_no_worker_or_identity() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
@@ -86,7 +86,7 @@ def test_default_config_requires_explicit_backend_identity_and_dimension() -> No
     )
     params = config["fa_audio_embedding"]["ros__parameters"]
 
-    assert params["backend.name"] == ""
+    assert params["backend.name"] == "external_worker"
     assert params["backend.command"] == ""
     assert params["backend.model_id"] == ""
     assert params["backend.model_path"] == ""
