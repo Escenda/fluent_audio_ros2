@@ -149,7 +149,14 @@ def _stop_process(process: subprocess.Popen[str]) -> str:
     return stdout
 
 
-def test_fluent_audio_system_launches_file_source_to_file_sink_e2e(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "launch_file",
+    ("fluent_audio_system.launch.py", "run.py"),
+)
+def test_fluent_audio_system_launches_file_source_to_file_sink_e2e(
+    tmp_path: Path,
+    launch_file: str,
+) -> None:
     ros2 = shutil.which("ros2")
     if ros2 is None:
         pytest.skip("ros2 executable is required for fluent_audio_system E2E launch")
@@ -166,7 +173,7 @@ def test_fluent_audio_system_launches_file_source_to_file_sink_e2e(tmp_path: Pat
             ros2,
             "launch",
             "fluent_audio_system",
-            "fluent_audio_system.launch.py",
+            launch_file,
             f"config:={system_config}",
             "fa_in_enabled:=true",
             "fa_out_enabled:=true",

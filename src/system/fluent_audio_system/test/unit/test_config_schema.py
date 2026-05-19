@@ -21,7 +21,10 @@ def _valid_system() -> dict[str, float]:
 
 def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text(
+        "fa_in:\n  ros__parameters:\n    backend.name: alsa_capture\n",
+        encoding="utf-8",
+    )
 
     spec = parse_system_config(
         {
@@ -66,7 +69,7 @@ def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
             "audio.qos.reliable": True,
         }
     ]
-    assert spec.groups[0].nodes[0].backend_name is None
+    assert spec.groups[0].nodes[0].backend_name == "alsa_capture"
 
 
 def test_node_backend_name_uses_effective_inline_override(tmp_path: Path) -> None:
@@ -138,7 +141,10 @@ def test_required_packages_include_base_and_enabled_nodes_in_launch_order(
     fa_in_params = tmp_path / "fa_in.yaml"
     resample_params = tmp_path / "fa_resample.yaml"
     gain_params = tmp_path / "fa_gain.yaml"
-    fa_in_params.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
+    fa_in_params.write_text(
+        "fa_in:\n  ros__parameters:\n    backend.name: alsa_capture\n",
+        encoding="utf-8",
+    )
     resample_params.write_text("fa_resample:\n  ros__parameters: {}\n", encoding="utf-8")
     gain_params.write_text("fa_gain:\n  ros__parameters: {}\n", encoding="utf-8")
 
@@ -710,7 +716,21 @@ def test_io_group_accepts_source_sink_and_io_utility_packages(
     executable_name: str,
 ) -> None:
     params_file = tmp_path / f"{package_name}.yaml"
-    params_file.write_text(f"{package_name}:\n  ros__parameters: {{}}\n", encoding="utf-8")
+    if package_name == "fa_in":
+        params_file.write_text(
+            "fa_in:\n  ros__parameters:\n    backend.name: alsa_capture\n",
+            encoding="utf-8",
+        )
+    elif package_name == "fa_out":
+        params_file.write_text(
+            "fa_out:\n  ros__parameters:\n    backend.name: alsa_playback\n",
+            encoding="utf-8",
+        )
+    else:
+        params_file.write_text(
+            f"{package_name}:\n  ros__parameters: {{}}\n",
+            encoding="utf-8",
+        )
 
     spec = parse_system_config(
         {
@@ -932,6 +952,112 @@ def test_missing_params_file_fails(tmp_path: Path) -> None:
                         ],
                     }
                 ]
+            }
+        )
+
+
+def test_empty_params_file_content_fails_closed(tmp_path: Path) -> None:
+    params_file = tmp_path / "fa_gain.yaml"
+    params_file.write_text("", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="must define ros__parameters for node fa_gain"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "dynamics",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_gain",
+                                "enable": True,
+                                "package": "fa_gain",
+                                "exec": "fa_gain_node",
+                                "node_name": "fa_gain",
+                                "params_file": str(params_file),
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_params_file_without_matching_ros_parameters_fails_closed(
+    tmp_path: Path,
+) -> None:
+    params_file = tmp_path / "fa_gain.yaml"
+    params_file.write_text(
+        "other_node:\n  ros__parameters:\n    gain.linear: 1.0\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="must define ros__parameters for node fa_gain"):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "dynamics",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_gain",
+                                "enable": True,
+                                "package": "fa_gain",
+                                "exec": "fa_gain_node",
+                                "node_name": "fa_gain",
+                                "params_file": str(params_file),
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("package_name", "executable_name"),
+    [
+        ("fa_in", "fa_in_node"),
+        ("fa_out", "fa_out_node"),
+    ],
+)
+def test_source_and_sink_require_backend_name(
+    tmp_path: Path,
+    package_name: str,
+    executable_name: str,
+) -> None:
+    params_file = tmp_path / f"{package_name}.yaml"
+    params_file.write_text(
+        f"{package_name}:\n  ros__parameters: {{}}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=f"node {package_name}.backend.name is required for {package_name}",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "io",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": package_name,
+                                "enable": True,
+                                "package": package_name,
+                                "exec": executable_name,
+                                "node_name": package_name,
+                                "params_file": str(params_file),
+                            }
+                        ],
+                    }
+                ],
             }
         )
 
@@ -1191,7 +1317,10 @@ def test_invalid_remappings_fail(tmp_path: Path) -> None:
 
 def test_share_path_expansion(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text(
+        "fa_in:\n  ros__parameters:\n    backend.name: alsa_capture\n",
+        encoding="utf-8",
+    )
     system_file = tmp_path / "system.yaml"
     system_file.write_text(
         """
@@ -1436,7 +1565,10 @@ def test_group_enable_is_required() -> None:
 
 def test_node_enable_is_required(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text(
+        "fa_in:\n  ros__parameters:\n    backend.name: alsa_capture\n",
+        encoding="utf-8",
+    )
 
     with pytest.raises(RuntimeError, match="node fa_in.enable is required"):
         parse_system_config(
@@ -1462,7 +1594,10 @@ def test_node_enable_is_required(tmp_path: Path) -> None:
 
 def test_node_executable_field_name_is_rejected(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
-    params_file.write_text("fa_in:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text(
+        "fa_in:\n  ros__parameters:\n    backend.name: alsa_capture\n",
+        encoding="utf-8",
+    )
 
     with pytest.raises(RuntimeError, match="executable"):
         parse_system_config(

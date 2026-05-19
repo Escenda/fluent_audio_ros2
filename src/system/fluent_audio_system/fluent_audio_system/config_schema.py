@@ -164,6 +164,7 @@ _GROUP_CATEGORY_TOKENS = frozenset((
 ))
 _GROUP_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _BASE_REQUIRED_PACKAGES = ("fa_interfaces", "fluent_audio_system")
+_BACKEND_NAME_REQUIRED_PACKAGES = frozenset(("fa_in", "fa_out"))
 
 
 class _TimingConfig(BaseModel):
@@ -568,6 +569,8 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
     _validate_parameter_identity_contract(package, node_id, parameters)
     remappings = _optional_remappings(node.remappings, node_id)
     backend_name = _effective_backend_name(params_file_parameters, parameters, node_id)
+    if package in _BACKEND_NAME_REQUIRED_PACKAGES and backend_name is None:
+        raise RuntimeError(f"node {node_id}.backend.name is required for {package}")
     return AudioNodeSpec(
         id=node_id,
         package=package,
@@ -693,7 +696,9 @@ def _params_file_parameters(
     with open(params_file, "r", encoding="utf-8") as stream:
         raw = yaml.safe_load(stream)
     if raw is None:
-        return {}
+        raise RuntimeError(
+            f"params_file {params_file} must define ros__parameters for node {node_id}"
+        )
     if not isinstance(raw, dict):
         raise RuntimeError(f"params_file {params_file} root must be a mapping")
 
@@ -703,9 +708,9 @@ def _params_file_parameters(
         candidate = raw[root_key]
         if not isinstance(candidate, dict):
             raise RuntimeError(f"params_file {params_file}.{root_key} must be a mapping")
-        parameters = candidate.get("ros__parameters")
-        if parameters is None:
+        if "ros__parameters" not in candidate:
             continue
+        parameters = candidate["ros__parameters"]
         if not isinstance(parameters, dict):
             raise RuntimeError(
                 f"params_file {params_file}.{root_key}.ros__parameters must be a mapping"
@@ -719,7 +724,7 @@ def _params_file_parameters(
             node_id,
         )
         return flattened
-    return {}
+    raise RuntimeError(f"params_file {params_file} must define ros__parameters for node {node_id}")
 
 
 def _flatten_params_file_parameters(

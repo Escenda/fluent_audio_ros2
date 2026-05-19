@@ -35,10 +35,13 @@ def _patch_profile_package_shares(
     ):
         config_dir = tmp_path / package_name / "config"
         config_dir.mkdir(parents=True)
-        (config_dir / "default.yaml").write_text(
-            f"{package_name}:\n  ros__parameters: {{}}\n",
-            encoding="utf-8",
-        )
+        if package_name == "fa_in":
+            config_text = "fa_in:\n  ros__parameters:\n    backend.name: alsa_capture\n"
+        elif package_name == "fa_out":
+            config_text = "fa_out:\n  ros__parameters:\n    backend.name: alsa_playback\n"
+        else:
+            config_text = f"{package_name}:\n  ros__parameters: {{}}\n"
+        (config_dir / "default.yaml").write_text(config_text, encoding="utf-8")
 
     def package_share(package_name: str) -> str:
         if package_name == "fluent_audio_system":

@@ -10,7 +10,7 @@ groups:
         package: fa_vad
         exec: fa_vad_node
         node_name: fa_vad
-        params_file: "${share:fluent_audio_system}/test/fixtures/fa_in.params.yaml"
+        params_file: "${share:fluent_audio_system}/test/fixtures/fa_vad.params.yaml"
         remappings:
           audio/frame: robot/audio/input
           vad/state: robot/audio/vad/state

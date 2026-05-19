@@ -81,6 +81,7 @@ def test_fixture_files_document_launch_contract() -> None:
         "remapping_system.yaml",
         "fa_in.params.yaml",
         "fa_out.params.yaml",
+        "fa_vad.params.yaml",
         "vlabor_include_action.yaml",
     ):
         assert (fixture_dir / fixture_name).is_file()
