@@ -46,8 +46,11 @@ PROCESSING_TEST_TRACE_PREFIXES = {
     "processing/frequency/fa_high_pass": "FA-HIGH-PASS",
     "processing/frequency/fa_low_pass": "FA-LOW-PASS",
     "processing/frequency/fa_notch": "FA-NOTCH",
+    "processing/format/fa_bit_depth": "FA-BIT-DEPTH",
+    "processing/format/fa_channel_convert": "FA-CHANNEL-CONVERT",
     "processing/format/fa_decode": "FA-DECODE",
     "processing/format/fa_encode": "FA-ENCODE",
+    "processing/format/fa_interleave": "FA-INTERLEAVE",
     "processing/format/fa_resample": "FA-RESAMPLE",
     "processing/format/fa_sample_format": "FA-SAMPLE-FORMAT",
 }
