@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import math
 import os
+import struct
 import sys
 from pathlib import Path
 
@@ -37,8 +39,16 @@ def main() -> int:
         raise RuntimeError(f"unsupported mode: {mode}")
 
     audio_path = _require_file("--audio")
-    if not audio_path.read_bytes():
+    audio_bytes = audio_path.read_bytes()
+    if not audio_bytes:
         raise RuntimeError("audio payload is required")
+    if len(audio_bytes) % 4 != 0:
+        raise RuntimeError("audio payload must be raw float32le")
+    samples = [value[0] for value in struct.iter_unpack("<f", audio_bytes)]
+    if not all(math.isfinite(sample) for sample in samples):
+        raise RuntimeError("audio payload contains non-finite samples")
+    if any(sample < -1.0 or sample > 1.0 for sample in samples):
+        raise RuntimeError("audio payload samples must be normalized to [-1.0, 1.0]")
     if int(_value("--sample-rate")) <= 0:
         raise RuntimeError("sample rate must be positive")
 

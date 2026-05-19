@@ -8,7 +8,9 @@
 
 External worker / process。
 
-`fa_kws_node` は sherpa-onnx C API を link しません。`backend.command` で指定した worker process に canonical float32le audio file と model/config arguments を渡し、stdout の最終非空行から detection result を読みます。sherpa-onnx runtime、Python / C++ runtime、venv、container、GPU provider は worker 側の責務です。
+`fa_kws_node` は sherpa-onnx C API を link しません。`backend.command` で指定した worker process に raw float32le audio file と model/config arguments を渡し、stdout の最終非空行から detection result を読みます。sherpa-onnx runtime、Python / C++ runtime、venv、container、GPU provider は worker 側の責務です。
+
+backend は `std::vector<float>` を host endian の memory dump として渡しません。各 sample が finite / normalized [-1.0, 1.0] であることを検証し、IEEE-754 float32 を little-endian byte order に serialize して worker payload を作ります。
 
 同梱の `scripts/sherpa_onnx_kws_worker` は Python `sherpa_onnx` runtime 向けの reference worker です。ROS2 node process からは直接 import されず、別 venv / container に置いた同じ CLI contract の worker に差し替えられます。
 

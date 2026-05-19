@@ -6,9 +6,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <cstdlib>
 #include <filesystem>
@@ -82,6 +84,40 @@ std::string numberToString(float value)
   std::ostringstream stream;
   stream << std::setprecision(9) << value;
   return stream.str();
+}
+
+std::array<char, 4> encodeFloat32Le(float value)
+{
+  static_assert(sizeof(float) == 4, "KWS backend payload requires 32-bit float");
+  static_assert(
+    std::numeric_limits<float>::is_iec559,
+    "KWS backend payload requires IEEE-754 float");
+
+  std::uint32_t bits = 0;
+  std::memcpy(&bits, &value, sizeof(bits));
+  return {
+    static_cast<char>(bits & 0xFFu),
+    static_cast<char>((bits >> 8u) & 0xFFu),
+    static_cast<char>((bits >> 16u) & 0xFFu),
+    static_cast<char>((bits >> 24u) & 0xFFu),
+  };
+}
+
+void writeFloat32LeRaw(std::ofstream &audio_file, const std::vector<float> &samples)
+{
+  for (const float sample : samples) {
+    if (!std::isfinite(sample)) {
+      throw std::invalid_argument("KWS backend samples must be finite");
+    }
+    if (sample < -1.0f || sample > 1.0f) {
+      throw std::invalid_argument("KWS backend samples must be normalized to [-1.0, 1.0]");
+    }
+    const std::array<char, 4> bytes = encodeFloat32Le(sample);
+    audio_file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!audio_file.good()) {
+      throw std::runtime_error("failed to write KWS backend float32le payload");
+    }
+  }
 }
 
 void requireReadableRegularFile(const char *config_name, const std::string &path_value)
@@ -359,12 +395,7 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
     if (!audio_file.good()) {
       throw std::runtime_error("failed to create KWS backend audio file: " + audio_path.string());
     }
-    audio_file.write(
-      reinterpret_cast<const char *>(samples.data()),
-      static_cast<std::streamsize>(samples.size() * sizeof(float)));
-    if (!audio_file.good()) {
-      throw std::runtime_error("failed to write KWS backend audio file: " + audio_path.string());
-    }
+    writeFloat32LeRaw(audio_file, samples);
   }
 
   try {

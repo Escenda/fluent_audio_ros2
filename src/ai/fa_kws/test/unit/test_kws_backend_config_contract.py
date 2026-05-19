@@ -378,6 +378,24 @@ def test_kws_node_rejects_non_canonical_audio_frames() -> None:
     assert "WAVE" not in node_text
 
 
+def test_kws_backend_writes_explicit_float32le_payload() -> None:
+    backend_text = (
+        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "encodeFloat32Le" in backend_text
+    assert "writeFloat32LeRaw" in backend_text
+    assert "static_assert(sizeof(float) == 4" in backend_text
+    assert "std::numeric_limits<float>::is_iec559" in backend_text
+    assert "std::memcpy(&bits, &value, sizeof(bits));" in backend_text
+    assert "bits & 0xFFu" in backend_text
+    assert "(bits >> 8u) & 0xFFu" in backend_text
+    assert "KWS backend samples must be finite" in backend_text
+    assert "KWS backend samples must be normalized to [-1.0, 1.0]" in backend_text
+    assert "reinterpret_cast<const char *>(samples.data())" not in backend_text
+    assert "samples.size() * sizeof(float)" not in backend_text
+
+
 def test_detection_score_is_owned_by_backend() -> None:
     interface_path = (
         PACKAGE_ROOT / "include" / "fa_kws" / "backends" / "kws_backend.hpp"
