@@ -32,6 +32,10 @@ IO_TEST_TRACE_PREFIXES = {
     "io/sinks/fa_out": "FA-OUT",
     "io/sources/fa_in": "FA-IN",
 }
+PROCESSING_TEST_TRACE_PREFIXES = {
+    "processing/format/fa_decode": "FA-DECODE",
+    "processing/format/fa_encode": "FA-ENCODE",
+}
 
 
 def _buildable_package_dirs() -> list[Path]:
@@ -144,6 +148,25 @@ def test_core_io_packages_have_spec_to_test_traceability() -> None:
     missing_traceability: list[str] = []
 
     for package_relative_path, trace_prefix in IO_TEST_TRACE_PREFIXES.items():
+        package_dir = SRC_ROOT / package_relative_path
+        test_design_path = package_dir / "docs" / "テスト設計.md"
+        mapped_lines = [
+            line
+            for line in test_design_path.read_text(encoding="utf-8").splitlines()
+            if f"`{trace_prefix}-TC-" in line
+            and "->" in line
+            and f"`{trace_prefix}-SPEC-" in line
+        ]
+        if not mapped_lines:
+            missing_traceability.append(package_relative_path)
+
+    assert missing_traceability == []
+
+
+def test_core_processing_packages_have_spec_to_test_traceability() -> None:
+    missing_traceability: list[str] = []
+
+    for package_relative_path, trace_prefix in PROCESSING_TEST_TRACE_PREFIXES.items():
         package_dir = SRC_ROOT / package_relative_path
         test_design_path = package_dir / "docs" / "テスト設計.md"
         mapped_lines = [
