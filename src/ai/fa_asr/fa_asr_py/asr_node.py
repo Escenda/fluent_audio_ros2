@@ -176,18 +176,12 @@ class FaAsrNode(Node):
         self._worker.start()
 
         self.get_logger().info(
-            "fa_asr started: audio=%s expected_source_id=%s expected_stream_id=%s "
-            "vad=%s turn_context=%s result=%s transcribe_service=%s target_sr=%d "
-            "backend.name=%s",
-            self.audio_topic,
-            self.expected_source_id,
-            self.expected_stream_id,
-            self.vad_topic,
-            self.turn_context_topic,
-            self.asr_result_topic,
-            self.transcribe_service_name,
-            self.target_sample_rate,
-            self.backend.name,
+            f"fa_asr started: audio={self.audio_topic} "
+            f"expected_source_id={self.expected_source_id} "
+            f"expected_stream_id={self.expected_stream_id} vad={self.vad_topic} "
+            f"turn_context={self.turn_context_topic} result={self.asr_result_topic} "
+            f"transcribe_service={self.transcribe_service_name} "
+            f"target_sr={self.target_sample_rate} backend.name={self.backend.name}"
         )
 
     def _declare_required_parameters(self) -> None:
@@ -409,9 +403,8 @@ class FaAsrNode(Node):
                 self._clear_buffer()
                 self._last_speech = self.get_clock().now()
                 self.get_logger().info(
-                    "ASR turn started: session=%s user_turn_id=%d",
-                    new_session_id,
-                    new_user_turn_id,
+                    f"ASR turn started: session={new_session_id} "
+                    f"user_turn_id={new_user_turn_id}"
                 )
 
             self._active_session_id = new_session_id
@@ -429,7 +422,7 @@ class FaAsrNode(Node):
                     expected_stream_id=self.expected_stream_id,
                 )
             except ValueError as exc:
-                self.get_logger().error("Dropping invalid VadState: %s", exc)
+                self.get_logger().error(f"Dropping invalid VadState: {exc}")
                 return
             if msg.is_speech:
                 self._last_speech = self.get_clock().now()
@@ -449,7 +442,7 @@ class FaAsrNode(Node):
                 expected_stream_id=self.expected_stream_id,
             )
         except ValueError as exc:
-            self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
+            self.get_logger().error(f"Dropping invalid AudioFrame: {exc}")
             return
 
         try:
@@ -457,7 +450,7 @@ class FaAsrNode(Node):
             with self._timeline_lock:
                 self._timeline.append(start_unix_ns=start_unix_ns, samples=samples)
         except TimelineRangeError as exc:
-            self.get_logger().error("Dropping AudioFrame from ASR timeline: %s", exc)
+            self.get_logger().error(f"Dropping AudioFrame from ASR timeline: {exc}")
             return
 
         with self._turn_state_lock:
@@ -511,7 +504,7 @@ class FaAsrNode(Node):
                 "ASR backend timed out",
             )
         except Exception as exc:
-            self.get_logger().error("ASR timeline transcription failed: %s", exc)
+            self.get_logger().error(f"ASR timeline transcription failed: {exc}")
             return self._transcribe_error(
                 response,
                 TranscribeAudio.Response.ERROR_TRANSCRIBE_FAILED,
@@ -595,7 +588,7 @@ class FaAsrNode(Node):
             elapsed = (now - self._last_speech).nanoseconds / 1e9
             if elapsed < self.silence_timeout_sec:
                 return
-            self.get_logger().info("ASR silence timeout: %.1fs", elapsed)
+            self.get_logger().info(f"ASR silence timeout: {elapsed:.1f}s")
             self._submit_current_buffer("silence_timeout", publish_timeout_if_empty=True)
             self._last_speech = now
 
@@ -621,7 +614,7 @@ class FaAsrNode(Node):
                 )
             else:
                 self.get_logger().debug(
-                    "ASR buffer too short for %s: %.3fs", reason, duration_sec
+                    f"ASR buffer too short for {reason}: {duration_sec:.3f}s"
                 )
             return
 
@@ -674,7 +667,7 @@ class FaAsrNode(Node):
             )
             self._fail_closed("ASR backend timed out")
         except Exception as exc:
-            self.get_logger().error("ASR transcription failed: %s", exc)
+            self.get_logger().error(f"ASR transcription failed: {exc}")
             self._publish_result(
                 job.session_id,
                 job.user_turn_id,
@@ -688,7 +681,7 @@ class FaAsrNode(Node):
         if getattr(self, "_fail_closed_triggered", False):
             return
         self._fail_closed_triggered = True
-        self.get_logger().fatal("ASR fail closed: %s", reason)
+        self.get_logger().fatal(f"ASR fail closed: {reason}")
         rclpy.shutdown()
 
     @staticmethod

@@ -20,14 +20,14 @@ from fa_asr_py.timeline import (
 
 class _FakeLogger:
     def __init__(self) -> None:
-        self.error_records: list[tuple[str, Exception]] = []
-        self.debug_records: list[tuple[str, str, float]] = []
+        self.error_records: list[str] = []
+        self.debug_records: list[str] = []
 
-    def error(self, message: str, exc: Exception) -> None:
-        self.error_records.append((message, exc))
+    def error(self, message: str) -> None:
+        self.error_records.append(message)
 
-    def debug(self, message: str, reason: str, duration_sec: float) -> None:
-        self.debug_records.append((message, reason, duration_sec))
+    def debug(self, message: str) -> None:
+        self.debug_records.append(message)
 
 
 class _FakeNode:

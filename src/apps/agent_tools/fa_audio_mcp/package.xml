@@ -13,6 +13,9 @@
   <exec_depend>fa_interfaces</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
+  <test_depend>ros2run</test_depend>
+  <test_depend>fa_asr</test_depend>
+  <test_depend>fa_audio_window</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

@@ -101,14 +101,14 @@ class _FakeNode:
 
 class _FakeLogger:
     def __init__(self) -> None:
-        self.error_records: list[tuple[str, Exception]] = []
-        self.fatal_records: list[tuple[str, str]] = []
+        self.error_records: list[str] = []
+        self.fatal_records: list[str] = []
 
-    def error(self, message: str, exc: Exception) -> None:
-        self.error_records.append((message, exc))
+    def error(self, message: str) -> None:
+        self.error_records.append(message)
 
-    def fatal(self, message: str, reason: str) -> None:
-        self.fatal_records.append((message, reason))
+    def fatal(self, message: str) -> None:
+        self.fatal_records.append(message)
 
 
 class _FakeParameter:
@@ -607,10 +607,9 @@ def test_asr_node_rejects_empty_audio_data_from_callback(
         node.on_audio(_FakeAudioFrame(b""))
 
         assert node._samples == []
-        assert len(node._logger.error_records) == 1
-        error_message, error_exception = node._logger.error_records[0]
-        assert error_message == "Dropping invalid AudioFrame: %s"
-        assert str(error_exception) == "AudioFrame data is required"
+        assert node._logger.error_records == [
+            "Dropping invalid AudioFrame: AudioFrame data is required"
+        ]
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
@@ -777,13 +776,11 @@ def test_asr_node_maps_unexpected_backend_exception_to_error_result(
 
         assert published == [("session-1", 9, _FakeAsrResult.STATUS_ERROR, "backend_error", "")]
         assert shutdown_calls == [True]
-        assert len(node._logger.error_records) == 1
-        error_message, error_exception = node._logger.error_records[0]
-        assert error_message == "ASR transcription failed: %s"
-        assert isinstance(error_exception, _BackendCrash)
-        assert str(error_exception) == "asr backend crashed"
+        assert node._logger.error_records == [
+            "ASR transcription failed: asr backend crashed"
+        ]
         assert node._logger.fatal_records == [
-            ("ASR fail closed: %s", "ASR backend failed: asr backend crashed")
+            "ASR fail closed: ASR backend failed: asr backend crashed"
         ]
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
@@ -827,9 +824,7 @@ def test_asr_node_maps_backend_timeout_to_error_result(
 
         assert published == [("session-1", 9, _FakeAsrResult.STATUS_ERROR, "backend_timeout", "")]
         assert shutdown_calls == [True]
-        assert node._logger.fatal_records == [
-            ("ASR fail closed: %s", "ASR backend timed out")
-        ]
+        assert node._logger.fatal_records == ["ASR fail closed: ASR backend timed out"]
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
