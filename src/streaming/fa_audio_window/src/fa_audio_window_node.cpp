@@ -43,6 +43,12 @@ enum class PublishStatus
   kExistingMatched,
 };
 
+enum class PublishDirectoryPolicy
+{
+  kCreateMissingParents,
+  kRequireExistingParent,
+};
+
 rclcpp::Parameter getDeclaredParameter(const rclcpp::Node & node, const std::string & name)
 {
   rclcpp::Parameter parameter;
@@ -311,11 +317,34 @@ std::string errnoMessage(const int error_number)
   return std::error_code(error_number, std::generic_category()).message();
 }
 
-std::filesystem::path reserveTemporaryPublishPath(const std::filesystem::path & target_path)
+bool isExistingDirectory(const std::filesystem::path & path)
+{
+  std::error_code status_error;
+  const std::filesystem::file_status status = std::filesystem::status(path, status_error);
+  return !status_error && std::filesystem::exists(status) && std::filesystem::is_directory(status);
+}
+
+void requireExistingDirectory(
+  const std::filesystem::path & path,
+  const std::string & error_message)
+{
+  if (!isExistingDirectory(path)) {
+    throw std::runtime_error(error_message);
+  }
+}
+
+std::filesystem::path reserveTemporaryPublishPath(
+  const std::filesystem::path & target_path,
+  const PublishDirectoryPolicy directory_policy = PublishDirectoryPolicy::kCreateMissingParents,
+  const std::string & missing_parent_error_message = "publish parent directory is unavailable")
 {
   const std::filesystem::path parent = target_path.parent_path();
   if (!parent.empty()) {
-    std::filesystem::create_directories(parent);
+    if (directory_policy == PublishDirectoryPolicy::kCreateMissingParents) {
+      std::filesystem::create_directories(parent);
+    } else {
+      requireExistingDirectory(parent, missing_parent_error_message);
+    }
   }
 
   static std::atomic<uint64_t> temp_sequence{0};
@@ -407,11 +436,16 @@ PublishStatus publishExistingFileNoClobber(
   const std::filesystem::path & target_path,
   const std::string & inspect_error_message,
   const std::string & conflict_error_message,
-  const std::string & publish_error_message)
+  const std::string & publish_error_message,
+  const PublishDirectoryPolicy directory_policy = PublishDirectoryPolicy::kCreateMissingParents,
+  const std::string & missing_parent_error_message = "publish parent directory is unavailable")
 {
   std::filesystem::path temp_path;
   try {
-    temp_path = reserveTemporaryPublishPath(target_path);
+    temp_path = reserveTemporaryPublishPath(
+      target_path,
+      directory_policy,
+      missing_parent_error_message);
     std::filesystem::copy_file(
       source_path,
       temp_path,
@@ -429,6 +463,72 @@ PublishStatus publishExistingFileNoClobber(
     }
     throw;
   }
+}
+
+void preflightFilesystemArchiveStoreDirectory(const std::filesystem::path & directory)
+{
+  requireExistingDirectory(
+    directory,
+    "archive.store.directory must be an existing directory for filesystem archive store");
+
+  static std::atomic<uint64_t> preflight_sequence{0};
+  for (uint32_t attempt = 0u; attempt < 64u; ++attempt) {
+    const uint64_t sequence = preflight_sequence.fetch_add(1u) + 1u;
+    const std::filesystem::path probe_base =
+      directory /
+      (".fa_audio_window_archive_store_preflight." +
+       std::to_string(static_cast<long long>(::getpid())) + "." +
+       std::to_string(sequence));
+    const std::filesystem::path temp_path = probe_base.string() + ".tmp";
+    const std::filesystem::path link_path = probe_base.string() + ".link";
+
+    const int fd = ::open(temp_path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    if (fd < 0) {
+      if (errno == EEXIST) {
+        continue;
+      }
+      throw std::runtime_error(
+        "archive.store.directory is not writable for filesystem archive store");
+    }
+
+    const char probe_byte = '\n';
+    if (::write(fd, &probe_byte, 1u) != 1) {
+      (void)::close(fd);
+      std::error_code remove_error;
+      std::filesystem::remove(temp_path, remove_error);
+      throw std::runtime_error(
+        "archive.store.directory is not writable for filesystem archive store");
+    }
+    if (::close(fd) != 0) {
+      std::error_code remove_error;
+      std::filesystem::remove(temp_path, remove_error);
+      throw std::runtime_error(
+        "archive.store.directory is not writable for filesystem archive store");
+    }
+
+    if (::link(temp_path.c_str(), link_path.c_str()) != 0) {
+      std::error_code remove_error;
+      std::filesystem::remove(temp_path, remove_error);
+      if (errno == EEXIST) {
+        continue;
+      }
+      throw std::runtime_error(
+        "archive.store.directory is not writable for filesystem archive store");
+    }
+
+    std::error_code remove_link_error;
+    std::error_code remove_temp_error;
+    const bool removed_link = std::filesystem::remove(link_path, remove_link_error);
+    const bool removed_temp = std::filesystem::remove(temp_path, remove_temp_error);
+    if (!removed_link || !removed_temp || remove_link_error || remove_temp_error) {
+      throw std::runtime_error(
+        "archive.store.directory preflight cleanup failed for filesystem archive store");
+    }
+    return;
+  }
+
+  throw std::runtime_error(
+    "archive.store.directory preflight could not reserve a deterministic probe path");
 }
 }  // namespace
 
@@ -541,6 +641,7 @@ void FaAudioWindowNode::loadParameters()
     {
       throw std::runtime_error("filesystem archive store URI prefixes must not use file://");
     }
+    preflightFilesystemArchiveStoreDirectory(config_.archive_store.directory);
   }
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0");
@@ -809,14 +910,18 @@ FaAudioWindowNode::ClipOperationResult FaAudioWindowNode::writeWindowClip(
           store_content_path,
           "failed to inspect archive store audio clip path",
           "archive store audio clip path exists with different bytes",
-          "failed to publish archive store audio clip file");
+          "failed to publish archive store audio clip file",
+          PublishDirectoryPolicy::kRequireExistingParent,
+          "archive.store.directory is unavailable during filesystem archive publish");
         try {
           (void)publishExistingFileNoClobber(
             metadata_path,
             store_metadata_path,
             "failed to inspect archive store metadata path",
             "archive store metadata path exists with different content",
-            "failed to publish archive store metadata file");
+            "failed to publish archive store metadata file",
+            PublishDirectoryPolicy::kRequireExistingParent,
+            "archive.store.directory is unavailable during filesystem archive publish");
         } catch (...) {
           if (store_content_status == PublishStatus::kPublished) {
             std::error_code remove_error;

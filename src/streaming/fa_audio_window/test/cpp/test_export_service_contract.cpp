@@ -99,14 +99,21 @@ std::vector<rclcpp::Parameter> validParameters()
   };
 }
 
-std::vector<rclcpp::Parameter> filesystemArchiveStoreParameters()
+std::vector<rclcpp::Parameter> filesystemArchiveStoreParametersFor(
+  const std::filesystem::path & store_directory)
 {
   std::vector<rclcpp::Parameter> parameters = validParameters();
   parameters.emplace_back("archive.store.backend", "filesystem");
-  parameters.emplace_back("archive.store.directory", storeDirectoryForCurrentTest().string());
+  parameters.emplace_back("archive.store.directory", store_directory.string());
   parameters.emplace_back("archive.store.uri_prefix", "r2://daihen/v2/audio/");
   parameters.emplace_back("archive.store.metadata_uri_prefix", "r2://daihen/v2/audio_metadata/");
   return parameters;
+}
+
+std::vector<rclcpp::Parameter> filesystemArchiveStoreParameters()
+{
+  std::filesystem::create_directories(storeDirectoryForCurrentTest());
+  return filesystemArchiveStoreParametersFor(storeDirectoryForCurrentTest());
 }
 
 void replaceParameter(
@@ -127,6 +134,18 @@ rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
   rclcpp::NodeOptions options = quietNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
+}
+
+void expectNodeConstructionThrowsWithMessage(
+  const std::vector<rclcpp::Parameter> & parameters,
+  const std::string & expected_message)
+{
+  try {
+    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(parameters));
+    FAIL() << "expected FaAudioWindowNode construction to throw";
+  } catch (const std::runtime_error & error) {
+    EXPECT_EQ(std::string{error.what()}, expected_message);
+  }
 }
 
 fa_interfaces::msg::AudioFrame validFrame()
@@ -303,6 +322,24 @@ size_t countTemporaryPublishFiles(const std::filesystem::path & directory)
     }
   }
   return count;
+}
+
+size_t countFilesystemArchiveStorePreflightProbeEntries(const std::filesystem::path & directory)
+{
+  size_t count = 0u;
+  const std::string prefix = ".fa_audio_window_archive_store_preflight.";
+  for (const std::filesystem::directory_entry & entry : std::filesystem::directory_iterator(directory)) {
+    if (entry.path().filename().string().rfind(prefix, 0u) == 0u) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void expectNoFilesystemArchiveStorePreflightProbeEntries(const std::filesystem::path & directory)
+{
+  ASSERT_TRUE(std::filesystem::is_directory(directory));
+  EXPECT_EQ(countFilesystemArchiveStorePreflightProbeEntries(directory), 0u);
 }
 
 void expectSameClipRef(
@@ -731,6 +768,7 @@ TEST_F(AudioWindowServiceContractTest, FilesystemArchiveStorePublishesDurableCli
 {
   auto node = std::make_shared<fa_audio_window::FaAudioWindowNode>(
     optionsWith(filesystemArchiveStoreParameters()));
+  expectNoFilesystemArchiveStorePreflightProbeEntries(storeDirectoryForCurrentTest());
   auto io_node = std::make_shared<rclcpp::Node>("fa_audio_window_filesystem_store_io", quietNodeOptions());
   auto client = io_node->create_client<ArchiveAudioWindow>(kArchiveServiceName);
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
@@ -789,6 +827,43 @@ TEST_F(AudioWindowServiceContractTest, FilesystemArchiveStorePublishesDurableCli
   EXPECT_EQ(readBinaryFile(store_clip_path), readBinaryFile(local_clip_path));
   EXPECT_EQ(readBinaryFile(store_metadata_path), readBinaryFile(local_metadata_path));
   EXPECT_EQ(countWavFiles(storeDirectoryForCurrentTest()), 1u);
+  expectNoFilesystemArchiveStorePreflightProbeEntries(storeDirectoryForCurrentTest());
+}
+
+TEST_F(AudioWindowServiceContractTest, FilesystemArchiveStoreDoesNotRecreateMissingDirectoryAtPublish)
+{
+  auto node = std::make_shared<fa_audio_window::FaAudioWindowNode>(
+    optionsWith(filesystemArchiveStoreParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_audio_window_filesystem_store_removed_io", quietNodeOptions());
+  auto client = io_node->create_client<ArchiveAudioWindow>(kArchiveServiceName);
+  auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic,
+    rclcpp::QoS(10).best_effort());
+
+  ASSERT_TRUE(std::filesystem::remove_all(storeDirectoryForCurrentTest()) > 0u);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  ASSERT_TRUE(spinUntil(executor, [&publisher]() {
+    return publisher->get_subscription_count() > 0u;
+  }));
+  publisher->publish(validFrame());
+  executor.spin_some(100ms);
+
+  auto response_future = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "filesystem removed store evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(response_future, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto response = response_future.get();
+  EXPECT_FALSE(response->success);
+  EXPECT_EQ(response->error_code, ArchiveAudioWindow::Response::ERROR_ARCHIVE_FAILED);
+  EXPECT_EQ(
+    response->message,
+    "archive.store.directory is unavailable during filesystem archive publish");
+  EXPECT_FALSE(std::filesystem::exists(storeDirectoryForCurrentTest()));
 }
 
 TEST_F(AudioWindowServiceContractTest, FilesystemArchiveStoreRejectsMediaAndMetadataConflicts)
@@ -864,9 +939,9 @@ TEST_F(AudioWindowServiceContractTest, RejectsInvalidArchiveStoreConfigurationAt
 {
   std::vector<rclcpp::Parameter> unknown_backend = validParameters();
   replaceParameter(unknown_backend, rclcpp::Parameter("archive.store.backend", "unknown"));
-  EXPECT_THROW(
-    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(unknown_backend)),
-    std::runtime_error);
+  expectNodeConstructionThrowsWithMessage(
+    unknown_backend,
+    "archive.store.backend is unsupported: unknown");
 
   std::vector<rclcpp::Parameter> missing_directory = validParameters();
   replaceParameter(missing_directory, rclcpp::Parameter("archive.store.backend", "filesystem"));
@@ -874,9 +949,9 @@ TEST_F(AudioWindowServiceContractTest, RejectsInvalidArchiveStoreConfigurationAt
   replaceParameter(
     missing_directory,
     rclcpp::Parameter("archive.store.metadata_uri_prefix", "r2://daihen/metadata/"));
-  EXPECT_THROW(
-    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(missing_directory)),
-    std::runtime_error);
+  expectNodeConstructionThrowsWithMessage(
+    missing_directory,
+    "archive.store.directory is required for filesystem archive store");
 
   std::vector<rclcpp::Parameter> missing_prefix = validParameters();
   replaceParameter(missing_prefix, rclcpp::Parameter("archive.store.backend", "filesystem"));
@@ -884,23 +959,58 @@ TEST_F(AudioWindowServiceContractTest, RejectsInvalidArchiveStoreConfigurationAt
     missing_prefix,
     rclcpp::Parameter("archive.store.directory", storeDirectoryForCurrentTest().string()));
   replaceParameter(missing_prefix, rclcpp::Parameter("archive.store.uri_prefix", "r2://daihen/audio/"));
-  EXPECT_THROW(
-    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(missing_prefix)),
-    std::runtime_error);
+  expectNodeConstructionThrowsWithMessage(
+    missing_prefix,
+    "archive.store.uri_prefix and archive.store.metadata_uri_prefix are required for filesystem archive store");
 
   std::vector<rclcpp::Parameter> file_uri_prefix = filesystemArchiveStoreParameters();
   replaceParameter(file_uri_prefix, rclcpp::Parameter("archive.store.uri_prefix", "file:///tmp/not_durable/"));
-  EXPECT_THROW(
-    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(file_uri_prefix)),
-    std::runtime_error);
+  expectNodeConstructionThrowsWithMessage(
+    file_uri_prefix,
+    "filesystem archive store URI prefixes must not use file://");
+  expectNoFilesystemArchiveStorePreflightProbeEntries(storeDirectoryForCurrentTest());
 
   std::vector<rclcpp::Parameter> file_metadata_uri_prefix = filesystemArchiveStoreParameters();
   replaceParameter(
     file_metadata_uri_prefix,
     rclcpp::Parameter("archive.store.metadata_uri_prefix", "file:///tmp/not_durable_metadata/"));
-  EXPECT_THROW(
-    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(file_metadata_uri_prefix)),
-    std::runtime_error);
+  expectNodeConstructionThrowsWithMessage(
+    file_metadata_uri_prefix,
+    "filesystem archive store URI prefixes must not use file://");
+  expectNoFilesystemArchiveStorePreflightProbeEntries(storeDirectoryForCurrentTest());
+}
+
+TEST_F(AudioWindowServiceContractTest, RejectsUnpreparedFilesystemArchiveStoreDirectoryAtConstruction)
+{
+  const std::filesystem::path parent_only_directory = outputDirectoryForCurrentTest() / "mount_parent";
+  ASSERT_TRUE(std::filesystem::create_directories(parent_only_directory));
+  const std::filesystem::path missing_store_directory = parent_only_directory / "durable_store";
+  expectNodeConstructionThrowsWithMessage(
+    filesystemArchiveStoreParametersFor(missing_store_directory),
+    "archive.store.directory must be an existing directory for filesystem archive store");
+  EXPECT_FALSE(std::filesystem::exists(missing_store_directory));
+
+  const std::filesystem::path file_store_directory = outputDirectoryForCurrentTest() / "store_as_file";
+  {
+    std::ofstream out(file_store_directory, std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(out.is_open());
+    out << "not a directory\n";
+  }
+  expectNodeConstructionThrowsWithMessage(
+    filesystemArchiveStoreParametersFor(file_store_directory),
+    "archive.store.directory must be an existing directory for filesystem archive store");
+
+  const std::filesystem::path writable_store_directory =
+    outputDirectoryForCurrentTest() / "writable_durable_store";
+  ASSERT_TRUE(std::filesystem::create_directories(writable_store_directory));
+  auto constructed_node = std::make_shared<fa_audio_window::FaAudioWindowNode>(
+    optionsWith(filesystemArchiveStoreParametersFor(writable_store_directory)));
+  ASSERT_NE(constructed_node, nullptr);
+  expectNoFilesystemArchiveStorePreflightProbeEntries(writable_store_directory);
+
+  expectNodeConstructionThrowsWithMessage(
+    filesystemArchiveStoreParametersFor("/proc"),
+    "archive.store.directory is not writable for filesystem archive store");
 }
 
 TEST_F(AudioWindowServiceContractTest, ArchiveServiceReturnsClipOrExplicitErrors)
