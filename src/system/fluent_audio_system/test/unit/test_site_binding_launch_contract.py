@@ -3,13 +3,39 @@ from pathlib import Path
 import pytest
 import yaml
 
+from fluent_audio_system.config_schema import AudioNodeSpec
 from fluent_audio_system.site_binding import (
     build_site_binding_overrides,
     parse_bool_launch_arg_value,
 )
+from fluent_audio_system.site_binding_launch import (
+    SOURCE_BOUND_AUDIO_AI_PACKAGES,
+    node_enabled_by_site_binding,
+    node_launch_parameters,
+)
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
+
+
+def _node(
+    *,
+    package: str,
+    backend_name: str | None,
+    params_file: str = "/tmp/node.params.yaml",
+) -> AudioNodeSpec:
+    return AudioNodeSpec(
+        id=package,
+        package=package,
+        executable=f"{package}_node",
+        node_name=package,
+        namespace="",
+        output="screen",
+        params_file=params_file,
+        parameters={},
+        remappings=[],
+        backend_name=backend_name,
+    )
 
 
 def test_system_launch_declares_site_binding_arguments() -> None:
@@ -27,25 +53,86 @@ def test_system_launch_declares_site_binding_arguments() -> None:
     assert "profile-declared fa_in" in launch_text
     assert "profile-declared fa_out" in launch_text
     assert "_required_bool_launch_arg" in launch_text
-    assert "_node_enabled_by_site_binding" in launch_text
-    assert "_node_launch_parameters" in launch_text
-    assert 'node.package == "fa_in"' in launch_text
-    assert 'node.package == "fa_out"' in launch_text
-    assert 'node.package == "fa_in" and node.backend_name == "alsa_capture"' in launch_text
-    assert 'node.package == "fa_out" and node.backend_name == "alsa_playback"' in launch_text
-    assert "_SOURCE_BOUND_AUDIO_AI_PACKAGES" in launch_text
-    assert '"fa_asr"' in launch_text
-    assert '"fa_audio_embedding"' in launch_text
-    assert '"fa_kws"' in launch_text
-    assert '"fa_turn_detector"' in launch_text
-    assert '"fa_vad"' in launch_text
-    assert 'node.backend_name == "alsa_capture"' in launch_text
-    assert 'node.backend_name == "alsa_playback"' in launch_text
-    assert 'override_params["audio.device_selector.mode"] = "id"' in launch_text
-    assert 'override_params["expected_source_id"] = overrides.fa_in_source_id' in launch_text
-    assert 'override_params["audio.device_id"] = overrides.fa_out_sink_id' in launch_text
+    assert "node_enabled_by_site_binding" in launch_text
+    assert "node_launch_parameters" in launch_text
     assert 'node.id == "fa_in"' not in launch_text
     assert 'node.id == "fa_out"' not in launch_text
+
+
+def test_site_binding_launch_gates_only_alsa_site_bound_io() -> None:
+    overrides = build_site_binding_overrides(
+        fa_in_enabled=False,
+        fa_out_enabled=False,
+        fa_in_source_id="",
+        fa_out_sink_id="",
+    )
+
+    assert not node_enabled_by_site_binding(
+        _node(package="fa_in", backend_name="alsa_capture"),
+        overrides,
+    )
+    assert not node_enabled_by_site_binding(
+        _node(package="fa_out", backend_name="alsa_playback"),
+        overrides,
+    )
+    assert node_enabled_by_site_binding(
+        _node(package="fa_in", backend_name="pcm_file_reader"),
+        overrides,
+    )
+    assert node_enabled_by_site_binding(
+        _node(package="fa_out", backend_name="pcm_file_writer"),
+        overrides,
+    )
+
+
+def test_site_binding_launch_applies_alsa_source_and_sink_ids() -> None:
+    overrides = build_site_binding_overrides(
+        fa_in_enabled=True,
+        fa_out_enabled=True,
+        fa_in_source_id="hw:CARD=Mic,DEV=0",
+        fa_out_sink_id="hw:CARD=Speaker,DEV=0",
+    )
+
+    fa_in_params = node_launch_parameters(
+        _node(package="fa_in", backend_name="alsa_capture"),
+        overrides,
+    )
+    fa_out_params = node_launch_parameters(
+        _node(package="fa_out", backend_name="alsa_playback"),
+        overrides,
+    )
+
+    assert fa_in_params == [
+        "/tmp/node.params.yaml",
+        {
+            "audio.device_selector.mode": "id",
+            "audio.device_selector.identifier": "hw:CARD=Mic,DEV=0",
+        },
+    ]
+    assert fa_out_params == [
+        "/tmp/node.params.yaml",
+        {"audio.device_id": "hw:CARD=Speaker,DEV=0"},
+    ]
+
+
+@pytest.mark.parametrize("package_name", sorted(SOURCE_BOUND_AUDIO_AI_PACKAGES))
+def test_site_binding_launch_applies_source_id_to_audio_ai_nodes(
+    package_name: str,
+) -> None:
+    overrides = build_site_binding_overrides(
+        fa_in_enabled=True,
+        fa_out_enabled=False,
+        fa_in_source_id="hw:CARD=Mic,DEV=0",
+        fa_out_sink_id="",
+    )
+
+    assert node_launch_parameters(
+        _node(package=package_name, backend_name="test_backend"),
+        overrides,
+    ) == [
+        "/tmp/node.params.yaml",
+        {"expected_source_id": "hw:CARD=Mic,DEV=0"},
+    ]
 
 
 def test_sample_config_keeps_site_binding_out_of_system_config() -> None:

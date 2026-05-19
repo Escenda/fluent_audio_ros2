@@ -3,16 +3,15 @@ from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction, Timer
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-from fluent_audio_system.config_schema import AudioNodeSpec, ParamValue, load_system_config
+from fluent_audio_system.config_schema import load_system_config
 from fluent_audio_system.site_binding import (
     SiteBindingOverrides,
     build_site_binding_overrides,
     parse_bool_launch_arg_value,
 )
-
-
-_SOURCE_BOUND_AUDIO_AI_PACKAGES = frozenset(
-    ("fa_asr", "fa_audio_embedding", "fa_kws", "fa_turn_detector", "fa_vad")
+from fluent_audio_system.site_binding_launch import (
+    node_enabled_by_site_binding,
+    node_launch_parameters,
 )
 
 
@@ -30,40 +29,6 @@ def _site_binding_overrides(context) -> SiteBindingOverrides:
     )
 
 
-def _node_enabled_by_site_binding(node: AudioNodeSpec, overrides: SiteBindingOverrides) -> bool:
-    if node.package == "fa_in" and node.backend_name == "alsa_capture":
-        return overrides.fa_in_enabled
-    if node.package == "fa_out" and node.backend_name == "alsa_playback":
-        return overrides.fa_out_enabled
-    return True
-
-
-def _node_launch_parameters(
-    node: AudioNodeSpec,
-    overrides: SiteBindingOverrides,
-) -> list[str | dict[str, ParamValue]]:
-    parameters = node.launch_parameters()
-    override_params: dict[str, ParamValue] = {}
-    if (
-        node.package == "fa_in"
-        and node.backend_name == "alsa_capture"
-        and overrides.fa_in_source_id
-    ):
-        override_params["audio.device_selector.mode"] = "id"
-        override_params["audio.device_selector.identifier"] = overrides.fa_in_source_id
-    if node.package in _SOURCE_BOUND_AUDIO_AI_PACKAGES and overrides.fa_in_source_id:
-        override_params["expected_source_id"] = overrides.fa_in_source_id
-    if (
-        node.package == "fa_out"
-        and node.backend_name == "alsa_playback"
-        and overrides.fa_out_sink_id
-    ):
-        override_params["audio.device_id"] = overrides.fa_out_sink_id
-    if override_params:
-        parameters.append(override_params)
-    return parameters
-
-
 def _launch_setup(context):
     config_path = LaunchConfiguration("config").perform(context)
     config = load_system_config(config_path)
@@ -74,7 +39,7 @@ def _launch_setup(context):
 
     for group_index, group in enumerate(config.groups):
         for node in group.nodes:
-            if not _node_enabled_by_site_binding(node, overrides):
+            if not node_enabled_by_site_binding(node, overrides):
                 continue
             node_action = Node(
                 package=node.package,
@@ -82,7 +47,7 @@ def _launch_setup(context):
                 name=node.node_name,
                 namespace=node.namespace,
                 output=node.output,
-                parameters=_node_launch_parameters(node, overrides),
+                parameters=node_launch_parameters(node, overrides),
                 remappings=node.launch_remappings(),
             )
             actions.append(

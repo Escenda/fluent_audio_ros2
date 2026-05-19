@@ -43,7 +43,7 @@ def test_system_launch_uses_node_actions_without_temp_yaml_rewrite() -> None:
     ).read_text(encoding="utf-8")
 
     assert "Node(" in launch_text
-    assert "parameters=_node_launch_parameters(node, overrides)" in launch_text
+    assert "parameters=node_launch_parameters(node, overrides)" in launch_text
     assert "remappings=node.launch_remappings()" in launch_text
     assert "tempfile" not in launch_text
     assert "NamedTemporaryFile" not in launch_text
