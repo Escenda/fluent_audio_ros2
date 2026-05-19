@@ -16,10 +16,16 @@
   <exec_depend>python3-yaml</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>ros2launch</test_depend>
+  <test_depend>fa_asr</test_depend>
+  <test_depend>fa_audio_mcp</test_depend>
+  <test_depend>fa_audio_window</test_depend>
   <test_depend>fa_decode</test_depend>
   <test_depend>fa_encode</test_depend>
   <test_depend>fa_gain</test_depend>
   <test_depend>fa_in</test_depend>
+  <test_depend>fa_interfaces</test_depend>
   <test_depend>fa_out</test_depend>
   <test_depend>fa_sample_format</test_depend>
 

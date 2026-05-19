@@ -35,7 +35,7 @@
 | `fa_tts` | TTS service と `audio/tts/frame` publish | 実 TTS backend、`fa_mix`、`fa_out` 連携が未検証 |
 | `fa_mix` | PCM16LE の MVP mixing | routing / ducking / limiter / barge-in 連携は未完了 |
 | `fa_voice_command_router` | MVP command router | structured command schema と KWS/ASR/TD 連携が未完了 |
-| `fa_audio_mcp` | `archive_audio_window` / `transcribe_audio` MCP adapter、SO101 agent audio tools profile、in-process `FastMCP` から実 `fa_asr_node` / `fa_audio_window_node` を呼ぶ Docker runtime smoke | installed `fa_audio_mcp_server` transport、実 Agent Runtime / MCP client、combined `fluent_audio_system` profile launch、durable storage / World Station 連携は未検証 |
+| `fa_audio_mcp` | `archive_audio_window` / `transcribe_audio` MCP adapter、SO101 agent audio tools profile、in-process `FastMCP` から実 `fa_asr_node` / `fa_audio_window_node` を呼ぶ Docker runtime smoke、generated single system YAML から `fluent_audio_system/run.py` 経由で `fa_asr` / `fa_audio_window` owner nodes と `fa_audio_mcp_server` adapter executable を同時起動する combined launch smoke | installed MCP HTTP / streamable transport tool call、実 Agent Runtime / MCP client、SO101 profile merge support、durable storage / World Station 連携は未検証 |
 
 ## 4. 設計枠 / package 化前
 
@@ -108,7 +108,11 @@ SO101 で VAD/KWS/ASR/TD と `fa_dialogue` をまとめて起動する package-o
 ### 5.5 Agent audio tools
 `fluent_audio_system/config/profiles/so101_agent_audio_tools.yaml` は `fa_audio_mcp` を起動し、`archive_audio_window` と `transcribe_audio` を Agent / MCP client から呼べる入口を用意します。この profile は `fa_asr` や `fa_audio_window` の service owner を起動しません。通常は `so101_voice_frontend.yaml` と同じ親側 include 方式で組み合わせます。
 
-`src/apps/agent_tools/fa_audio_mcp/test/test_real_owner_graph_smoke.py::test_mcp_tools_call_real_asr_and_audio_window_owner_nodes` は Docker 内で `1 passed` として確認済みです。この smoke は `ros2 run` で実 owner node を起動し、in-process `FastMCP` から real `RosAudioTimelineClient` 経由で `transcribe_audio` / `archive_audio_window` を呼びます。ただし、profile-level combined launch や installed MCP server transport の検証ではありません。
+`src/apps/agent_tools/fa_audio_mcp/test/test_real_owner_graph_smoke.py::test_mcp_tools_call_real_asr_and_audio_window_owner_nodes` は Docker 内で `1 passed` として確認済みです。この smoke は `ros2 run` で実 owner node を起動し、in-process `FastMCP` から real `RosAudioTimelineClient` 経由で `transcribe_audio` / `archive_audio_window` を呼びます。後述の combined launch は別 smoke で確認していますが、この real-owner smoke 単体は installed MCP server transport の検証ではありません。
+
+`src/system/fluent_audio_system/test/integration/test_combined_owner_mcp_launch_smoke.py::test_fluent_audio_system_launches_owner_nodes_and_mcp_adapter` は Docker ROS2 環境で関連 package rebuild 後に `python3 -m pytest src/system/fluent_audio_system/test/integration/test_combined_owner_mcp_launch_smoke.py -q` を実行し、`1 passed in 2.38s` として確認済みです。この smoke は generated single system YAML を `ros2 launch fluent_audio_system run.py` に渡し、`fa_asr` / `fa_asr_node`、`fa_audio_window` / `fa_audio_window_node`、`fa_audio_mcp` / `fa_audio_mcp_server` を同じ launch graph に載せます。起動済み MCP adapter ROS node、real `TranscribeAudio` / `ExportAudioWindow` / `ArchiveAudioWindow` service、deterministic `FLOAT32LE` ASR frame、deterministic `PCM16LE` archive frame、service response の transcript / model ref / window ref、WAV bytes、archive metadata を runtime behavior として検証します。
+
+この combined launch smoke で確認した owner 境界は、`transcribe_audio` の owner が `fa_asr`、`archive_audio_window` / `export_audio_window` の owner が `fa_audio_window` であることです。これは profile-level launch で owner nodes と MCP adapter executable を同時に起動する smoke であり、SO101 profile merge support、installed MCP HTTP / streamable transport tool call、親 Agent Runtime / MCP client 統合、World Station durable storage、実 SO101 model / device provisioning までは検証していません。
 
 ### 5.6 録音（WAV）
 1. `fa_in`と`fa_record`を起動

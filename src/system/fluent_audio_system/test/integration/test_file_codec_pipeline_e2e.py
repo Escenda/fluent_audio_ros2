@@ -39,7 +39,12 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
             "fa_in_codec_e2e": {
                 "ros__parameters": {
                     "backend.name": "pcm_file_reader",
+                    "audio.device_selector.mode": "",
+                    "audio.device_selector.identifier": "",
+                    "audio.device_selector.index": -1,
                     "file.path": str(input_pcm),
+                    "endpoint.uri": "",
+                    "transport.identity": "",
                     "output_topic": pcm16_input_topic,
                     "audio.source_id": "codec_e2e_source",
                     "audio.sample_rate": 16000,
@@ -50,6 +55,9 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                     "audio.chunk_ms": 1,
                     "audio.stream_id": pcm16_input_stream_id,
                     "playback.loop": False,
+                    "network.max_packet_bytes": 0,
+                    "polling.period_ms": 0,
+                    "network.source_timeout_ms": 0,
                     "audio.qos.depth": 10,
                     "audio.qos.reliable": True,
                     "startup.required_subscribers": 1,
@@ -180,7 +188,10 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
             "fa_out_codec_e2e": {
                 "ros__parameters": {
                     "backend.name": "pcm_file_writer",
+                    "audio.device_id": "",
                     "file.path": str(output_pcm),
+                    "endpoint.uri": "",
+                    "transport.identity": "",
                     "input_topic": gained_topic,
                     "input_stream_id": gained_stream_id,
                     "playback_done_topic": "audio/e2e/codec_done",
@@ -192,6 +203,9 @@ def _write_codec_pipeline_params(tmp_path: Path, input_pcm: Path, output_pcm: Pa
                     "audio.chunk_duration_ms": 1,
                     "queue.max_frames": 32,
                     "overwrite.enabled": False,
+                    "network.max_packet_bytes": 0,
+                    "audio.alsa.buffer_frames": 0,
+                    "audio.alsa.period_frames": 0,
                     "audio.qos.depth": 10,
                     "audio.qos.reliable": True,
                     "lifecycle.qos.depth": 10,

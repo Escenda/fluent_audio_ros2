@@ -52,6 +52,10 @@ def _write_network_io_params(
             "fa_in_network_e2e": {
                 "ros__parameters": {
                     "backend.name": "network_pcm_receiver",
+                    "audio.device_selector.mode": "",
+                    "audio.device_selector.identifier": "",
+                    "audio.device_selector.index": -1,
+                    "file.path": "",
                     "endpoint.uri": input_endpoint,
                     "transport.identity": "network_in_e2e",
                     "output_topic": topic,
@@ -63,6 +67,7 @@ def _write_network_io_params(
                     "audio.bit_depth": 16,
                     "audio.layout": "interleaved",
                     "audio.chunk_ms": 10,
+                    "playback.loop": False,
                     "network.max_packet_bytes": 1024,
                     "polling.period_ms": polling_period_ms,
                     "network.source_timeout_ms": source_timeout_ms,
@@ -83,6 +88,9 @@ def _write_network_io_params(
             "fa_out_network_e2e": {
                 "ros__parameters": {
                     "backend.name": "network_pcm_sender",
+                    "audio.device_id": "",
+                    "file.path": "",
+                    "overwrite.enabled": False,
                     "endpoint.uri": output_endpoint,
                     "transport.identity": "network_out_e2e",
                     "input_topic": topic,
@@ -95,6 +103,8 @@ def _write_network_io_params(
                     "audio.bit_depth": 16,
                     "audio.chunk_duration_ms": 10,
                     "network.max_packet_bytes": 1024,
+                    "audio.alsa.buffer_frames": 0,
+                    "audio.alsa.period_frames": 0,
                     "audio.qos.depth": 10,
                     "audio.qos.reliable": True,
                     "lifecycle.qos.depth": 10,
