@@ -33,6 +33,9 @@ IO_TEST_TRACE_PREFIXES = {
     "io/sources/fa_in": "FA-IN",
 }
 PROCESSING_TEST_TRACE_PREFIXES = {
+    "processing/dynamics/fa_compressor": "FA-COMPRESSOR",
+    "processing/dynamics/fa_limiter": "FA-LIMITER",
+    "processing/dynamics/fa_normalize": "FA-NORMALIZE",
     "processing/format/fa_decode": "FA-DECODE",
     "processing/format/fa_encode": "FA-ENCODE",
     "processing/format/fa_resample": "FA-RESAMPLE",
