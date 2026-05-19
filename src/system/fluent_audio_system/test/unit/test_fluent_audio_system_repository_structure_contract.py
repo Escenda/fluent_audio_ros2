@@ -41,6 +41,7 @@ PROCESSING_TEST_TRACE_PREFIXES = {
     "processing/dynamics/fa_noise_gate": "FA-NOISE-GATE",
     "processing/dynamics/fa_normalize": "FA-NORMALIZE",
     "processing/frequency/fa_band_pass": "FA-BAND-PASS",
+    "processing/frequency/fa_deesser": "FA-DEESSER",
     "processing/frequency/fa_eq": "FA-EQ",
     "processing/frequency/fa_high_pass": "FA-HIGH-PASS",
     "processing/frequency/fa_low_pass": "FA-LOW-PASS",
