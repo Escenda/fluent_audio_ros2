@@ -181,3 +181,8 @@ def test_colcon_runs_cpp_and_pytest_contracts() -> None:
     assert "find_package(ament_cmake_pytest REQUIRED)" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
+    assert "<exec_depend>launch</exec_depend>" in package_xml
+    assert "<exec_depend>launch_ros</exec_depend>" in package_xml
+    assert "<test_depend>fa_sample_format</test_depend>" in package_xml
+    assert "<test_depend>python3-yaml</test_depend>" in package_xml
+    assert "<test_depend>rclpy</test_depend>" in package_xml
