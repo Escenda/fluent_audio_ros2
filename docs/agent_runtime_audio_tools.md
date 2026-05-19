@@ -1,0 +1,265 @@
+# Agent Runtime 音声 tool 境界設計
+
+作成日: 2026-05-20
+
+## 0. この資料の位置づけ
+
+この資料は、Physical AI Agent Runtime から FluentAudioROS2 の音声能力を tool として呼び出すための責務境界を定義する。
+
+対象は次の 2 つである。
+
+- `transcribe_audio`: 指定範囲の音声を文字起こしする tool
+- `archive_audio_window`: 指定範囲の音声を証拠 clip として保存する tool
+
+この資料は完了済み機能の一覧ではない。DSP 全分類、backend 全種、VLAbor profile 連携、Agent Runtime 実装、MCP tool 実装がすべて完了したことを示す資料ではない。ここで定義するのは、次工程で実装と検証を進めるための正本境界である。
+
+## 1. 基本方針
+
+FluentAudioROS2 は音声能力を提供する。Agent Runtime はその能力を目的に応じて選び、組み合わせ、結果を読んで次の判断を行う。
+
+FluentAudioROS2 core に Agent LLM、MCP tool 選択、保存判断、行動計画、World Station への記録判断を混ぜない。FluentAudioROS2 は音声入力、音声処理、音声解析、文字起こし、音声 window の切り出しといった能力を、ROS2 topic / service として明示的に公開する。
+
+重要なのは、「全部を持つ」ことと「全部を一つに混ぜる」ことを分けることである。FluentAudioROS2 は format conversion、dynamics、frequency、temporal、correction / noise、spatial / channel、analysis / feature extraction、generation / transformation、routing / mixing、streaming / synchronization を扱えるべきである。ただし、それらを巨大な万能 node にまとめてはならない。それぞれの node が一つの意味を持ち、どこで音が変わり、どこで失敗したかを追える構造にする。
+
+`transcribe_audio` と `archive_audio_window` も同じである。どちらも time range を扱うが、目的、入力表現、成功条件、失敗条件が異なる。したがって、同じ rolling window を無理に正本にしない。
+
+## 2. 決定事項
+
+### 2.1 `transcribe_audio` の正本 owner
+
+`transcribe_audio` の canonical owner は `fa_asr` である。
+
+`fa_asr` は ASR-ready な timeline を持つ。ここでいう ASR-ready とは、ASR backend に渡す前提を満たした `FLOAT32LE`、mono、設定済み sample rate、interleaved layout の音声 stream である。
+
+`transcribe_audio` はこの ASR-ready timeline に対して numeric time range を指定し、ASR backend を実行して timestamp 付き transcript segment を返す。
+
+`transcribe_audio` は `fa_audio_window` を秘密裏に取得元として使ってはならない。`fa_audio_window` は PCM16/WAV の証拠 window を扱う。そこから ASR-ready `FLOAT32LE` へ変換して `fa_asr` に渡すなら、PCM16/WAV から float32 への変換、sample rate 変換、channel 変換、layout 変換が hidden behavior になる。これは FluentAudioROS2 の設計方針に反する。
+
+変換が必要なら、変換専用 node を pipeline に明示する。ASR node の中で暗黙変換してはいけない。
+
+### 2.2 `archive_audio_window` の正本 owner
+
+`archive_audio_window` の canonical owner は `fa_audio_window` である。
+
+`fa_audio_window` は evidence / audio-archive 用の PCM16/WAV window を持つ。役割は、指定された time range の音声を、後から証拠として参照できる clip にすることである。
+
+`archive_audio_window` は ASR のための意味処理をしない。文字起こしも行わない。ASR backend を呼ばない。音声 clip の保存、参照、time range の確定、範囲外や不連続 range の検出を担当する。
+
+### 2.3 Agent Runtime / MCP adapter の責務
+
+Agent Runtime / MCP adapter は、人間や Agent LLM が使いやすい tool input を、FluentAudioROS2 service が受け取れる deterministic な request に変換する。
+
+Agent Runtime / MCP adapter が持つ責務は次の通りである。
+
+| 責務 | 内容 |
+| --- | --- |
+| `TimeRangeSpec` 解釈 | `now-10s..now`、action marker、turn marker などを numeric media time range に解決する |
+| `audio_scope` 解決 | `mic`、`system`、`mixed` などを具体的な stream identity に対応付ける |
+| ROS2 service 呼び出し | `fa_asr` の `TranscribeAudio` service、`fa_audio_window` の `ArchiveAudioWindow` service を呼ぶ |
+| error mapping | service の `success=false` と `error_code` を Agent Runtime の tool error として明示的に返す |
+| tool contract の安定化 | Agent LLM に見せる tool schema、namespace、入力名、出力名を安定させる |
+
+Agent Runtime / MCP adapter は ASR model をロードしない。audio decode、resample、format conversion、WAV export を自前で実装しない。FluentAudio node の代わりに音声処理を肩代わりしない。
+
+## 3. tool contract
+
+### 3.1 `transcribe_audio`
+
+`transcribe_audio` は、指定された音声範囲を文字起こしする。
+
+| 項目 | 契約 |
+| --- | --- |
+| Agent-facing input | `time_range`、`audio_scope` |
+| Adapter output | `time_range_spec`、`audio_scope` を持つ `TranscribeAudio` request |
+| ROS2 service owner | `fa_asr` |
+| 内部 timeline | ASR-ready `FLOAT32LE` timeline |
+| 成功出力 | transcript segments、model ref、audio window ref、resolved time range |
+| 失敗条件 | time range 未解決、window 不在、範囲外、unsupported scope、ASR 失敗、空 transcript |
+
+`transcribe_audio` は自然言語の質問を受け取らない。Agent LLM が文字起こし結果の意味を判断したい場合は、返された transcript を読んで次の推論 turn で判断する。
+
+現時点で確認できる実装事実は、`fa_asr` が numeric range を対象にした `TranscribeAudio` service と ASR-ready timeline を持つことである。自然言語 time range の解釈、Agent Runtime tool schema、MCP adapter、World Station 連携まで完了したことは意味しない。
+
+### 3.2 `archive_audio_window`
+
+`archive_audio_window` は、指定された音声範囲を証拠 clip として保存する。
+
+| 項目 | 契約 |
+| --- | --- |
+| Agent-facing input | `time_range`、`audio_scope`、`reason`、`related_artifact_ids` |
+| Adapter output | `time_range_spec`、`audio_scope`、`reason`、`related_artifact_ids`、codec / container / payload format を持つ `ArchiveAudioWindow` request |
+| ROS2 service owner | `fa_audio_window` |
+| 内部 timeline | evidence / archive 用 PCM16LE window |
+| 成功出力 | audio clip ref、resolved time range |
+| 失敗条件 | time range 未解決、不正 request、window 不在、範囲外、不連続 range、unsupported scope、unsupported archive format、archive 失敗 |
+
+`archive_audio_window` は Agent LLM が保存すべきと判断した理由を受け取る。ただし、保存すべきかどうかの判断そのものは `fa_audio_window` の責務ではない。判断は Agent Runtime が行い、`fa_audio_window` は request が契約を満たすか検証して clip を作る。
+
+現時点で確認できる実装事実は、`fa_audio_window` が PCM16LE/WAV windowing に対する export / archive service を持つことである。durable object storage、World Station artifact 生成、`reason` / `related_artifact_ids` の永続 metadata 化、Agent Runtime からの tool 呼び出しまで完了したことは意味しない。
+
+## 4. 2 つの timeline を分ける理由
+
+`fa_asr` と `fa_audio_window` は、どちらも「過去の音声範囲」を扱う。しかし、同じ timeline を正本にすると責務が崩れる。
+
+第一に、表現形式が違う。`fa_asr` の timeline は ASR backend 入力として成立する `FLOAT32LE` stream である。一方、`fa_audio_window` の timeline は証拠保存に向いた PCM16LE/WAV window である。片方から片方を作るには変換が必要になる。その変換を隠すと、どの node が音を変えたのか追えなくなる。
+
+第二に、正しさの基準が違う。`transcribe_audio` にとって重要なのは、ASR backend が受け入れる sample rate、channel count、encoding、layout、値域、連続性である。`archive_audio_window` にとって重要なのは、証拠として後から再生、保存、参照できる clip であること、範囲が連続していること、archive format が明示されていることである。
+
+第三に、失敗の意味が違う。ASR-ready timeline が範囲を持っていない場合、文字起こしはできない。PCM16 evidence window が範囲を持っていない場合、証拠 clip は保存できない。この 2 つは別の失敗であり、片方をもう片方で補って成功扱いにしてはいけない。
+
+第四に、保持期間や保存粒度が将来変わり得る。ASR-ready timeline は低遅延な短期 window に寄せる可能性がある。evidence window は長めの retention、durable archive、World Station evidence ref と結び付く可能性がある。同じ lifecycle に縛ると、どちらかの設計が不自然になる。
+
+したがって、`fa_asr` と `fa_audio_window` はそれぞれ自分の timeline を持つ。両者を対応付ける場合は、Agent Runtime / adapter が resolved time range と stream identity を明示的に渡し、必要な変換は pipeline 上の専用 node として見える形にする。
+
+## 5. fail-closed ルール
+
+FluentAudio core は fail closed を原則とする。
+
+禁止するもの:
+
+- unsupported `audio_scope` を既定 scope として扱うこと
+- `now-10s..now` を node 内で曖昧に推測すること
+- action marker が見つからないときに勝手に直近範囲へ置き換えること
+- PCM16LE から FLOAT32LE への変換を `fa_asr` 内で隠すこと
+- sample rate mismatch を ASR backend 内で吸収すること
+- window 不在、範囲外、不連続 range、空 transcript を成功扱いにすること
+- `success=false` を Agent Runtime 側で自然言語の警告だけにして正常結果として扱うこと
+
+必要な data がない場合は、明示的な error code と message を返す。上位の Agent Runtime は、その error を tool failure として扱う。失敗を隠して「それらしい transcript」や「空 clip 成功」を返してはならない。
+
+## 6. Agent Runtime / MCP adapter の設計境界
+
+Agent Runtime / MCP adapter は、FluentAudio node の能力を Agent LLM から使える tool にする薄い境界である。ただし「薄い」とは責務が軽いという意味ではない。曖昧な自然言語入力を ROS2 service contract に落とすため、ここには明示的な validation と error mapping が必要である。
+
+Adapter が解決する入力:
+
+| 入力 | 解決後 |
+| --- | --- |
+| `now-10s..now` | numeric start / end media timestamp |
+| `last_user_utterance` | 対応する turn marker の numeric range |
+| `before_action:<id>` | action marker から導いた numeric range |
+| `mic` | configured microphone stream identity |
+| `system` | configured system-audio stream identity |
+| `mixed` | configured mixed stream identity |
+
+Adapter は範囲を推測しない。対応する marker や stream identity が見つからなければ、FluentAudio service を呼ぶ前に tool error として返す。FluentAudio service から `success=false` が返った場合も、tool error として Agent LLM に返す。
+
+Adapter は FluentAudio node に LLM / MCP 判断ロジックを押し込まない。Agent Runtime が tool を選び、FluentAudio node が音声能力を実行する。この境界を保つことで、音声処理 node は単体で検証でき、Agent Runtime は tool orchestration と reasoning に集中できる。
+
+## 7. テスト方針
+
+テストは証明である。source file に特定の文字列があること、Markdown に特定の見出しがあること、launch file に特定 import があることを確認するだけのテストは、FluentAudioROS2 の信頼性を証明しない。
+
+この境界で必要なテストは、契約とアルゴリズムの振る舞いを検証するものである。
+
+検証すべき例:
+
+- `TimeRangeSpec` resolver が `now-10s..now` を基準時刻から正しい numeric range に変換すること
+- marker が存在しない場合に guessed range を作らず失敗すること
+- `audio_scope` resolver が `mic`、`system`、`mixed` を configured stream identity にだけ解決すること
+- unknown scope が default stream に落ちず、明示 error になること
+- `TranscribeAudio` service が範囲外、gap、不連続、unsupported format、blank transcript を成功扱いにしないこと
+- `ArchiveAudioWindow` service が unsupported codec / container / payload format を明示 error にすること
+- Adapter が service error code を tool error に保存し、自然言語だけで握りつぶさないこと
+- numeric range で `transcribe_audio` と `archive_audio_window` を呼び、返却された resolved time range が tool result に保持されること
+
+テストは node の人格を守るための契約である。node ができないことをできるふりをしないこと、対応していない入力を受けたときに正しく拒否すること、成功と失敗を明確に分けることを証明する。
+
+## 8. 次フェーズの作業パッケージ
+
+以下は pending work である。この資料を書いた時点で完了扱いしない。
+
+### 8.1 `TimeRangeSpec` resolver
+
+Agent-facing な `time_range` を numeric media time range へ解決する component を作る。
+
+対象:
+
+- `now-10s..now`
+- absolute timestamp range
+- turn marker
+- action marker
+- future: World Station artifact range
+
+失敗条件:
+
+- syntax 不正
+- marker 不在
+- 基準 clock 不在
+- start / end 逆転
+- retention 外
+
+### 8.2 `audio_scope` resolver
+
+`mic`、`system`、`mixed` を FluentAudio stream identity に解決する。
+
+scope は topic 名ではない。scope は Agent-facing な論理名であり、resolver が profile / runtime config に基づいて具体的な `source_id` / `stream_id` へ変換する。
+
+unknown scope、未設定 scope、複数候補に曖昧に一致する scope は失敗にする。
+
+### 8.3 Agent Runtime adapter / tool contract
+
+Agent Runtime から見える tool schema と、ROS2 service request / response の対応を実装する。
+
+必要な契約:
+
+- tool input schema
+- resolver error schema
+- service error mapping
+- transcript segment result schema
+- audio clip ref result schema
+- model ref result schema
+- resolved time range result schema
+
+この adapter は FluentAudioROS2 core に LLM 判断を持ち込まない。Agent Runtime 側の orchestration 層として実装する。
+
+### 8.4 launch / profile integration
+
+必要であれば、`fa_asr` と `fa_audio_window` を同じ FluentAudio system profile から起動できるようにする。
+
+この作業では、ASR-ready stream と evidence stream の identity を明示する。`fa_audio_window` を `fa_asr` の暗黙入力にしない。必要な format conversion、resample、channel conversion は pipeline node として visible にする。
+
+### 8.5 end-to-end smoke test
+
+Agent Runtime adapter が numeric range に解決済みの request を使って、次を確認する。
+
+- `transcribe_audio` が `fa_asr` service を呼び、transcript segment と resolved time range を返すこと
+- `archive_audio_window` が `fa_audio_window` service を呼び、audio clip ref と resolved time range を返すこと
+- service failure が tool failure として返ること
+- unsupported scope、範囲外、不連続 range が成功扱いにならないこと
+
+この smoke test は source-string check ではなく、実際の service contract の振る舞いを検証する。
+
+### 8.6 durable archive storage metadata
+
+必要になった段階で、`archive_audio_window` の結果を durable storage や World Station evidence ref と結び付ける。
+
+検討対象:
+
+- clip URI の永続化先
+- `reason` の保存先
+- `related_artifact_ids` の保存先
+- model / node / stream / codec / container / payload format metadata
+- retention policy
+- partial failure 時の rollback / cleanup
+
+この作業は本資料の slice では未実装である。
+
+## 9. 非目標
+
+この slice では次を行わない。
+
+- concrete caller が存在しない外部推論 worker の導入
+- VLM 全般の設計や実装
+- FluentAudio node 内への LLM / MCP decision logic の導入
+- PCM16/WAV から FLOAT32LE への hidden compatibility layer
+- unsupported scope や unsupported format の自動 fallback
+- 親 repo の変更
+- `vlabor_ros2` の変更
+- `CPP_CODING_RULES.md` / `CLAUDECODE_RULES.md` の変更
+
+## 10. まとめ
+
+`transcribe_audio` は `fa_asr` の ASR-ready timeline を読む。`archive_audio_window` は `fa_audio_window` の evidence / archive timeline を読む。Agent Runtime / MCP adapter は、人間や Agent LLM が指定した time range と audio scope を、FluentAudioROS2 が検証可能な numeric range と stream identity に変換する。
+
+この分離により、FluentAudioROS2 の node は自分が何を意味しているかを保てる。文字起こし node は文字起こしに集中し、archive node は証拠保存に集中し、Agent Runtime は判断と orchestration に集中する。失敗は失敗として表に出し、対応していないものを対応済みのように見せない。それがこの境界の正しさである。
