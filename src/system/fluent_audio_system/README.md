@@ -43,7 +43,9 @@ VLAbor / Docker 側で system config から build 対象 package を解決する
 ros2 run fluent_audio_system list_required_packages --config /path/to/fluent_audio_system.yaml
 ```
 
-`--config` も同じカンマ区切り config path list を受け付けます。child-side FluentAudio config composition は package-local config / CLI で検証済みです。さらに Docker ROS2 環境で `fluent_audio_system` rebuild 後、`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest src/system/fluent_audio_system/test/integration/test_combined_owner_mcp_launch_smoke.py -q` を実行し、`config:=owner.yaml,adapter.yaml` 形式の generated owner/adapter config を使う launch-managed MCP HTTP relative-time tool-call smoke は `1 passed in 3.52s` として確認済みです。この smoke は MCP streamable-http `/mcp` の `list_tools` / `transcribe_audio` / `archive_audio_window` / `export_audio_window` を `time_range="now-10s..now"` で呼び、`use_sim_time` と `/clock` による ROS node clock から `20s..30s` の numeric range へ解決したうえで実 owner services へ渡ることと、unsupported scope error result を確認します。ただし、real `so101_voice_frontend.yaml,so101_agent_audio_tools.yaml` runtime proof、親 VLAbor profile integration、Agent Runtime / MCP client integration、durable storage、World Station、実 SO101 device / model provisioning の検証完了を意味しません。
+`--config` も同じカンマ区切り config path list を受け付けます。child-side FluentAudio config composition は package-local config / CLI で検証済みです。さらに Docker ROS2 環境で `fluent_audio_system` rebuild 後、combined launch smoke は `2 passed in 10.65s` として確認済みです。
+
+この smoke suite は、`config:=owner.yaml,adapter.yaml` 形式の generated owner/adapter config を使う launch-managed MCP HTTP relative-time tool-call smoke と、実 profile pair `${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml,${share:fluent_audio_system}/config/profiles/so101_agent_audio_tools.yaml` を `fluent_audio_system/run.py` 経由で起動する SO101 profile pair runtime smoke を含みます。後者は `fa_audio_mcp -> fa_asr/fa_audio_window` の runtime 経路を確認し、targeted 実行では `1 passed in 9.13s` です。ただし、この検証は child repo 内の実 FluentAudio profile pair smoke であり、親 VLAbor profile integration、親 Agent Runtime / MCP client integration、durable storage、World Station evidence linkage、実 SO101 device / model provisioning の検証完了を意味しません。
 
 ## Profiles
 
