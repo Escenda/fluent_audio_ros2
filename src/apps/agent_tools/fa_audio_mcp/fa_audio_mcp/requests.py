@@ -34,7 +34,7 @@ class TranscribeAudioRequestValues:
 def build_archive_audio_request_values(
     *,
     time_range: str,
-    audio_scope: str,
+    audio_scope: str | None,
     reason: str,
     related_artifact_ids: list[str],
     scope_resolver: AudioScopeResolver,
@@ -63,7 +63,7 @@ def build_archive_audio_request_values(
 def build_transcribe_audio_request_values(
     *,
     time_range: str,
-    audio_scope: str,
+    audio_scope: str | None,
     scope_resolver: AudioScopeResolver,
 ) -> TranscribeAudioRequestValues:
     parsed_time_range = parse_numeric_time_range(time_range)

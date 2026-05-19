@@ -1,11 +1,14 @@
 import importlib
+import inspect
 import sys
+from collections.abc import Callable
 from types import ModuleType
 
 import pytest
 
 from fa_audio_mcp.config import ServerConfig
 from fa_audio_mcp.errors import AudioToolError
+from fa_audio_mcp.json_types import JsonValue
 from fa_audio_mcp.requests import (
     ArchiveAudioRequestValues,
     TranscribeAudioRequestValues,
@@ -13,13 +16,17 @@ from fa_audio_mcp.requests import (
 from fa_audio_mcp.scopes import AudioScopeConfig
 from fa_audio_mcp.time_range import NumericTimeRange
 
+ToolFunction = Callable[..., dict[str, JsonValue]]
+
 
 class _FakeFastMCP:
     def __init__(self, name: str) -> None:
         self.name = name
+        self.tools: dict[str, ToolFunction] = {}
 
     def tool(self):
-        def _decorator(func):
+        def _decorator(func: ToolFunction) -> ToolFunction:
+            self.tools[func.__name__] = func
             return func
 
         return _decorator
@@ -237,3 +244,33 @@ def test_ros_client_populates_archive_request(
     assert archive_client.request.codec == "pcm_s16le"
     assert archive_client.request.container == "wav"
     assert archive_client.request.payload_format == "audio/wav"
+
+
+def test_mcp_tools_make_audio_scope_omittable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = _import_server(monkeypatch)
+
+    mcp = server.build_mcp_server(
+        _server_config(),
+        server.RosAudioTimelineClient(
+            _FakeNode(
+                _FakeClient(available=True, response=_FakeResponse()),
+                _FakeClient(available=True, response=_FakeResponse()),
+            ),
+            _server_config(),
+        ),
+        server.AudioScopeResolver(AudioScopeConfig(mic="mic", default_scope_key="mic")),
+        server.AudioScopeResolver(
+            AudioScopeConfig(
+                mic="audio/high_pass/mic",
+                default_scope_key="mic",
+            )
+        ),
+    )
+
+    archive_signature = inspect.signature(mcp.tools["archive_audio_window"])
+    transcribe_signature = inspect.signature(mcp.tools["transcribe_audio"])
+
+    assert archive_signature.parameters["audio_scope"].default is None
+    assert transcribe_signature.parameters["audio_scope"].default is None

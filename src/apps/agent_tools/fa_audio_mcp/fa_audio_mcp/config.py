@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from os import environ
 
 from fa_audio_mcp.errors import AudioToolError
-from fa_audio_mcp.scopes import AudioScopeConfig
+from fa_audio_mcp.scopes import AudioScopeConfig, AudioScopeKey
 
 
 @dataclass(frozen=True)
@@ -47,11 +47,19 @@ def load_server_config() -> ServerConfig:
             mic=_read_non_empty_string("FLUENT_AUDIO_ARCHIVE_SCOPE_MIC", "mic"),
             system=_read_optional_scope("FLUENT_AUDIO_ARCHIVE_SCOPE_SYSTEM"),
             mixed=_read_optional_scope("FLUENT_AUDIO_ARCHIVE_SCOPE_MIXED"),
+            default_scope_key=_read_optional_scope_key(
+                "FLUENT_AUDIO_ARCHIVE_DEFAULT_SCOPE",
+                "mic",
+            ),
         ),
         transcribe_scope_config=AudioScopeConfig(
             mic=_read_optional_scope("FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC"),
             system=_read_optional_scope("FLUENT_AUDIO_TRANSCRIBE_SCOPE_SYSTEM"),
             mixed=_read_optional_scope("FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIXED"),
+            default_scope_key=_read_optional_scope_key(
+                "FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE",
+                None,
+            ),
         ),
     )
 
@@ -71,6 +79,25 @@ def _read_optional_scope(name: str) -> str | None:
     if stripped_value == "":
         return None
     return stripped_value
+
+
+def _read_optional_scope_key(name: str, default: str | None) -> AudioScopeKey | None:
+    raw_value = environ.get(name, default)
+    if raw_value is None:
+        return None
+    value = raw_value.strip()
+    if value == "":
+        return None
+    if value == "mic":
+        return "mic"
+    if value == "system":
+        return "system"
+    if value == "mixed":
+        return "mixed"
+    raise AudioToolError(
+        "invalid_config",
+        f"{name} must be one of mic, system, mixed",
+    )
 
 
 def _read_positive_float(name: str, default: str) -> float:

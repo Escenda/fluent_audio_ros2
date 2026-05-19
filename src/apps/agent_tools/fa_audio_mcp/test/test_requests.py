@@ -62,6 +62,28 @@ def test_archive_request_uses_supported_format_defaults_when_omitted() -> None:
     assert values.payload_format == "audio/wav"
 
 
+@pytest.mark.parametrize("scope", [None, " "])
+def test_archive_request_uses_configured_default_scope_when_omitted(
+    scope: str | None,
+) -> None:
+    resolver = AudioScopeResolver(
+        AudioScopeConfig(
+            mic="robot_mic",
+            default_scope_key="mic",
+        )
+    )
+
+    values = build_archive_audio_request_values(
+        time_range="100..300",
+        audio_scope=scope,
+        reason="incident evidence",
+        related_artifact_ids=[],
+        scope_resolver=resolver,
+    )
+
+    assert values.audio_scope == "robot_mic"
+
+
 def test_transcribe_request_rejects_unconfigured_mic_scope() -> None:
     resolver = AudioScopeResolver(AudioScopeConfig())
 
@@ -79,6 +101,23 @@ def test_transcribe_request_uses_configured_asr_stream_scope() -> None:
     values = build_transcribe_audio_request_values(
         time_range="100..300",
         audio_scope="mic",
+        scope_resolver=resolver,
+    )
+
+    assert values.audio_scope == "audio/high_pass/mic"
+
+
+def test_transcribe_request_uses_configured_default_scope_when_omitted() -> None:
+    resolver = AudioScopeResolver(
+        AudioScopeConfig(
+            mic="audio/high_pass/mic",
+            default_scope_key="mic",
+        )
+    )
+
+    values = build_transcribe_audio_request_values(
+        time_range="100..300",
+        audio_scope=None,
         scope_resolver=resolver,
     )
 

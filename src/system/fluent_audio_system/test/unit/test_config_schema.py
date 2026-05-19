@@ -704,7 +704,9 @@ def test_apps_group_accepts_audio_mcp_and_expands_node_env(tmp_path: Path) -> No
                                 "FLUENT_AUDIO_MCP_HOST": "127.0.0.1",
                                 "FLUENT_AUDIO_MCP_PORT": "9110",
                                 "FLUENT_AUDIO_ARCHIVE_SCOPE_MIC": "mic",
+                                "FLUENT_AUDIO_ARCHIVE_DEFAULT_SCOPE": "mic",
                                 "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC": "audio/high_pass/mic",
+                                "FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE": "mic",
                             },
                         }
                     ],
@@ -721,7 +723,9 @@ def test_apps_group_accepts_audio_mcp_and_expands_node_env(tmp_path: Path) -> No
         "FLUENT_AUDIO_MCP_HOST": "127.0.0.1",
         "FLUENT_AUDIO_MCP_PORT": "9110",
         "FLUENT_AUDIO_ARCHIVE_SCOPE_MIC": "mic",
+        "FLUENT_AUDIO_ARCHIVE_DEFAULT_SCOPE": "mic",
         "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC": "audio/high_pass/mic",
+        "FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE": "mic",
     }
     assert required_packages_for_system(spec) == [
         "fa_interfaces",

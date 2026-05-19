@@ -23,7 +23,7 @@
 - `fa_audio_mcp` 内で ASR model を load しない。
 - `fa_audio_mcp` 内で PCM decode / WAV encode / resample / channel conversion を実装しない。
 - `fa_audio_mcp` 内で `fa_audio_window` の代わりに window buffer を持たない。
-- `fa_audio_mcp` 内で unsupported scope を default scope に落とさない。
+- `fa_audio_mcp` 内で unsupported scope を default scope に落とさない。default scope key は null / blank `audio_scope` 専用の明示 contract とする。
 - `fa_audio_mcp` 内で service failure を成功 result に変換しない。
 
 ## SO101 voice frontend との関係

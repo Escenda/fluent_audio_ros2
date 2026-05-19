@@ -88,9 +88,9 @@ def build_mcp_server(
     @mcp.tool()
     def archive_audio_window(
         time_range: str,
-        audio_scope: str,
         reason: str,
         related_artifact_ids: list[str],
+        audio_scope: str | None = None,
         codec: str | None = None,
         container: str | None = None,
         payload_format: str | None = None,
@@ -111,7 +111,7 @@ def build_mcp_server(
     @mcp.tool()
     def transcribe_audio(
         time_range: str,
-        audio_scope: str,
+        audio_scope: str | None = None,
     ) -> dict[str, JsonValue]:
         values = build_transcribe_audio_request_values(
             time_range=time_range,

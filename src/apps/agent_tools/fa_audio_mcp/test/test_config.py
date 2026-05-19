@@ -14,9 +14,11 @@ _ENV_NAMES = (
     "FLUENT_AUDIO_ARCHIVE_SCOPE_MIC",
     "FLUENT_AUDIO_ARCHIVE_SCOPE_SYSTEM",
     "FLUENT_AUDIO_ARCHIVE_SCOPE_MIXED",
+    "FLUENT_AUDIO_ARCHIVE_DEFAULT_SCOPE",
     "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC",
     "FLUENT_AUDIO_TRANSCRIBE_SCOPE_SYSTEM",
     "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIXED",
+    "FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE",
 )
 
 
@@ -97,6 +99,41 @@ def test_config_loads_archive_and_transcribe_scope_configs_separately(
     assert config.archive_scope_config.mic == "mic"
     assert config.archive_scope_config.system == "system_archive"
     assert config.archive_scope_config.mixed is None
+    assert config.archive_scope_config.default_scope_key == "mic"
     assert config.transcribe_scope_config.mic == "audio/high_pass/mic"
     assert config.transcribe_scope_config.system is None
     assert config.transcribe_scope_config.mixed == "audio/mixed/asr"
+    assert config.transcribe_scope_config.default_scope_key is None
+
+
+def test_config_loads_explicit_tool_default_scope_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("FLUENT_AUDIO_ARCHIVE_DEFAULT_SCOPE", "system")
+    monkeypatch.setenv("FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE", "mixed")
+
+    config = load_server_config()
+
+    assert config.archive_scope_config.default_scope_key == "system"
+    assert config.transcribe_scope_config.default_scope_key == "mixed"
+
+
+@pytest.mark.parametrize(
+    "env_name",
+    [
+        "FLUENT_AUDIO_ARCHIVE_DEFAULT_SCOPE",
+        "FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE",
+    ],
+)
+def test_config_rejects_invalid_default_scope_key(
+    monkeypatch: pytest.MonkeyPatch,
+    env_name: str,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv(env_name, "camera")
+
+    with pytest.raises(AudioToolError) as exc_info:
+        load_server_config()
+
+    assert exc_info.value.error_code == "invalid_config"

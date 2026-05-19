@@ -942,7 +942,9 @@ def test_so101_agent_audio_tools_profile_expands_mcp_adapter(
         "FLUENT_AUDIO_ARCHIVE_AUDIO_WINDOW_SERVICE": "archive_audio_window",
         "FLUENT_AUDIO_TRANSCRIBE_AUDIO_SERVICE": "transcribe_audio",
         "FLUENT_AUDIO_ARCHIVE_SCOPE_MIC": "mic",
+        "FLUENT_AUDIO_ARCHIVE_DEFAULT_SCOPE": "mic",
         "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC": "audio/high_pass/mic",
+        "FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE": "mic",
     }
 
 
