@@ -33,6 +33,8 @@ IO_TEST_TRACE_PREFIXES = {
     "io/sources/fa_in": "FA-IN",
 }
 PROCESSING_TEST_TRACE_PREFIXES = {
+    "processing/analysis/fa_loudness": "FA-LOUDNESS",
+    "processing/analysis/fa_stft": "FA-STFT",
     "processing/correction/fa_aec_linear": "FA-AEC-LINEAR",
     "processing/correction/fa_aec_nn": "FA-AEC-NN",
     "processing/correction/fa_dc_offset_removal": "FA-DC-OFFSET-REMOVAL",
