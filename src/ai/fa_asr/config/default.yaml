@@ -4,6 +4,7 @@ fa_asr:
     vad_topic: "voice/vad_state"
     turn_context_topic: "conversation/turn_context"
     asr_result_topic: "voice/asr/result"
+    transcribe_service_name: "transcribe_audio"
     # Required. Must match AudioFrame.source_id from the configured fa_in/source pipeline.
     expected_source_id: ""
     # Required. Must match AudioFrame.stream_id from the configured processing pipeline.
@@ -11,6 +12,10 @@ fa_asr:
 
     target_sample_rate: 16000
     min_audio_sec: 0.3
+    timeline.retention_sec: 1800.0
+    timeline.clock: "media"
+    timeline.window_id: "fa_asr_rolling_asr_window"
+    timeline.window_epoch: 0
     silence_timeout_sec: 10.0
     finalize_on_vad_end: true
     finalize_on_context_inactive: true
@@ -30,9 +35,12 @@ fa_asr:
     # external worker boundaries and fail closed if command/model are not
     # explicitly configured.
     backend.name: ""
+    backend.kind: "asr"
     backend.model: ""
     backend.command: ""
     backend.model_path: ""
+    backend.model_version: ""
+    backend.model_revision: ""
     backend.openai_realtime.api_key_env: ""
     backend.openai_transcriptions.api_key_env: ""
     backend.language: "ja"

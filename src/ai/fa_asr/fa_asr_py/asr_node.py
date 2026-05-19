@@ -9,15 +9,36 @@ from pathlib import Path
 from typing import Iterable
 
 import numpy as np
+from builtin_interfaces.msg import Time
 import rclpy
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.exceptions import ParameterUninitializedException
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-from fa_interfaces.msg import AsrResult, AudioFrame, TurnContext, VadState
+from fa_interfaces.msg import (
+    AsrResult,
+    AudioFrame,
+    AudioModelRef,
+    AudioWindowRef,
+    ResolvedTimeRange,
+    TranscriptSegment,
+    TurnContext,
+    VadState,
+)
+from fa_interfaces.srv import TranscribeAudio
 from fa_asr_py.backends.base import AsrBackend, AsrRequest
 from fa_asr_py.backends.factory import AsrBackendSettings, build_asr_backend
+from fa_asr_py.timeline import (
+    ERROR_TIME_RANGE_UNRESOLVED,
+    NumericTimeRange,
+    RollingAsrTimeline,
+    TimelineRangeError,
+    TimelineSlice,
+    parse_numeric_time_range,
+)
 
 
 @dataclass(frozen=True)
@@ -39,6 +60,9 @@ class FaAsrNode(Node):
         self.vad_topic = self._string_parameter("vad_topic").strip()
         self.turn_context_topic = self._string_parameter("turn_context_topic").strip()
         self.asr_result_topic = self._string_parameter("asr_result_topic").strip()
+        self.transcribe_service_name = self._string_parameter(
+            "transcribe_service_name"
+        ).strip()
         self.expected_source_id = self._string_parameter("expected_source_id").strip()
         if not self.expected_source_id:
             raise RuntimeError("expected_source_id is required")
@@ -47,6 +71,16 @@ class FaAsrNode(Node):
             raise RuntimeError("expected_stream_id is required")
         self.target_sample_rate = self._positive_integer_parameter("target_sample_rate")
         self.min_audio_sec = self._positive_double_parameter("min_audio_sec")
+        self.timeline_retention_sec = self._positive_double_parameter(
+            "timeline.retention_sec"
+        )
+        self.timeline_clock = self._timeline_clock_parameter("timeline.clock")
+        self.timeline_window_id = self._string_parameter("timeline.window_id").strip()
+        if not self.timeline_window_id:
+            raise RuntimeError("timeline.window_id is required")
+        self.timeline_window_epoch = self._non_negative_integer_parameter(
+            "timeline.window_epoch"
+        )
         self.silence_timeout_sec = self._positive_double_parameter("silence_timeout_sec")
         self.finalize_on_vad_end = self._bool_parameter("finalize_on_vad_end")
         self.finalize_on_context_inactive = self._bool_parameter(
@@ -54,9 +88,28 @@ class FaAsrNode(Node):
         )
         self.workspace_dir = Path(self._string_parameter("workspace_dir")).expanduser()
         self.cleanup_audio_files = self._bool_parameter("cleanup_audio_files")
+        self.backend_name = self._string_parameter("backend.name").strip()
+        self.backend_kind = self._backend_kind_parameter("backend.kind")
+        self.backend_model = self._string_parameter("backend.model").strip()
+        self.backend_model_path = self._string_parameter("backend.model_path").strip()
+        self.backend_model_version = self._string_parameter(
+            "backend.model_version"
+        ).strip()
+        self.backend_model_revision = self._string_parameter(
+            "backend.model_revision"
+        ).strip()
         self._validate_identity_contract()
 
         self.backend = self._load_backend()
+        self._backend_lock = threading.Lock()
+        self._timeline = RollingAsrTimeline(
+            sample_rate=self.target_sample_rate,
+            retention_sec=self.timeline_retention_sec,
+        )
+        self._timeline_lock = threading.Lock()
+        self._turn_state_lock = threading.RLock()
+        self._io_callback_group = MutuallyExclusiveCallbackGroup()
+        self._transcribe_service_callback_group = MutuallyExclusiveCallbackGroup()
 
         qos_audio = self._qos_profile(
             depth_parameter="audio.qos.depth",
@@ -79,15 +132,37 @@ class FaAsrNode(Node):
             AsrResult, self.asr_result_topic, qos_result
         )
         self.audio_sub = self.create_subscription(
-            AudioFrame, self.audio_topic, self.on_audio, qos_audio
+            AudioFrame,
+            self.audio_topic,
+            self.on_audio,
+            qos_audio,
+            callback_group=self._io_callback_group,
         )
         self.vad_sub = self.create_subscription(
-            VadState, self.vad_topic, self.on_vad, qos_vad
+            VadState,
+            self.vad_topic,
+            self.on_vad,
+            qos_vad,
+            callback_group=self._io_callback_group,
         )
         self.turn_context_sub = self.create_subscription(
-            TurnContext, self.turn_context_topic, self.on_turn_context, qos_turn_context
+            TurnContext,
+            self.turn_context_topic,
+            self.on_turn_context,
+            qos_turn_context,
+            callback_group=self._io_callback_group,
         )
-        self.timer = self.create_timer(0.5, self._check_timeout)
+        self.transcribe_srv = self.create_service(
+            TranscribeAudio,
+            self.transcribe_service_name,
+            self.handle_transcribe_audio,
+            callback_group=self._transcribe_service_callback_group,
+        )
+        self.timer = self.create_timer(
+            0.5,
+            self._check_timeout,
+            callback_group=self._io_callback_group,
+        )
 
         self._active_session_id = ""
         self._active_user_turn_id = 0
@@ -101,13 +176,16 @@ class FaAsrNode(Node):
         self._worker.start()
 
         self.get_logger().info(
-            "fa_asr started: audio=%s expected_source_id=%s expected_stream_id=%s vad=%s turn_context=%s result=%s target_sr=%d backend.name=%s",
+            "fa_asr started: audio=%s expected_source_id=%s expected_stream_id=%s "
+            "vad=%s turn_context=%s result=%s transcribe_service=%s target_sr=%d "
+            "backend.name=%s",
             self.audio_topic,
             self.expected_source_id,
             self.expected_stream_id,
             self.vad_topic,
             self.turn_context_topic,
             self.asr_result_topic,
+            self.transcribe_service_name,
             self.target_sample_rate,
             self.backend.name,
         )
@@ -117,19 +195,27 @@ class FaAsrNode(Node):
         self.declare_parameter("vad_topic", Parameter.Type.STRING)
         self.declare_parameter("turn_context_topic", Parameter.Type.STRING)
         self.declare_parameter("asr_result_topic", Parameter.Type.STRING)
+        self.declare_parameter("transcribe_service_name", Parameter.Type.STRING)
         self.declare_parameter("expected_source_id", Parameter.Type.STRING)
         self.declare_parameter("expected_stream_id", Parameter.Type.STRING)
         self.declare_parameter("target_sample_rate", Parameter.Type.INTEGER)
         self.declare_parameter("min_audio_sec", Parameter.Type.DOUBLE)
+        self.declare_parameter("timeline.retention_sec", Parameter.Type.DOUBLE)
+        self.declare_parameter("timeline.clock", Parameter.Type.STRING)
+        self.declare_parameter("timeline.window_id", Parameter.Type.STRING)
+        self.declare_parameter("timeline.window_epoch", Parameter.Type.INTEGER)
         self.declare_parameter("silence_timeout_sec", Parameter.Type.DOUBLE)
         self.declare_parameter("finalize_on_vad_end", Parameter.Type.BOOL)
         self.declare_parameter("finalize_on_context_inactive", Parameter.Type.BOOL)
         self.declare_parameter("workspace_dir", Parameter.Type.STRING)
         self.declare_parameter("cleanup_audio_files", Parameter.Type.BOOL)
         self.declare_parameter("backend.name", Parameter.Type.STRING)
+        self.declare_parameter("backend.kind", Parameter.Type.STRING)
         self.declare_parameter("backend.model", Parameter.Type.STRING)
         self.declare_parameter("backend.command", Parameter.Type.STRING)
         self.declare_parameter("backend.model_path", Parameter.Type.STRING)
+        self.declare_parameter("backend.model_version", Parameter.Type.STRING)
+        self.declare_parameter("backend.model_revision", Parameter.Type.STRING)
         self.declare_parameter("backend.openai_realtime.api_key_env", Parameter.Type.STRING)
         self.declare_parameter(
             "backend.openai_transcriptions.api_key_env",
@@ -156,6 +242,7 @@ class FaAsrNode(Node):
             ("vad_topic", self.vad_topic),
             ("turn_context_topic", self.turn_context_topic),
             ("asr_result_topic", self.asr_result_topic),
+            ("transcribe_service_name", self.transcribe_service_name),
         )
         for topic_name, topic_value in topics:
             if not topic_value:
@@ -234,6 +321,12 @@ class FaAsrNode(Node):
             raise RuntimeError(f"{name} must be greater than zero")
         return value
 
+    def _non_negative_integer_parameter(self, name: str) -> int:
+        value = FaAsrNode._integer_parameter(self, name)
+        if value < 0:
+            raise RuntimeError(f"{name} must be greater than or equal to zero")
+        return value
+
     def _double_parameter(self, name: str) -> float:
         try:
             parameter = self.get_parameter(name)
@@ -248,6 +341,22 @@ class FaAsrNode(Node):
         value = FaAsrNode._double_parameter(self, name)
         if not math.isfinite(value) or value <= 0.0:
             raise RuntimeError(f"{name} must be finite and greater than zero")
+        return value
+
+    def _timeline_clock_parameter(self, name: str) -> str:
+        value = FaAsrNode._string_parameter(self, name).strip()
+        if value not in (
+            ResolvedTimeRange.CLOCK_AGENT,
+            ResolvedTimeRange.CLOCK_ROBOT,
+            ResolvedTimeRange.CLOCK_MEDIA,
+        ):
+            raise RuntimeError(f"{name} must be agent, robot, or media")
+        return value
+
+    def _backend_kind_parameter(self, name: str) -> str:
+        value = FaAsrNode._string_parameter(self, name)
+        if value != "asr":
+            raise RuntimeError(f"{name} must be asr")
         return value
 
     def _qos_profile(self, *, depth_parameter: str, reliable_parameter: str) -> QoSProfile:
@@ -274,57 +383,60 @@ class FaAsrNode(Node):
         return tuple(array_value)
 
     def on_turn_context(self, msg: TurnContext) -> None:
-        if not msg.active or not msg.session_id:
-            if self._context_active and self.finalize_on_context_inactive:
-                self._submit_current_buffer("context_inactive", publish_timeout_if_empty=False)
-            self._context_active = False
-            self._active_session_id = ""
-            self._active_user_turn_id = 0
-            self._clear_buffer()
-            return
+        with self._turn_state_lock:
+            if not msg.active or not msg.session_id:
+                if self._context_active and self.finalize_on_context_inactive:
+                    self._submit_current_buffer(
+                        "context_inactive",
+                        publish_timeout_if_empty=False,
+                    )
+                self._context_active = False
+                self._active_session_id = ""
+                self._active_user_turn_id = 0
+                self._clear_buffer()
+                return
 
-        new_session_id = str(msg.session_id)
-        new_user_turn_id = int(msg.user_turn_id)
-        key_changed = (
-            self._active_session_id != new_session_id
-            or self._active_user_turn_id != new_user_turn_id
-        )
-        if self._context_active and key_changed:
-            self._submit_current_buffer("turn_replaced", publish_timeout_if_empty=False)
-
-        if key_changed:
-            self._clear_buffer()
-            self._last_speech = self.get_clock().now()
-            self.get_logger().info(
-                "ASR turn started: session=%s user_turn_id=%d",
-                new_session_id,
-                new_user_turn_id,
+            new_session_id = str(msg.session_id)
+            new_user_turn_id = int(msg.user_turn_id)
+            key_changed = (
+                self._active_session_id != new_session_id
+                or self._active_user_turn_id != new_user_turn_id
             )
+            if self._context_active and key_changed:
+                self._submit_current_buffer("turn_replaced", publish_timeout_if_empty=False)
 
-        self._active_session_id = new_session_id
-        self._active_user_turn_id = new_user_turn_id
-        self._context_active = True
+            if key_changed:
+                self._clear_buffer()
+                self._last_speech = self.get_clock().now()
+                self.get_logger().info(
+                    "ASR turn started: session=%s user_turn_id=%d",
+                    new_session_id,
+                    new_user_turn_id,
+                )
+
+            self._active_session_id = new_session_id
+            self._active_user_turn_id = new_user_turn_id
+            self._context_active = True
 
     def on_vad(self, msg: VadState) -> None:
-        if not self._context_active:
-            return
-        try:
-            self._validate_vad_identity(
-                msg,
-                expected_source_id=self.expected_source_id,
-                expected_stream_id=self.expected_stream_id,
-            )
-        except ValueError as exc:
-            self.get_logger().error("Dropping invalid VadState: %s", exc)
-            return
-        if msg.is_speech:
-            self._last_speech = self.get_clock().now()
-        if self.finalize_on_vad_end and msg.end:
-            self._submit_current_buffer("vad_end", publish_timeout_if_empty=False)
+        with self._turn_state_lock:
+            if not self._context_active:
+                return
+            try:
+                self._validate_vad_identity(
+                    msg,
+                    expected_source_id=self.expected_source_id,
+                    expected_stream_id=self.expected_stream_id,
+                )
+            except ValueError as exc:
+                self.get_logger().error("Dropping invalid VadState: %s", exc)
+                return
+            if msg.is_speech:
+                self._last_speech = self.get_clock().now()
+            if self.finalize_on_vad_end and msg.end:
+                self._submit_current_buffer("vad_end", publish_timeout_if_empty=False)
 
     def on_audio(self, msg: AudioFrame) -> None:
-        if not self._context_active or not self._active_session_id:
-            return
         try:
             if int(msg.sample_rate) != self.target_sample_rate:
                 raise ValueError(
@@ -339,32 +451,170 @@ class FaAsrNode(Node):
         except ValueError as exc:
             self.get_logger().error("Dropping invalid AudioFrame: %s", exc)
             return
-        with self._samples_lock:
-            self._samples.extend(samples.tolist())
+
+        try:
+            start_unix_ns = self._stamp_to_unix_ns(msg.header.stamp)
+            with self._timeline_lock:
+                self._timeline.append(start_unix_ns=start_unix_ns, samples=samples)
+        except TimelineRangeError as exc:
+            self.get_logger().error("Dropping AudioFrame from ASR timeline: %s", exc)
+            return
+
+        with self._turn_state_lock:
+            if not self._context_active or not self._active_session_id:
+                return
+            with self._samples_lock:
+                self._samples.extend(samples.tolist())
+
+    def handle_transcribe_audio(
+        self,
+        request: TranscribeAudio.Request,
+        response: TranscribeAudio.Response,
+    ) -> TranscribeAudio.Response:
+        audio_scope = request.audio_scope.strip()
+        if audio_scope and audio_scope != self.expected_stream_id:
+            return self._transcribe_error(
+                response,
+                TranscribeAudio.Response.ERROR_UNSUPPORTED_AUDIO_SCOPE,
+                "audio_scope must be empty or match expected_stream_id",
+            )
+
+        try:
+            time_range = parse_numeric_time_range(request.time_range_spec)
+            with self._timeline_lock:
+                timeline_slice = self._timeline.slice(time_range)
+        except TimelineRangeError as exc:
+            return self._transcribe_error(response, exc.error_code, str(exc))
+
+        duration_sec = float(timeline_slice.samples.size) / float(timeline_slice.sample_rate)
+        if duration_sec < self.min_audio_sec:
+            return self._transcribe_error(
+                response,
+                TranscribeAudio.Response.ERROR_TRANSCRIBE_FAILED,
+                "requested audio duration is below min_audio_sec",
+            )
+
+        try:
+            with self._backend_lock:
+                transcript = self.backend.transcribe(
+                    AsrRequest(
+                        session_id="timeline",
+                        user_turn_id=0,
+                        samples=timeline_slice.samples,
+                        sample_rate=timeline_slice.sample_rate,
+                    )
+                ).strip()
+        except TimeoutError:
+            return self._transcribe_error(
+                response,
+                TranscribeAudio.Response.ERROR_TRANSCRIBE_FAILED,
+                "ASR backend timed out",
+            )
+        except Exception as exc:
+            self.get_logger().error("ASR timeline transcription failed: %s", exc)
+            return self._transcribe_error(
+                response,
+                TranscribeAudio.Response.ERROR_TRANSCRIBE_FAILED,
+                "ASR backend failed",
+            )
+
+        if not transcript:
+            return self._transcribe_error(
+                response,
+                TranscribeAudio.Response.ERROR_TRANSCRIBE_FAILED,
+                "ASR backend returned an empty transcript",
+            )
+
+        self._fill_transcribe_success(response, timeline_slice, transcript)
+        return response
+
+    def _transcribe_error(
+        self,
+        response: TranscribeAudio.Response,
+        error_code: str,
+        message: str,
+    ) -> TranscribeAudio.Response:
+        response.success = False
+        response.error_code = error_code
+        response.message = message
+        response.segments = []
+        response.time_range = ResolvedTimeRange()
+        response.audio_window_ref = AudioWindowRef()
+        response.model_ref = AudioModelRef()
+        return response
+
+    def _fill_transcribe_success(
+        self,
+        response: TranscribeAudio.Response,
+        timeline_slice: TimelineSlice,
+        transcript: str,
+    ) -> None:
+        time_range_msg = self._resolved_time_range_msg(timeline_slice.time_range)
+        response.success = True
+        response.error_code = TranscribeAudio.Response.ERROR_NONE
+        response.message = ""
+        response.time_range = time_range_msg
+        response.audio_window_ref = AudioWindowRef(
+            window_id=self.timeline_window_id,
+            window_epoch=self.timeline_window_epoch,
+            source_id=self.expected_source_id,
+            stream_id=self.expected_stream_id,
+            time_range=time_range_msg,
+        )
+        response.model_ref = AudioModelRef(
+            backend_name=self.backend_name,
+            backend_kind=self.backend_kind,
+            model_id=self.backend_model,
+            model_path=self.backend_model_path,
+            model_version=self.backend_model_version,
+            model_revision=self.backend_model_revision,
+        )
+        response.segments = [
+            TranscriptSegment(
+                start_unix_ns=timeline_slice.time_range.start_unix_ns,
+                end_unix_ns=timeline_slice.time_range.end_unix_ns,
+                text=transcript,
+                speaker_label="",
+            )
+        ]
+
+    def _resolved_time_range_msg(self, time_range: NumericTimeRange) -> ResolvedTimeRange:
+        return ResolvedTimeRange(
+            start_unix_ns=time_range.start_unix_ns,
+            end_unix_ns=time_range.end_unix_ns,
+            clock=self.timeline_clock,
+            uncertainty_ns=0,
+            uncertainty_reason="",
+        )
 
     def _check_timeout(self) -> None:
-        if not self._context_active:
-            return
-        elapsed = (self.get_clock().now() - self._last_speech).nanoseconds / 1e9
-        if elapsed < self.silence_timeout_sec:
-            return
-        self.get_logger().info("ASR silence timeout: %.1fs", elapsed)
-        self._submit_current_buffer("silence_timeout", publish_timeout_if_empty=True)
-        self._last_speech = self.get_clock().now()
+        with self._turn_state_lock:
+            if not self._context_active:
+                return
+            now = self.get_clock().now()
+            elapsed = (now - self._last_speech).nanoseconds / 1e9
+            if elapsed < self.silence_timeout_sec:
+                return
+            self.get_logger().info("ASR silence timeout: %.1fs", elapsed)
+            self._submit_current_buffer("silence_timeout", publish_timeout_if_empty=True)
+            self._last_speech = now
 
     def _submit_current_buffer(self, reason: str, *, publish_timeout_if_empty: bool) -> None:
-        if not self._active_session_id:
-            return
-        with self._samples_lock:
-            samples = np.asarray(self._samples, dtype=np.float32)
-            self._samples.clear()
+        with self._turn_state_lock:
+            if not self._active_session_id:
+                return
+            session_id = self._active_session_id
+            user_turn_id = self._active_user_turn_id
+            with self._samples_lock:
+                samples = np.asarray(self._samples, dtype=np.float32)
+                self._samples.clear()
 
         duration_sec = float(samples.size) / float(self.target_sample_rate)
         if duration_sec < self.min_audio_sec:
             if publish_timeout_if_empty:
                 self._publish_result(
-                    self._active_session_id,
-                    self._active_user_turn_id,
+                    session_id,
+                    user_turn_id,
                     AsrResult.STATUS_TIMEOUT,
                     reason,
                     "",
@@ -377,8 +627,8 @@ class FaAsrNode(Node):
 
         self._jobs.put(
             TranscriptionJob(
-                session_id=self._active_session_id,
-                user_turn_id=self._active_user_turn_id,
+                session_id=session_id,
+                user_turn_id=user_turn_id,
                 samples=samples,
                 sample_rate=self.target_sample_rate,
                 reason=reason,
@@ -398,14 +648,15 @@ class FaAsrNode(Node):
 
     def _run_transcription(self, job: TranscriptionJob) -> None:
         try:
-            transcript = self.backend.transcribe(
-                AsrRequest(
-                    session_id=job.session_id,
-                    user_turn_id=job.user_turn_id,
-                    samples=job.samples,
-                    sample_rate=job.sample_rate,
+            with self._backend_lock:
+                transcript = self.backend.transcribe(
+                    AsrRequest(
+                        session_id=job.session_id,
+                        user_turn_id=job.user_turn_id,
+                        samples=job.samples,
+                        sample_rate=job.sample_rate,
+                    )
                 )
-            )
             self._publish_result(
                 job.session_id,
                 job.user_turn_id,
@@ -479,6 +730,28 @@ class FaAsrNode(Node):
         return samples
 
     @staticmethod
+    def _stamp_to_unix_ns(stamp: Time) -> int:
+        sec = int(stamp.sec)
+        nanosec = int(stamp.nanosec)
+        if sec < 0:
+            raise TimelineRangeError(
+                ERROR_TIME_RANGE_UNRESOLVED,
+                "AudioFrame header.stamp.sec must be non-negative",
+            )
+        if nanosec < 0 or nanosec >= 1_000_000_000:
+            raise TimelineRangeError(
+                ERROR_TIME_RANGE_UNRESOLVED,
+                "AudioFrame header.stamp.nanosec must be within [0, 1000000000)",
+            )
+        unix_ns = sec * 1_000_000_000 + nanosec
+        if unix_ns <= 0:
+            raise TimelineRangeError(
+                ERROR_TIME_RANGE_UNRESOLVED,
+                "AudioFrame header.stamp must not be zero",
+            )
+        return unix_ns
+
+    @staticmethod
     def _validate_vad_identity(
         msg: VadState,
         *,
@@ -522,11 +795,14 @@ class FaAsrNode(Node):
 def main(args: Iterable[str] | None = None) -> None:
     rclpy.init(args=args)
     node = FaAsrNode()
+    executor = MultiThreadedExecutor(num_threads=2)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
 

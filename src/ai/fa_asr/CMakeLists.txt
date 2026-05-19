@@ -7,6 +7,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
@@ -24,6 +25,7 @@ install(DIRECTORY
 )
 
 ament_export_dependencies(
+  builtin_interfaces
   rclpy
   fa_interfaces
 )

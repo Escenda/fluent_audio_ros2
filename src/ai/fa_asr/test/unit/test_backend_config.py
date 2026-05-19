@@ -154,12 +154,74 @@ class _FakeAudioFrame:
         self.sample_rate = 16000
 
 
+class _FakeAudioModelRef:
+    pass
+
+
+class _FakeAudioWindowRef:
+    pass
+
+
+class _FakeResolvedTimeRange:
+    CLOCK_AGENT = "agent"
+    CLOCK_ROBOT = "robot"
+    CLOCK_MEDIA = "media"
+
+
+class _FakeTranscriptSegment:
+    pass
+
+
 class _FakeTurnContext:
     pass
 
 
 class _FakeVadState:
     pass
+
+
+class _FakeTime:
+    pass
+
+
+class _FakeMutuallyExclusiveCallbackGroup:
+    pass
+
+
+class _FakeMultiThreadedExecutor:
+    instances: list["_FakeMultiThreadedExecutor"] = []
+
+    def __init__(self, *, num_threads: int) -> None:
+        self.num_threads = num_threads
+        self.nodes: list[_FakeNode] = []
+        self.spin_called = False
+        self.shutdown_called = False
+        _FakeMultiThreadedExecutor.instances.append(self)
+
+    def add_node(self, node: _FakeNode) -> None:
+        self.nodes.append(node)
+
+    def spin(self) -> None:
+        self.spin_called = True
+
+    def shutdown(self) -> None:
+        self.shutdown_called = True
+
+
+class _FakeTranscribeAudioResponse:
+    ERROR_NONE = "none"
+    ERROR_TIME_RANGE_UNRESOLVED = "time_range_unresolved"
+    ERROR_WINDOW_NOT_FOUND = "window_not_found"
+    ERROR_RANGE_OUTSIDE_WINDOW = "range_outside_window"
+    ERROR_UNSUPPORTED_AUDIO_SCOPE = "unsupported_audio_scope"
+    ERROR_TRANSCRIBE_FAILED = "transcribe_failed"
+
+
+class _FakeTranscribeAudio:
+    class Request:
+        pass
+
+    Response = _FakeTranscribeAudioResponse
 
 
 class _FakeParameterValue:
@@ -239,9 +301,16 @@ def _install_asr_node_import_fakes(
     rclpy_module.shutdown = shutdown
     rclpy_module.init = init
     rclpy_module.spin = spin
+    _FakeMultiThreadedExecutor.instances = []
 
     node_module = ModuleType("rclpy.node")
     node_module.Node = _FakeNode
+
+    callback_groups_module = ModuleType("rclpy.callback_groups")
+    callback_groups_module.MutuallyExclusiveCallbackGroup = _FakeMutuallyExclusiveCallbackGroup
+
+    executors_module = ModuleType("rclpy.executors")
+    executors_module.MultiThreadedExecutor = _FakeMultiThreadedExecutor
 
     parameter_module = ModuleType("rclpy.parameter")
     parameter_module.Parameter = _FakeParameter
@@ -254,20 +323,35 @@ def _install_asr_node_import_fakes(
     qos_module.QoSProfile = _FakeQoSProfile
     qos_module.ReliabilityPolicy = _FakeReliabilityPolicy
 
+    builtin_interfaces_module = ModuleType("builtin_interfaces")
+    builtin_interfaces_msg_module = ModuleType("builtin_interfaces.msg")
+    builtin_interfaces_msg_module.Time = _FakeTime
+
     fa_interfaces_module = ModuleType("fa_interfaces")
     fa_interfaces_msg_module = ModuleType("fa_interfaces.msg")
     fa_interfaces_msg_module.AsrResult = _FakeAsrResult
     fa_interfaces_msg_module.AudioFrame = _FakeAudioFrame
+    fa_interfaces_msg_module.AudioModelRef = _FakeAudioModelRef
+    fa_interfaces_msg_module.AudioWindowRef = _FakeAudioWindowRef
+    fa_interfaces_msg_module.ResolvedTimeRange = _FakeResolvedTimeRange
+    fa_interfaces_msg_module.TranscriptSegment = _FakeTranscriptSegment
     fa_interfaces_msg_module.TurnContext = _FakeTurnContext
     fa_interfaces_msg_module.VadState = _FakeVadState
+    fa_interfaces_srv_module = ModuleType("fa_interfaces.srv")
+    fa_interfaces_srv_module.TranscribeAudio = _FakeTranscribeAudio
 
     monkeypatch.setitem(sys.modules, "rclpy", rclpy_module)
+    monkeypatch.setitem(sys.modules, "builtin_interfaces", builtin_interfaces_module)
+    monkeypatch.setitem(sys.modules, "builtin_interfaces.msg", builtin_interfaces_msg_module)
     monkeypatch.setitem(sys.modules, "rclpy.exceptions", exceptions_module)
+    monkeypatch.setitem(sys.modules, "rclpy.callback_groups", callback_groups_module)
+    monkeypatch.setitem(sys.modules, "rclpy.executors", executors_module)
     monkeypatch.setitem(sys.modules, "rclpy.node", node_module)
     monkeypatch.setitem(sys.modules, "rclpy.parameter", parameter_module)
     monkeypatch.setitem(sys.modules, "rclpy.qos", qos_module)
     monkeypatch.setitem(sys.modules, "fa_interfaces", fa_interfaces_module)
     monkeypatch.setitem(sys.modules, "fa_interfaces.msg", fa_interfaces_msg_module)
+    monkeypatch.setitem(sys.modules, "fa_interfaces.srv", fa_interfaces_srv_module)
 
 
 def _settings(
@@ -377,6 +461,10 @@ def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
             _TypedNode(_TypedParameter(_FakeParameter.Type.STRING_ARRAY, ("--audio", "{audio}"))),
             "backend.args",
         ) == ("--audio", "{audio}")
+        assert module.FaAsrNode._backend_kind_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "asr")),
+            "backend.kind",
+        ) == "asr"
         qos = module.FaAsrNode._qos_profile(
             _ParameterMapNode(
                 {
@@ -440,6 +528,16 @@ def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
                 _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "--audio")),
                 "backend.args",
             )
+        with pytest.raises(RuntimeError, match="backend.kind must be asr"):
+            module.FaAsrNode._backend_kind_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "tts")),
+                "backend.kind",
+            )
+        with pytest.raises(RuntimeError, match="backend.kind must be asr"):
+            module.FaAsrNode._backend_kind_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, " asr ")),
+                "backend.kind",
+            )
         with pytest.raises(RuntimeError, match="audio.qos.depth must be greater than zero"):
             module.FaAsrNode._qos_profile(
                 _ParameterMapNode(
@@ -499,6 +597,7 @@ def test_asr_node_rejects_empty_audio_data_from_callback(
         node._logger = _FakeLogger()
         node._context_active = True
         node._active_session_id = "session-1"
+        node._turn_state_lock = threading.RLock()
         node.target_sample_rate = 16000
         node.expected_source_id = "mic0"
         node.expected_stream_id = "stream0"
@@ -613,6 +712,7 @@ def test_asr_node_finalizes_current_buffer_on_vad_end(
         module = importlib.import_module("fa_asr_py.asr_node")
         node = module.FaAsrNode.__new__(module.FaAsrNode)
         node._context_active = True
+        node._turn_state_lock = threading.RLock()
         node.finalize_on_vad_end = True
         node.expected_source_id = "mic0"
         node.expected_stream_id = "stream0"
@@ -652,6 +752,7 @@ def test_asr_node_maps_unexpected_backend_exception_to_error_result(
         node = module.FaAsrNode.__new__(module.FaAsrNode)
         node._logger = _FakeLogger()
         node.backend = _FailingAsrBackend()
+        node._backend_lock = threading.Lock()
         published: list[tuple[str, int, int, str, str]] = []
 
         def publish_result(
@@ -701,6 +802,7 @@ def test_asr_node_maps_backend_timeout_to_error_result(
         node = module.FaAsrNode.__new__(module.FaAsrNode)
         node._logger = _FakeLogger()
         node.backend = _TimeoutAsrBackend()
+        node._backend_lock = threading.Lock()
         published: list[tuple[str, int, int, str, str]] = []
 
         def publish_result(
@@ -728,6 +830,44 @@ def test_asr_node_maps_backend_timeout_to_error_result(
         assert node._logger.fatal_records == [
             ("ASR fail closed: %s", "ASR backend timed out")
         ]
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
+def test_asr_node_main_uses_multithreaded_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shutdown_calls: list[bool] = []
+    _install_asr_node_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        constructed_nodes: list[_MainFakeNode] = []
+
+        class _MainFakeNode(_FakeNode):
+            def __init__(self) -> None:
+                self.destroyed = False
+                constructed_nodes.append(self)
+
+            def destroy_node(self) -> bool:
+                self.destroyed = True
+                return True
+
+        module.FaAsrNode = _MainFakeNode
+
+        module.main(["--ros-args"])
+
+        assert len(constructed_nodes) == 1
+        assert constructed_nodes[0].destroyed is True
+        assert len(_FakeMultiThreadedExecutor.instances) == 1
+        executor = _FakeMultiThreadedExecutor.instances[0]
+        assert executor.num_threads == 2
+        assert executor.nodes == [constructed_nodes[0]]
+        assert executor.spin_called is True
+        assert executor.shutdown_called is True
+        assert shutdown_calls == [True]
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
