@@ -4,9 +4,11 @@ import threading
 import uuid
 from typing import TypeAlias
 
+import pytest
 import rclpy
 from rclpy.context import Context
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from rclpy.executors import SingleThreadedExecutor
 
 from fa_interfaces.msg import (
@@ -23,6 +25,9 @@ from fa_audio_mcp.scopes import AudioScopeConfig, AudioScopeResolver
 from fa_audio_mcp.server import RosAudioTimelineClient, build_mcp_server
 
 JsonObject: TypeAlias = dict[str, JsonValue]
+_FAILED_ARCHIVE_RANGE = "30000000000..40000000000"
+_FAILED_EXPORT_RANGE = "50000000000..60000000000"
+_FAILED_TRANSCRIBE_RANGE = "70000000000..80000000000"
 
 
 def test_mcp_tools_call_real_ros_services_and_return_timeline_results() -> None:
@@ -125,12 +130,60 @@ def test_mcp_tools_call_real_ros_services_and_return_timeline_results() -> None:
         context.stop()
 
 
+def test_mcp_tools_raise_tool_error_when_ros_services_fail() -> None:
+    context = _RosSmokeContext()
+    try:
+        context.start()
+        mcp = build_mcp_server(
+            context.config,
+            RosAudioTimelineClient(context.client_node, context.config),
+            AudioScopeResolver(context.config.export_scope_config),
+            AudioScopeResolver(context.config.archive_scope_config),
+            AudioScopeResolver(context.config.transcribe_scope_config),
+        )
+
+        archive_error = _call_tool_error(
+            mcp,
+            "archive_audio_window",
+            {
+                "time_range": _FAILED_ARCHIVE_RANGE,
+                "reason": "range outside retained window",
+                "related_artifact_ids": [],
+            },
+        )
+        export_error = _call_tool_error(
+            mcp,
+            "export_audio_window",
+            {"time_range": _FAILED_EXPORT_RANGE},
+        )
+        transcribe_error = _call_tool_error(
+            mcp,
+            "transcribe_audio",
+            {"time_range": _FAILED_TRANSCRIBE_RANGE},
+        )
+
+        assert "range_outside_window" in archive_error
+        assert "archive range outside retained window" in archive_error
+        assert "export_failed" in export_error
+        assert "export service refused test window" in export_error
+        assert "transcribe_failed" in transcribe_error
+        assert "asr backend refused test window" in transcribe_error
+    finally:
+        context.stop()
+
+
 def _call_tool_json(mcp: FastMCP, name: str, arguments: JsonObject) -> JsonObject:
     result = asyncio.run(mcp.call_tool(name, arguments))
     assert len(result) == 1
     parsed = json.loads(result[0].text)
     assert isinstance(parsed, dict)
     return parsed
+
+
+def _call_tool_error(mcp: FastMCP, name: str, arguments: JsonObject) -> str:
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(mcp.call_tool(name, arguments))
+    return str(exc_info.value)
 
 
 def _expected_time_range() -> JsonObject:
@@ -236,6 +289,11 @@ class _RosSmokeContext:
                 request.payload_format,
             )
         )
+        if request.time_range_spec == _FAILED_EXPORT_RANGE:
+            response.success = False
+            response.error_code = ExportAudioWindow.Response.ERROR_EXPORT_FAILED
+            response.message = "export service refused test window"
+            return response
         response.success = True
         response.error_code = ExportAudioWindow.Response.ERROR_NONE
         response.message = ""
@@ -252,6 +310,11 @@ class _RosSmokeContext:
                 tuple(request.related_artifact_ids),
             )
         )
+        if request.time_range_spec == _FAILED_ARCHIVE_RANGE:
+            response.success = False
+            response.error_code = ArchiveAudioWindow.Response.ERROR_RANGE_OUTSIDE_WINDOW
+            response.message = "archive range outside retained window"
+            return response
         response.success = True
         response.error_code = ArchiveAudioWindow.Response.ERROR_NONE
         response.message = ""
@@ -261,6 +324,11 @@ class _RosSmokeContext:
 
     def _handle_transcribe(self, request, response):
         self.transcribe_requests.append((request.time_range_spec, request.audio_scope))
+        if request.time_range_spec == _FAILED_TRANSCRIBE_RANGE:
+            response.success = False
+            response.error_code = TranscribeAudio.Response.ERROR_TRANSCRIBE_FAILED
+            response.message = "asr backend refused test window"
+            return response
         response.success = True
         response.error_code = TranscribeAudio.Response.ERROR_NONE
         response.message = ""
