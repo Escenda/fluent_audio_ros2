@@ -17,22 +17,25 @@ from fa_turn_detector_py.turn_detector_node import FaTurnDetectorNode
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
+AUDIO_QOS_DEPTH = 10
+AUDIO_QOS_RELIABLE = False
+VAD_QOS_DEPTH = 10
+VAD_QOS_RELIABLE = False
+TURN_CONTEXT_QOS_DEPTH = 10
+TURN_CONTEXT_QOS_RELIABLE = True
+OUTPUT_QOS_DEPTH = 10
+OUTPUT_QOS_RELIABLE = True
 
 
 def _write_fake_model(path: Path, probability: str) -> None:
     path.write_text(probability + "\n" + ("x" * 2048), encoding="utf-8")
 
 
-def _sensor_qos() -> QoSProfile:
-    qos = QoSProfile(depth=10)
-    qos.reliability = ReliabilityPolicy.BEST_EFFORT
-    qos.history = HistoryPolicy.KEEP_LAST
-    return qos
-
-
-def _reliable_qos() -> QoSProfile:
-    qos = QoSProfile(depth=10)
-    qos.reliability = ReliabilityPolicy.RELIABLE
+def _qos_profile(*, depth: int, reliable: bool) -> QoSProfile:
+    qos = QoSProfile(depth=depth)
+    qos.reliability = (
+        ReliabilityPolicy.RELIABLE if reliable else ReliabilityPolicy.BEST_EFFORT
+    )
     qos.history = HistoryPolicy.KEEP_LAST
     return qos
 
@@ -137,6 +140,14 @@ def _parameter_overrides(
         Parameter("backend.timeout_sec", Parameter.Type.DOUBLE, 1.0),
         Parameter("backend.workspace_dir", Parameter.Type.STRING, str(tmp_path / "workspace")),
         Parameter("backend.cleanup_audio_files", Parameter.Type.BOOL, True),
+        Parameter("audio.qos.depth", Parameter.Type.INTEGER, AUDIO_QOS_DEPTH),
+        Parameter("audio.qos.reliable", Parameter.Type.BOOL, AUDIO_QOS_RELIABLE),
+        Parameter("vad.qos.depth", Parameter.Type.INTEGER, VAD_QOS_DEPTH),
+        Parameter("vad.qos.reliable", Parameter.Type.BOOL, VAD_QOS_RELIABLE),
+        Parameter("turn_context.qos.depth", Parameter.Type.INTEGER, TURN_CONTEXT_QOS_DEPTH),
+        Parameter("turn_context.qos.reliable", Parameter.Type.BOOL, TURN_CONTEXT_QOS_RELIABLE),
+        Parameter("output.qos.depth", Parameter.Type.INTEGER, OUTPUT_QOS_DEPTH),
+        Parameter("output.qos.reliable", Parameter.Type.BOOL, OUTPUT_QOS_RELIABLE),
     ]
 
 
@@ -166,14 +177,26 @@ def test_turn_detector_publishes_turn_end_from_ros_graph_fixture(tmp_path: Path)
     )
     io_node = rclpy.create_node(f"fa_turn_detector_graph_contract_io_{suffix}")
     received: list[TurnEnd] = []
-    audio_pub = io_node.create_publisher(AudioFrame, audio_topic, _sensor_qos())
-    vad_pub = io_node.create_publisher(VadState, vad_topic, _sensor_qos())
-    context_pub = io_node.create_publisher(TurnContext, turn_context_topic, _reliable_qos())
+    audio_pub = io_node.create_publisher(
+        AudioFrame,
+        audio_topic,
+        _qos_profile(depth=AUDIO_QOS_DEPTH, reliable=AUDIO_QOS_RELIABLE),
+    )
+    vad_pub = io_node.create_publisher(
+        VadState,
+        vad_topic,
+        _qos_profile(depth=VAD_QOS_DEPTH, reliable=VAD_QOS_RELIABLE),
+    )
+    context_pub = io_node.create_publisher(
+        TurnContext,
+        turn_context_topic,
+        _qos_profile(depth=TURN_CONTEXT_QOS_DEPTH, reliable=TURN_CONTEXT_QOS_RELIABLE),
+    )
     subscription = io_node.create_subscription(
         TurnEnd,
         output_topic,
         lambda msg: received.append(msg),
-        _reliable_qos(),
+        _qos_profile(depth=OUTPUT_QOS_DEPTH, reliable=OUTPUT_QOS_RELIABLE),
     )
     assert subscription is not None
 

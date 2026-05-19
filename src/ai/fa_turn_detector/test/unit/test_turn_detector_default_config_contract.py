@@ -108,6 +108,14 @@ class _TypedNode:
         return self._parameter
 
 
+class _ParameterMapNode:
+    def __init__(self, parameters: dict[str, _TypedParameter]) -> None:
+        self._parameters = parameters
+
+    def get_parameter(self, name: str) -> _TypedParameter:
+        return self._parameters[name]
+
+
 class _FailingBackend:
     name = "failing"
     sample_rate = 16000
@@ -277,6 +285,14 @@ def test_default_config_requires_explicit_backend_model_and_provider() -> None:
     assert params["backend.args"] == []
     assert params["backend.health_args"] == []
     assert params["expected_source_id"] == ""
+    assert params["audio.qos.depth"] == 10
+    assert params["audio.qos.reliable"] is False
+    assert params["vad.qos.depth"] == 10
+    assert params["vad.qos.reliable"] is False
+    assert params["turn_context.qos.depth"] == 10
+    assert params["turn_context.qos.reliable"] is True
+    assert params["output.qos.depth"] == 10
+    assert params["output.qos.reliable"] is True
     assert 'declare_parameter("expected_source_id", Parameter.Type.STRING)' in source
     assert 'declare_parameter("expected_stream_id", Parameter.Type.STRING)' in source
     assert 'declare_parameter("expected_source_id", "")' not in source
@@ -284,6 +300,15 @@ def test_default_config_requires_explicit_backend_model_and_provider() -> None:
     assert 'declare_parameter("backend.timeout_sec", 5.0)' not in source
     assert 'declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)' in source
     assert 'declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)' in source
+    assert 'declare_parameter("audio.qos.depth", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)' in source
+    assert 'declare_parameter("vad.qos.depth", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("vad.qos.reliable", Parameter.Type.BOOL)' in source
+    assert 'declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("turn_context.qos.reliable", Parameter.Type.BOOL)' in source
+    assert 'declare_parameter("output.qos.depth", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("output.qos.reliable", Parameter.Type.BOOL)' in source
+    assert "QoSProfile(depth=10)" not in source
     assert "parameter_overrides: Iterable[Parameter] | None = None" in source
     assert "parameter_overrides=list(parameter_overrides)" in source
     assert "tuple(str(item) for item in value)" not in source
@@ -473,6 +498,14 @@ def test_turn_detector_node_parameter_helpers_reject_wrong_ros_parameter_types(
             _TypedNode(_TypedParameter(_FakeParameter.Type.BOOL, False)),
             "backend.cleanup_audio_files",
         ) is False
+        assert module.FaTurnDetectorNode._integer_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.INTEGER, 10)),
+            "audio.qos.depth",
+        ) == 10
+        assert module.FaTurnDetectorNode._positive_integer_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.INTEGER, 10)),
+            "audio.qos.depth",
+        ) == 10
         assert module.FaTurnDetectorNode._double_parameter(
             _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, 0.5)),
             "backend.threshold",
@@ -481,6 +514,19 @@ def test_turn_detector_node_parameter_helpers_reject_wrong_ros_parameter_types(
             _TypedNode(_TypedParameter(_FakeParameter.Type.STRING_ARRAY, ("--audio", "{audio}"))),
             "backend.args",
         ) == ("--audio", "{audio}")
+        qos = module.FaTurnDetectorNode._qos_profile(
+            _ParameterMapNode(
+                {
+                    "audio.qos.depth": _TypedParameter(_FakeParameter.Type.INTEGER, 10),
+                    "audio.qos.reliable": _TypedParameter(_FakeParameter.Type.BOOL, False),
+                }
+            ),
+            depth_parameter="audio.qos.depth",
+            reliable_parameter="audio.qos.reliable",
+        )
+        assert qos.depth == 10
+        assert qos.history == _FakeHistoryPolicy.KEEP_LAST
+        assert qos.reliability == _FakeReliabilityPolicy.BEST_EFFORT
 
         with pytest.raises(RuntimeError, match="audio_topic must be a string"):
             module.FaTurnDetectorNode._string_parameter(
@@ -491,6 +537,30 @@ def test_turn_detector_node_parameter_helpers_reject_wrong_ros_parameter_types(
             module.FaTurnDetectorNode._bool_parameter(
                 _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "false")),
                 "backend.cleanup_audio_files",
+            )
+        with pytest.raises(RuntimeError, match="audio.qos.depth must be an integer"):
+            module.FaTurnDetectorNode._integer_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "10")),
+                "audio.qos.depth",
+            )
+        with pytest.raises(RuntimeError, match="audio.qos.depth must be greater than zero"):
+            module.FaTurnDetectorNode._positive_integer_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.INTEGER, 0)),
+                "audio.qos.depth",
+            )
+        with pytest.raises(RuntimeError, match="audio.qos.reliable must be a bool"):
+            module.FaTurnDetectorNode._qos_profile(
+                _ParameterMapNode(
+                    {
+                        "audio.qos.depth": _TypedParameter(_FakeParameter.Type.INTEGER, 10),
+                        "audio.qos.reliable": _TypedParameter(
+                            _FakeParameter.Type.STRING,
+                            "false",
+                        ),
+                    }
+                ),
+                depth_parameter="audio.qos.depth",
+                reliable_parameter="audio.qos.reliable",
             )
         with pytest.raises(RuntimeError, match="backend.threshold must be a double"):
             module.FaTurnDetectorNode._double_parameter(

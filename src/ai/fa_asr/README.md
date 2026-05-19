@@ -11,6 +11,21 @@
 
 `expected_source_id` / `expected_stream_id` は必須です。受信した `AudioFrame.source_id` と `VadState.source_id` は `expected_source_id`、`AudioFrame.stream_id` と `VadState.stream_id` は `expected_stream_id` と一致する必要があります。別 source / stream の audio frame や VAD end は ASR buffer に混ぜず reject します。
 
+## QoS
+
+QoS は edge ごとに明示します。depth は正の整数、reliable は bool として扱い、node 内で topic 名から推測しません。
+
+```yaml
+audio.qos.depth: 20
+audio.qos.reliable: false
+vad.qos.depth: 50
+vad.qos.reliable: false
+turn_context.qos.depth: 10
+turn_context.qos.reliable: true
+result.qos.depth: 10
+result.qos.reliable: true
+```
+
 ## バックエンド契約
 
 `backend.name` は必須です。対応する backend は `local_command`, `whisper.cpp`, `parakeet_worker`, `openai_realtime`, `openai_transcriptions` です。

@@ -41,3 +41,13 @@ fa_asr:
     backend.args: []
     backend.health_args: []
     backend.output_text_path: ""
+
+    # QoS is explicit per edge. Do not infer reliability/depth from topic names.
+    audio.qos.depth: 20
+    audio.qos.reliable: false
+    vad.qos.depth: 50
+    vad.qos.reliable: false
+    turn_context.qos.depth: 10
+    turn_context.qos.reliable: true
+    result.qos.depth: 10
+    result.qos.reliable: true

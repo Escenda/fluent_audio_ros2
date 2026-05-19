@@ -45,6 +45,14 @@ def test_default_config_requires_explicit_backend_and_external_worker_boundary()
     assert params["backend.workspace_dir"]
     assert params["backend.cleanup_audio_files"] is True
     assert params["backend.threshold"] == 0.5
+    assert params["audio.qos.depth"] == 10
+    assert params["audio.qos.reliable"] is False
+    assert params["vad.qos.depth"] == 10
+    assert params["vad.qos.reliable"] is False
+    assert params["turn_context.qos.depth"] == 10
+    assert params["turn_context.qos.reliable"] is True
+    assert params["output.qos.depth"] == 10
+    assert params["output.qos.reliable"] is True
 
 
 def test_reference_worker_script_is_thin_backend_entrypoint() -> None:

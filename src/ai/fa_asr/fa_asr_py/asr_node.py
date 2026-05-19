@@ -58,29 +58,34 @@ class FaAsrNode(Node):
 
         self.backend = self._load_backend()
 
-        qos_audio = QoSProfile(depth=20)
-        qos_audio.reliability = ReliabilityPolicy.BEST_EFFORT
-        qos_audio.history = HistoryPolicy.KEEP_LAST
-
-        qos_control = QoSProfile(depth=50)
-        qos_control.reliability = ReliabilityPolicy.BEST_EFFORT
-        qos_control.history = HistoryPolicy.KEEP_LAST
-
-        qos_reliable = QoSProfile(depth=10)
-        qos_reliable.reliability = ReliabilityPolicy.RELIABLE
-        qos_reliable.history = HistoryPolicy.KEEP_LAST
+        qos_audio = self._qos_profile(
+            depth_parameter="audio.qos.depth",
+            reliable_parameter="audio.qos.reliable",
+        )
+        qos_vad = self._qos_profile(
+            depth_parameter="vad.qos.depth",
+            reliable_parameter="vad.qos.reliable",
+        )
+        qos_turn_context = self._qos_profile(
+            depth_parameter="turn_context.qos.depth",
+            reliable_parameter="turn_context.qos.reliable",
+        )
+        qos_result = self._qos_profile(
+            depth_parameter="result.qos.depth",
+            reliable_parameter="result.qos.reliable",
+        )
 
         self.asr_result_pub = self.create_publisher(
-            AsrResult, self.asr_result_topic, qos_reliable
+            AsrResult, self.asr_result_topic, qos_result
         )
         self.audio_sub = self.create_subscription(
             AudioFrame, self.audio_topic, self.on_audio, qos_audio
         )
         self.vad_sub = self.create_subscription(
-            VadState, self.vad_topic, self.on_vad, qos_control
+            VadState, self.vad_topic, self.on_vad, qos_vad
         )
         self.turn_context_sub = self.create_subscription(
-            TurnContext, self.turn_context_topic, self.on_turn_context, qos_reliable
+            TurnContext, self.turn_context_topic, self.on_turn_context, qos_turn_context
         )
         self.timer = self.create_timer(0.5, self._check_timeout)
 
@@ -135,6 +140,14 @@ class FaAsrNode(Node):
         self.declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)
         self.declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)
         self.declare_parameter("backend.output_text_path", Parameter.Type.STRING)
+        self.declare_parameter("audio.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)
+        self.declare_parameter("vad.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("vad.qos.reliable", Parameter.Type.BOOL)
+        self.declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("turn_context.qos.reliable", Parameter.Type.BOOL)
+        self.declare_parameter("result.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("result.qos.reliable", Parameter.Type.BOOL)
 
     def _validate_identity_contract(self) -> None:
         topics = (
@@ -235,6 +248,16 @@ class FaAsrNode(Node):
         if not math.isfinite(value) or value <= 0.0:
             raise RuntimeError(f"{name} must be finite and greater than zero")
         return value
+
+    def _qos_profile(self, *, depth_parameter: str, reliable_parameter: str) -> QoSProfile:
+        depth = FaAsrNode._positive_integer_parameter(self, depth_parameter)
+        reliable = FaAsrNode._bool_parameter(self, reliable_parameter)
+        qos = QoSProfile(depth=depth)
+        qos.history = HistoryPolicy.KEEP_LAST
+        qos.reliability = (
+            ReliabilityPolicy.RELIABLE if reliable else ReliabilityPolicy.BEST_EFFORT
+        )
+        return qos
 
     def _string_array_parameter(self, name: str) -> tuple[str, ...]:
         try:

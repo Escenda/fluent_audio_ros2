@@ -36,3 +36,11 @@ def test_default_config_does_not_select_backend_or_worker_implicitly() -> None:
     assert params["expected_source_id"] == ""
     assert params["expected_stream_id"] == ""
     assert params["backend.timeout_sec"] > 0
+    assert params["audio.qos.depth"] == 20
+    assert params["audio.qos.reliable"] is False
+    assert params["vad.qos.depth"] == 50
+    assert params["vad.qos.reliable"] is False
+    assert params["turn_context.qos.depth"] == 10
+    assert params["turn_context.qos.reliable"] is True
+    assert params["result.qos.depth"] == 10
+    assert params["result.qos.reliable"] is True

@@ -190,6 +190,14 @@ class _TypedNode:
         return self._parameter
 
 
+class _ParameterMapNode:
+    def __init__(self, parameters: dict[str, _TypedParameter]) -> None:
+        self._parameters = parameters
+
+    def get_parameter(self, name: str) -> _TypedParameter:
+        return self._parameters[name]
+
+
 class _BackendCrash(Exception):
     pass
 
@@ -312,15 +320,51 @@ def test_default_config_requires_explicit_backend_name() -> None:
     assert params["backend.health_args"] == []
     assert params["expected_source_id"] == ""
     assert params["expected_stream_id"] == ""
+    assert params["audio.qos.depth"] == 20
+    assert params["audio.qos.reliable"] is False
+    assert params["vad.qos.depth"] == 50
+    assert params["vad.qos.reliable"] is False
+    assert params["turn_context.qos.depth"] == 10
+    assert params["turn_context.qos.reliable"] is True
+    assert params["result.qos.depth"] == 10
+    assert params["result.qos.reliable"] is True
     assert 'declare_parameter("expected_source_id", Parameter.Type.STRING)' in source
     assert 'declare_parameter("expected_stream_id", Parameter.Type.STRING)' in source
     assert 'declare_parameter("target_sample_rate", 16000)' not in source
     assert 'declare_parameter("backend.timeout_sec", 120.0)' not in source
     assert 'declare_parameter("finalize_on_vad_end", True)' not in source
     assert 'declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)' in source
+    assert 'declare_parameter("audio.qos.depth", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)' in source
+    assert 'declare_parameter("vad.qos.depth", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("vad.qos.reliable", Parameter.Type.BOOL)' in source
+    assert 'declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("turn_context.qos.reliable", Parameter.Type.BOOL)' in source
+    assert 'declare_parameter("result.qos.depth", Parameter.Type.INTEGER)' in source
+    assert 'declare_parameter("result.qos.reliable", Parameter.Type.BOOL)' in source
+    assert "QoSProfile(depth=20)" not in source
+    assert "QoSProfile(depth=50)" not in source
+    assert "QoSProfile(depth=10)" not in source
     assert "ParameterUninitializedException" in source
     assert "return tuple()" not in source
     assert "tuple(str(part) for part in args_value)" not in source
+
+
+def test_asr_node_wires_explicit_qos_edges() -> None:
+    source = (PACKAGE_ROOT / "fa_asr_py" / "asr_node.py").read_text(encoding="utf-8")
+
+    assert 'depth_parameter="audio.qos.depth"' in source
+    assert 'reliable_parameter="audio.qos.reliable"' in source
+    assert 'depth_parameter="vad.qos.depth"' in source
+    assert 'reliable_parameter="vad.qos.reliable"' in source
+    assert 'depth_parameter="turn_context.qos.depth"' in source
+    assert 'reliable_parameter="turn_context.qos.reliable"' in source
+    assert 'depth_parameter="result.qos.depth"' in source
+    assert 'reliable_parameter="result.qos.reliable"' in source
+    assert "AsrResult, self.asr_result_topic, qos_result" in source
+    assert "AudioFrame, self.audio_topic, self.on_audio, qos_audio" in source
+    assert "VadState, self.vad_topic, self.on_vad, qos_vad" in source
+    assert "TurnContext, self.turn_context_topic, self.on_turn_context, qos_turn_context" in source
 
 
 def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
@@ -361,6 +405,30 @@ def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
             _TypedNode(_TypedParameter(_FakeParameter.Type.STRING_ARRAY, ("--audio", "{audio}"))),
             "backend.args",
         ) == ("--audio", "{audio}")
+        qos = module.FaAsrNode._qos_profile(
+            _ParameterMapNode(
+                {
+                    "audio.qos.depth": _TypedParameter(_FakeParameter.Type.INTEGER, 20),
+                    "audio.qos.reliable": _TypedParameter(_FakeParameter.Type.BOOL, False),
+                }
+            ),
+            depth_parameter="audio.qos.depth",
+            reliable_parameter="audio.qos.reliable",
+        )
+        assert qos.depth == 20
+        assert qos.history == _FakeHistoryPolicy.KEEP_LAST
+        assert qos.reliability == _FakeReliabilityPolicy.BEST_EFFORT
+        reliable_qos = module.FaAsrNode._qos_profile(
+            _ParameterMapNode(
+                {
+                    "result.qos.depth": _TypedParameter(_FakeParameter.Type.INTEGER, 10),
+                    "result.qos.reliable": _TypedParameter(_FakeParameter.Type.BOOL, True),
+                }
+            ),
+            depth_parameter="result.qos.depth",
+            reliable_parameter="result.qos.reliable",
+        )
+        assert reliable_qos.reliability == _FakeReliabilityPolicy.RELIABLE
 
         with pytest.raises(RuntimeError, match="cleanup_audio_files must be a bool"):
             module.FaAsrNode._bool_parameter(
@@ -399,6 +467,31 @@ def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
             module.FaAsrNode._string_array_parameter(
                 _TypedNode(_TypedParameter(_FakeParameter.Type.STRING, "--audio")),
                 "backend.args",
+            )
+        with pytest.raises(RuntimeError, match="audio.qos.depth must be greater than zero"):
+            module.FaAsrNode._qos_profile(
+                _ParameterMapNode(
+                    {
+                        "audio.qos.depth": _TypedParameter(_FakeParameter.Type.INTEGER, 0),
+                        "audio.qos.reliable": _TypedParameter(_FakeParameter.Type.BOOL, False),
+                    }
+                ),
+                depth_parameter="audio.qos.depth",
+                reliable_parameter="audio.qos.reliable",
+            )
+        with pytest.raises(RuntimeError, match="audio.qos.reliable must be a bool"):
+            module.FaAsrNode._qos_profile(
+                _ParameterMapNode(
+                    {
+                        "audio.qos.depth": _TypedParameter(_FakeParameter.Type.INTEGER, 20),
+                        "audio.qos.reliable": _TypedParameter(
+                            _FakeParameter.Type.STRING,
+                            "false",
+                        ),
+                    }
+                ),
+                depth_parameter="audio.qos.depth",
+                reliable_parameter="audio.qos.reliable",
             )
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)

@@ -48,32 +48,41 @@ class FaTurnDetectorNode(Node):
         self._active_user_turn_id = 0
         self._context_active = False
 
-        qos_sensor = QoSProfile(depth=10)
-        qos_sensor.reliability = ReliabilityPolicy.BEST_EFFORT
-        qos_sensor.history = HistoryPolicy.KEEP_LAST
+        qos_audio = self._qos_profile(
+            depth_parameter="audio.qos.depth",
+            reliable_parameter="audio.qos.reliable",
+        )
+        qos_vad = self._qos_profile(
+            depth_parameter="vad.qos.depth",
+            reliable_parameter="vad.qos.reliable",
+        )
+        qos_turn_context = self._qos_profile(
+            depth_parameter="turn_context.qos.depth",
+            reliable_parameter="turn_context.qos.reliable",
+        )
+        qos_output = self._qos_profile(
+            depth_parameter="output.qos.depth",
+            reliable_parameter="output.qos.reliable",
+        )
 
-        qos_reliable = QoSProfile(depth=10)
-        qos_reliable.reliability = ReliabilityPolicy.RELIABLE
-        qos_reliable.history = HistoryPolicy.KEEP_LAST
-
-        self.turn_end_pub = self.create_publisher(TurnEnd, self.output_topic, qos_reliable)
+        self.turn_end_pub = self.create_publisher(TurnEnd, self.output_topic, qos_output)
         self.audio_sub = self.create_subscription(
             AudioFrame,
             self.audio_topic,
             self.on_audio,
-            qos_sensor,
+            qos_audio,
         )
         self.vad_sub = self.create_subscription(
             VadState,
             self.vad_topic,
             self.on_vad,
-            qos_sensor,
+            qos_vad,
         )
         self.turn_context_sub = self.create_subscription(
             TurnContext,
             self.turn_context_topic,
             self.on_turn_context,
-            qos_reliable,
+            qos_turn_context,
         )
 
         self.get_logger().info(
@@ -105,6 +114,14 @@ class FaTurnDetectorNode(Node):
         self.declare_parameter("backend.timeout_sec", Parameter.Type.DOUBLE)
         self.declare_parameter("backend.workspace_dir", Parameter.Type.STRING)
         self.declare_parameter("backend.cleanup_audio_files", Parameter.Type.BOOL)
+        self.declare_parameter("audio.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)
+        self.declare_parameter("vad.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("vad.qos.reliable", Parameter.Type.BOOL)
+        self.declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("turn_context.qos.reliable", Parameter.Type.BOOL)
+        self.declare_parameter("output.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("output.qos.reliable", Parameter.Type.BOOL)
 
     def _validate_identity_contract(self) -> None:
         for topic_name, topic_value in (
@@ -179,6 +196,21 @@ class FaTurnDetectorNode(Node):
             raise RuntimeError(f"{name} must be a bool")
         return parameter.value
 
+    def _integer_parameter(self, name: str) -> int:
+        try:
+            parameter = self.get_parameter(name)
+        except ParameterUninitializedException as exc:
+            raise RuntimeError(f"{name} is required") from exc
+        if parameter.type_ != Parameter.Type.INTEGER:
+            raise RuntimeError(f"{name} must be an integer")
+        return parameter.value
+
+    def _positive_integer_parameter(self, name: str) -> int:
+        value = FaTurnDetectorNode._integer_parameter(self, name)
+        if value <= 0:
+            raise RuntimeError(f"{name} must be greater than zero")
+        return value
+
     def _double_parameter(self, name: str) -> float:
         try:
             parameter = self.get_parameter(name)
@@ -187,6 +219,16 @@ class FaTurnDetectorNode(Node):
         if parameter.type_ != Parameter.Type.DOUBLE:
             raise RuntimeError(f"{name} must be a double")
         return parameter.value
+
+    def _qos_profile(self, *, depth_parameter: str, reliable_parameter: str) -> QoSProfile:
+        depth = FaTurnDetectorNode._positive_integer_parameter(self, depth_parameter)
+        reliable = FaTurnDetectorNode._bool_parameter(self, reliable_parameter)
+        qos = QoSProfile(depth=depth)
+        qos.history = HistoryPolicy.KEEP_LAST
+        qos.reliability = (
+            ReliabilityPolicy.RELIABLE if reliable else ReliabilityPolicy.BEST_EFFORT
+        )
+        return qos
 
     def on_turn_context(self, msg: TurnContext) -> None:
         context_active = bool(msg.active) and bool(msg.session_id)
