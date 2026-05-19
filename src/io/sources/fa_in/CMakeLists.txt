@@ -111,6 +111,16 @@ if(BUILD_TESTING)
     fa_in_node_core
   )
 
+  ament_add_gtest(${PROJECT_NAME}_network_pcm_receiver_backend_test
+    test/cpp/test_network_pcm_receiver_backend.cpp
+  )
+  target_include_directories(${PROJECT_NAME}_network_pcm_receiver_backend_test PRIVATE
+    include
+  )
+  target_link_libraries(${PROJECT_NAME}_network_pcm_receiver_backend_test
+    fa_in_backends
+  )
+
   ament_lint_auto_find_test_dependencies()
 endif()
 
