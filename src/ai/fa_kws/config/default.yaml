@@ -31,6 +31,17 @@ fa_kws:
     model.num_threads: 4
     # Required sherpa-onnx provider: cpu, cuda, or coreml. Empty means startup fails closed.
     backend.execution_provider: ""
+    # Required external worker command. The ROS2 node never links sherpa-onnx directly.
+    backend.command: ""
+    # Required inference args. Must include {audio}, {encoder}, {decoder}, {joiner},
+    # {tokens}, {keywords}, {provider}, and {sample_rate}.
+    backend.args: []
+    # Required startup health-check args. Must include {encoder}, {decoder}, {joiner},
+    # {tokens}, {keywords}, and {provider}; must not include {audio}.
+    backend.health_args: []
+    backend.timeout_sec: 5.0
+    backend.workspace_dir: "/tmp/fluent_audio_fa_kws"
+    backend.cleanup_audio_files: true
     kws.max_active_paths: 32
     kws.num_trailing_blanks: 1
     kws.keywords_score: 1.0

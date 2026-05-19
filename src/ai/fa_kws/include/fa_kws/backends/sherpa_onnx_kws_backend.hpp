@@ -2,15 +2,13 @@
 
 #include <chrono>
 #include <cstdint>
-#include <memory>
 #include <string>
+#include <vector>
 
 #include "fa_kws/backends/kws_backend.hpp"
 
 namespace fa_kws
 {
-
-struct SherpaOnnxKwsBackendState;
 
 struct SherpaOnnxKwsBackendConfig
 {
@@ -31,6 +29,13 @@ struct SherpaOnnxKwsBackendConfig
 
   float vad_threshold;
   std::chrono::milliseconds cooldown;
+
+  std::string command;
+  std::vector<std::string> args;
+  std::vector<std::string> health_args;
+  double timeout_sec;
+  std::string workspace_dir;
+  bool cleanup_audio_files;
 };
 
 bool isSupportedSherpaOnnxExecutionProvider(const std::string &execution_provider);
@@ -59,10 +64,11 @@ public:
 
 private:
   void validateConfig() const;
-  void requireReady(const char *operation) const;
+  std::vector<std::string> formatArgs(const std::vector<std::string> &template_args,
+                                      const std::string &audio_path,
+                                      bool allow_audio_placeholder) const;
 
   SherpaOnnxKwsBackendConfig config_;
-  std::unique_ptr<SherpaOnnxKwsBackendState> state_;
 
   std::chrono::steady_clock::time_point last_detect_time_;
   bool has_detect_time_{false};

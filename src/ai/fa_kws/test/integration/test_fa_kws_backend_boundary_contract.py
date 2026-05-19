@@ -25,19 +25,22 @@ def test_sherpa_backend_source_stays_ros_free() -> None:
             assert token not in source
 
 
-def test_native_backend_is_explicit_runtime_boundary_not_dummy_fallback() -> None:
+def test_kws_backend_is_external_worker_boundary_not_native_link() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
     docs_text = (
         PACKAGE_ROOT / "docs" / "backends" / "sherpa_onnx_kws.md"
     ).read_text(encoding="utf-8")
+    backend_text = (
+        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
+    ).read_text(encoding="utf-8")
 
-    assert 'set(FA_KWS_SHERPA_ONNX "OFF"' in cmake_text
-    assert 'FA_KWS_SHERPA_ONNX MATCHES "^(ON|OFF)$"' in cmake_text
-    assert 'FA_KWS_SHERPA_ONNX STREQUAL "ON"' in cmake_text
-    assert "FA_KWS_SHERPA_ONNX=OFF builds fa_kws runtime targets" in cmake_text
-    assert "message(FATAL_ERROR" in cmake_text
+    assert "FA_KWS_SHERPA_ONNX" not in cmake_text
+    assert "SHERPA_ONNX_PREFIX" not in cmake_text
+    assert "sherpa-onnx/c-api" not in backend_text
+    assert "execvp(command.c_str(), argv.data())" in backend_text
+    assert "backend.command" in docs_text
+    assert "External worker" in docs_text
     assert "add_library(fa_kws_backends STATIC" in cmake_text
-    assert "sherpa_onnx_kws_backend_unavailable.cpp" in cmake_text
+    assert "sherpa_onnx_kws_backend_unavailable.cpp" not in cmake_text
     assert "install(TARGETS fa_kws_node fa_kws_wav_tool" in cmake_text
     assert "dummy" not in cmake_text.lower()
-    assert "unavailable backend が明示的に起動失敗" in docs_text

@@ -28,6 +28,12 @@ def test_default_config_requires_explicit_backend_and_kws_inputs() -> None:
 
     assert params["backend.name"] == ""
     assert params["backend.execution_provider"] == ""
+    assert params["backend.command"] == ""
+    assert params["backend.args"] == []
+    assert params["backend.health_args"] == []
+    assert params["backend.timeout_sec"] > 0
+    assert params["backend.workspace_dir"]
+    assert params["backend.cleanup_audio_files"] is True
     assert params["model.encoder"] == ""
     assert params["model.decoder"] == ""
     assert params["model.joiner"] == ""
@@ -57,6 +63,7 @@ def test_launch_does_not_embed_backend_or_model_fallback() -> None:
     assert "sherpa_onnx_kws" not in launch_text
     assert "model.encoder" not in launch_text
     assert "backend.execution_provider" not in launch_text
+    assert "backend.command" not in launch_text
     assert "cpu" not in launch_text
 
 

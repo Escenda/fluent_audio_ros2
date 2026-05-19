@@ -1,5 +1,6 @@
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdarg>
 #include <cstdio>
@@ -10,6 +11,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "fa_interfaces/msg/audio_frame.hpp"
 #include "fa_interfaces/msg/vad_state.hpp"
@@ -112,6 +114,12 @@ public:
     cfg.keywords_threshold = static_cast<float>(kws_keywords_threshold_);
     cfg.vad_threshold = static_cast<float>(probability_gate_);
     cfg.cooldown = std::chrono::milliseconds(cooldown_ms_);
+    cfg.command = backend_command_;
+    cfg.args = backend_args_;
+    cfg.health_args = backend_health_args_;
+    cfg.timeout_sec = backend_timeout_sec_;
+    cfg.workspace_dir = backend_workspace_dir_;
+    cfg.cleanup_audio_files = backend_cleanup_audio_files_;
 
     kws_backend_ = std::make_unique<SherpaOnnxKwsBackend>(cfg);
 
@@ -223,6 +231,9 @@ private:
     if (vad_max_age_ms_ <= 0) {
       throw std::runtime_error("vad.max_age_ms must be greater than zero");
     }
+    if (cooldown_ms_ < 0) {
+      throw std::runtime_error("cooldown_ms must be zero or greater");
+    }
     if (audio_qos_depth_ <= 0) {
       throw std::runtime_error("audio.qos.depth must be greater than zero");
     }
@@ -243,6 +254,21 @@ private:
       throw std::runtime_error(
         "unsupported fa_kws backend.execution_provider: " + execution_provider_ +
         "; supported providers: " + supportedSherpaOnnxExecutionProvidersForMessage());
+    }
+    if (backend_command_.empty()) {
+      throw std::runtime_error("backend.command is required");
+    }
+    if (backend_args_.empty()) {
+      throw std::runtime_error("backend.args must not be empty");
+    }
+    if (backend_health_args_.empty()) {
+      throw std::runtime_error("backend.health_args must not be empty");
+    }
+    if (!std::isfinite(backend_timeout_sec_) || backend_timeout_sec_ <= 0.0) {
+      throw std::runtime_error("backend.timeout_sec must be finite and greater than zero");
+    }
+    if (backend_workspace_dir_.empty()) {
+      throw std::runtime_error("backend.workspace_dir is required");
     }
   }
 
@@ -275,6 +301,13 @@ private:
 
     model_num_threads_ = this->declare_parameter<int>("model.num_threads");
     execution_provider_ = this->declare_parameter<std::string>("backend.execution_provider");
+    backend_command_ = this->declare_parameter<std::string>("backend.command");
+    backend_args_ = this->declare_parameter<std::vector<std::string>>("backend.args");
+    backend_health_args_ =
+      this->declare_parameter<std::vector<std::string>>("backend.health_args");
+    backend_timeout_sec_ = this->declare_parameter<double>("backend.timeout_sec");
+    backend_workspace_dir_ = this->declare_parameter<std::string>("backend.workspace_dir");
+    backend_cleanup_audio_files_ = this->declare_parameter<bool>("backend.cleanup_audio_files");
 
     kws_max_active_paths_ = this->declare_parameter<int>("kws.max_active_paths");
     kws_num_trailing_blanks_ = this->declare_parameter<int>("kws.num_trailing_blanks");
@@ -518,6 +551,12 @@ private:
 
   int model_num_threads_{};
   std::string execution_provider_;
+  std::string backend_command_;
+  std::vector<std::string> backend_args_;
+  std::vector<std::string> backend_health_args_;
+  double backend_timeout_sec_{};
+  std::string backend_workspace_dir_;
+  bool backend_cleanup_audio_files_{};
 
   int kws_max_active_paths_{};
   int kws_num_trailing_blanks_{};

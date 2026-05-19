@@ -14,69 +14,13 @@ find_package(fa_interfaces REQUIRED)
 
 include_directories(include)
 
-set(FA_KWS_SHERPA_ONNX "OFF" CACHE STRING "sherpa-onnx backend build mode: ON or OFF")
-set_property(CACHE FA_KWS_SHERPA_ONNX PROPERTY STRINGS ON OFF)
-
-if(NOT FA_KWS_SHERPA_ONNX MATCHES "^(ON|OFF)$")
-  message(FATAL_ERROR "FA_KWS_SHERPA_ONNX must be ON or OFF")
-endif()
-
-set(SHERPA_ONNX_PREFIX "" CACHE PATH "sherpa-onnx install prefix")
-if(NOT SHERPA_ONNX_PREFIX AND DEFINED ENV{SHERPA_ONNX_PREFIX})
-  set(SHERPA_ONNX_PREFIX "$ENV{SHERPA_ONNX_PREFIX}" CACHE PATH "sherpa-onnx install prefix" FORCE)
-endif()
-
-set(FA_KWS_WITH_SHERPA_ONNX OFF)
-set(FA_KWS_BACKEND_SOURCE src/backends/sherpa_onnx_kws_backend_unavailable.cpp)
-
-if(FA_KWS_SHERPA_ONNX STREQUAL "ON")
-  find_path(SHERPA_ONNX_INCLUDE_DIR
-    NAMES sherpa-onnx/c-api/c-api.h
-    HINTS
-      "${SHERPA_ONNX_PREFIX}/include"
-      /usr/local/include
-      /usr/include
-  )
-
-  find_library(SHERPA_ONNX_C_API_LIBRARY
-    NAMES sherpa-onnx-c-api
-    HINTS
-      "${SHERPA_ONNX_PREFIX}/lib"
-      /usr/local/lib
-      /usr/lib
-  )
-
-  if(SHERPA_ONNX_INCLUDE_DIR AND SHERPA_ONNX_C_API_LIBRARY)
-    set(FA_KWS_WITH_SHERPA_ONNX ON)
-    set(FA_KWS_BACKEND_SOURCE src/backends/sherpa_onnx_kws_backend.cpp)
-  else()
-    message(FATAL_ERROR
-      "sherpa-onnx C API is required when FA_KWS_SHERPA_ONNX=ON. "
-      "Set SHERPA_ONNX_PREFIX or install sherpa-onnx before building fa_kws.")
-  endif()
-else()
-  message(STATUS
-    "FA_KWS_SHERPA_ONNX=OFF builds fa_kws runtime targets with a fail-closed "
-    "unavailable sherpa_onnx_kws backend.")
-endif()
-
 add_library(fa_kws_backends STATIC
-  ${FA_KWS_BACKEND_SOURCE}
+  src/backends/sherpa_onnx_kws_backend.cpp
 )
 
 target_include_directories(fa_kws_backends PUBLIC
   include
 )
-
-if(FA_KWS_WITH_SHERPA_ONNX)
-  target_include_directories(fa_kws_backends PUBLIC
-    ${SHERPA_ONNX_INCLUDE_DIR}
-  )
-
-  target_link_libraries(fa_kws_backends PUBLIC
-    ${SHERPA_ONNX_C_API_LIBRARY}
-  )
-endif()
 
 add_executable(fa_kws_wav_tool
   src/kws_wav_tool.cpp
@@ -100,19 +44,6 @@ target_link_libraries(fa_kws_node
 target_link_libraries(fa_kws_wav_tool
   fa_kws_backends
 )
-
-if(FA_KWS_WITH_SHERPA_ONNX)
-  get_filename_component(SHERPA_ONNX_LIB_DIR "${SHERPA_ONNX_C_API_LIBRARY}" DIRECTORY)
-  set_target_properties(fa_kws_node PROPERTIES
-    BUILD_RPATH "${SHERPA_ONNX_LIB_DIR}"
-    INSTALL_RPATH "${SHERPA_ONNX_LIB_DIR}"
-  )
-
-  set_target_properties(fa_kws_wav_tool PROPERTIES
-    BUILD_RPATH "${SHERPA_ONNX_LIB_DIR}"
-    INSTALL_RPATH "${SHERPA_ONNX_LIB_DIR}"
-  )
-endif()
 
 install(TARGETS fa_kws_node fa_kws_wav_tool
   DESTINATION lib/${PROJECT_NAME}
@@ -162,20 +93,6 @@ if(BUILD_TESTING)
     ament_target_dependencies(${PROJECT_NAME}_vad_state_identity_test
       fa_interfaces
     )
-  endif()
-
-  if(NOT FA_KWS_WITH_SHERPA_ONNX)
-    ament_add_gtest(${PROJECT_NAME}_sherpa_unavailable_backend_test
-      test/unit/sherpa_unavailable_backend_contract.cpp
-    )
-    if(TARGET ${PROJECT_NAME}_sherpa_unavailable_backend_test)
-      target_include_directories(${PROJECT_NAME}_sherpa_unavailable_backend_test PRIVATE
-        include
-      )
-      target_link_libraries(${PROJECT_NAME}_sherpa_unavailable_backend_test
-        fa_kws_backends
-      )
-    endif()
   endif()
 
   # Keep package tests isolated from ambient pytest plugins in ROS images.

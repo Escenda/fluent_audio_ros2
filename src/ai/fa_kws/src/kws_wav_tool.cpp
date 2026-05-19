@@ -164,6 +164,9 @@ struct Args
   std::string tokens;
   std::string keywords;
   std::string provider;
+  std::string command;
+  std::string workspace_dir;
+  double timeout_sec{std::numeric_limits<double>::quiet_NaN()};
   float keywords_threshold{std::numeric_limits<float>::quiet_NaN()};
   int target_sample_rate{0};
   int chunk_ms{20};
@@ -181,11 +184,13 @@ Args parse_args(int argc, char **argv)
     throw std::runtime_error(
       "Usage: kws_wav_tool --wav <path> --encoder <path> --decoder <path> "
       "--joiner <path> --tokens <path> --keywords <path> --provider <provider> "
+      "--command <path> --workspace_dir <dir> --timeout_sec <sec> "
       "--threshold <float> --sample_rate <hz> --num_threads <n> "
       "--max_active_paths <n> --num_trailing_blanks <n> --keywords_score <float> "
       "[--chunk_ms 20] --assume-vad-speech\n"
       "   or: kws_wav_tool --batch <dir> --encoder <path> --decoder <path> "
       "--joiner <path> --tokens <path> --keywords <path> --provider <provider> "
+      "--command <path> --workspace_dir <dir> --timeout_sec <sec> "
       "--threshold <float> --sample_rate <hz> --num_threads <n> "
       "--max_active_paths <n> --num_trailing_blanks <n> --keywords_score <float> "
       "[--chunk_ms 20] --assume-vad-speech");
@@ -210,6 +215,12 @@ Args parse_args(int argc, char **argv)
       args.keywords = argv[++i];
     } else if (arg == "--provider" && i + 1 < argc) {
       args.provider = argv[++i];
+    } else if (arg == "--command" && i + 1 < argc) {
+      args.command = argv[++i];
+    } else if (arg == "--workspace_dir" && i + 1 < argc) {
+      args.workspace_dir = argv[++i];
+    } else if (arg == "--timeout_sec" && i + 1 < argc) {
+      args.timeout_sec = std::stod(argv[++i]);
     } else if (arg == "--threshold" && i + 1 < argc) {
       args.keywords_threshold = std::stof(argv[++i]);
     } else if (arg == "--sample_rate" && i + 1 < argc) {
@@ -231,13 +242,13 @@ Args parse_args(int argc, char **argv)
   if (args.batch_mode) {
     if (args.wav_dir.empty() || args.encoder.empty() || args.decoder.empty() ||
         args.joiner.empty() || args.tokens.empty() || args.keywords.empty() ||
-        args.provider.empty()) {
+        args.provider.empty() || args.command.empty() || args.workspace_dir.empty()) {
       throw std::runtime_error("Missing required arguments for batch mode");
     }
   } else {
     if (args.wav_path.empty() || args.encoder.empty() || args.decoder.empty() ||
         args.joiner.empty() || args.tokens.empty() || args.keywords.empty() ||
-        args.provider.empty()) {
+        args.provider.empty() || args.command.empty() || args.workspace_dir.empty()) {
       throw std::runtime_error("Missing required arguments");
     }
   }
@@ -266,6 +277,9 @@ Args parse_args(int argc, char **argv)
   }
   if (!std::isfinite(args.keywords_threshold) || args.keywords_threshold <= 0.0f) {
     throw std::runtime_error("threshold must be finite and positive");
+  }
+  if (!std::isfinite(args.timeout_sec) || args.timeout_sec <= 0.0) {
+    throw std::runtime_error("timeout_sec must be finite and positive");
   }
   if (!args.assume_vad_speech) {
     throw std::runtime_error(
@@ -310,6 +324,54 @@ fa_kws::SherpaOnnxKwsBackendConfig build_backend_config(const Args &args)
   cfg.keywords_threshold = args.keywords_threshold;
   cfg.vad_threshold = 1.0f;
   cfg.cooldown = std::chrono::milliseconds{0};
+  cfg.command = args.command;
+  cfg.args = {
+    "detect",
+    "--audio",
+    "{audio}",
+    "--encoder",
+    "{encoder}",
+    "--decoder",
+    "{decoder}",
+    "--joiner",
+    "{joiner}",
+    "--tokens",
+    "{tokens}",
+    "--keywords",
+    "{keywords}",
+    "--provider",
+    "{provider}",
+    "--sample-rate",
+    "{sample_rate}",
+    "--num-threads",
+    "{num_threads}",
+    "--max-active-paths",
+    "{max_active_paths}",
+    "--num-trailing-blanks",
+    "{num_trailing_blanks}",
+    "--keywords-score",
+    "{keywords_score}",
+    "--keywords-threshold",
+    "{keywords_threshold}",
+  };
+  cfg.health_args = {
+    "health",
+    "--encoder",
+    "{encoder}",
+    "--decoder",
+    "{decoder}",
+    "--joiner",
+    "{joiner}",
+    "--tokens",
+    "{tokens}",
+    "--keywords",
+    "{keywords}",
+    "--provider",
+    "{provider}",
+  };
+  cfg.timeout_sec = args.timeout_sec;
+  cfg.workspace_dir = args.workspace_dir;
+  cfg.cleanup_audio_files = true;
   return cfg;
 }
 

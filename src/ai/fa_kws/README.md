@@ -16,6 +16,6 @@
 
 audio / VAD / output topic QoS は `audio.qos.*`、`vad.qos.*`、`output.qos.*` で明示します。depth が 0 以下の場合は起動失敗し、node code 内の hidden depth / reliability へ切り替えません。
 
-通常の workspace build では `fa_kws_node` と `fa_kws_wav_tool` を build します。既定の `-DFA_KWS_SHERPA_ONNX=OFF` では sherpa-onnx C API にリンクせず、`backend.name=sherpa_onnx_kws` を選択した起動時に fail closed します。
+`fa_kws_node` は sherpa-onnx C API を直接 link しません。`backend.command` / `backend.args` / `backend.health_args` で外部 worker を明示し、その worker が sherpa-onnx runtime、Python / C++ runtime、venv、container、GPU provider を所有します。worker 欠落、health check failure、timeout、invalid stdout は起動または推論時に fail closed します。
 
-sherpa-onnx runtime を有効にする場合は `-DFA_KWS_SHERPA_ONNX=ON` を明示し、標準パスに無い場合は `SHERPA_ONNX_PREFIX` 環境変数または CMake cache で install prefix を指定してください。`ON` を指定して C API が見つからない場合は configure で失敗します。別 backend や dummy backend へ暗黙に切り替えることはありません。
+通常の workspace build では `fa_kws_node` と `fa_kws_wav_tool` を build します。native sherpa-onnx link mode、unavailable backend、dummy backend、別 backend への暗黙 fallback はありません。
