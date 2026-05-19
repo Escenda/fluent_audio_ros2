@@ -117,6 +117,17 @@ def _relative_package_path(package_dir: Path) -> str:
     return str(package_dir.relative_to(SRC_ROOT))
 
 
+def _traceability_mapped_package_paths() -> set[str]:
+    mapped_paths: set[str] = set(IO_TEST_TRACE_PREFIXES)
+    mapped_paths.update(INTERFACE_TEST_TRACE_PREFIXES)
+    mapped_paths.update(APP_TEST_TRACE_PREFIXES)
+    mapped_paths.update(STREAMING_TEST_TRACE_PREFIXES)
+    mapped_paths.update(PROCESSING_TEST_TRACE_PREFIXES)
+    mapped_paths.update(f"ai/{package_name}" for package_name in AI_TEST_TRACE_PREFIXES)
+    mapped_paths.add("system/fluent_audio_system")
+    return mapped_paths
+
+
 def _path_category(package_dir: Path) -> str | None:
     relative_parts = package_dir.relative_to(SRC_ROOT).parts
     if not relative_parts:
@@ -183,6 +194,14 @@ def test_buildable_packages_have_standard_test_layout() -> None:
                 missing_paths.append(f"{_relative_package_path(package_dir)}/{required_test_dir}")
 
     assert missing_paths == []
+
+
+def test_traceability_gate_covers_every_buildable_node_package() -> None:
+    buildable_package_paths = {
+        _relative_package_path(package_dir) for package_dir in _buildable_package_dirs()
+    }
+
+    assert buildable_package_paths - _traceability_mapped_package_paths() == set()
 
 
 def test_buildable_ai_packages_have_spec_to_test_traceability() -> None:
