@@ -74,6 +74,15 @@ if(BUILD_TESTING)
     )
   endif()
 
+  ament_add_gtest(${PROJECT_NAME}_backend_config_validation_test
+    test/unit/backend_config_validation_contract.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_backend_config_validation_test)
+    target_include_directories(${PROJECT_NAME}_backend_config_validation_test PRIVATE
+      include
+    )
+  endif()
+
   ament_add_gtest(${PROJECT_NAME}_audio_utils_test
     test/unit/audio_utils_contract.cpp
     src/audio_utils.cpp

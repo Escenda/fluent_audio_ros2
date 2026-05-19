@@ -19,10 +19,11 @@
 #include "rclcpp/rclcpp.hpp"
 
 #include "fa_kws/audio_utils.hpp"
+#include "fa_kws/backend_config_validation.hpp"
 #include "fa_kws/backends/kws_backend.hpp"
-#include "fa_kws/vad_state_identity.hpp"
 #include "fa_kws/backends/sherpa_onnx_kws_backend.hpp"
 #include "fa_kws/vad_gate.hpp"
+#include "fa_kws/vad_state_identity.hpp"
 
 namespace fa_kws
 {
@@ -144,12 +145,7 @@ public:
 private:
   void validateBackendOrThrow() const
   {
-    if (backend_name_.empty()) {
-      throw std::runtime_error("backend.name is required");
-    }
-    if (backend_name_ != "sherpa_onnx_kws") {
-      throw std::runtime_error("unsupported fa_kws backend.name: " + backend_name_);
-    }
+    validation::requireSupportedBackendName(backend_name_);
   }
 
   void validateTopicBindingsOrThrow() const

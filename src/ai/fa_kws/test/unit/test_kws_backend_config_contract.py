@@ -67,12 +67,26 @@ def test_backend_config_has_no_provider_default() -> None:
 
 def test_node_fails_closed_for_missing_or_unknown_backend_name() -> None:
     node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
+    validation_header = (
+        PACKAGE_ROOT / "include" / "fa_kws" / "backend_config_validation.hpp"
+    ).read_text(encoding="utf-8")
+    validation_test = (
+        PACKAGE_ROOT / "test" / "unit" / "backend_config_validation_contract.cpp"
+    ).read_text(encoding="utf-8")
+    cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
     assert 'declare_parameter<std::string>("backend.name");' in node_text
     assert "validateBackendOrThrow();" in node_text
-    assert "backend.name is required" in node_text
-    assert "unsupported fa_kws backend.name: " in node_text
-    assert 'backend_name_ != "sherpa_onnx_kws"' in node_text
+    assert "validation::requireSupportedBackendName(backend_name_);" in node_text
+    assert "backend.name is required" in validation_header
+    assert "unsupported fa_kws backend.name: " in validation_header
+    assert 'kBackendSherpaOnnxKws = "sherpa_onnx_kws"' in validation_header
+    assert "RejectsMissingBackendName" in validation_test
+    assert "RejectsUnknownBackendName" in validation_test
+    assert "AcceptsSherpaOnnxKwsBackendName" in validation_test
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_config_validation_test" in cmake_text
+    assert "test/unit/backend_config_validation_contract.cpp" in cmake_text
+    assert 'backend_name_ != "sherpa_onnx_kws"' not in node_text
     assert 'declare_parameter<std::string>("backend.name", "sherpa_onnx_kws")' not in node_text
 
 
