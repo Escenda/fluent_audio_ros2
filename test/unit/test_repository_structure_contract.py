@@ -454,6 +454,20 @@ def test_all_ros_packages_have_unit_contract_tests() -> None:
     assert missing == []
 
 
+def test_all_launchable_ros_packages_have_package_local_launch_contract_tests() -> None:
+    missing: list[str] = []
+
+    for package_root in _package_roots():
+        launch_files = sorted((package_root / "launch").glob("*.launch.py"))
+        if not launch_files:
+            continue
+        test_files = _package_test_code_files(package_root, "test/launch")
+        if not test_files:
+            missing.append(f"{package_root.relative_to(REPO_ROOT)}/test/launch")
+
+    assert missing == []
+
+
 def test_roadmap_placeholders_are_explicitly_not_buildable_ros_packages() -> None:
     violations: list[str] = []
     forbidden_buildable_paths = (

@@ -5,19 +5,23 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    params_file = LaunchConfiguration("params_file")
-    return LaunchDescription(
-        [
-            DeclareLaunchArgument(
-                "params_file",
-                description="Path to fa_tempo parameter YAML.",
-            ),
-            Node(
-                package="fa_tempo",
-                executable="fa_tempo_node",
-                name="fa_tempo",
-                output="screen",
-                parameters=[params_file],
-            ),
-        ]
-    )
+    node_name = LaunchConfiguration("node_name")
+    config_file = LaunchConfiguration("config_file")
+
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            "node_name",
+            description="ノード名。config_file の top-level key と一致させる。必ず明示する。",
+        ),
+        DeclareLaunchArgument(
+            "config_file",
+            description="設定ファイルへのパス。必ず明示する。",
+        ),
+        Node(
+            package="fa_tempo",
+            executable="fa_tempo_node",
+            name=node_name,
+            output="screen",
+            parameters=[config_file],
+        ),
+    ])
