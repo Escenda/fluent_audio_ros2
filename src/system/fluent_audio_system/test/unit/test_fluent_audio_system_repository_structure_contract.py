@@ -2,6 +2,7 @@ import importlib
 from pathlib import Path
 import re
 import sys
+import xml.etree.ElementTree as ET
 
 PACKAGE_ROOT = Path(__file__).parents[2]
 sys.path.insert(0, str(PACKAGE_ROOT))
@@ -166,6 +167,29 @@ def test_package_category_map_matches_repository_layout() -> None:
             continue
 
         assert expected_category in package_categories[package_name]
+
+
+def test_system_package_does_not_depend_on_optional_node_packages() -> None:
+    package_xml = ET.parse(PACKAGE_ROOT / "package.xml")
+    dependency_tags = {
+        "depend",
+        "build_depend",
+        "build_export_depend",
+        "exec_depend",
+        "test_depend",
+    }
+    package_dependencies = {
+        (element.text or "").strip()
+        for element in package_xml.getroot()
+        if element.tag in dependency_tags
+    }
+    forbidden_dependencies = {
+        package_dir.name
+        for package_dir in _buildable_package_dirs()
+        if package_dir.name.startswith("fa_")
+    }
+
+    assert package_dependencies & forbidden_dependencies == set()
 
 
 def _production_python_files_under(root: Path) -> list[Path]:
