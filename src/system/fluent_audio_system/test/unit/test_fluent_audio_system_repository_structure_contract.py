@@ -28,6 +28,10 @@ AI_TEST_TRACE_PREFIXES = {
     "fa_turn_detector": "FA-TD",
     "fa_vad": "FA-VAD",
 }
+IO_TEST_TRACE_PREFIXES = {
+    "io/sinks/fa_out": "FA-OUT",
+    "io/sources/fa_in": "FA-IN",
+}
 
 
 def _buildable_package_dirs() -> list[Path]:
@@ -134,6 +138,25 @@ def test_fluent_audio_system_has_spec_to_test_traceability() -> None:
     ]
 
     assert mapped_lines
+
+
+def test_core_io_packages_have_spec_to_test_traceability() -> None:
+    missing_traceability: list[str] = []
+
+    for package_relative_path, trace_prefix in IO_TEST_TRACE_PREFIXES.items():
+        package_dir = SRC_ROOT / package_relative_path
+        test_design_path = package_dir / "docs" / "テスト設計.md"
+        mapped_lines = [
+            line
+            for line in test_design_path.read_text(encoding="utf-8").splitlines()
+            if f"`{trace_prefix}-TC-" in line
+            and "->" in line
+            and f"`{trace_prefix}-SPEC-" in line
+        ]
+        if not mapped_lines:
+            missing_traceability.append(package_relative_path)
+
+    assert missing_traceability == []
 
 
 def test_ai_and_streaming_packages_stay_out_of_processing_analysis() -> None:
