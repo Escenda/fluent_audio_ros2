@@ -1,19 +1,26 @@
 #include "fa_audio_window/fa_audio_window_node.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <builtin_interfaces/msg/time.hpp>
+#include <cerrno>
 #include <chrono>
 #include <cinttypes>
 #include <cctype>
 #include <cstddef>
 #include <fstream>
 #include <functional>
+#include <iomanip>
+#include <iterator>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
 #include <utility>
 #include <vector>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "fa_audio_window/time_range_parser.hpp"
 #include "fa_audio_window/wav_writer.hpp"
@@ -27,6 +34,12 @@ constexpr const char * kEncodingPcm16Le = "PCM16LE";
 constexpr const char * kInterleavedLayout = "interleaved";
 constexpr uint64_t kDefaultRetentionSeconds = 1800u;
 constexpr uint64_t kNsecPerSecond = 1000000000u;
+
+enum class PublishStatus
+{
+  kPublished,
+  kExistingMatched,
+};
 
 rclcpp::Parameter getDeclaredParameter(const rclcpp::Node & node, const std::string & name)
 {
@@ -177,6 +190,150 @@ void writeJsonStringArray(std::ostream & out, const std::vector<std::string> & v
     out << "\"" << jsonEscape(values[i]) << "\"";
   }
   out << "]";
+}
+
+void appendIdentityField(std::ostream & out, const std::string & name, const std::string & value)
+{
+  out << name << ":" << value.size() << ":" << value << "\n";
+}
+
+void appendIdentityField(std::ostream & out, const std::string & name, const uint64_t value)
+{
+  appendIdentityField(out, name, std::to_string(value));
+}
+
+void appendIdentityField(std::ostream & out, const std::string & name, const int64_t value)
+{
+  appendIdentityField(out, name, std::to_string(value));
+}
+
+uint64_t stableFnv1a64(const std::string & value)
+{
+  uint64_t hash = 14695981039346656037ull;
+  for (const unsigned char c : value) {
+    hash ^= static_cast<uint64_t>(c);
+    hash *= 1099511628211ull;
+  }
+  return hash;
+}
+
+std::string hex64(const uint64_t value)
+{
+  std::ostringstream out;
+  out << std::hex << std::nouppercase << std::setw(16) << std::setfill('0') << value;
+  return out.str();
+}
+
+std::string operationIdentity(const std::string & operation_name)
+{
+  if (operation_name == "export") {
+    return "export_audio_window";
+  }
+  if (operation_name == "archive") {
+    return "archive_audio_window";
+  }
+  throw std::runtime_error("unsupported clip operation");
+}
+
+std::filesystem::path metadataPathFor(const std::filesystem::path & clip_path)
+{
+  return clip_path.string() + ".metadata.json";
+}
+
+std::string errnoMessage(const int error_number)
+{
+  return std::error_code(error_number, std::generic_category()).message();
+}
+
+std::filesystem::path reserveTemporaryPublishPath(const std::filesystem::path & target_path)
+{
+  const std::filesystem::path parent = target_path.parent_path();
+  if (!parent.empty()) {
+    std::filesystem::create_directories(parent);
+  }
+
+  static std::atomic<uint64_t> temp_sequence{0};
+  for (uint32_t attempt = 0u; attempt < 64u; ++attempt) {
+    const uint64_t sequence = temp_sequence.fetch_add(1u) + 1u;
+    const std::filesystem::path temp_path =
+      target_path.string() + ".tmp." + std::to_string(static_cast<long long>(::getpid())) + "." +
+      std::to_string(sequence);
+    const int fd = ::open(temp_path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+    if (fd >= 0) {
+      if (::close(fd) != 0) {
+        const int close_errno = errno;
+        std::error_code remove_error;
+        std::filesystem::remove(temp_path, remove_error);
+        throw std::runtime_error(
+          "failed to close temporary publish file: " + errnoMessage(close_errno));
+      }
+      return temp_path;
+    }
+
+    const int open_errno = errno;
+    if (open_errno == EEXIST) {
+      continue;
+    }
+    throw std::runtime_error(
+      "failed to reserve temporary publish file: " + errnoMessage(open_errno));
+  }
+
+  throw std::runtime_error("failed to reserve temporary publish file after repeated collisions");
+}
+
+std::vector<uint8_t> readBinaryFile(const std::filesystem::path & path)
+{
+  std::ifstream in(path, std::ios::binary);
+  if (!in.is_open()) {
+    throw std::runtime_error("failed to open file for comparison: " + path.string());
+  }
+  return {
+    std::istreambuf_iterator<char>(in),
+    std::istreambuf_iterator<char>(),
+  };
+}
+
+bool fileBytesEqual(const std::filesystem::path & left, const std::filesystem::path & right)
+{
+  return readBinaryFile(left) == readBinaryFile(right);
+}
+
+PublishStatus publishTempFileNoClobber(
+  const std::filesystem::path & temp_path,
+  const std::filesystem::path & target_path,
+  const std::string & inspect_error_message,
+  const std::string & conflict_error_message,
+  const std::string & publish_error_message)
+{
+  if (::link(temp_path.c_str(), target_path.c_str()) == 0) {
+    std::error_code remove_error;
+    std::filesystem::remove(temp_path, remove_error);
+    return PublishStatus::kPublished;
+  }
+
+  const int link_errno = errno;
+  std::error_code exists_error;
+  const bool target_exists = std::filesystem::exists(target_path, exists_error);
+  if (exists_error) {
+    std::error_code remove_error;
+    std::filesystem::remove(temp_path, remove_error);
+    throw std::runtime_error(inspect_error_message + ": " + exists_error.message());
+  }
+
+  if (target_exists) {
+    if (fileBytesEqual(target_path, temp_path)) {
+      std::error_code remove_error;
+      std::filesystem::remove(temp_path, remove_error);
+      return PublishStatus::kExistingMatched;
+    }
+    std::error_code remove_error;
+    std::filesystem::remove(temp_path, remove_error);
+    throw std::runtime_error(conflict_error_message);
+  }
+
+  std::error_code remove_error;
+  std::filesystem::remove(temp_path, remove_error);
+  throw std::runtime_error(publish_error_message + ": " + errnoMessage(link_errno));
 }
 }  // namespace
 
@@ -466,12 +623,44 @@ FaAudioWindowNode::ClipOperationResult FaAudioWindowNode::writeWindowClip(
     return result;
   }
 
-  const uint64_t sequence = clip_sequence_.fetch_add(1) + 1u;
-  const std::filesystem::path output_path =
-    clipPathFor(request.operation_name, query.exported_range, sequence);
+  const std::string clip_id = clipIdFor(request, resolved_scope, query.exported_range);
+  const std::filesystem::path output_path = clipPathFor(clip_id);
+  const bool is_archive = request.operation_name == "archive";
+  const std::filesystem::path metadata_path = metadataPathFor(output_path);
+
+  if (is_archive) {
+    std::error_code clip_exists_error;
+    std::error_code metadata_exists_error;
+    const bool clip_exists = std::filesystem::exists(output_path, clip_exists_error);
+    const bool metadata_exists = std::filesystem::exists(metadata_path, metadata_exists_error);
+    if (clip_exists_error || metadata_exists_error) {
+      result.error = ClipOperationError::kWriteFailed;
+      result.message = "failed to inspect deterministic archive target";
+      return result;
+    }
+    if (!clip_exists && metadata_exists) {
+      result.error = ClipOperationError::kWriteFailed;
+      result.message = "deterministic archive metadata exists without matching audio clip";
+      return result;
+    }
+  }
+
+  PublishStatus publish_status = PublishStatus::kPublished;
+  std::filesystem::path temp_output_path;
   try {
-    WavWriter::writePcm16Le(output_path, config_.expected_format, query.pcm_data);
+    temp_output_path = reserveTemporaryPublishPath(output_path);
+    WavWriter::writePcm16Le(temp_output_path, config_.expected_format, query.pcm_data);
+    publish_status = publishTempFileNoClobber(
+      temp_output_path,
+      output_path,
+      "failed to inspect deterministic audio clip path",
+      "deterministic audio clip path exists with different bytes",
+      "failed to publish audio clip file");
   } catch (const std::exception & e) {
+    std::error_code remove_error;
+    if (!temp_output_path.empty()) {
+      std::filesystem::remove(temp_output_path, remove_error);
+    }
     result.error = ClipOperationError::kWriteFailed;
     result.message = e.what();
     return result;
@@ -483,20 +672,18 @@ FaAudioWindowNode::ClipOperationResult FaAudioWindowNode::writeWindowClip(
   fillResolvedRange(result.time_range, query.exported_range);
   fillAudioClipRef(
     result.audio_clip_ref,
-    output_path.stem().string(),
+    clip_id,
     output_path,
     query);
-  if (request.operation_name == "archive") {
-    std::filesystem::path metadata_path;
+  if (is_archive) {
     try {
-      metadata_path = output_path.string() + ".metadata.json";
-      writeArchiveMetadata(request, result.audio_clip_ref, output_path, query.exported_range);
+      const std::string expected_metadata =
+        archiveMetadataJson(request, result.audio_clip_ref, query.exported_range);
+      writeTextAtomically(metadata_path, expected_metadata);
     } catch (const std::exception & e) {
       std::error_code remove_error;
-      std::filesystem::remove(output_path, remove_error);
-      if (!metadata_path.empty()) {
-        std::filesystem::remove(metadata_path, remove_error);
-        std::filesystem::remove(metadata_path.string() + ".tmp", remove_error);
+      if (publish_status == PublishStatus::kPublished) {
+        std::filesystem::remove(output_path, remove_error);
       }
       result.success = false;
       result.error = ClipOperationError::kWriteFailed;
@@ -703,32 +890,56 @@ void FaAudioWindowNode::fillAudioClipRef(
   fillResolvedRange(ref.time_range, query.exported_range);
 }
 
-std::filesystem::path FaAudioWindowNode::clipPathFor(
-  const std::string & operation_name,
-  const TimeRange & range,
-  const uint64_t sequence) const
-{
-  std::ostringstream filename;
-  filename << sanitizeForFile(operation_name) << "_" << sanitizeForFile(config_.source_id) << "_"
-           << sanitizeForFile(config_.stream_id) << "_"
-           << range.start_unix_ns << "_" << range.end_unix_ns << "_" << sequence << ".wav";
-  return config_.output_directory / filename.str();
-}
-
-void FaAudioWindowNode::writeArchiveMetadata(
+std::string FaAudioWindowNode::clipIdFor(
   const ClipOperationRequest & request,
-  const fa_interfaces::msg::AudioClipRef & clip_ref,
-  const std::filesystem::path & clip_path,
+  const std::string & resolved_scope,
   const TimeRange & exported_range) const
 {
-  const std::filesystem::path metadata_path = clip_path.string() + ".metadata.json";
-  const std::filesystem::path temp_metadata_path = metadata_path.string() + ".tmp";
-  std::filesystem::create_directories(metadata_path.parent_path());
-  std::ofstream out(temp_metadata_path, std::ios::binary | std::ios::trunc);
-  if (!out.is_open()) {
-    throw std::runtime_error("failed to open archive metadata file");
+  std::ostringstream identity;
+  appendIdentityField(identity, "operation", operationIdentity(request.operation_name));
+  appendIdentityField(identity, "window_id", config_.window_id);
+  appendIdentityField(identity, "window_epoch", config_.window_epoch);
+  appendIdentityField(identity, "source_id", config_.source_id);
+  appendIdentityField(identity, "stream_id", config_.stream_id);
+  appendIdentityField(identity, "audio_scope", resolved_scope);
+  appendIdentityField(identity, "start_unix_ns", exported_range.start_unix_ns);
+  appendIdentityField(identity, "end_unix_ns", exported_range.end_unix_ns);
+  appendIdentityField(identity, "codec", request.codec);
+  appendIdentityField(identity, "container", request.container);
+  appendIdentityField(identity, "payload_format", request.payload_format);
+  if (request.operation_name == "archive") {
+    appendIdentityField(identity, "reason", request.archive_reason);
+    appendIdentityField(
+      identity,
+      "related_artifact_count",
+      static_cast<uint64_t>(request.related_artifact_ids.size()));
+    for (const std::string & artifact_id : request.related_artifact_ids) {
+      appendIdentityField(identity, "related_artifact_id", artifact_id);
+    }
   }
 
+  const std::string hash = hex64(stableFnv1a64(identity.str()));
+  std::ostringstream clip_id;
+  clip_id << sanitizeForFile(operationIdentity(request.operation_name)) << "_"
+          << sanitizeForFile(config_.window_id) << "_epoch" << config_.window_epoch << "_"
+          << sanitizeForFile(config_.source_id) << "_" << sanitizeForFile(config_.stream_id) << "_"
+          << exported_range.start_unix_ns << "_" << exported_range.end_unix_ns << "_"
+          << sanitizeForFile(request.codec) << "_" << sanitizeForFile(request.container) << "_"
+          << sanitizeForFile(request.payload_format) << "_" << hash;
+  return clip_id.str();
+}
+
+std::filesystem::path FaAudioWindowNode::clipPathFor(const std::string & clip_id) const
+{
+  return config_.output_directory / (clip_id + ".wav");
+}
+
+std::string FaAudioWindowNode::archiveMetadataJson(
+  const ClipOperationRequest & request,
+  const fa_interfaces::msg::AudioClipRef & clip_ref,
+  const TimeRange & exported_range) const
+{
+  std::ostringstream out;
   out << "{\n";
   out << "  \"schema\":\"fluent_audio.archive_metadata.v1\",\n";
   out << "  \"operation\":\"archive_audio_window\",\n";
@@ -759,19 +970,34 @@ void FaAudioWindowNode::writeArchiveMetadata(
   out << "\"duration_ns\":" << clip_ref.duration_ns;
   out << "}\n";
   out << "}\n";
+  return out.str();
+}
 
+void FaAudioWindowNode::writeTextAtomically(
+  const std::filesystem::path & path,
+  const std::string & content) const
+{
+  const std::filesystem::path temp_path = reserveTemporaryPublishPath(path);
+  std::error_code remove_error;
+
+  std::ofstream out(temp_path, std::ios::binary | std::ios::trunc);
+  if (!out.is_open()) {
+    std::filesystem::remove(temp_path, remove_error);
+    throw std::runtime_error("failed to open archive metadata file");
+  }
+  out << content;
   out.close();
   if (!out.good()) {
+    std::filesystem::remove(temp_path, remove_error);
     throw std::runtime_error("failed to write archive metadata file");
   }
 
-  std::error_code rename_error;
-  std::filesystem::rename(temp_metadata_path, metadata_path, rename_error);
-  if (rename_error) {
-    std::error_code remove_error;
-    std::filesystem::remove(temp_metadata_path, remove_error);
-    throw std::runtime_error("failed to publish archive metadata file: " + rename_error.message());
-  }
+  (void)publishTempFileNoClobber(
+    temp_path,
+    path,
+    "failed to inspect deterministic metadata path",
+    "deterministic archive metadata path exists with different content",
+    "failed to publish archive metadata file");
 }
 
 }  // namespace fa_audio_window

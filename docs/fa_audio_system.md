@@ -28,6 +28,7 @@
 | `fa_vad` | Silero external worker 境界と VAD state publish | 実 model / worker / provider provisioning を含む SO101 graph が未検証 |
 | `fa_kws` | sherpa-onnx external worker 境界と wake word publish | 実 sherpa-onnx model / keywords / worker provisioning を含む SO101 graph が未検証 |
 | `fa_asr` | `local_command`、`whisper.cpp`、`parakeet_worker`、`openai_realtime`、`openai_transcriptions` backend 枠 | 実 worker command / model / credential / health check を含む代表 graph が未検証 |
+| `fa_audio_window` | PCM16LE/WAV evidence rolling window。numeric range の export / archive service、決定的 `AudioClipRef` / path、archive metadata sidecar、同一 request の idempotent 応答、既存 deterministic target conflict の fail-closed を Docker/ROS package test で確認済み。`colcon build --packages-select fa_audio_window --event-handlers console_direct+ && colcon test --packages-select fa_audio_window --event-handlers console_direct+` passed、service contract test は 8 tests、package test summary は 3 test binaries all passed | durable object storage、World Station write、親 Agent Runtime MCP client、親 VLAbor profile integration、実 SO101 device / model provisioning は未検証 |
 | `fa_turn_detector` | Smart Turn ONNX external worker 境界と turn end publish | 実 model / worker / provider provisioning と `fa_dialogue` 接続済み graph が未検証 |
 | `fa_dialogue` | `WakeWordResult` / `AsrResult` / `TurnEnd` から `TurnContext` を publish する最小 turn context publisher。Docker/ROS smoke で WakeWord -> active `TurnContext`、ASR terminal / TurnEnd terminal -> inactive `TurnContext` の pub/sub 契約、および `ros2 launch fa_dialogue fa_dialogue.launch.py config_file:=<tmp_yaml>` による config file routing を確認済み | reasoning / TTS / safety policy / external dialogue backend / robot command proposal / full SO101 model provisioning / 親 VLAbor profile integration は未実装または未検証 |
 | `fa_record` | `AudioFrame` の WAV 録音 utility | `fa_in` からの実 graph 録音 smoke が未検証 |
@@ -72,6 +73,8 @@
 | `switch_device` | `fa_interfaces/srv/SwitchDevice` | `fa_in` | マイク切替 |
 | `record` | `fa_interfaces/srv/Record` | `fa_record` | 録音開始/停止 |
 | `speak` | `fa_interfaces/srv/Speak` | `fa_tts` | テキスト→音声 |
+| `export_audio_window` | `fa_interfaces/srv/ExportAudioWindow` | `fa_audio_window` | retained PCM16LE window から numeric range を WAV clip として export |
+| `archive_audio_window` | `fa_interfaces/srv/ArchiveAudioWindow` | `fa_audio_window` | retained PCM16LE window から numeric range を reason / related artifacts 付き evidence WAV clip として archive |
 
 ## 5. 運用フロー例
 
@@ -123,6 +126,8 @@ SO101 で VAD/KWS/ASR/TD と `fa_dialogue` をまとめて起動する package-o
 Docker cleanup fix 後の `fa_audio_mcp` package 検証では、`colcon test --packages-select fa_audio_mcp --event-handlers console_direct+` が 79 items を収集し、`79 passed in 6.76s`、package は `7.51s` で完了しています。先行して実行した real-owner smoke と streamable smoke の focused pair も `2 passed in 6.41s` として確認済みです。
 
 この combined launch smoke と streamable transport smoke で確認した owner 境界は、`transcribe_audio` の owner が `fa_asr`、`archive_audio_window` / `export_audio_window` の owner が `fa_audio_window` であることです。combined launch smoke は child-side `fluent_audio_system` multi-config launch composition の検証であり、streamable transport smoke は child repo の installed server transport / tool-call smoke です。親 VLAbor profile integration、親 Agent Runtime / MCP client 統合、World Station durable storage、実 SO101 device / model provisioning は検証していません。
+
+`fa_audio_window` の package-local contract では、export / archive の `AudioClipRef` は sequence 採番ではなく deterministic identity から生成します。identity は operation、window id、window epoch、source id、stream id、resolved audio scope、resolved exported range、codec、container、payload format を含み、archive では reason と related artifact ids も含みます。同一 request は同じ `AudioClipRef` を返し、既存 deterministic WAV bytes / metadata が一致する場合は成功扱いにします。WAV bytes が一致して metadata が欠損している場合は no-clobber publish で metadata を作成します。bytes または metadata が異なる場合は fail closed で export / archive failure になります。
 
 ### 5.6 録音（WAV）
 1. `fa_in`と`fa_record`を起動

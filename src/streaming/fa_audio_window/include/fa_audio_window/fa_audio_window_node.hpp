@@ -121,15 +121,18 @@ private:
     const std::string & clip_id,
     const std::filesystem::path & path,
     const WindowQueryResult & query) const;
-  std::filesystem::path clipPathFor(
-    const std::string & operation_name,
-    const TimeRange & range,
-    uint64_t sequence) const;
-  void writeArchiveMetadata(
+  std::string clipIdFor(
+    const ClipOperationRequest & request,
+    const std::string & resolved_scope,
+    const TimeRange & exported_range) const;
+  std::filesystem::path clipPathFor(const std::string & clip_id) const;
+  std::string archiveMetadataJson(
     const ClipOperationRequest & request,
     const fa_interfaces::msg::AudioClipRef & clip_ref,
-    const std::filesystem::path & clip_path,
     const TimeRange & exported_range) const;
+  void writeTextAtomically(
+    const std::filesystem::path & path,
+    const std::string & content) const;
 
   AudioWindowConfig config_{};
   std::unique_ptr<AudioWindowBuffer> buffer_{};
@@ -138,7 +141,6 @@ private:
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr audio_sub_;
   rclcpp::Service<ExportAudioWindow>::SharedPtr export_service_;
   rclcpp::Service<ArchiveAudioWindow>::SharedPtr archive_service_;
-  std::atomic<uint64_t> clip_sequence_{0};
   std::atomic<uint64_t> frames_in_{0};
   std::atomic<uint64_t> frames_buffered_{0};
   std::atomic<uint64_t> frames_dropped_{0};

@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -28,6 +29,31 @@ constexpr const char * kArchiveServiceName = "fa_audio_window/test/archive";
 constexpr const char * kSourceId = "test-mic";
 constexpr const char * kStreamId = "audio/test/mic";
 constexpr int64_t kStartNs = 10000000000LL;
+
+std::string sanitizeTestName(const std::string & value)
+{
+  std::string result;
+  result.reserve(value.size());
+  for (const char c : value) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+      result.push_back(c);
+    } else {
+      result.push_back('_');
+    }
+  }
+  return result.empty() ? "unnamed_test" : result;
+}
+
+std::filesystem::path outputDirectoryForCurrentTest()
+{
+  const ::testing::TestInfo * const test_info =
+    ::testing::UnitTest::GetInstance()->current_test_info();
+  if (test_info == nullptr) {
+    throw std::runtime_error("current gtest info is unavailable");
+  }
+  return std::filesystem::temp_directory_path() / "fa_audio_window_service_test" /
+    sanitizeTestName(std::string{test_info->test_suite_name()} + "_" + test_info->name());
+}
 
 rclcpp::NodeOptions quietNodeOptions()
 {
@@ -54,9 +80,7 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("window.retention_seconds", 2),
     rclcpp::Parameter("audio.default_scope", "mic"),
     rclcpp::Parameter("audio.supported_scopes", std::vector<std::string>{"mic"}),
-    rclcpp::Parameter(
-      "export.output_directory",
-      (std::filesystem::temp_directory_path() / "fa_audio_window_service_test").string()),
+    rclcpp::Parameter("export.output_directory", outputDirectoryForCurrentTest().string()),
     rclcpp::Parameter("export.codec", "pcm_s16le"),
     rclcpp::Parameter("export.container", "wav"),
     rclcpp::Parameter("export.payload_format", "audio/wav"),
@@ -148,6 +172,68 @@ std::string readTextFile(const std::filesystem::path & path)
   return content.str();
 }
 
+std::vector<uint8_t> readBinaryFile(const std::filesystem::path & path)
+{
+  std::ifstream in(path, std::ios::binary);
+  if (!in.is_open()) {
+    throw std::runtime_error("failed to open test file");
+  }
+  return {
+    std::istreambuf_iterator<char>(in),
+    std::istreambuf_iterator<char>(),
+  };
+}
+
+std::filesystem::path pathFromClipRef(const fa_interfaces::msg::AudioClipRef & ref)
+{
+  const std::string file_prefix = "file://";
+  if (ref.uri.rfind(file_prefix, 0u) != 0u) {
+    throw std::runtime_error("clip ref URI is not a file URI");
+  }
+  return ref.uri.substr(file_prefix.size());
+}
+
+size_t countWavFiles(const std::filesystem::path & directory)
+{
+  size_t count = 0u;
+  for (const std::filesystem::directory_entry & entry : std::filesystem::directory_iterator(directory)) {
+    if (entry.is_regular_file() && entry.path().extension() == ".wav") {
+      ++count;
+    }
+  }
+  return count;
+}
+
+size_t countTemporaryPublishFiles(const std::filesystem::path & directory)
+{
+  size_t count = 0u;
+  for (const std::filesystem::directory_entry & entry : std::filesystem::directory_iterator(directory)) {
+    if (entry.is_regular_file() && entry.path().filename().string().find(".tmp") != std::string::npos) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void expectSameClipRef(
+  const fa_interfaces::msg::AudioClipRef & left,
+  const fa_interfaces::msg::AudioClipRef & right)
+{
+  EXPECT_EQ(left.clip_id, right.clip_id);
+  EXPECT_EQ(left.uri, right.uri);
+  EXPECT_EQ(left.codec, right.codec);
+  EXPECT_EQ(left.container, right.container);
+  EXPECT_EQ(left.payload_format, right.payload_format);
+  EXPECT_EQ(left.sample_rate, right.sample_rate);
+  EXPECT_EQ(left.channels, right.channels);
+  EXPECT_EQ(left.duration_ns, right.duration_ns);
+  EXPECT_EQ(left.time_range.start_unix_ns, right.time_range.start_unix_ns);
+  EXPECT_EQ(left.time_range.end_unix_ns, right.time_range.end_unix_ns);
+  EXPECT_EQ(left.time_range.clock, right.time_range.clock);
+  EXPECT_EQ(left.time_range.uncertainty_ns, right.time_range.uncertainty_ns);
+  EXPECT_EQ(left.time_range.uncertainty_reason, right.time_range.uncertainty_reason);
+}
+
 bool spinUntil(
   rclcpp::executors::SingleThreadedExecutor & executor,
   const std::function<bool()> & predicate)
@@ -168,6 +254,8 @@ class AudioWindowServiceContractTest : public ::testing::Test
 protected:
   void SetUp() override
   {
+    std::filesystem::remove_all(outputDirectoryForCurrentTest());
+    std::filesystem::create_directories(outputDirectoryForCurrentTest());
     if (!rclcpp::ok()) {
       int argc = 0;
       char ** argv = nullptr;
@@ -268,6 +356,84 @@ TEST_F(AudioWindowServiceContractTest, ReturnsExplicitFailureContracts)
   EXPECT_EQ(gap_response->message, "requested time range is not continuously covered by retained audio");
 }
 
+TEST_F(AudioWindowServiceContractTest, RepeatedExportRequestReturnsDeterministicClipRef)
+{
+  auto node = std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(validParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_audio_window_export_idempotency_io", quietNodeOptions());
+  auto client = io_node->create_client<ExportAudioWindow>(kServiceName);
+  auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic,
+    rclcpp::QoS(10).best_effort());
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  ASSERT_TRUE(spinUntil(executor, [&publisher]() {
+    return publisher->get_subscription_count() > 0u;
+  }));
+  publisher->publish(validFrame());
+  executor.spin_some(100ms);
+
+  auto first = client->async_send_request(requestFor("10000000000..10400000000", ""));
+  ASSERT_EQ(executor.spin_until_future_complete(first, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto first_response = first.get();
+  ASSERT_TRUE(first_response->success);
+
+  auto second = client->async_send_request(requestFor("10000000000..10400000000", ""));
+  ASSERT_EQ(executor.spin_until_future_complete(second, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto second_response = second.get();
+  ASSERT_TRUE(second_response->success);
+
+  expectSameClipRef(first_response->audio_clip_ref, second_response->audio_clip_ref);
+  EXPECT_EQ(first_response->time_range.start_unix_ns, second_response->time_range.start_unix_ns);
+  EXPECT_EQ(first_response->time_range.end_unix_ns, second_response->time_range.end_unix_ns);
+  EXPECT_TRUE(std::filesystem::exists(pathFromClipRef(first_response->audio_clip_ref)));
+  EXPECT_EQ(countWavFiles(outputDirectoryForCurrentTest()), 1u);
+}
+
+TEST_F(AudioWindowServiceContractTest, RejectsPreexistingDeterministicExportConflict)
+{
+  auto node = std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(validParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_audio_window_export_conflict_io", quietNodeOptions());
+  auto client = io_node->create_client<ExportAudioWindow>(kServiceName);
+  auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic,
+    rclcpp::QoS(10).best_effort());
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  ASSERT_TRUE(spinUntil(executor, [&publisher]() {
+    return publisher->get_subscription_count() > 0u;
+  }));
+  publisher->publish(validFrame());
+  executor.spin_some(100ms);
+
+  auto first = client->async_send_request(requestFor("10000000000..10400000000", "mic"));
+  ASSERT_EQ(executor.spin_until_future_complete(first, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto first_response = first.get();
+  ASSERT_TRUE(first_response->success);
+  const std::filesystem::path exported_path = pathFromClipRef(first_response->audio_clip_ref);
+  {
+    std::ofstream out(exported_path, std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(out.is_open());
+    out << "corrupt wav";
+  }
+
+  auto conflict = client->async_send_request(requestFor("10000000000..10400000000", "mic"));
+  ASSERT_EQ(executor.spin_until_future_complete(conflict, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto conflict_response = conflict.get();
+  EXPECT_FALSE(conflict_response->success);
+  EXPECT_EQ(conflict_response->error_code, ExportAudioWindow::Response::ERROR_EXPORT_FAILED);
+  EXPECT_EQ(conflict_response->message, "deterministic audio clip path exists with different bytes");
+}
+
 TEST_F(AudioWindowServiceContractTest, RejectsDuplicateExportAndArchiveServiceNamesAtConstruction)
 {
   std::vector<rclcpp::Parameter> parameters = validParameters();
@@ -283,6 +449,174 @@ TEST_F(AudioWindowServiceContractTest, RejectsDuplicateExportAndArchiveServiceNa
   } catch (const std::runtime_error & e) {
     EXPECT_STREQ(e.what(), "service_name and archive_service_name must be different service names");
   }
+}
+
+TEST_F(AudioWindowServiceContractTest, RepeatedArchiveRequestReturnsDeterministicClipBytesAndMetadata)
+{
+  auto node = std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(validParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_audio_window_archive_idempotency_io", quietNodeOptions());
+  auto client = io_node->create_client<ArchiveAudioWindow>(kArchiveServiceName);
+  auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic,
+    rclcpp::QoS(10).best_effort());
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  ASSERT_TRUE(spinUntil(executor, [&publisher]() {
+    return publisher->get_subscription_count() > 0u;
+  }));
+  publisher->publish(validFrame());
+  executor.spin_some(100ms);
+
+  auto first = client->async_send_request(
+    archiveRequestFor(
+      "10000000000..10400000000",
+      "mic",
+      "operator evidence",
+      "pcm_s16le",
+      "wav",
+      "audio/wav",
+      std::vector<std::string>{"action_12", "video_observation_9"}));
+  ASSERT_EQ(executor.spin_until_future_complete(first, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto first_response = first.get();
+  ASSERT_TRUE(first_response->success);
+  const std::filesystem::path first_path = pathFromClipRef(first_response->audio_clip_ref);
+  const std::vector<uint8_t> first_bytes = readBinaryFile(first_path);
+  const std::string first_metadata = readTextFile(first_path.string() + ".metadata.json");
+
+  auto second = client->async_send_request(
+    archiveRequestFor(
+      "10000000000..10400000000",
+      "mic",
+      "operator evidence",
+      "pcm_s16le",
+      "wav",
+      "audio/wav",
+      std::vector<std::string>{"action_12", "video_observation_9"}));
+  ASSERT_EQ(executor.spin_until_future_complete(second, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto second_response = second.get();
+  ASSERT_TRUE(second_response->success);
+  const std::filesystem::path second_path = pathFromClipRef(second_response->audio_clip_ref);
+
+  expectSameClipRef(first_response->audio_clip_ref, second_response->audio_clip_ref);
+  EXPECT_EQ(first_path, second_path);
+  EXPECT_EQ(first_bytes, readBinaryFile(second_path));
+  EXPECT_EQ(first_metadata, readTextFile(second_path.string() + ".metadata.json"));
+  EXPECT_EQ(countWavFiles(outputDirectoryForCurrentTest()), 1u);
+}
+
+TEST_F(AudioWindowServiceContractTest, RecreatesMissingDeterministicArchiveMetadata)
+{
+  auto node = std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(validParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_audio_window_archive_metadata_recreate_io", quietNodeOptions());
+  auto client = io_node->create_client<ArchiveAudioWindow>(kArchiveServiceName);
+  auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic,
+    rclcpp::QoS(10).best_effort());
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  ASSERT_TRUE(spinUntil(executor, [&publisher]() {
+    return publisher->get_subscription_count() > 0u;
+  }));
+  publisher->publish(validFrame());
+  executor.spin_some(100ms);
+
+  auto first = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "metadata recreation evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(first, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto first_response = first.get();
+  ASSERT_TRUE(first_response->success);
+  const std::filesystem::path clip_path = pathFromClipRef(first_response->audio_clip_ref);
+  const std::filesystem::path metadata_path = clip_path.string() + ".metadata.json";
+  const std::vector<uint8_t> first_bytes = readBinaryFile(clip_path);
+  ASSERT_TRUE(std::filesystem::remove(metadata_path));
+  ASSERT_FALSE(std::filesystem::exists(metadata_path));
+
+  auto second = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "metadata recreation evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(second, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto second_response = second.get();
+  ASSERT_TRUE(second_response->success);
+
+  expectSameClipRef(first_response->audio_clip_ref, second_response->audio_clip_ref);
+  EXPECT_EQ(first_bytes, readBinaryFile(clip_path));
+  EXPECT_TRUE(std::filesystem::exists(metadata_path));
+  EXPECT_EQ(countWavFiles(outputDirectoryForCurrentTest()), 1u);
+  EXPECT_EQ(countTemporaryPublishFiles(outputDirectoryForCurrentTest()), 0u);
+}
+
+TEST_F(AudioWindowServiceContractTest, RejectsPreexistingDeterministicArchiveConflicts)
+{
+  auto node = std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(validParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_audio_window_archive_conflict_io", quietNodeOptions());
+  auto client = io_node->create_client<ArchiveAudioWindow>(kArchiveServiceName);
+  auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic,
+    rclcpp::QoS(10).best_effort());
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  ASSERT_TRUE(spinUntil(executor, [&publisher]() {
+    return publisher->get_subscription_count() > 0u;
+  }));
+  publisher->publish(validFrame());
+  executor.spin_some(100ms);
+
+  auto media_success = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "media conflict evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(media_success, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto media_success_response = media_success.get();
+  ASSERT_TRUE(media_success_response->success);
+  const std::filesystem::path media_path = pathFromClipRef(media_success_response->audio_clip_ref);
+  {
+    std::ofstream out(media_path, std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(out.is_open());
+    out << "corrupt wav";
+  }
+
+  auto media_conflict = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "media conflict evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(media_conflict, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto media_conflict_response = media_conflict.get();
+  EXPECT_FALSE(media_conflict_response->success);
+  EXPECT_EQ(media_conflict_response->error_code, ArchiveAudioWindow::Response::ERROR_ARCHIVE_FAILED);
+  EXPECT_EQ(media_conflict_response->message, "deterministic audio clip path exists with different bytes");
+
+  auto metadata_success = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "metadata conflict evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(metadata_success, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto metadata_success_response = metadata_success.get();
+  ASSERT_TRUE(metadata_success_response->success);
+  const std::filesystem::path metadata_clip_path = pathFromClipRef(metadata_success_response->audio_clip_ref);
+  const std::filesystem::path metadata_path = metadata_clip_path.string() + ".metadata.json";
+  {
+    std::ofstream out(metadata_path, std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(out.is_open());
+    out << "{\"schema\":\"corrupt\"}\n";
+  }
+
+  auto metadata_conflict = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "metadata conflict evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(metadata_conflict, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto metadata_conflict_response = metadata_conflict.get();
+  EXPECT_FALSE(metadata_conflict_response->success);
+  EXPECT_EQ(metadata_conflict_response->error_code, ArchiveAudioWindow::Response::ERROR_ARCHIVE_FAILED);
+  EXPECT_EQ(
+    metadata_conflict_response->message,
+    "deterministic archive metadata path exists with different content");
 }
 
 TEST_F(AudioWindowServiceContractTest, ArchiveServiceReturnsClipOrExplicitErrors)
@@ -368,7 +702,7 @@ TEST_F(AudioWindowServiceContractTest, ArchiveServiceReturnsClipOrExplicitErrors
   EXPECT_TRUE(std::filesystem::exists(archived_path));
   const std::filesystem::path metadata_path = archived_path.string() + ".metadata.json";
   ASSERT_TRUE(std::filesystem::exists(metadata_path));
-  EXPECT_FALSE(std::filesystem::exists(metadata_path.string() + ".tmp"));
+  EXPECT_EQ(countTemporaryPublishFiles(outputDirectoryForCurrentTest()), 0u);
   const nlohmann::json metadata = nlohmann::json::parse(readTextFile(metadata_path));
   EXPECT_EQ(metadata.at("schema").get<std::string>(), "fluent_audio.archive_metadata.v1");
   EXPECT_EQ(metadata.at("operation").get<std::string>(), "archive_audio_window");
