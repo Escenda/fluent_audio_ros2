@@ -69,7 +69,6 @@ def test_launch_fails_closed_when_params_file_is_missing(tmp_path: Path) -> None
     assert f"Parameter file path is not a file: {missing_config}" in output
     assert "process has died" in output
     assert "exit code 1" in output
-    assert "Statically typed parameter 'backend.name' must be initialized" in output
 
 
 def test_file_backend_launch_fails_closed_when_file_path_is_missing(tmp_path: Path) -> None:

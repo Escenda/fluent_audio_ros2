@@ -13,6 +13,7 @@
 #include <utility>
 
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
+#include <rclcpp/exceptions.hpp>
 
 namespace fa_out
 {
@@ -65,7 +66,13 @@ bool isRequiredParameterSet(const rclcpp::Parameter & parameter)
 rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
 {
   rclcpp::Parameter parameter;
-  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+  bool has_parameter = false;
+  try {
+    has_parameter = node.get_parameter(name, parameter);
+  } catch (const rclcpp::exceptions::ParameterUninitializedException &) {
+    throw std::invalid_argument(name + " is required");
+  }
+  if (!has_parameter || !isRequiredParameterSet(parameter)) {
     throw std::invalid_argument(name + " is required");
   }
   return parameter;
@@ -182,12 +189,12 @@ bool FaOutNode::hasFatalError() const
 
 void FaOutNode::loadParameters()
 {
-  this->declare_parameter<std::string>("backend.name");
+  const auto dynamic_parameter = dynamicParameterDescriptor();
+  this->declare_parameter("backend.name", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter<std::string>("input_topic");
   this->declare_parameter<std::string>("input_stream_id");
   this->declare_parameter<std::string>("playback_done_topic");
   this->declare_parameter<std::string>("playback_control_service");
-  const auto dynamic_parameter = dynamicParameterDescriptor();
   this->declare_parameter("audio.device_id", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("file.path", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("overwrite.enabled", rclcpp::ParameterValue{}, dynamic_parameter);

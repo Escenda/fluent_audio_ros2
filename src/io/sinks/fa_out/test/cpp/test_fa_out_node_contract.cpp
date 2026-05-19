@@ -185,6 +185,22 @@ void replaceParameter(
   throw std::logic_error("test parameter replacement target is missing: " + replacement.get_name());
 }
 
+void removeParameter(std::vector<rclcpp::Parameter> & parameters, const std::string & name)
+{
+  const auto original_size = parameters.size();
+  parameters.erase(
+    std::remove_if(
+      parameters.begin(),
+      parameters.end(),
+      [&name](const rclcpp::Parameter & parameter) {
+        return parameter.get_name() == name;
+      }),
+    parameters.end());
+  if (parameters.size() == original_size) {
+    throw std::logic_error("test parameter removal target is missing: " + name);
+  }
+}
+
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
   rclcpp::NodeOptions options = quietContractNodeOptions();
@@ -261,6 +277,22 @@ TEST_F(RclcppContractTest, RejectsUnsupportedBackendBeforeOpeningSink)
 {
   auto parameters = validParameters();
   replaceParameter(parameters, rclcpp::Parameter("backend.name", "unknown_sink"));
+  const auto state = std::make_shared<FakeSinkState>();
+
+  EXPECT_THROW(
+    {
+      auto node = std::make_shared<fa_out::FaOutNode>(
+        optionsWith(std::move(parameters)),
+        factoryFor(state));
+    },
+    std::invalid_argument);
+  EXPECT_EQ(state->open_calls.load(), 0u);
+}
+
+TEST_F(RclcppContractTest, RejectsMissingBackendNameBeforeOpeningSink)
+{
+  auto parameters = validParameters();
+  removeParameter(parameters, "backend.name");
   const auto state = std::make_shared<FakeSinkState>();
 
   EXPECT_THROW(

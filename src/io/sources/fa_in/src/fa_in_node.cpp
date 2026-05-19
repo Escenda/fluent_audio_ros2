@@ -9,6 +9,8 @@
 #include <thread>
 #include <utility>
 
+#include "rclcpp/exceptions.hpp"
+
 #include "fa_in/backends/alsa_capture_backend.hpp"
 #include "fa_in/backends/network_pcm_receiver_backend.hpp"
 #include "fa_in/backends/pcm_file_reader_backend.hpp"
@@ -105,7 +107,13 @@ rclcpp::QoS makeExplicitQos(uint32_t depth, bool reliable)
 rclcpp::Parameter getRequiredParameter(const rclcpp::Node & node, const std::string & name)
 {
   rclcpp::Parameter parameter;
-  if (!node.get_parameter(name, parameter) || !isRequiredParameterSet(parameter)) {
+  bool has_parameter = false;
+  try {
+    has_parameter = node.get_parameter(name, parameter);
+  } catch (const rclcpp::exceptions::ParameterUninitializedException &) {
+    throw std::runtime_error(name + " is required");
+  }
+  if (!has_parameter || !isRequiredParameterSet(parameter)) {
     throw std::runtime_error(name + " is required");
   }
   return parameter;
@@ -208,9 +216,9 @@ bool FaInNode::hasFatalError() const
 
 void FaInNode::loadParameters()
 {
-  this->declare_parameter<std::string>("backend.name");
-  this->declare_parameter<std::string>("output_topic");
   const auto dynamic_parameter = dynamicParameterDescriptor();
+  this->declare_parameter("backend.name", rclcpp::ParameterValue{}, dynamic_parameter);
+  this->declare_parameter<std::string>("output_topic");
   this->declare_parameter("audio.device_selector.mode", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("audio.device_selector.identifier", rclcpp::ParameterValue{}, dynamic_parameter);
   this->declare_parameter("audio.device_selector.index", rclcpp::ParameterValue{}, dynamic_parameter);

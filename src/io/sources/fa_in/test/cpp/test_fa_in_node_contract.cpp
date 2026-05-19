@@ -261,6 +261,22 @@ void replaceParameter(
   throw std::logic_error("test parameter replacement target is missing: " + replacement.get_name());
 }
 
+void removeParameter(std::vector<rclcpp::Parameter> & parameters, const std::string & name)
+{
+  const auto original_size = parameters.size();
+  parameters.erase(
+    std::remove_if(
+      parameters.begin(),
+      parameters.end(),
+      [&name](const rclcpp::Parameter & parameter) {
+        return parameter.get_name() == name;
+      }),
+    parameters.end());
+  if (parameters.size() == original_size) {
+    throw std::logic_error("test parameter removal target is missing: " + name);
+  }
+}
+
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
   rclcpp::NodeOptions options = quietContractNodeOptions();
@@ -321,6 +337,25 @@ TEST_F(RclcppContractTest, RejectsUnsupportedBackendBeforeCreatingBackend)
 {
   auto parameters = validParameters();
   replaceParameter(parameters, rclcpp::Parameter("backend.name", "unknown_source"));
+  std::atomic<size_t> factory_calls{0};
+
+  EXPECT_THROW(
+    {
+      auto node = std::make_shared<fa_in::FaInNode>(
+        optionsWith(std::move(parameters)),
+        [&factory_calls]() {
+          factory_calls.fetch_add(1);
+          return std::unique_ptr<fa_in::backends::SourceBackend>{};
+        });
+    },
+    std::runtime_error);
+  EXPECT_EQ(factory_calls.load(), 0u);
+}
+
+TEST_F(RclcppContractTest, RejectsMissingBackendNameBeforeCreatingBackend)
+{
+  auto parameters = validParameters();
+  removeParameter(parameters, "backend.name");
   std::atomic<size_t> factory_calls{0};
 
   EXPECT_THROW(
