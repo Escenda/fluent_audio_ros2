@@ -40,6 +40,8 @@ PROCESSING_TEST_TRACE_PREFIXES = {
     "processing/dynamics/fa_limiter": "FA-LIMITER",
     "processing/dynamics/fa_noise_gate": "FA-NOISE-GATE",
     "processing/dynamics/fa_normalize": "FA-NORMALIZE",
+    "processing/frequency/fa_high_pass": "FA-HIGH-PASS",
+    "processing/frequency/fa_low_pass": "FA-LOW-PASS",
     "processing/format/fa_decode": "FA-DECODE",
     "processing/format/fa_encode": "FA-ENCODE",
     "processing/format/fa_resample": "FA-RESAMPLE",
