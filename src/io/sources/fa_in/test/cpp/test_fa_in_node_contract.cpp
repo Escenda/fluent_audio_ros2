@@ -24,6 +24,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 constexpr const char * kFileOutputTopic = "audio/test/file_in";
 constexpr const char * kFileSourceId = "fixture_source";
 constexpr const char * kFileStreamId = "fixture_stream";
@@ -232,9 +241,9 @@ std::vector<rclcpp::Parameter> validFileParameters(const std::filesystem::path &
     rclcpp::Parameter("audio.layout", "interleaved"),
     rclcpp::Parameter("playback.loop", true),
     rclcpp::Parameter("audio.qos.depth", 10),
-    rclcpp::Parameter("audio.qos.reliable", true),
+    rclcpp::Parameter("audio.qos.reliable", false),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
-    rclcpp::Parameter("diagnostics.qos.reliable", true),
+    rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   };
 }
@@ -254,7 +263,7 @@ void replaceParameter(
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -353,11 +362,11 @@ TEST_F(RclcppContractTest, PublishesConfiguredMetadataAndRawSourcePayload)
   auto node = std::make_shared<fa_in::FaInNode>(
     optionsWith(validParameters()),
     factoryFor(state));
-  auto subscriber_node = std::make_shared<rclcpp::Node>("fa_in_contract_subscriber");
+  auto subscriber_node = std::make_shared<rclcpp::Node>("fa_in_contract_subscriber", quietContractNodeOptions());
   std::optional<fa_interfaces::msg::AudioFrame> received;
   auto subscription = subscriber_node->create_subscription<fa_interfaces::msg::AudioFrame>(
     "fa_in_contract/output",
-    rclcpp::SensorDataQoS(),
+    rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received = *msg;
     });
@@ -388,11 +397,11 @@ TEST_F(RclcppContractTest, FileBackendPublishesRawPcmChunksWithoutFormatMutation
     "fa_in_file_backend_valid_fixture.pcm",
     {0x10, 0x00, 0x20, 0x00, 0x30, 0x00, 0x40, 0x00});
 
-  auto subscriber_node = std::make_shared<rclcpp::Node>("fa_in_file_backend_subscriber");
+  auto subscriber_node = std::make_shared<rclcpp::Node>("fa_in_file_backend_subscriber", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto subscription = subscriber_node->create_subscription<fa_interfaces::msg::AudioFrame>(
     kFileOutputTopic,
-    rclcpp::QoS(10).reliable(),
+    rclcpp::QoS(10).best_effort(),
     [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
       received.push_back(*msg);
     });
@@ -495,7 +504,7 @@ TEST_F(RclcppContractTest, ListDevicesSurfacesBackendEnumerationFailure)
   auto node = std::make_shared<fa_in::FaInNode>(
     optionsWith(validParameters()),
     factoryFor(state));
-  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_list_devices_client");
+  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_list_devices_client", quietContractNodeOptions());
   auto client = client_node->create_client<fa_interfaces::srv::ListDevices>("list_devices");
 
   rclcpp::executors::SingleThreadedExecutor executor;
@@ -526,7 +535,7 @@ TEST_F(RclcppContractTest, ListDevicesReturnsBackendReportedCapabilities)
   auto node = std::make_shared<fa_in::FaInNode>(
     optionsWith(validParameters()),
     factoryFor(state));
-  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_list_capabilities_client");
+  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_list_capabilities_client", quietContractNodeOptions());
   auto client = client_node->create_client<fa_interfaces::srv::ListDevices>("list_devices");
 
   rclcpp::executors::SingleThreadedExecutor executor;
@@ -581,7 +590,7 @@ TEST_F(RclcppContractTest, SwitchReopenFailureFailsClosed)
   auto node = std::make_shared<fa_in::FaInNode>(
     optionsWith(validParameters()),
     factoryFor(state));
-  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_client");
+  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_client", quietContractNodeOptions());
   auto client = client_node->create_client<fa_interfaces::srv::SwitchDevice>("switch_device");
 
   rclcpp::executors::SingleThreadedExecutor executor;
@@ -610,7 +619,7 @@ TEST_F(RclcppContractTest, SwitchDeviceReopensSelectedSource)
   auto node = std::make_shared<fa_in::FaInNode>(
     optionsWith(validParameters()),
     factoryFor(state));
-  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_success_client");
+  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_success_client", quietContractNodeOptions());
   auto client = client_node->create_client<fa_interfaces::srv::SwitchDevice>("switch_device");
 
   rclcpp::executors::SingleThreadedExecutor executor;
@@ -644,7 +653,7 @@ TEST_F(RclcppContractTest, SwitchDeviceDoesNotFallbackFromIdToDisplayName)
   auto node = std::make_shared<fa_in::FaInNode>(
     optionsWith(validParameters()),
     factoryFor(state));
-  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_id_miss_client");
+  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_id_miss_client", quietContractNodeOptions());
   auto client = client_node->create_client<fa_interfaces::srv::SwitchDevice>("switch_device");
 
   rclcpp::executors::SingleThreadedExecutor executor;
@@ -678,7 +687,7 @@ TEST_F(RclcppContractTest, SwitchDeviceUsesExplicitDisplayNameSelector)
   auto node = std::make_shared<fa_in::FaInNode>(
     optionsWith(validParameters()),
     factoryFor(state));
-  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_name_client");
+  auto client_node = std::make_shared<rclcpp::Node>("fa_in_contract_switch_name_client", quietContractNodeOptions());
   auto client = client_node->create_client<fa_interfaces::srv::SwitchDevice>("switch_device");
 
   rclcpp::executors::SingleThreadedExecutor executor;

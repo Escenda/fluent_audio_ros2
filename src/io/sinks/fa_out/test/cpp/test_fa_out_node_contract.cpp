@@ -23,6 +23,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 struct FakeSinkState
 {
   std::atomic<size_t> open_calls{0};
@@ -178,7 +187,7 @@ void replaceParameter(
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -354,11 +363,11 @@ TEST_F(RclcppContractTest, FileBackendWritesRawPcmPayloadWithoutFormatMutation)
   auto node = std::make_shared<fa_out::FaOutNode>(
     optionsWith(validFileParameters(target)),
     factoryFor(state));
-  auto publisher_node = std::make_shared<rclcpp::Node>("fa_out_file_contract_publisher");
+  auto publisher_node = std::make_shared<rclcpp::Node>("fa_out_file_contract_publisher", quietContractNodeOptions());
   auto publisher = publisher_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "fa_out_contract/file_input",
     rclcpp::QoS(10).reliable());
-  auto done_node = std::make_shared<rclcpp::Node>("fa_out_file_contract_done_watcher");
+  auto done_node = std::make_shared<rclcpp::Node>("fa_out_file_contract_done_watcher", quietContractNodeOptions());
   std::mutex done_mutex;
   std::vector<fa_interfaces::msg::PlaybackDone> done_messages;
   auto done_sub = done_node->create_subscription<fa_interfaces::msg::PlaybackDone>(
@@ -396,10 +405,10 @@ TEST_F(RclcppContractTest, WritesOnlyFramesMatchingTheConfiguredSinkContract)
   auto node = std::make_shared<fa_out::FaOutNode>(
     optionsWith(validParameters()),
     factoryFor(state));
-  auto publisher_node = std::make_shared<rclcpp::Node>("fa_out_contract_publisher");
+  auto publisher_node = std::make_shared<rclcpp::Node>("fa_out_contract_publisher", quietContractNodeOptions());
   auto publisher = publisher_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "fa_out_contract/input", rclcpp::QoS(10).reliable());
-  auto done_node = std::make_shared<rclcpp::Node>("fa_out_contract_done_watcher");
+  auto done_node = std::make_shared<rclcpp::Node>("fa_out_contract_done_watcher", quietContractNodeOptions());
   std::mutex done_mutex;
   std::vector<fa_interfaces::msg::PlaybackDone> done_messages;
   auto done_sub = done_node->create_subscription<fa_interfaces::msg::PlaybackDone>(
@@ -463,7 +472,7 @@ TEST_F(RclcppContractTest, WriteFailureFailsClosed)
   auto node = std::make_shared<fa_out::FaOutNode>(
     optionsWith(validParameters()),
     factoryFor(state));
-  auto publisher_node = std::make_shared<rclcpp::Node>("fa_out_contract_failure_publisher");
+  auto publisher_node = std::make_shared<rclcpp::Node>("fa_out_contract_failure_publisher", quietContractNodeOptions());
   auto publisher = publisher_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "fa_out_contract/input", rclcpp::QoS(10).reliable());
 
