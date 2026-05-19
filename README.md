@@ -37,6 +37,7 @@
 - TTS: `pyopenjtalk`, `python3-numpy`
 - VAD/ASR/TD: `python3-numpy`, 外部 VAD worker command, `onnxruntime`（TD）, ASR backend が要求する外部 worker / command / endpoint credential（例: whisper.cpp, Parakeet worker, OpenAI API key env）
 - KWS: 外部 sherpa-onnx worker command（例: `fa_kws/scripts/sherpa_onnx_kws_worker`）
+- Agent tools: `mcp` Python SDK（`fa_audio_mcp` で使用）
 - （任意）`ffmpeg`: `fa_stream` の `fa_stream_node.py` で使用
 
 ### ビルド
