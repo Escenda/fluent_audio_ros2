@@ -39,7 +39,6 @@ launch, and fixture tests.
 | `src/io/sources/fa_network_in/` | Network input is currently an explicit `fa_in` backend. Split only if transport lifecycle becomes package-owned. |
 | `src/io/sinks/fa_file_out/` | File output is currently an explicit `fa_out` backend. Split only if file sink lifecycle becomes package-owned. |
 | `src/io/sinks/fa_network_out/` | Network output is currently an explicit `fa_out` backend. Split only if packetization/transport becomes package-owned. |
-| `src/apps/dialogue/fa_dialogue/` | Dialogue orchestration should wait until ASR/KWS/TD and command routing contracts are stable. |
 | `src/apps/safety/fa_safety_policy/` | Safety policy must be specified against robot-control contracts before package promotion. |
 | `src/processing/generation/fa_voice_conversion/` | Not required for the current voice interaction core. |
 | `src/processing/generation/fa_speech_enhancement/` | Overlaps correction/denoise until a concrete generation-style enhancement contract is defined. |

@@ -28,7 +28,8 @@
 | `fa_vad` | Silero external worker 境界と VAD state publish | 実 model / worker / provider provisioning を含む SO101 graph が未検証 |
 | `fa_kws` | sherpa-onnx external worker 境界と wake word publish | 実 sherpa-onnx model / keywords / worker provisioning を含む SO101 graph が未検証 |
 | `fa_asr` | `local_command`、`whisper.cpp`、`parakeet_worker`、`openai_realtime`、`openai_transcriptions` backend 枠 | 実 worker command / model / credential / health check を含む代表 graph が未検証 |
-| `fa_turn_detector` | Smart Turn ONNX external worker 境界と turn end publish | 実 model / worker / provider provisioning と `conversation/turn_context` publisher が未検証 |
+| `fa_turn_detector` | Smart Turn ONNX external worker 境界と turn end publish | 実 model / worker / provider provisioning と `fa_dialogue` 接続済み graph が未検証 |
+| `fa_dialogue` | `WakeWordResult` / `AsrResult` / `TurnEnd` から `TurnContext` を publish する最小 turn context publisher | ROS graph 上の pub/sub smoke と reasoning / TTS / safety 連携は未検証または未実装 |
 | `fa_record` | `AudioFrame` の WAV 録音 utility | `fa_in` からの実 graph 録音 smoke が未検証 |
 | `fa_stream` | `ffmpeg` network streamer utility | 実 endpoint への streaming smoke と transport failure contract が未検証 |
 | `fa_tts` | TTS service と `audio/tts/frame` publish | 実 TTS backend、`fa_mix`、`fa_out` 連携が未検証 |
@@ -44,7 +45,6 @@
 | --- | --- |
 | `src/ai/fa_sed` | 音イベント検出。package 化前 |
 | `src/ai/fa_speaker` | 話者認識。package 化前 |
-| `src/apps/dialogue/fa_dialogue` | Wakeword / ASR / TD を合流する会話 orchestration。package 化前 |
 | `src/apps/safety/fa_safety_policy` | 危険操作の拒否 / 確認要求などの safety policy。package 化前 |
 | `src/io/sources/fa_file_in`, `src/io/sources/fa_network_in` | 現在は `fa_in` backend として実装。standalone package 化前 |
 | `src/io/sinks/fa_file_out`, `src/io/sinks/fa_network_out` | 現在は `fa_out` backend として実装。standalone package 化前 |
@@ -59,7 +59,7 @@
 | `audio/vad` | `std_msgs/msg/Bool` | `fa_vad` | 簡易VADフラグ |
 | `voice/vad_state` | `fa_interfaces/msg/VadState` | `fa_vad` | VAD確率/開始/終了と判定元 source / stream identity |
 | `voice/wake_word` | `fa_interfaces/msg/WakeWordResult` | `fa_kws` | ウェイクワード検出 |
-| `conversation/turn_context` | `fa_interfaces/msg/TurnContext` | 会話オーケストレータ | ASR/TDのID相関 |
+| `conversation/turn_context` | `fa_interfaces/msg/TurnContext` | `fa_dialogue` | ASR/TDのID相関 |
 | `voice/asr/result` | `fa_interfaces/msg/AsrResult` | `fa_asr` | ASR結果/タイムアウト/エラー |
 | `voice/turn_end` | `fa_interfaces/msg/TurnEnd` | `fa_turn_detector` | ターン終了確率 |
 | `audio/output/frame` | `fa_interfaces/msg/AudioFrame` | `fa_mix` 等 | スピーカー再生用 |
@@ -98,12 +98,12 @@ VAD / KWS / ASR / Turn Detector は `FLOAT32LE/32/interleaved`、configured samp
 
 ### 5.4 VAD/KWS/ASR/TD dialogue graph
 1. VAD/KWS frontend を起動し、`voice/wake_word` で起動語を受ける
-2. 会話オーケストレータが `conversation/turn_context` を publish する
+2. `fa_dialogue` が `conversation/turn_context` を publish する
 3. `fa_asr` が `voice/asr/result` を publish する
 4. `fa_turn_detector` が `voice/turn_end` を publish する
 
 この経路では `fa_vad` の入力 stream と、`fa_kws` / `fa_asr` / `fa_turn_detector` が処理する audio stream を一致させる必要があります。`VadState.source_id` / `stream_id` が一致しない場合、後段 node はその VAD state を gate / finalize / turn-end trigger として使いません。ASR / Turn Detector の backend command、model path、provider、endpoint、credential env、health args は、それらを enabled にする FluentAudio system config 側に閉じます。
-SO101 で VAD/KWS/ASR/TD をまとめて起動する package-owned profile は `fluent_audio_system/config/profiles/so101_voice_frontend.yaml` です。この profile は `conversation/turn_context` の publisher を含まないため、wake word 後の session / turn 制御は `src/apps/dialogue` などの上位 app が担います。
+SO101 で VAD/KWS/ASR/TD と `fa_dialogue` をまとめて起動する package-owned profile は `fluent_audio_system/config/profiles/so101_voice_frontend.yaml` です。この profile は wake word 後の session / turn 制御として `fa_dialogue` を起動しますが、LLM reasoning、TTS、safety policy、robot command proposal は含みません。
 
 ### 5.5 Agent audio tools
 `fluent_audio_system/config/profiles/so101_agent_audio_tools.yaml` は `fa_audio_mcp` を起動し、`archive_audio_window` と `transcribe_audio` を Agent / MCP client から呼べる入口を用意します。この profile は `fa_asr` や `fa_audio_window` の service owner を起動しません。通常は `so101_voice_frontend.yaml` と同じ親側 include 方式で組み合わせます。

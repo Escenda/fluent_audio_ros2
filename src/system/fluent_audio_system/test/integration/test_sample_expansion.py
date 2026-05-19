@@ -39,6 +39,7 @@ def _patch_profile_package_shares(
         "fa_high_pass",
         "fa_audio_window",
         "fa_audio_mcp",
+        "fa_dialogue",
         "fa_vad",
         "fa_kws",
         "fa_asr",
@@ -54,6 +55,8 @@ def _patch_profile_package_shares(
             config_text = "fa_out:\n  ros__parameters:\n    backend.name: alsa_playback\n"
         elif package_name == "fa_audio_mcp":
             config_text = "fa_audio_mcp:\n  ros__parameters: {}\n"
+        elif package_name == "fa_dialogue":
+            config_text = "fa_dialogue:\n  ros__parameters: {}\n"
         elif package_name == "fa_vad":
             config_text = "fa_vad:\n  ros__parameters: {}\n"
         elif package_name == "fa_kws":
@@ -80,6 +83,7 @@ def _patch_profile_package_shares(
             "fa_high_pass",
             "fa_audio_window",
             "fa_audio_mcp",
+            "fa_dialogue",
             "fa_vad",
             "fa_kws",
             "fa_asr",
@@ -546,6 +550,7 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
         "fa_kws",
         "fa_asr",
         "fa_turn_detector",
+        "fa_dialogue",
     ]
     assert [node.package for node in enabled_nodes] == [
         "fa_in",
@@ -559,6 +564,7 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
         "fa_kws",
         "fa_asr",
         "fa_turn_detector",
+        "fa_dialogue",
     ]
 
     vad_params = params_by_id["fa_vad"]
@@ -567,6 +573,7 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
     audio_window_params = params_by_id["fa_audio_window"]
     asr_params = params_by_id["fa_asr"]
     turn_detector_params = params_by_id["fa_turn_detector"]
+    dialogue_params = params_by_id["fa_dialogue"]
 
     assert vad_params["input_topic"] == high_pass_params["output_topic"]
     assert vad_params["input_stream_id"] == high_pass_params["output.stream_id"]
@@ -637,6 +644,15 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
     assert "{audio}" not in turn_detector_params["backend.health_args"]
     assert "{model}" in turn_detector_params["backend.health_args"]
     assert "{provider}" in turn_detector_params["backend.health_args"]
+
+    assert dialogue_params["wake_word_topic"] == "voice/wake_word"
+    assert dialogue_params["asr_result_topic"] == asr_params["asr_result_topic"]
+    assert dialogue_params["turn_end_topic"] == turn_detector_params["output_topic"]
+    assert dialogue_params["turn_context_topic"] == asr_params["turn_context_topic"]
+    assert dialogue_params["turn_context_topic"] == turn_detector_params["turn_context_topic"]
+    assert dialogue_params["session_prefix"] == "so101_voice-"
+    assert dialogue_params["wake.max_age_ms"] == 1500
+    assert dialogue_params["wake.allow_zero_stamp"] is False
 
 
 def test_so101_voice_frontend_profile_requires_asr_and_turn_detector_env(
@@ -897,6 +913,7 @@ def test_required_packages_for_so101_voice_frontend_profile(
         "fa_kws",
         "fa_asr",
         "fa_turn_detector",
+        "fa_dialogue",
     ]
 
 

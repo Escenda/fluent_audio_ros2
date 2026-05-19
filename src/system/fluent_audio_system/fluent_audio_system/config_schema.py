@@ -102,6 +102,7 @@ _PACKAGE_CATEGORIES = {
     "fa_turn_detector": frozenset(("ai",)),
     "fa_audio_embedding": frozenset(("ai",)),
     "fa_audio_mcp": frozenset(("apps",)),
+    "fa_dialogue": frozenset(("apps",)),
     "fa_frame_buffer": frozenset(("streaming",)),
     "fa_jitter_buffer": frozenset(("streaming",)),
     "fa_clock_drift": frozenset(("streaming",)),

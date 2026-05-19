@@ -365,6 +365,7 @@ def test_so101_voice_frontend_required_packages_include_audio_window_in_launch_o
         "fa_kws",
         "fa_asr",
         "fa_turn_detector",
+        "fa_dialogue",
     ]
     assert packages.count("fa_sample_format") == 1
 

@@ -134,7 +134,7 @@ ros2 launch fa_turn_detector fa_turn_detector.launch.py node_name:=fa_turn_detec
 ```
 
 VAD / KWS / ASR / Turn Detector の backend/model 詳細は、単体 launch 引数ではなく各 node config または `fluent_audio_system` の system config に置きます。SO101 で VAD + KWS をまとめて起動する場合は `fluent_audio_system/config/profiles/so101_kws_frontend.yaml` を使い、worker command と model path はその system config 内の `${env:...}` で明示します。この profile は `fa_asr` / `fa_turn_detector` を起動しません。ASR / Turn Detector は、それらを enabled にする別の system config 側で backend command、model path、provider、endpoint、credential env、health args を明示します。
-SO101 で VAD/KWS/ASR/Turn Detector をまとめて起動する場合は `fluent_audio_system/config/profiles/so101_voice_frontend.yaml` を使います。この profile は TurnContext publisher や dialogue state machine を含まず、`conversation/turn_context` は上位 app が publish します。
+SO101 で VAD/KWS/ASR/Turn Detector と turn context publisher をまとめて起動する場合は `fluent_audio_system/config/profiles/so101_voice_frontend.yaml` を使います。この profile は `fa_dialogue` で `conversation/turn_context` を publish します。ただし、LLM reasoning、TTS、safety policy、robot command proposal は含みません。
 
 ## 6. 実装フェーズ案（更新用メモ）
 1. `fa_interfaces`: `AudioFrame`/主要srvの確定
@@ -142,4 +142,4 @@ SO101 で VAD/KWS/ASR/Turn Detector をまとめて起動する場合は `fluent
 3. `fa_vad`: しきい値/ヒステリシスの安定化
 4. `fa_record`: WAV保存と運用（ディレクトリ/ファイル命名）
 5. `src/apps/voice_command/fa_voice_command_router`: 起動/停止/モード切替。backend/model/service 詳細は下位 node config に閉じ、router は会話状態と routing だけを扱う
-6. `src/apps/dialogue/fa_dialogue`: `voice/wake_word` / `voice/asr/result` / `voice/turn_end` を合流し、LLM/TTS/ロボット操作へ接続する会話アプリ層を実装
+6. `src/apps/dialogue/fa_dialogue`: `voice/wake_word` / `voice/asr/result` / `voice/turn_end` を合流して `conversation/turn_context` を publish する。LLM/TTS/ロボット操作への接続は後続 slice とする

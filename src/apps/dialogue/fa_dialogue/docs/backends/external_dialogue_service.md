@@ -1,5 +1,7 @@
 # external_dialogue_service backend
 
+この文書は後続 slice のための未実装 contract である。今回の `fa_dialogue_node` は external dialogue backend を起動・呼び出し・設定解決しない。
+
 `external_dialogue_service` は dialogue reasoning を external worker / service / process として扱う backend contract である。ROS 2 node は backend の model runtime を import せず、typed request / response 境界だけを持つ。
 
 ## Required Config

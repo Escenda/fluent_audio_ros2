@@ -18,5 +18,5 @@ Only directories with `package.xml` are ROS 2 packages.
 | --- | --- |
 | `voice_command/fa_voice_command_router/` | ROS 2 package |
 | `agent_tools/fa_audio_mcp/` | ROS 2 package |
-| `dialogue/fa_dialogue/` | roadmap placeholder; not a ROS 2 package |
+| `dialogue/fa_dialogue/` | ROS 2 package |
 | `safety/fa_safety_policy/` | roadmap placeholder; not a ROS 2 package |

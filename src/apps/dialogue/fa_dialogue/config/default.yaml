@@ -1,0 +1,20 @@
+fa_dialogue:
+  ros__parameters:
+    wake_word_topic: "voice/wake_word"
+    asr_result_topic: "voice/asr/result"
+    turn_end_topic: "voice/turn_end"
+    turn_context_topic: "conversation/turn_context"
+
+    session_prefix: "dialogue-session-"
+
+    wake.max_age_ms: 1500
+    wake.allow_zero_stamp: false
+
+    wake.qos.depth: 10
+    wake.qos.reliable: true
+    asr.qos.depth: 10
+    asr.qos.reliable: true
+    turn_end.qos.depth: 10
+    turn_end.qos.reliable: true
+    turn_context.qos.depth: 10
+    turn_context.qos.reliable: true
