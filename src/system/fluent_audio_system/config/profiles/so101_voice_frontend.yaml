@@ -87,6 +87,63 @@ groups:
           filter.cutoff_hz: 80.0
           expected.sample_rate: 16000
 
+  - id: audio_archive_format
+    enable: true
+    nodes:
+      - id: fa_archive_sample_format
+        enable: true
+        package: fa_sample_format
+        exec: fa_sample_format_node
+        node_name: fa_archive_sample_format_mic
+        namespace: ""
+        params_file: "${share:fa_sample_format}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/high_pass/frame"
+          output_topic: "audio/archive_pcm16/frame"
+          input_stream_id: "audio/high_pass/mic"
+          output.stream_id: "audio/archive_pcm16/mic"
+          input.encoding: "FLOAT32LE"
+          input.bit_depth: 32
+          output.encoding: "PCM16LE"
+          output.bit_depth: 16
+          expected.sample_rate: 16000
+          expected.channels: 1
+          expected.layout: "interleaved"
+
+  - id: audio_archive_streaming
+    enable: true
+    nodes:
+      - id: fa_audio_window
+        enable: true
+        package: fa_audio_window
+        exec: fa_audio_window_node
+        node_name: fa_audio_window_mic
+        namespace: ""
+        params_file: "${share:fa_audio_window}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/archive_pcm16/frame"
+          service_name: "export_audio_window"
+          archive_service_name: "archive_audio_window"
+          input.source_id: "mic"
+          input.stream_id: "audio/archive_pcm16/mic"
+          expected.encoding: "PCM16LE"
+          expected.sample_rate: 16000
+          expected.channels: 1
+          expected.bit_depth: 16
+          expected.layout: "interleaved"
+          window.retention_seconds: 1800
+          window.id: "so101_voice_frontend_mic_archive"
+          window.epoch: 1
+          audio.default_scope: "mic"
+          audio.supported_scopes:
+            - "mic"
+          export.output_directory: "/tmp/fluent_audio/fa_audio_window/so101_voice_frontend"
+          export.codec: "pcm_s16le"
+          export.container: "wav"
+          export.payload_format: "audio/wav"
+
   - id: voice_frontend
     enable: true
     nodes:

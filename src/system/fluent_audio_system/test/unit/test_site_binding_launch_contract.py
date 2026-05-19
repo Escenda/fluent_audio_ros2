@@ -10,6 +10,7 @@ from fluent_audio_system.site_binding import (
 )
 from fluent_audio_system.site_binding_launch import (
     SOURCE_BOUND_AUDIO_AI_PACKAGES,
+    SOURCE_BOUND_STREAMING_PACKAGES,
     node_enabled_by_site_binding,
     node_launch_parameters,
 )
@@ -109,6 +110,26 @@ def test_site_binding_launch_applies_source_id_to_audio_ai_nodes(
     ) == [
         "/tmp/node.params.yaml",
         {"expected_source_id": "hw:CARD=Mic,DEV=0"},
+    ]
+
+
+@pytest.mark.parametrize("package_name", sorted(SOURCE_BOUND_STREAMING_PACKAGES))
+def test_site_binding_launch_applies_source_id_to_audio_window_without_ai_override(
+    package_name: str,
+) -> None:
+    overrides = build_site_binding_overrides(
+        fa_in_enabled=True,
+        fa_out_enabled=False,
+        fa_in_source_id="hw:CARD=Mic,DEV=0",
+        fa_out_sink_id="",
+    )
+
+    assert node_launch_parameters(
+        _node(package=package_name, backend_name=None),
+        overrides,
+    ) == [
+        "/tmp/node.params.yaml",
+        {"input.source_id": "hw:CARD=Mic,DEV=0"},
     ]
 
 

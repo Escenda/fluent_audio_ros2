@@ -37,6 +37,7 @@ def _patch_profile_package_shares(
         "fa_resample",
         "fa_dc_offset_removal",
         "fa_high_pass",
+        "fa_audio_window",
         "fa_vad",
         "fa_kws",
         "fa_asr",
@@ -74,6 +75,7 @@ def _patch_profile_package_shares(
             "fa_resample",
             "fa_dc_offset_removal",
             "fa_high_pass",
+            "fa_audio_window",
             "fa_vad",
             "fa_kws",
             "fa_asr",
@@ -534,6 +536,8 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
         "fa_resample",
         "fa_dc_offset_removal",
         "fa_high_pass",
+        "fa_archive_sample_format",
+        "fa_audio_window",
         "fa_vad",
         "fa_kws",
         "fa_asr",
@@ -545,6 +549,8 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
         "fa_resample",
         "fa_dc_offset_removal",
         "fa_high_pass",
+        "fa_sample_format",
+        "fa_audio_window",
         "fa_vad",
         "fa_kws",
         "fa_asr",
@@ -553,11 +559,40 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
 
     vad_params = params_by_id["fa_vad"]
     high_pass_params = params_by_id["fa_high_pass"]
+    archive_format_params = params_by_id["fa_archive_sample_format"]
+    audio_window_params = params_by_id["fa_audio_window"]
     asr_params = params_by_id["fa_asr"]
     turn_detector_params = params_by_id["fa_turn_detector"]
 
     assert vad_params["input_topic"] == high_pass_params["output_topic"]
     assert vad_params["input_stream_id"] == high_pass_params["output.stream_id"]
+    assert archive_format_params["input_topic"] == high_pass_params["output_topic"]
+    assert archive_format_params["input_stream_id"] == high_pass_params["output.stream_id"]
+    assert archive_format_params["output_topic"] == "audio/archive_pcm16/frame"
+    assert archive_format_params["output.stream_id"] == "audio/archive_pcm16/mic"
+    assert archive_format_params["input.encoding"] == "FLOAT32LE"
+    assert archive_format_params["input.bit_depth"] == 32
+    assert archive_format_params["output.encoding"] == "PCM16LE"
+    assert archive_format_params["output.bit_depth"] == 16
+    assert audio_window_params["input_topic"] == archive_format_params["output_topic"]
+    assert audio_window_params["input.stream_id"] == archive_format_params["output.stream_id"]
+    assert audio_window_params["input.source_id"] == "mic"
+    assert audio_window_params["service_name"] == "export_audio_window"
+    assert audio_window_params["archive_service_name"] == "archive_audio_window"
+    assert audio_window_params["expected.encoding"] == "PCM16LE"
+    assert audio_window_params["expected.sample_rate"] == 16000
+    assert audio_window_params["expected.channels"] == 1
+    assert audio_window_params["expected.bit_depth"] == 16
+    assert audio_window_params["expected.layout"] == "interleaved"
+    assert audio_window_params["window.retention_seconds"] == 1800
+    assert audio_window_params["window.id"] == "so101_voice_frontend_mic_archive"
+    assert audio_window_params["window.epoch"] == 1
+    assert audio_window_params["audio.default_scope"] == "mic"
+    assert audio_window_params["audio.supported_scopes"] == ["mic"]
+    assert (
+        audio_window_params["export.output_directory"]
+        == "/tmp/fluent_audio/fa_audio_window/so101_voice_frontend"
+    )
     assert asr_params["audio_topic"] == vad_params["input_topic"]
     assert asr_params["expected_stream_id"] == vad_params["input_stream_id"]
     assert asr_params["vad_topic"] == "voice/vad_state"
@@ -853,6 +888,7 @@ def test_required_packages_for_so101_voice_frontend_profile(
         "fa_resample",
         "fa_dc_offset_removal",
         "fa_high_pass",
+        "fa_audio_window",
         "fa_vad",
         "fa_kws",
         "fa_asr",

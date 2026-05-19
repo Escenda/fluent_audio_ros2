@@ -26,6 +26,7 @@ _AI_PACKAGE_NAMES = (
     "fa_vad",
 )
 _STREAMING_PACKAGE_NAMES = (
+    "fa_audio_window",
     "fa_chunk_overlap",
     "fa_clock_drift",
     "fa_frame_buffer",
@@ -108,6 +109,7 @@ _PACKAGE_CATEGORIES = {
     "fa_time_alignment": frozenset(("streaming",)),
     "fa_chunk_overlap": frozenset(("streaming",)),
     "fa_overlap_add": frozenset(("streaming",)),
+    "fa_audio_window": frozenset(("streaming",)),
     "fa_voice_command_router": frozenset(("apps",)),
 }
 _GROUP_CATEGORY_ALIASES = {
@@ -326,6 +328,10 @@ _AI_AUDIO_CONTRACT = ParameterIdentityContract(
     )),
     stream_identity_keys=frozenset(("expected_stream_id", "input_stream_id")),
 )
+_AUDIO_WINDOW_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset(("input_topic",)),
+    stream_identity_keys=frozenset(("input.stream_id",)),
+)
 _VAD_CONTRACT = ParameterIdentityContract(
     topic_keys=frozenset(("input_topic", "output_topic", "vad_state_topic", "probability_topic")),
     stream_identity_keys=frozenset(("input_stream_id",)),
@@ -443,6 +449,7 @@ _PARAMETER_IDENTITY_CONTRACTS: dict[str, ParameterIdentityContract] = {
     "fa_asr": _AI_AUDIO_CONTRACT,
     "fa_turn_detector": _AI_AUDIO_CONTRACT,
     "fa_audio_embedding": _AI_AUDIO_CONTRACT,
+    "fa_audio_window": _AUDIO_WINDOW_CONTRACT,
     "fa_tts": _TTS_CONTRACT,
     **{
         package_name: _SIMPLE_PROCESSING_CONTRACT

@@ -340,6 +340,35 @@ def test_load_required_packages_works_before_node_packages_are_installed(
     ]
 
 
+def test_so101_voice_frontend_required_packages_include_audio_window_in_launch_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def package_share(package_name: str) -> str:
+        raise RuntimeError(f"unexpected package share lookup: {package_name}")
+
+    monkeypatch.setattr(config_schema, "_get_package_share_directory", package_share)
+
+    packages = load_required_packages(
+        str(PACKAGE_ROOT / "config" / "profiles" / "so101_voice_frontend.yaml")
+    )
+
+    assert packages == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_in",
+        "fa_sample_format",
+        "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
+        "fa_audio_window",
+        "fa_vad",
+        "fa_kws",
+        "fa_asr",
+        "fa_turn_detector",
+    ]
+    assert packages.count("fa_sample_format") == 1
+
+
 def test_list_required_packages_cli_prints_one_package_per_line(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -534,6 +563,75 @@ def test_streaming_group_accepts_streaming_package(tmp_path: Path) -> None:
     assert spec.groups[0].nodes[0].package == "fa_frame_buffer"
 
 
+def test_streaming_group_accepts_audio_window_and_requires_package(
+    tmp_path: Path,
+) -> None:
+    params_file = tmp_path / "fa_audio_window.yaml"
+    params_file.write_text(
+        "fa_audio_window:\n  ros__parameters: {}\n",
+        encoding="utf-8",
+    )
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "streaming",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_audio_window",
+                            "enable": True,
+                            "package": "fa_audio_window",
+                            "exec": "fa_audio_window_node",
+                            "node_name": "fa_audio_window",
+                            "params_file": str(params_file),
+                            "parameters": {
+                                "input_topic": "audio/archive_pcm16/frame",
+                                "input.source_id": "mic",
+                                "input.stream_id": "audio/archive_pcm16/mic",
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert spec.groups[0].nodes[0].package == "fa_audio_window"
+    assert required_packages_for_system(spec) == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_audio_window",
+    ]
+
+
+def test_non_streaming_group_rejects_audio_window_even_when_node_disabled() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="group voice_frontend must not contain streaming package fa_audio_window",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": "voice_frontend",
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": "fa_audio_window",
+                                "enable": False,
+                                "package": "fa_audio_window",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
 def test_ai_group_accepts_audio_embedding_package(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_audio_embedding.yaml"
     params_file.write_text(
@@ -610,6 +708,16 @@ def test_ai_group_accepts_audio_embedding_package(tmp_path: Path) -> None:
                 "backend.name": "external_worker",
                 "input_topic": "audio/embedding/input",
                 "expected_stream_id": "audio/embedding/input",
+            },
+        ),
+        (
+            "streaming",
+            "fa_audio_window",
+            "fa_audio_window_node",
+            {
+                "input_topic": "audio/archive_pcm16/frame",
+                "input.source_id": "mic",
+                "input.stream_id": "/audio/archive_pcm16/frame",
             },
         ),
         (

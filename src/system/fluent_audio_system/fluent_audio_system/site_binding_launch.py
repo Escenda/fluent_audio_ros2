@@ -7,6 +7,7 @@ from fluent_audio_system.site_binding import SiteBindingOverrides
 SOURCE_BOUND_AUDIO_AI_PACKAGES = frozenset(
     ("fa_asr", "fa_audio_embedding", "fa_kws", "fa_turn_detector", "fa_vad")
 )
+SOURCE_BOUND_STREAMING_PACKAGES = frozenset(("fa_audio_window",))
 
 
 def node_enabled_by_site_binding(
@@ -35,6 +36,8 @@ def node_launch_parameters(
         override_params["audio.device_selector.identifier"] = overrides.fa_in_source_id
     if node.package in SOURCE_BOUND_AUDIO_AI_PACKAGES and overrides.fa_in_source_id:
         override_params["expected_source_id"] = overrides.fa_in_source_id
+    if node.package in SOURCE_BOUND_STREAMING_PACKAGES and overrides.fa_in_source_id:
+        override_params["input.source_id"] = overrides.fa_in_source_id
     if (
         node.package == "fa_out"
         and node.backend_name == "alsa_playback"
