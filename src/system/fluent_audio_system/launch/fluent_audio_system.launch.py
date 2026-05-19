@@ -74,7 +74,9 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "config",
-                description="Explicit path to fluent_audio_system yaml.",
+                description=(
+                    "Explicit comma-separated fluent_audio_system YAML config path list."
+                ),
             ),
             DeclareLaunchArgument(
                 "fa_in_enabled",

@@ -66,6 +66,36 @@ def _default_backend_name(package_name: str) -> str:
     }[package_name]
 
 
+def _write_system_file(
+    path: Path,
+    *,
+    group_id: str,
+    node_id: str,
+    package: str,
+    params_file: Path | str,
+    default_start_delay: float = 0.0,
+    inter_group_delay: float = 0.0,
+) -> None:
+    path.write_text(
+        f"""
+system:
+  default_start_delay: {default_start_delay}
+  inter_group_delay: {inter_group_delay}
+groups:
+  - id: {group_id}
+    enable: true
+    nodes:
+      - id: {node_id}
+        enable: true
+        package: {package}
+        exec: {package}_node
+        node_name: {node_id}
+        params_file: {params_file}
+""",
+        encoding="utf-8",
+    )
+
+
 def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_in.yaml"
     params_file.write_text(
@@ -368,6 +398,196 @@ def test_so101_voice_frontend_required_packages_include_audio_window_in_launch_o
         "fa_dialogue",
     ]
     assert packages.count("fa_sample_format") == 1
+
+
+def test_load_system_config_accepts_comma_separated_explicit_config_paths(
+    tmp_path: Path,
+) -> None:
+    params_file = tmp_path / "fa_gain.yaml"
+    params_file.write_text("fa_gain:\n  ros__parameters: {}\n", encoding="utf-8")
+    first_config = tmp_path / "first.yaml"
+    second_config = tmp_path / "second.yaml"
+    _write_system_file(
+        first_config,
+        group_id="dynamics_primary",
+        node_id="fa_gain",
+        package="fa_gain",
+        params_file=params_file,
+        default_start_delay=0.2,
+        inter_group_delay=0.5,
+    )
+    _write_system_file(
+        second_config,
+        group_id="dynamics_secondary",
+        node_id="fa_gain_monitor",
+        package="fa_gain",
+        params_file=params_file,
+        default_start_delay=0.2,
+        inter_group_delay=0.5,
+    )
+
+    spec = load_system_config(f"{first_config},{second_config}")
+
+    assert spec.default_start_delay == 0.2
+    assert spec.inter_group_delay == 0.5
+    assert [group.id for group in spec.groups] == [
+        "dynamics_primary",
+        "dynamics_secondary",
+    ]
+    assert [node.id for group in spec.groups for node in group.nodes] == [
+        "fa_gain",
+        "fa_gain_monitor",
+    ]
+
+
+def test_load_required_packages_accepts_config_path_list_in_launch_order(
+    tmp_path: Path,
+) -> None:
+    first_config = tmp_path / "first.yaml"
+    second_config = tmp_path / "second.yaml"
+    _write_system_file(
+        first_config,
+        group_id="dynamics_primary",
+        node_id="fa_gain",
+        package="fa_gain",
+        params_file="/missing/fa_gain.yaml",
+    )
+    _write_system_file(
+        second_config,
+        group_id="dynamics_secondary",
+        node_id="fa_gain_monitor",
+        package="fa_gain",
+        params_file="/missing/fa_gain.yaml",
+    )
+
+    assert load_required_packages(f"{first_config},{second_config}") == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_gain",
+    ]
+
+
+@pytest.mark.parametrize("config_argument", ("a,,b", "a,"))
+def test_load_system_config_rejects_empty_comma_segments(
+    config_argument: str,
+) -> None:
+    with pytest.raises(RuntimeError, match="empty path segment"):
+        load_system_config(config_argument)
+
+
+def test_load_system_config_rejects_system_timing_mismatch(
+    tmp_path: Path,
+) -> None:
+    first_config = tmp_path / "first.yaml"
+    second_config = tmp_path / "second.yaml"
+    _write_system_file(
+        first_config,
+        group_id="dynamics_primary",
+        node_id="fa_gain",
+        package="fa_gain",
+        params_file="/missing/fa_gain.yaml",
+        default_start_delay=0.2,
+    )
+    _write_system_file(
+        second_config,
+        group_id="dynamics_secondary",
+        node_id="fa_limiter",
+        package="fa_limiter",
+        params_file="/missing/fa_limiter.yaml",
+        default_start_delay=0.3,
+    )
+
+    with pytest.raises(RuntimeError, match="default_start_delay must match"):
+        load_required_packages(f"{first_config},{second_config}")
+
+
+def test_load_system_config_rejects_inter_group_delay_mismatch(
+    tmp_path: Path,
+) -> None:
+    params_file = tmp_path / "fa_gain.yaml"
+    params_file.write_text("fa_gain:\n  ros__parameters: {}\n", encoding="utf-8")
+    first_config = tmp_path / "first.yaml"
+    second_config = tmp_path / "second.yaml"
+    _write_system_file(
+        first_config,
+        group_id="dynamics_primary",
+        node_id="fa_gain",
+        package="fa_gain",
+        params_file=params_file,
+        inter_group_delay=0.2,
+    )
+    _write_system_file(
+        second_config,
+        group_id="dynamics_secondary",
+        node_id="fa_limiter",
+        package="fa_limiter",
+        params_file=params_file,
+        inter_group_delay=0.3,
+    )
+
+    with pytest.raises(RuntimeError, match="inter_group_delay must match"):
+        load_system_config(f"{first_config},{second_config}")
+
+
+def test_load_system_config_rejects_duplicate_group_id_across_files(
+    tmp_path: Path,
+) -> None:
+    first_config = tmp_path / "first.yaml"
+    second_config = tmp_path / "second.yaml"
+    _write_system_file(
+        first_config,
+        group_id="dynamics",
+        node_id="fa_gain",
+        package="fa_gain",
+        params_file="/missing/fa_gain.yaml",
+    )
+    _write_system_file(
+        second_config,
+        group_id="dynamics",
+        node_id="fa_limiter",
+        package="fa_limiter",
+        params_file="/missing/fa_limiter.yaml",
+    )
+
+    with pytest.raises(RuntimeError, match="duplicate group id"):
+        load_required_packages(f"{first_config},{second_config}")
+
+
+def test_load_system_config_rejects_duplicate_enabled_node_id_across_files(
+    tmp_path: Path,
+) -> None:
+    first_config = tmp_path / "first.yaml"
+    second_config = tmp_path / "second.yaml"
+    _write_system_file(
+        first_config,
+        group_id="dynamics_primary",
+        node_id="fa_gain",
+        package="fa_gain",
+        params_file="/missing/fa_gain.yaml",
+    )
+    _write_system_file(
+        second_config,
+        group_id="dynamics_secondary",
+        node_id="fa_gain",
+        package="fa_limiter",
+        params_file="/missing/fa_limiter.yaml",
+    )
+
+    with pytest.raises(RuntimeError, match="duplicate enabled node id"):
+        load_required_packages(f"{first_config},{second_config}")
+
+
+def test_load_system_config_rejects_invalid_yaml_with_config_path(
+    tmp_path: Path,
+) -> None:
+    invalid_config = tmp_path / "invalid.yaml"
+    invalid_config.write_text(
+        "system:\n  default_start_delay: [\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="invalid YAML"):
+        load_system_config(str(invalid_config))
 
 
 def test_list_required_packages_cli_prints_one_package_per_line(

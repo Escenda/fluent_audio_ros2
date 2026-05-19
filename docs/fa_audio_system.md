@@ -35,7 +35,7 @@
 | `fa_tts` | TTS service と `audio/tts/frame` publish | 実 TTS backend、`fa_mix`、`fa_out` 連携が未検証 |
 | `fa_mix` | PCM16LE の MVP mixing | routing / ducking / limiter / barge-in 連携は未完了 |
 | `fa_voice_command_router` | MVP command router | structured command schema と KWS/ASR/TD 連携が未完了 |
-| `fa_audio_mcp` | `archive_audio_window` / `transcribe_audio` MCP adapter、SO101 agent audio tools profile、in-process `FastMCP` から実 `fa_asr_node` / `fa_audio_window_node` を呼ぶ Docker runtime smoke、generated single system YAML から `fluent_audio_system/run.py` 経由で `fa_asr` / `fa_audio_window` owner nodes と `fa_audio_mcp_server` adapter executable を同時起動する combined launch smoke、installed server に streamable-http MCP transport で接続して実 owner node へ tool call する smoke | 実 Agent Runtime / MCP client、SO101 profile merge support、durable storage / World Station 連携は未検証 |
+| `fa_audio_mcp` | `archive_audio_window` / `transcribe_audio` MCP adapter、SO101 agent audio tools profile、in-process `FastMCP` から実 `fa_asr_node` / `fa_audio_window_node` を呼ぶ Docker runtime smoke、generated single system YAML から `fluent_audio_system/run.py` 経由で `fa_asr` / `fa_audio_window` owner nodes と `fa_audio_mcp_server` adapter executable を同時起動する combined launch smoke、installed server に streamable-http MCP transport で接続して実 owner node へ tool call する smoke、`so101_voice_frontend.yaml,so101_agent_audio_tools.yaml` の child-side FluentAudio config composition / required package order 検証 | 実 Agent Runtime / MCP client、親 VLAbor profile integration、durable storage / World Station 連携、実 SO101 device / model provisioning、multi-config の ROS runtime launch smoke は未検証 |
 
 ## 4. 設計枠 / package 化前
 
@@ -108,15 +108,21 @@ SO101 で VAD/KWS/ASR/TD と `fa_dialogue` をまとめて起動する package-o
 ### 5.5 Agent audio tools
 `fluent_audio_system/config/profiles/so101_agent_audio_tools.yaml` は `fa_audio_mcp` を起動し、`archive_audio_window` と `transcribe_audio` を Agent / MCP client から呼べる入口を用意します。この profile は `fa_asr` や `fa_audio_window` の service owner を起動しません。通常は `so101_voice_frontend.yaml` と同じ親側 include 方式で組み合わせます。
 
+`fluent_audio_system` の `config` / `--config` は、単一 system YAML に加えて、カンマ区切りの明示 config path list を受け付けます。複数指定時は左から右の順に child-side FluentAudio config を compose し、group / node / required package の順序を保持します。composition は fail closed で、空 segment、missing config、invalid YAML、`system.default_start_delay` / `system.inter_group_delay` 不一致、group id 重複、enabled node id 重複を成功扱いしません。
+
+この config composition は child repo の FluentAudio package-local 機能です。`so101_voice_frontend.yaml,so101_agent_audio_tools.yaml` を 1 つの FluentAudio system config として読むことは確認できますが、それだけで親 VLAbor profile integration、Agent Runtime / MCP client integration、durable storage、World Station、実 SO101 device / model provisioning、ROS runtime launch smoke が検証済みになったわけではありません。
+
 `src/apps/agent_tools/fa_audio_mcp/test/test_real_owner_graph_smoke.py::test_mcp_tools_call_real_asr_and_audio_window_owner_nodes` は Docker 内で `1 passed` として確認済みです。この smoke は `ros2 run` で実 owner node を起動し、in-process `FastMCP` から real `RosAudioTimelineClient` 経由で `transcribe_audio` / `archive_audio_window` を呼びます。後述の combined launch は別 smoke で確認していますが、この real-owner smoke 単体は installed MCP server transport の検証ではありません。
 
 `src/system/fluent_audio_system/test/integration/test_combined_owner_mcp_launch_smoke.py::test_fluent_audio_system_launches_owner_nodes_and_mcp_adapter` は Docker ROS2 環境で関連 package rebuild 後に `python3 -m pytest src/system/fluent_audio_system/test/integration/test_combined_owner_mcp_launch_smoke.py -q` を実行し、`1 passed in 2.38s` として確認済みです。この smoke は generated single system YAML を `ros2 launch fluent_audio_system run.py` に渡し、`fa_asr` / `fa_asr_node`、`fa_audio_window` / `fa_audio_window_node`、`fa_audio_mcp` / `fa_audio_mcp_server` を同じ launch graph に載せます。起動済み MCP adapter ROS node、real `TranscribeAudio` / `ExportAudioWindow` / `ArchiveAudioWindow` service、deterministic `FLOAT32LE` ASR frame、deterministic `PCM16LE` archive frame、service response の transcript / model ref / window ref、WAV bytes、archive metadata を runtime behavior として検証します。
+
+上記の combined launch smoke は historical smoke result として残します。現在の multi-config composition は package-local config / CLI として別に検証されており、multi-config list そのものを `ros2 launch fluent_audio_system run.py` に渡した runtime launch smoke が存在する、という意味ではありません。
 
 `src/apps/agent_tools/fa_audio_mcp/test/test_streamable_http_transport_smoke.py::test_installed_server_streamable_http_transport_calls_real_owner_nodes` は、実 `fa_asr_node` と `fa_audio_window_node`、deterministic `FLOAT32LE` ASR frame、deterministic `PCM16LE` archive frame、`ros2 run fa_audio_mcp fa_audio_mcp_server` で起動した installed server を使う smoke です。MCP streamable-http transport で `/mcp` に接続し、`list_tools`、`transcribe_audio`、`archive_audio_window` を呼び、unsupported transcribe scope が MCP error result になることを確認済みです。
 
 Docker cleanup fix 後の `fa_audio_mcp` package 検証では、`colcon test --packages-select fa_audio_mcp --event-handlers console_direct+` が 79 items を収集し、`79 passed in 6.76s`、package は `7.51s` で完了しています。先行して実行した real-owner smoke と streamable smoke の focused pair も `2 passed in 6.41s` として確認済みです。
 
-この combined launch smoke と streamable transport smoke で確認した owner 境界は、`transcribe_audio` の owner が `fa_asr`、`archive_audio_window` / `export_audio_window` の owner が `fa_audio_window` であることです。streamable transport smoke は child repo の installed server transport / tool-call smoke であり、親 Agent Runtime / MCP client 統合ではありません。SO101 profile merge support、親 Agent Runtime / MCP client 統合、World Station durable storage、実 SO101 model / device provisioning までは検証していません。
+この combined launch smoke と streamable transport smoke で確認した owner 境界は、`transcribe_audio` の owner が `fa_asr`、`archive_audio_window` / `export_audio_window` の owner が `fa_audio_window` であることです。streamable transport smoke は child repo の installed server transport / tool-call smoke であり、親 Agent Runtime / MCP client 統合ではありません。config composition は child-side の package-local config / CLI 検証であり、親 VLAbor profile integration、親 Agent Runtime / MCP client 統合、World Station durable storage、実 SO101 device / model provisioning、multi-config の ROS runtime launch smoke までは検証していません。
 
 ### 5.6 録音（WAV）
 1. `fa_in`と`fa_record`を起動

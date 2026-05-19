@@ -659,6 +659,34 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
     assert dialogue_params["wake.allow_zero_stamp"] is False
 
 
+def test_so101_voice_frontend_and_agent_audio_tools_compose_as_one_system(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+    _set_voice_frontend_env(monkeypatch, tmp_path)
+    config_arg = (
+        "${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml,"
+        "${share:fluent_audio_system}/config/profiles/so101_agent_audio_tools.yaml"
+    )
+
+    spec = load_system_config(config_arg)
+    packages = load_required_packages(config_arg)
+    enabled_nodes = [node for group in spec.groups for node in group.nodes]
+
+    assert [group.id for group in spec.groups][-2:] == [
+        "apps_dialogue",
+        "apps_agent_tools",
+    ]
+    assert {"fa_asr", "fa_audio_window", "fa_audio_mcp"} <= {
+        node.id for node in enabled_nodes
+    }
+    assert "fa_asr" in packages
+    assert "fa_audio_window" in packages
+    assert "fa_audio_mcp" in packages
+    assert packages.index("fa_audio_window") < packages.index("fa_audio_mcp")
+
+
 def test_so101_voice_frontend_profile_requires_asr_and_turn_detector_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

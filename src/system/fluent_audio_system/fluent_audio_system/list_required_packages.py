@@ -14,7 +14,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--config",
         required=True,
-        help="Path to a FluentAudio system YAML file.",
+        help="Comma-separated FluentAudio system YAML config path list.",
     )
     args = parser.parse_args(argv)
 

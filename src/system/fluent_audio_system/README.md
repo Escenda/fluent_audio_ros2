@@ -11,6 +11,17 @@ ros2 launch fluent_audio_system run.py \
   fa_out_sink_id:=hw:2,0
 ```
 
+`config` は単一 YAML に加えて、カンマ区切りの明示 config path list を受け付けます。複数指定時は左から右の順に compose し、group / node の展開順と required package list の順序もその順序を保持します。
+
+```bash
+ros2 launch fluent_audio_system run.py \
+  config:=/path/to/so101_voice_frontend.yaml,/path/to/so101_agent_audio_tools.yaml \
+  fa_in_enabled:=false \
+  fa_out_enabled:=false \
+  fa_in_source_id:=disabled \
+  fa_out_sink_id:=disabled
+```
+
 I/O node を起動しない debug では、次のように site binding を明示的に無効化します。
 
 ```bash
@@ -22,7 +33,7 @@ ros2 launch fluent_audio_system run.py \
   fa_out_sink_id:=disabled
 ```
 
-Missing config や missing params file は起動失敗にします。`params_file` は対象 node 用の `ros__parameters` block を持つ必要があります。暗黙の device 推測、model fallback、temporary YAML 書き換えは行いません。
+Missing config、invalid YAML、config list の空 segment、missing params file は起動失敗にします。複数 config を compose する場合、`system.default_start_delay` / `system.inter_group_delay` の不一致、group id 重複、enabled node id 重複も起動失敗にします。`params_file` は対象 node 用の `ros__parameters` block を持つ必要があります。暗黙の device 推測、model fallback、temporary YAML 書き換えは行いません。
 `fa_in` / `fa_out`、codec / correction / deterministic analysis、AI / TTS の runtime backend package は effective `backend.name` を必須にし、runtime default backend へ落としません。
 `config`、`fa_in_enabled`、`fa_out_enabled`、`fa_in_source_id`、`fa_out_sink_id` に launch default はありません。profile で enabled な IO を起動しない場合は、site profile または debug launch で `fa_in_enabled:=false` / `fa_out_enabled:=false` を明示します。
 
@@ -31,6 +42,8 @@ VLAbor / Docker 側で system config から build 対象 package を解決する
 ```bash
 ros2 run fluent_audio_system list_required_packages --config /path/to/fluent_audio_system.yaml
 ```
+
+`--config` も同じカンマ区切り config path list を受け付けます。これは child-side FluentAudio config composition の検証であり、親 VLAbor profile integration、Agent Runtime / MCP client integration、durable storage、World Station、実 SO101 device / model provisioning、ROS runtime launch smoke が検証済みであることを意味しません。
 
 ## Profiles
 

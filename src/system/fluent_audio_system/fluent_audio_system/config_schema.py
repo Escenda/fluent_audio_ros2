@@ -467,26 +467,16 @@ _PARAMETER_IDENTITY_CONTRACTS: dict[str, ParameterIdentityContract] = {
 
 
 def load_system_config(path: str) -> AudioSystemSpec:
-    if not path:
-        raise RuntimeError("config launch argument is required")
-    path = _resolve_config_refs(path)
-    if not os.path.isfile(path):
-        raise RuntimeError(f"fluent_audio_system config not found: {path}")
-    with open(path, "r", encoding="utf-8") as stream:
-        raw = yaml.safe_load(stream)
-    return parse_system_config(raw)
+    roots = _load_system_config_roots(path)
+    _validate_composed_roots(roots)
+    specs = [_parse_validated_system_config(root) for root in roots]
+    return _compose_system_specs(specs)
 
 
 def load_required_packages(path: str) -> list[str]:
-    if not path:
-        raise RuntimeError("config launch argument is required")
-    path = _resolve_config_refs(path)
-    if not os.path.isfile(path):
-        raise RuntimeError(f"fluent_audio_system config not found: {path}")
-    with open(path, "r", encoding="utf-8") as stream:
-        raw = yaml.safe_load(stream)
-    root = _validate_system_config(raw)
-    return _required_packages_for_validated_config(root)
+    roots = _load_system_config_roots(path)
+    _validate_composed_roots(roots)
+    return _required_packages_for_validated_configs(roots)
 
 
 def required_packages_for_system(spec: AudioSystemSpec) -> list[str]:
@@ -504,6 +494,25 @@ def required_packages_for_system(spec: AudioSystemSpec) -> list[str]:
 def _required_packages_for_validated_config(root: _AudioSystemConfig) -> list[str]:
     packages = list(_BASE_REQUIRED_PACKAGES)
     seen = set(packages)
+    _append_required_packages_for_validated_config(root, packages, seen)
+    return packages
+
+
+def _required_packages_for_validated_configs(
+    roots: list[_AudioSystemConfig],
+) -> list[str]:
+    packages = list(_BASE_REQUIRED_PACKAGES)
+    seen = set(packages)
+    for root in roots:
+        _append_required_packages_for_validated_config(root, packages, seen)
+    return packages
+
+
+def _append_required_packages_for_validated_config(
+    root: _AudioSystemConfig,
+    packages: list[str],
+    seen: set[str],
+) -> None:
     for group in root.groups:
         group_id = _required_model_text(group.id, "group id")
         _validate_group_taxonomy(group, group_id)
@@ -517,11 +526,14 @@ def _required_packages_for_validated_config(root: _AudioSystemConfig) -> list[st
                 continue
             packages.append(package)
             seen.add(package)
-    return packages
 
 
 def parse_system_config(raw: ConfigValue) -> AudioSystemSpec:
     root = _validate_system_config(raw)
+    return _parse_validated_system_config(root)
+
+
+def _parse_validated_system_config(root: _AudioSystemConfig) -> AudioSystemSpec:
     default_start_delay = float(root.system.default_start_delay)
     inter_group_delay = float(root.system.inter_group_delay)
 
@@ -541,6 +553,95 @@ def parse_system_config(raw: ConfigValue) -> AudioSystemSpec:
     return AudioSystemSpec(
         default_start_delay=default_start_delay,
         inter_group_delay=inter_group_delay,
+        groups=groups,
+    )
+
+
+def _load_system_config_roots(path: str) -> list[_AudioSystemConfig]:
+    return [
+        _load_system_config_root(config_path)
+        for config_path in _split_config_argument(path)
+    ]
+
+
+def _split_config_argument(path: str) -> list[str]:
+    if not path or not path.strip():
+        raise RuntimeError("config launch argument is required")
+
+    config_paths: list[str] = []
+    for raw_segment in path.split(","):
+        segment = raw_segment.strip()
+        if not segment:
+            raise RuntimeError("config launch argument contains an empty path segment")
+        config_paths.append(segment)
+    return config_paths
+
+
+def _load_system_config_root(path: str) -> _AudioSystemConfig:
+    resolved_path = _resolve_config_refs(path)
+    if not os.path.isfile(resolved_path):
+        raise RuntimeError(f"fluent_audio_system config not found: {resolved_path}")
+    try:
+        with open(resolved_path, "r", encoding="utf-8") as stream:
+            raw = yaml.safe_load(stream)
+    except yaml.YAMLError as exc:
+        raise RuntimeError(
+            f"fluent_audio_system config invalid YAML: {resolved_path}: {exc}"
+        ) from exc
+    return _validate_system_config(raw)
+
+
+def _validate_composed_roots(roots: list[_AudioSystemConfig]) -> None:
+    if not roots:
+        raise RuntimeError("config launch argument is required")
+    first = roots[0].system
+    expected_default_start_delay = float(first.default_start_delay)
+    expected_inter_group_delay = float(first.inter_group_delay)
+    group_ids: set[str] = set()
+    enabled_node_ids: set[str] = set()
+
+    for root in roots:
+        default_start_delay = float(root.system.default_start_delay)
+        inter_group_delay = float(root.system.inter_group_delay)
+        if default_start_delay != expected_default_start_delay:
+            raise RuntimeError(
+                "system.default_start_delay must match across composed config files"
+            )
+        if inter_group_delay != expected_inter_group_delay:
+            raise RuntimeError(
+                "system.inter_group_delay must match across composed config files"
+            )
+        for group in root.groups:
+            group_id = _required_model_text(group.id, "group id")
+            if group_id in group_ids:
+                raise RuntimeError(
+                    f"duplicate group id across composed config files: {group_id}"
+                )
+            group_ids.add(group_id)
+            if not group.enable:
+                continue
+            for node in group.nodes or []:
+                if not node.enable:
+                    continue
+                node_id = _required_model_text(node.id, "node id")
+                if node_id in enabled_node_ids:
+                    raise RuntimeError(
+                        "duplicate enabled node id across composed config files: "
+                        f"{node_id}"
+                    )
+                enabled_node_ids.add(node_id)
+
+
+def _compose_system_specs(specs: list[AudioSystemSpec]) -> AudioSystemSpec:
+    if not specs:
+        raise RuntimeError("config launch argument is required")
+    first = specs[0]
+    groups: list[AudioGroupSpec] = []
+    for spec in specs:
+        groups.extend(spec.groups)
+    return AudioSystemSpec(
+        default_start_delay=first.default_start_delay,
+        inter_group_delay=first.inter_group_delay,
         groups=groups,
     )
 
