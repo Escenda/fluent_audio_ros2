@@ -431,7 +431,7 @@ def test_network_receiver_idle_timeout_is_explicit_and_test_mapped() -> None:
         encoding="utf-8"
     )
     node_contract_text = (
-        package_root / "test" / "cpp" / "test_fa_in_node_contract.cpp"
+        package_root / "test" / "integration" / "test_fa_in_node_contract.cpp"
     ).read_text(encoding="utf-8")
 
     assert "network_source_timeout_ms" in header_text

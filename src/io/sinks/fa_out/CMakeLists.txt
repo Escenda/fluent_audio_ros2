@@ -107,7 +107,7 @@ if(BUILD_TESTING)
   )
 
   ament_add_gtest(${PROJECT_NAME}_node_contract_test
-    test/cpp/test_fa_out_node_contract.cpp
+    test/integration/test_fa_out_node_contract.cpp
   )
   target_include_directories(${PROJECT_NAME}_node_contract_test PRIVATE
     include
