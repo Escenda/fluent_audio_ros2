@@ -402,6 +402,27 @@ def test_smart_turn_backend_rejects_invalid_arg_format_contract() -> None:
     allowed_fields = frozenset(("audio", "model", "provider"))
     required_fields = frozenset(("audio", "model", "provider"))
 
+    with pytest.raises(RuntimeError, match="backend.args must be a tuple of non-empty strings"):
+        SmartTurnOnnxBackend._validate_args(
+            args=["{audio}", "{model}", "{provider}"],
+            allowed_fields=allowed_fields,
+            required_fields=required_fields,
+            field_label="backend.args",
+        )
+    with pytest.raises(RuntimeError, match="backend.args must be a tuple of non-empty strings"):
+        SmartTurnOnnxBackend._validate_args(
+            args=("{audio}", 3, "{provider}"),
+            allowed_fields=allowed_fields,
+            required_fields=required_fields,
+            field_label="backend.args",
+        )
+    with pytest.raises(RuntimeError, match="backend.args must be a tuple of non-empty strings"):
+        SmartTurnOnnxBackend._validate_args(
+            args=("{audio}", "", "{provider}"),
+            allowed_fields=allowed_fields,
+            required_fields=required_fields,
+            field_label="backend.args",
+        )
     with pytest.raises(RuntimeError, match="backend.args must not be empty"):
         SmartTurnOnnxBackend._validate_args(
             args=(),

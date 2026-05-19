@@ -244,11 +244,15 @@ class SmartTurnOnnxBackend:
         required_fields: frozenset[str],
         field_label: str,
     ) -> tuple[str, ...]:
+        if not isinstance(args, tuple):
+            raise RuntimeError(f"{field_label} must be a tuple of non-empty strings")
         if not args:
             raise RuntimeError(f"{field_label} must not be empty")
         fields: set[str] = set()
         formatter = string.Formatter()
         for part in args:
+            if not isinstance(part, str) or not part:
+                raise RuntimeError(f"{field_label} must be a tuple of non-empty strings")
             try:
                 parsed_parts = tuple(formatter.parse(part))
             except ValueError as exc:
