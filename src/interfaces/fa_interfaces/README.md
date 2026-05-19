@@ -25,3 +25,4 @@
 - `fa_interfaces/srv/SwitchDevice`
 - `fa_interfaces/srv/Record`
 - `fa_interfaces/srv/Speak`
+- `fa_interfaces/srv/TranscribeAudio`
