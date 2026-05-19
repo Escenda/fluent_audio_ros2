@@ -241,6 +241,12 @@ def _write_executable(path: Path) -> None:
     path.chmod(0o755)
 
 
+def _write_silero_repo(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "hubconf.py").write_text("def silero_vad():\n    return None\n", encoding="utf-8")
+    return path
+
+
 def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     config_path = Path(__file__).parents[2] / "config" / "default.yaml"
     readme_path = Path(__file__).parents[2] / "README.md"
@@ -573,19 +579,33 @@ def test_silero_backend_rejects_missing_model_path_directory() -> None:
         _silero_backend(model_path=missing_repo)
 
 
+def test_silero_backend_rejects_empty_model_directory(tmp_path: Path) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+
+    with pytest.raises(RuntimeError, match="hubconf.py"):
+        _silero_backend(model_path=str(model_dir))
+
+
 def test_silero_backend_rejects_missing_execution_provider(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match="backend.execution_provider is required"):
-        _silero_backend(model_path=str(tmp_path), execution_provider="")
+        _silero_backend(model_path=str(model_dir), execution_provider="")
 
 
 def test_silero_backend_rejects_unknown_execution_provider(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match="unsupported backend.execution_provider"):
-        _silero_backend(model_path=str(tmp_path), execution_provider="tpu")
+        _silero_backend(model_path=str(model_dir), execution_provider="tpu")
 
 
 def test_silero_backend_rejects_missing_command(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match="backend.command is required"):
-        _silero_backend(model_path=str(tmp_path), command="")
+        _silero_backend(model_path=str(model_dir), command="")
 
 
 @pytest.mark.parametrize(
@@ -606,27 +626,35 @@ def test_silero_backend_rejects_coerced_runtime_config_types(
     kwargs: dict[str, str | bool | int],
     message: str,
 ) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match=message):
-        _silero_backend(model_path=str(tmp_path), **kwargs)
+        _silero_backend(model_path=str(model_dir), **kwargs)
 
 
 def test_silero_backend_rejects_missing_command_placeholders(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match="backend.args must include placeholders"):
-        _silero_backend(model_path=str(tmp_path), args=("--model", "{model}"))
+        _silero_backend(model_path=str(model_dir), args=("--model", "{model}"))
 
 
 def test_silero_backend_rejects_unsupported_arg_placeholder(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match="unsupported backend.args placeholder: device"):
         _silero_backend(
-            model_path=str(tmp_path),
+            model_path=str(model_dir),
             args=DEFAULT_ARGS + ("{device}",),
         )
 
 
 def test_silero_backend_rejects_malformed_arg_placeholder(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match="backend.args contains malformed format string"):
         _silero_backend(
-            model_path=str(tmp_path),
+            model_path=str(model_dir),
             args=DEFAULT_ARGS + ("{audio",),
         )
 
@@ -637,16 +665,18 @@ def test_silero_backend_rejects_non_finite_probability() -> None:
 
 
 def test_silero_backend_rejects_arg_format_spec(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match="placeholders must not use conversion or format spec"):
         _silero_backend(
-            model_path=str(tmp_path),
+            model_path=str(model_dir),
             args=DEFAULT_ARGS + ("{audio!r}",),
         )
 
 
 def test_silero_backend_resolves_model_and_command_paths(tmp_path: Path) -> None:
     model_dir = tmp_path / "model"
-    model_dir.mkdir()
+    _write_silero_repo(model_dir)
     command_path = tmp_path / "worker"
     _write_executable(command_path)
 
@@ -657,11 +687,12 @@ def test_silero_backend_resolves_model_and_command_paths(tmp_path: Path) -> None
 
 
 def test_silero_backend_rejects_non_executable_command(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
     command_path = tmp_path / "worker"
     command_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="backend.command is not executable"):
-        _silero_backend(model_path=str(tmp_path), command=str(command_path))
+        _silero_backend(model_path=str(model_dir), command=str(command_path))
 
 
 def test_silero_backend_rejects_invalid_sample_rate(tmp_path: Path) -> None:
@@ -683,24 +714,30 @@ def test_silero_backend_rejects_invalid_sample_rate(tmp_path: Path) -> None:
 
 
 def test_silero_backend_rejects_invalid_thresholds(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match="threshold_end must be <= threshold_start"):
         _silero_backend(
-            model_path=str(tmp_path),
+            model_path=str(model_dir),
             threshold_start=0.2,
             threshold_end=0.8,
         )
 
 
 def test_silero_backend_rejects_invalid_hangover(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match="hangover_ms must be > 0"):
-        _silero_backend(model_path=str(tmp_path), hangover_ms=0)
+        _silero_backend(model_path=str(model_dir), hangover_ms=0)
 
 
 def test_silero_backend_rejects_implicit_hangover_rounding(tmp_path: Path) -> None:
+    model_dir = _write_silero_repo(tmp_path / "model")
+
     with pytest.raises(RuntimeError, match="hangover_ms must be >= frame_ms"):
-        _silero_backend(model_path=str(tmp_path), hangover_ms=10, frame_ms=20)
+        _silero_backend(model_path=str(model_dir), hangover_ms=10, frame_ms=20)
     with pytest.raises(RuntimeError, match="hangover_ms must be divisible by frame_ms"):
-        _silero_backend(model_path=str(tmp_path), hangover_ms=25, frame_ms=20)
+        _silero_backend(model_path=str(model_dir), hangover_ms=25, frame_ms=20)
 
 
 def test_silero_backend_constructor_requires_explicit_vad_config() -> None:
@@ -753,7 +790,7 @@ def test_vad_backends_stay_ros_free() -> None:
 
 def test_silero_backend_runs_external_worker_contract(tmp_path: Path) -> None:
     model_dir = tmp_path / "model"
-    model_dir.mkdir()
+    _write_silero_repo(model_dir)
     workspace_dir = tmp_path / "workspace"
     worker = Path(__file__).parents[1] / "fixtures" / "fake_vad_worker.py"
     backend = _silero_backend(
@@ -785,7 +822,7 @@ def test_silero_backend_runs_external_worker_contract(tmp_path: Path) -> None:
 
 def test_silero_backend_returns_explicit_no_decision_for_short_window(tmp_path: Path) -> None:
     model_dir = tmp_path / "model"
-    model_dir.mkdir()
+    _write_silero_repo(model_dir)
     backend = _silero_backend(model_path=str(model_dir))
 
     assert backend.update(_float32_window(sample_count=128)) is None
@@ -793,7 +830,7 @@ def test_silero_backend_returns_explicit_no_decision_for_short_window(tmp_path: 
 
 def test_silero_backend_rejects_window_sample_rate_mismatch(tmp_path: Path) -> None:
     model_dir = tmp_path / "model"
-    model_dir.mkdir()
+    _write_silero_repo(model_dir)
     backend = _silero_backend(model_path=str(model_dir), sample_rate=16000)
 
     with pytest.raises(ValueError, match="sample_rate must match backend sample_rate"):
@@ -818,7 +855,7 @@ def test_silero_worker_rejects_unsupported_sample_rate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model_dir = tmp_path / "model"
-    model_dir.mkdir()
+    _write_silero_repo(model_dir)
     audio_path = tmp_path / "audio.f32"
     _write_raw_float32(audio_path, sample_count=512)
     monkeypatch.setattr(

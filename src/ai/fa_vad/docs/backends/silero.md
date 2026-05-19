@@ -30,6 +30,7 @@ External Silero VAD process。
 
 - `backend.model_path` が空
 - `backend.model_path` が存在しない local torch.hub repository directory を指す
+- `backend.model_path` が `hubconf.py` を持たない directory を指す
 - `backend.execution_provider` が空
 - `backend.execution_provider` が未対応
 - `backend.command` が空
@@ -42,7 +43,7 @@ External Silero VAD process。
 - external command stdout が probability float ではない
 - probability が `[0.0, 1.0]` の範囲外
 
-`backend.model_path` は必須です。空の場合は `~/.cache/torch/hub` などを推測せず起動失敗します。online download fallback はありません。`backend.execution_provider` は `cpu`, `cuda`, `cuda:<index>` のいずれかを明示します。
+`backend.model_path` は必須です。local Silero torch hub repository directory を指し、起動時に `hubconf.py` の存在を検証します。空の場合や `~/.cache/torch/hub` などを推測する fallback はありません。online download fallback はありません。`backend.execution_provider` は `cpu`, `cuda`, `cuda:<index>` のいずれかを明示します。
 
 `backend.command` は ROS2 node と異なる Python / venv / container runtime を指すための境界です。path 指定された command は起動時に実体解決され、実行不能なら起動失敗します。command が失敗しても別 backend へ fallback しません。
 

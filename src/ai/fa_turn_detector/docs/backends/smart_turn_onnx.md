@@ -23,6 +23,18 @@ External Python / ONNX Runtime worker。
 
 - turn-end probability
 
+## Model Input Feature Contract
+
+- worker runtime は mono float32 samples から log-mel feature を作る
+- sample rate は 16kHz
+- STFT は `n_fft=400`, `hop_length=160`
+- mel feature は 80 bin x 800 frame
+- 800 frame 未満は左側を `-4.0` で pad
+- 800 frame 超過は最新 800 frame だけを使う
+- log mel は `log10(max(mel, 1e-10))`、最大値から 8.0 以内への floor、`(log_mel + 4.0) / 4.0` の順で model 入力へ正規化する
+
+この feature-window policy は backend の model 入力契約です。`fa_turn_detector` node は resampling / downmix / bit-depth conversion / sample clipping を行いません。
+
 ## Failure Conditions
 
 - model path missing

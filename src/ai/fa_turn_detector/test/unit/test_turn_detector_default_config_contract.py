@@ -840,6 +840,73 @@ def test_smart_turn_runtime_validates_model_io_contract(
     assert probability == 0.5
 
 
+def test_smart_turn_runtime_feature_window_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_onnxruntime_fake(monkeypatch)
+    runtime_module = importlib.import_module(
+        "fa_turn_detector_py.backends.smart_turn_onnx_runtime"
+    )
+    model_path = tmp_path / "smart_turn.onnx"
+    _write_fake_model(model_path)
+    runtime = runtime_module.SmartTurnOnnxRuntime(
+        model_path=model_path,
+        execution_provider="CPUExecutionProvider",
+    )
+
+    class _CaptureSession:
+        def __init__(self) -> None:
+            self.input_features: list[np.ndarray] = []
+
+        def run(
+            self,
+            output_names: None,
+            feeds: dict[str, np.ndarray],
+        ) -> list[np.ndarray]:
+            del output_names
+            self.input_features.append(feeds["input_features"].copy())
+            return [np.array([[0.0]], dtype=np.float32)]
+
+    capture_session = _CaptureSession()
+    runtime._session = capture_session
+
+    short_mel = np.full((80, 3), 2.0, dtype=np.float32)
+    monkeypatch.setattr(runtime, "_compute_mel_spectrogram", lambda audio: short_mel)
+    runtime.detect_probability(np.full(16000, 0.1, dtype=np.float32))
+    padded_features = capture_session.input_features[-1]
+
+    assert padded_features.shape == (1, 80, 800)
+    assert np.all(padded_features[:, :, :797] == -4.0)
+    assert np.all(padded_features[:, :, 797:] == 2.0)
+
+    long_mel = np.tile(np.arange(805, dtype=np.float32), (80, 1))
+    monkeypatch.setattr(runtime, "_compute_mel_spectrogram", lambda audio: long_mel)
+    runtime.detect_probability(np.full(16000, 0.1, dtype=np.float32))
+    truncated_features = capture_session.input_features[-1]
+
+    assert truncated_features.shape == (1, 80, 800)
+    assert np.all(truncated_features[:, :, 0] == 5.0)
+    assert np.all(truncated_features[:, :, -1] == 804.0)
+
+
+def test_smart_turn_runtime_log_mel_normalization_contract() -> None:
+    package_root = Path(__file__).parents[2]
+    runtime_source = (
+        package_root
+        / "fa_turn_detector_py"
+        / "backends"
+        / "smart_turn_onnx_runtime.py"
+    ).read_text(encoding="utf-8")
+
+    assert "n_frames = 800" in runtime_source
+    assert "constant_values=-4.0" in runtime_source
+    assert "mel[:, -self.n_frames :]" in runtime_source
+    assert "np.maximum(mel, 1e-10)" in runtime_source
+    assert "log_mel.max() - 8.0" in runtime_source
+    assert "(log_mel + 4.0) / 4.0" in runtime_source
+
+
 def test_smart_turn_runtime_rejects_wrong_input_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

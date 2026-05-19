@@ -214,6 +214,14 @@ class SileroVAD:
             raise RuntimeError(f"backend.model_path does not exist: {path}")
         if not os.access(path, os.R_OK | os.X_OK):
             raise RuntimeError(f"backend.model_path is not readable: {path}")
+        hubconf_path = path / "hubconf.py"
+        if not hubconf_path.is_file():
+            raise RuntimeError(
+                "backend.model_path must point to a local Silero torch hub "
+                f"repository with hubconf.py: {path}"
+            )
+        if not os.access(hubconf_path, os.R_OK):
+            raise RuntimeError(f"backend.model_path hubconf.py is not readable: {hubconf_path}")
         return path
 
     @staticmethod

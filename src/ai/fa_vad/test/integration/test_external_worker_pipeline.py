@@ -7,6 +7,12 @@ from fa_vad_py.backends.base import Float32MonoWindow
 from fa_vad_py.backends.silero import SileroVAD
 
 
+def _write_silero_repo(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "hubconf.py").write_text("def silero_vad():\n    return None\n", encoding="utf-8")
+    return path
+
+
 def _backend(
     *,
     tmp_path: Path,
@@ -44,7 +50,7 @@ def _backend(
 
 def test_external_worker_pipeline_reports_speech_start(tmp_path: Path) -> None:
     model_dir = tmp_path / "model"
-    model_dir.mkdir()
+    _write_silero_repo(model_dir)
     (model_dir / "probability.txt").write_text("0.75", encoding="utf-8")
     backend = _backend(tmp_path=tmp_path, model_dir=model_dir)
 
@@ -65,7 +71,7 @@ def test_external_worker_pipeline_reports_speech_start(tmp_path: Path) -> None:
 
 def test_external_worker_pipeline_reports_speech_end_after_hangover(tmp_path: Path) -> None:
     model_dir = tmp_path / "model"
-    model_dir.mkdir()
+    _write_silero_repo(model_dir)
     (model_dir / "probability.txt").write_text("0.75", encoding="utf-8")
     backend = _backend(tmp_path=tmp_path, model_dir=model_dir, hangover_ms=20)
 
