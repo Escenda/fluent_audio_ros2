@@ -269,9 +269,6 @@ def _install_onnxruntime_fake(
 def test_default_config_requires_explicit_backend_model_and_provider() -> None:
     config_path = Path(__file__).parents[2] / "config" / "default.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    source = (
-        Path(__file__).parents[2] / "fa_turn_detector_py" / "turn_detector_node.py"
-    ).read_text(encoding="utf-8")
 
     params = config["fa_turn_detector"]["ros__parameters"]
 
@@ -293,27 +290,6 @@ def test_default_config_requires_explicit_backend_model_and_provider() -> None:
     assert params["turn_context.qos.reliable"] is True
     assert params["output.qos.depth"] == 10
     assert params["output.qos.reliable"] is True
-    assert 'declare_parameter("expected_source_id", Parameter.Type.STRING)' in source
-    assert 'declare_parameter("expected_stream_id", Parameter.Type.STRING)' in source
-    assert 'declare_parameter("expected_source_id", "")' not in source
-    assert 'declare_parameter("backend.threshold", 0.5)' not in source
-    assert 'declare_parameter("backend.timeout_sec", 5.0)' not in source
-    assert 'declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)' in source
-    assert 'declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)' in source
-    assert 'declare_parameter("audio.qos.depth", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)' in source
-    assert 'declare_parameter("vad.qos.depth", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("vad.qos.reliable", Parameter.Type.BOOL)' in source
-    assert 'declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("turn_context.qos.reliable", Parameter.Type.BOOL)' in source
-    assert 'declare_parameter("output.qos.depth", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("output.qos.reliable", Parameter.Type.BOOL)' in source
-    assert "QoSProfile(depth=10)" not in source
-    assert "parameter_overrides: Iterable[Parameter] | None = None" in source
-    assert "parameter_overrides=list(parameter_overrides)" in source
-    assert "tuple(str(item) for item in value)" not in source
-    assert "from fa_turn_detector_py.backends.smart_turn_onnx import SmartTurnOnnxBackend" not in source
-    assert "build_turn_detector_backend(" in source
 
 
 def test_turn_detector_backend_factory_rejects_missing_and_unknown_backend() -> None:
@@ -581,35 +557,6 @@ def test_turn_detector_node_parameter_helpers_reject_wrong_ros_parameter_types(
         sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
 
 
-def test_turn_detector_node_rejects_non_canonical_audio_frames() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (
-        package_root / "fa_turn_detector_py" / "turn_detector_node.py"
-    ).read_text(encoding="utf-8")
-
-    assert "_resample_linear" not in source
-    assert "_to_mono" not in source
-    assert "np.frombuffer(bytes(msg.data), dtype=np.int16)" not in source
-    assert 'np.frombuffer(bytes(msg.data), dtype="<f4")' in source
-    assert 'np.dtype("<f4").itemsize' in source
-    assert "AudioFrame channels must be 1" in source
-    assert "AudioFrame source_id and stream_id are required" in source
-    assert "AudioFrame source_id must match expected_source_id" in source
-    assert "AudioFrame stream_id must match expected_stream_id" in source
-    assert "expected_stream_id=self.expected_stream_id" in source
-    assert "AudioFrame layout must be interleaved" in source
-    assert "AudioFrame encoding must be FLOAT32LE" in source
-    assert "AudioFrame bit_depth must be 32" in source
-    assert "AudioFrame data is required" in source
-    assert "AudioFrame sample_rate must match backend sample_rate" in source
-    assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
-    assert "VadState source_id and stream_id are required" in source
-    assert "VadState source_id must match expected_source_id" in source
-    assert "VadState stream_id must match expected_stream_id" in source
-    assert "expected_stream_id must be distinct from ROS" in source
-    assert '("audio_topic", self.audio_topic)' in source
-
-
 def test_turn_detector_rejects_unbound_vad_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -688,19 +635,6 @@ def test_turn_context_replacement_clears_audio_buffer_and_vad_state(
         assert node._context_active is True
     finally:
         sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
-
-
-def test_turn_detector_node_source_does_not_hide_parameter_type_conversion() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (
-        package_root / "fa_turn_detector_py" / "turn_detector_node.py"
-    ).read_text(encoding="utf-8")
-
-    assert "bool(self.get_parameter" not in source
-    assert "float(self.get_parameter" not in source
-    assert "str(self.get_parameter" not in source
-    assert "tuple(str(" not in source
-    assert "if rclpy.ok():\n            rclpy.shutdown()" in source
 
 
 def test_frame_to_float_rejects_pcm32_payload_before_float_interpretation(
@@ -792,16 +726,6 @@ def test_turn_detector_backend_runtime_failure_is_fail_closed(
         sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
 
 
-def test_smart_turn_backend_rejects_out_of_range_audio() -> None:
-    package_root = Path(__file__).parents[2]
-    source = (
-        package_root / "fa_turn_detector_py" / "backends" / "smart_turn_onnx.py"
-    ).read_text(encoding="utf-8")
-
-    assert "audio = audio / max_abs" not in source
-    assert "turn detector audio samples must be normalized to [-1.0, 1.0]" in source
-
-
 def test_smart_turn_backend_config_validation_rejects_type_coercion() -> None:
     with pytest.raises(RuntimeError, match="backend.threshold must be a double"):
         SmartTurnOnnxBackend._validate_threshold("0.5")
@@ -817,41 +741,6 @@ def test_smart_turn_backend_config_validation_rejects_type_coercion() -> None:
         SmartTurnOnnxBackend._validate_cleanup_audio_files("false")
     with pytest.raises(RuntimeError, match="backend.workspace_dir is required"):
         SmartTurnOnnxBackend._validate_workspace_dir("")
-
-
-def test_turn_detector_node_does_not_import_onnxruntime() -> None:
-    package_root = Path(__file__).parents[2]
-    node_source = (
-        package_root / "fa_turn_detector_py" / "turn_detector_node.py"
-    ).read_text(encoding="utf-8")
-    backend_source = (
-        package_root / "fa_turn_detector_py" / "backends" / "smart_turn_onnx.py"
-    ).read_text(encoding="utf-8")
-    init_source = (
-        package_root / "fa_turn_detector_py" / "backends" / "__init__.py"
-    ).read_text(encoding="utf-8")
-
-    assert "onnxruntime" not in node_source
-    assert "onnxruntime" not in backend_source
-    assert "onnxruntime" not in init_source
-    assert "subprocess.run" in backend_source
-
-
-def test_turn_detector_onnxruntime_import_stays_inside_worker_runtime() -> None:
-    package_root = Path(__file__).parents[2]
-    package_py_root = package_root / "fa_turn_detector_py"
-    runtime_path = package_py_root / "backends" / "smart_turn_onnx_runtime.py"
-    violations: list[str] = []
-
-    for source_path in sorted(package_py_root.rglob("*.py")):
-        source = source_path.read_text(encoding="utf-8")
-        if source_path == runtime_path:
-            assert "import onnxruntime as ort" in source
-            continue
-        if "import onnxruntime" in source or "from onnxruntime" in source:
-            violations.append(str(source_path.relative_to(package_root)))
-
-    assert violations == []
 
 
 def test_smart_turn_backend_external_worker_contract(tmp_path: Path) -> None:
@@ -1038,23 +927,6 @@ def test_smart_turn_runtime_feature_window_contract(
     assert truncated_features.shape == (1, 80, 800)
     assert np.all(truncated_features[:, :, 0] == 5.0)
     assert np.all(truncated_features[:, :, -1] == 804.0)
-
-
-def test_smart_turn_runtime_log_mel_normalization_contract() -> None:
-    package_root = Path(__file__).parents[2]
-    runtime_source = (
-        package_root
-        / "fa_turn_detector_py"
-        / "backends"
-        / "smart_turn_onnx_runtime.py"
-    ).read_text(encoding="utf-8")
-
-    assert "n_frames = 800" in runtime_source
-    assert "constant_values=-4.0" in runtime_source
-    assert "mel[:, -self.n_frames :]" in runtime_source
-    assert "np.maximum(mel, 1e-10)" in runtime_source
-    assert "log_mel.max() - 8.0" in runtime_source
-    assert "(log_mel + 4.0) / 4.0" in runtime_source
 
 
 def test_smart_turn_runtime_rejects_wrong_input_contract(

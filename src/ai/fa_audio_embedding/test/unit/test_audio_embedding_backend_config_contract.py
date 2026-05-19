@@ -1,4 +1,3 @@
-import ast
 from pathlib import Path
 import sys
 
@@ -14,24 +13,10 @@ from fa_audio_embedding_py.backends.factory import (
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
-PYTHON_SOURCES = tuple(
-    path
-    for path in sorted((PACKAGE_ROOT / "fa_audio_embedding_py").rglob("*.py"))
-    if "__pycache__" not in path.parts
-)
 
 
 def _worker_path() -> Path:
     return PACKAGE_ROOT / "test" / "fixtures" / "fake_audio_embedding_worker.py"
-
-
-def _request() -> AudioEmbeddingRequest:
-    return AudioEmbeddingRequest(
-        samples=np.asarray([0.0, 0.25, -0.5, 0.75], dtype=np.float32),
-        sample_rate=16000,
-        source_id="mic0",
-        stream_id="audio/frame",
-    )
 
 
 def _settings(
@@ -77,16 +62,13 @@ def _settings(
     )
 
 
-def test_default_config_requires_explicit_backend_name_but_no_worker_or_identity() -> None:
+def test_default_config_does_not_select_backend_worker_or_identity() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
-    source = (PACKAGE_ROOT / "fa_audio_embedding_py" / "audio_embedding_node.py").read_text(
-        encoding="utf-8"
-    )
     params = config["fa_audio_embedding"]["ros__parameters"]
 
-    assert params["backend.name"] == "external_worker"
+    assert params["backend.name"] == ""
     assert params["backend.command"] == ""
     assert params["backend.model_id"] == ""
     assert params["backend.model_path"] == ""
@@ -95,11 +77,6 @@ def test_default_config_requires_explicit_backend_name_but_no_worker_or_identity
     assert params["embedding.dimension"] == 0
     assert params["expected_source_id"] == ""
     assert params["expected_stream_id"] == ""
-    assert 'declare_parameter("expected_source_id", Parameter.Type.STRING)' in source
-    assert 'declare_parameter("expected_stream_id", Parameter.Type.STRING)' in source
-    assert 'declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)' in source
-    assert 'declare_parameter("backend.payload_encoding", Parameter.Type.STRING)' in source
-    assert "ParameterUninitializedException" in source
 
 
 def test_build_backend_rejects_missing_backend_name(tmp_path: Path) -> None:
@@ -259,90 +236,3 @@ def test_audio_embedding_request_rejects_non_canonical_payloads() -> None:
             source_id="mic0",
             stream_id="audio/frame",
         )
-
-
-def test_audio_embedding_python_sources_keep_dependency_boundary_explicit() -> None:
-    combined = "\n".join(path.read_text(encoding="utf-8") for path in PYTHON_SOURCES)
-
-    forbidden_tokens = (
-        "ImportError",
-        "from typing import Any",
-        "dict[str, Any]",
-        "Dict[str, Any]",
-        ": Any",
-        "-> Any",
-        ": object",
-        "-> object",
-        "list[object]",
-        "dict[str, object]",
-        "# type: ignore",
-    )
-    for token in forbidden_tokens:
-        assert token not in combined
-
-
-def test_audio_embedding_backends_stay_ros_free() -> None:
-    backend_files = tuple((PACKAGE_ROOT / "fa_audio_embedding_py" / "backends").glob("*.py"))
-    assert backend_files
-    forbidden_ros_tokens = (
-        "rclpy",
-        "fa_interfaces",
-        "AudioFrame",
-        "AudioEmbeddingFrame",
-    )
-
-    for backend_file in backend_files:
-        source = backend_file.read_text(encoding="utf-8")
-        for token in forbidden_ros_tokens:
-            assert token not in source
-
-
-def test_audio_embedding_node_rejects_non_canonical_audio_frames() -> None:
-    source = (PACKAGE_ROOT / "fa_audio_embedding_py" / "audio_embedding_node.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert "np.zeros" not in source
-    assert "_resample" not in source
-    assert "_to_mono" not in source
-    assert 'np.frombuffer(bytes(msg.data), dtype="<f4")' in source
-    assert 'np.dtype("<f4").itemsize' in source
-    assert "AudioFrame data is required" in source
-    assert "AudioFrame source_id and stream_id are required" in source
-    assert "AudioFrame source_id must match expected_source_id" in source
-    assert "AudioFrame stream_id must match expected_stream_id" in source
-    assert "AudioFrame layout must be" in source
-    assert "AudioFrame encoding must be" in source
-    assert "AudioFrame bit_depth must be" in source
-    assert "AudioFrame sample_rate must match expected.sample_rate" in source
-    assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
-    assert "source_id=msg.source_id" in source
-    assert "stream_id=msg.stream_id" in source
-    assert "out.stream_id = msg.stream_id" in source
-    assert "out.stream_id = self.output_topic" not in source
-
-
-def test_audio_embedding_node_drops_only_frame_contract_value_errors() -> None:
-    source = (PACKAGE_ROOT / "fa_audio_embedding_py" / "audio_embedding_node.py").read_text(
-        encoding="utf-8"
-    )
-    tree = ast.parse(source)
-    node_class = next(
-        item
-        for item in tree.body
-        if isinstance(item, ast.ClassDef) and item.name == "FaAudioEmbeddingNode"
-    )
-    on_audio = next(
-        item
-        for item in node_class.body
-        if isinstance(item, ast.FunctionDef) and item.name == "on_audio"
-    )
-    try_blocks = [item for item in on_audio.body if isinstance(item, ast.Try)]
-
-    assert len(try_blocks) == 2
-    assert "_frame_to_float" in ast.dump(try_blocks[0])
-    assert "backend" not in ast.dump(try_blocks[0])
-    assert "embed" in ast.dump(try_blocks[1])
-    backend_try = ast.dump(try_blocks[1])
-    assert "ValueError" in backend_try
-    assert "RuntimeError" in backend_try

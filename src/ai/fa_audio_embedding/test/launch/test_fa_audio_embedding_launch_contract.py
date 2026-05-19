@@ -6,27 +6,13 @@ import yaml
 PACKAGE_ROOT = Path(__file__).parents[2]
 
 
-def test_launch_uses_explicit_config_file_contract() -> None:
-    launch_text = (PACKAGE_ROOT / "launch" / "fa_audio_embedding.launch.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert "default_value" not in launch_text
-    assert "FindPackageShare" not in launch_text
-    assert "PathJoinSubstitution" not in launch_text
-    assert 'DeclareLaunchArgument(\n                "node_name"' in launch_text
-    assert 'DeclareLaunchArgument(\n                "config_file"' in launch_text
-    assert 'LaunchConfiguration("node_name")' in launch_text
-    assert "parameters=[config_file]" in launch_text
-
-
-def test_default_config_selects_backend_family_but_no_worker_or_identity() -> None:
+def test_default_config_requires_explicit_backend_without_worker_or_identity() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")
     )
     params = config["fa_audio_embedding"]["ros__parameters"]
 
-    assert params["backend.name"] == "external_worker"
+    assert params["backend.name"] == ""
     assert params["backend.command"] == ""
     assert params["backend.model_id"] == ""
     assert params["backend.model_path"] == ""

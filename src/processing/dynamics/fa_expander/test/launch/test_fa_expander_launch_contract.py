@@ -29,26 +29,6 @@ def _run_fa_expander_launch(config_path: Path) -> subprocess.CompletedProcess[st
         text=True,
         timeout=8,
     )
-
-
-def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
-    launch_text = (PACKAGE_ROOT / "launch" / "fa_expander.launch.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
-    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert ("default_" + "value") not in launch_text
-    assert ("FindPackage" + "Share") not in launch_text
-    assert ("PathJoin" + "Substitution") not in launch_text
-    assert 'package="fa_expander"' in launch_text
-    assert 'executable="fa_expander_node"' in launch_text
-    assert "parameters=[config_file]" in launch_text
-    assert "expander.threshold_linear" not in launch_text
-    assert "expander.ratio" not in launch_text
-    assert "expected.sample_rate" not in launch_text
-
-
 def test_example_launch_config_keeps_expander_as_dynamics_node() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")

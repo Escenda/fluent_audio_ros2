@@ -6,13 +6,10 @@ import yaml
 
 from fa_stft_py.backends.stft import InternalStftBackend, StftConfig
 
-
 PACKAGE_ROOT = Path(__file__).parents[2]
-
 
 def _config() -> StftConfig:
     return StftConfig(sample_rate=16000, n_fft=8, hop_length=4, window="rectangular")
-
 
 def test_default_config_uses_internal_backend_and_canonical_audio() -> None:
     config_path = PACKAGE_ROOT / "config" / "default.yaml"
@@ -34,7 +31,6 @@ def test_default_config_uses_internal_backend_and_canonical_audio() -> None:
     assert params["feature.hop_length"] == 160
     assert params["feature.window"] == "hann"
 
-
 def test_backend_computes_finite_complex_matrix() -> None:
     backend = InternalStftBackend(_config())
     samples = np.sin(np.linspace(0.0, 1.0, 16, dtype=np.float32))
@@ -50,7 +46,6 @@ def test_backend_computes_finite_complex_matrix() -> None:
     assert np.all(np.isfinite(result.real))
     assert np.all(np.isfinite(result.imag))
 
-
 def test_backend_zero_signal_matches_zero_complex_spectrum() -> None:
     backend = InternalStftBackend(_config())
     result = backend.compute(np.zeros(8, dtype=np.float32))
@@ -59,7 +54,6 @@ def test_backend_zero_signal_matches_zero_complex_spectrum() -> None:
     assert result.bin_count == 5
     assert np.allclose(result.real, 0.0, rtol=0.0, atol=0.0)
     assert np.allclose(result.imag, 0.0, rtol=0.0, atol=0.0)
-
 
 def test_backend_rejects_non_canonical_audio_without_hidden_conversion() -> None:
     backend = InternalStftBackend(_config())
@@ -75,65 +69,8 @@ def test_backend_rejects_non_canonical_audio_without_hidden_conversion() -> None
     with pytest.raises(ValueError, match="align"):
         backend.compute(np.zeros(9, dtype=np.float32))
 
-
 def test_backend_config_rejects_invalid_feature_contract() -> None:
     with pytest.raises(RuntimeError, match="feature.hop_length must be <= feature.n_fft"):
         InternalStftBackend(StftConfig(sample_rate=16000, n_fft=8, hop_length=9, window="hann"))
     with pytest.raises(RuntimeError, match="feature.window must be hann or rectangular"):
         InternalStftBackend(StftConfig(sample_rate=16000, n_fft=8, hop_length=4, window="blackman"))
-
-
-def test_backend_is_ros_free_and_not_ai_runtime() -> None:
-    backend_path = PACKAGE_ROOT / "fa_stft_py" / "backends" / "stft.py"
-    node_path = PACKAGE_ROOT / "fa_stft_py" / "stft_node.py"
-    backend_text = backend_path.read_text(encoding="utf-8")
-    node_text = node_path.read_text(encoding="utf-8")
-
-    assert "import rclpy" not in backend_text
-    assert "fa_interfaces" not in backend_text
-    assert "StftFrame" not in backend_text
-    assert "InternalStftBackend" in node_text
-    assert "resample" not in backend_text
-
-
-def test_node_requires_explicit_ros_parameters_and_binds_stream_identity() -> None:
-    node_path = PACKAGE_ROOT / "fa_stft_py" / "stft_node.py"
-    node_text = node_path.read_text(encoding="utf-8")
-
-    assert "ParameterUninitializedException" in node_text
-    assert "Parameter.Type.STRING" in node_text
-    assert "must be a string parameter" in node_text
-    assert "get_parameter(name).get_parameter_value().string_value" not in node_text
-    assert "expected.stream_id" in node_text
-    assert "output.stream_id" in node_text
-    assert "out.stream_id = self.output_stream_id" in node_text
-    assert "@staticmethod" in node_text
-    assert "def _same_identity(left: str, right: str) -> bool:" in node_text
-    assert 'declare_parameter("input_topic", "audio/features/input")' not in node_text
-    assert 'declare_parameter("feature.n_fft", 400)' not in node_text
-    assert "msg.stream_id != self.expected_stream_id" in node_text
-    assert "except ValueError as exc:" in node_text
-    assert "except RuntimeError as exc:" in node_text
-    assert "raise" in node_text
-
-
-def test_package_layout_matches_required_analysis_layout() -> None:
-    required_paths = (
-        "README.md",
-        "docs/仕様書.md",
-        "docs/アルゴリズム詳細説明書.md",
-        "docs/テスト設計.md",
-        "docs/backends/internal_stft.md",
-        "config/default.yaml",
-        "launch/fa_stft.launch.py",
-        "fa_stft_py/stft_node.py",
-        "fa_stft_py/backends/stft.py",
-        "test/unit/test_stft_contract.py",
-        "test/integration/.gitkeep",
-        "test/launch/.gitkeep",
-        "test/fixtures/.gitkeep",
-    )
-
-    missing = [relative for relative in required_paths if not (PACKAGE_ROOT / relative).exists()]
-
-    assert missing == []

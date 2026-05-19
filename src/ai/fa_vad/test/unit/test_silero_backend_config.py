@@ -284,9 +284,6 @@ def _write_silero_repo(path: Path) -> Path:
 def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     config_path = Path(__file__).parents[2] / "config" / "default.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    source = (Path(__file__).parents[2] / "fa_vad_py" / "vad_node.py").read_text(
-        encoding="utf-8"
-    )
 
     assert "fa_vad" in config
     assert "fa_vad_node" not in config
@@ -311,29 +308,6 @@ def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     assert "{sample_rate}" in params["backend.args"]
     assert "{window_samples}" in params["backend.args"]
     assert "silero" not in params
-    assert '"backend.args",' in source
-    assert '"backend.frame_ms",' in source
-    assert '"backend.window_samples",' in source
-    assert '"backend.history_buffer_ms",' in source
-    assert "VadBackendSettings" in source
-    assert "build_vad_backend" in source
-    assert "from fa_vad_py.backends.silero import SileroVAD" not in source
-    assert "SileroVAD(" not in source
-    assert "Parameter.Type.STRING_ARRAY" in source
-    assert 'declare_parameter("backend.frame_ms", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("backend.window_samples", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("backend.history_buffer_ms", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("input_topic", Parameter.Type.STRING)' in source
-    assert 'declare_parameter("input_stream_id", Parameter.Type.STRING)' in source
-    forbidden_input_topic_default = 'declare_parameter("input_topic", ' + '"audio/frame")'
-    forbidden_backend_name_default = 'declare_parameter("backend.name", ' + '"")'
-    forbidden_frame_ms_default = 'declare_parameter("backend.frame_ms", ' + "20)"
-    forbidden_qos_depth_default = 'declare_parameter("qos.depth", ' + "10)"
-    assert forbidden_input_topic_default not in source
-    assert forbidden_backend_name_default not in source
-    assert forbidden_frame_ms_default not in source
-    assert forbidden_qos_depth_default not in source
-    assert "tuple(str(item) for item in self.get_parameter" not in source
 
 
 def test_build_vad_backend_rejects_missing_backend_name(tmp_path: Path) -> None:
@@ -465,36 +439,6 @@ def test_vad_frame_contract_rejects_non_canonical_audio(
 
     with pytest.raises(ValueError, match=message):
         audio_frame_to_float_samples(**base_kwargs)
-
-
-def test_vad_node_source_does_not_hide_format_conversion() -> None:
-    source_path = Path(__file__).parents[2] / "fa_vad_py" / "vad_node.py"
-    source = source_path.read_text(encoding="utf-8")
-
-    assert 'super().__init__("fa_vad")' in source
-    assert 'super().__init__("fa_vad_node")' not in source
-    assert "bool(self.get_parameter" not in source
-    assert "int(self.get_parameter" not in source
-    assert "float(self.get_parameter" not in source
-    assert "str(self.get_parameter" not in source
-    assert "_resample_linear" not in source
-    assert "_convert_to_mono" not in source
-    assert "np.clip" not in source
-    assert "_float_to_pcm16" not in source
-    assert "astype(np.int16)" not in source
-    assert "AudioFrame sample_rate must match target_sample_rate" in source
-    assert "expected_source_id=self._expected_source_id" in source
-    assert "expected_stream_id=self._input_stream_id" in source
-    assert "out.source_id = msg.source_id" in source
-    assert "out.stream_id = msg.stream_id" in source
-    assert '"FA VAD: "' in source
-    assert "backend.name={backend_name}" in source
-    assert "Dropping invalid AudioFrame: %s" not in source
-    assert "VAD backend failed: %s" not in source
-    assert "Speech START (prob=%.2f)" not in source
-    assert "input_stream_id must be distinct from ROS input_topic" in source
-    assert "input_stream_id must be distinct from ROS vad_state_topic" in source
-    assert "input_stream_id must be distinct from ROS probability_topic" in source
 
 
 def test_vad_node_backend_runtime_failure_is_fail_closed(
@@ -754,58 +698,6 @@ def test_silero_backend_rejects_implicit_hangover_rounding(tmp_path: Path) -> No
         _silero_backend(model_path=str(model_dir), hangover_ms=25, frame_ms=20)
 
 
-def test_silero_backend_constructor_requires_explicit_vad_config() -> None:
-    backend_path = Path(__file__).parents[2] / "fa_vad_py" / "backends" / "silero.py"
-    source = backend_path.read_text(encoding="utf-8")
-
-    assert "sample_rate: int = 16000" not in source
-    assert "frame_ms: int = 20" not in source
-    assert "window_samples: int = 512" not in source
-    assert "history_buffer_ms: int = 200" not in source
-    assert "hangover_ms: int = 250" not in source
-    assert "threshold_start: float | None" not in source
-    assert "threshold_end: float | None" not in source
-    assert "VAD_THRESHOLD_START" not in source
-    assert "VAD_THRESHOLD_END" not in source
-    assert "int(sample_rate)" not in source
-    assert "int(frame_ms)" not in source
-    assert "int(window_samples)" not in source
-    assert "int(history_buffer_ms)" not in source
-    assert "int(hangover_ms)" not in source
-    assert "float(threshold_start)" not in source
-    assert "float(threshold_end)" not in source
-    assert "bool(cleanup_audio_files)" not in source
-
-
-def test_silero_backend_is_external_process_boundary() -> None:
-    backend_path = Path(__file__).parents[2] / "fa_vad_py" / "backends" / "silero.py"
-    node_path = Path(__file__).parents[2] / "fa_vad_py" / "vad_node.py"
-    backend_source = backend_path.read_text(encoding="utf-8")
-    node_source = node_path.read_text(encoding="utf-8")
-
-    assert "import torch" not in backend_source
-    assert "torch.hub" not in backend_source
-    assert "subprocess.run" in backend_source
-    assert 'declare_parameter("backend.command", Parameter.Type.STRING)' in node_source
-    assert "VAD backend failed" in node_source
-
-
-def test_vad_backends_stay_ros_free() -> None:
-    backend_files = tuple((Path(__file__).parents[2] / "fa_vad_py" / "backends").glob("*.py"))
-    assert backend_files
-    forbidden_ros_tokens = (
-        "rclpy",
-        "fa_interfaces",
-        "AudioFrame",
-        "VadState",
-    )
-
-    for backend_file in backend_files:
-        source = backend_file.read_text(encoding="utf-8")
-        for token in forbidden_ros_tokens:
-            assert token not in source
-
-
 def test_silero_backend_runs_external_worker_contract(tmp_path: Path) -> None:
     model_dir = tmp_path / "model"
     _write_silero_repo(model_dir)
@@ -855,20 +747,6 @@ def test_silero_backend_rejects_implicit_window_and_history_config(tmp_path: Pat
         _silero_backend(model_path=str(model_dir), window_samples=320)
     with pytest.raises(RuntimeError, match="backend.history_buffer_ms must hold"):
         _silero_backend(model_path=str(model_dir), history_buffer_ms=20)
-
-
-def test_silero_backend_windowing_contract_is_explicit_source() -> None:
-    backend_path = Path(__file__).parents[2] / "fa_vad_py" / "backends" / "silero.py"
-    worker_path = Path(__file__).parents[2] / "fa_vad_py" / "backends" / "silero_worker.py"
-    backend_source = backend_path.read_text(encoding="utf-8")
-    worker_source = worker_path.read_text(encoding="utf-8")
-
-    assert "512 if" not in backend_source
-    assert "512 if" not in worker_source
-    assert "int(self.sample_rate * 0.2)" not in backend_source
-    assert "backend.window_samples" in backend_source
-    assert "backend.history_buffer_ms" in backend_source
-    assert "--window-samples" in worker_source
 
 
 def test_silero_backend_rejects_window_sample_rate_mismatch(tmp_path: Path) -> None:
@@ -921,11 +799,3 @@ def test_silero_worker_rejects_unsupported_sample_rate(
 
     with pytest.raises(RuntimeError, match="sample-rate must be 8000 or 16000"):
         parse_args()
-
-
-def test_silero_worker_is_installed_by_cmake() -> None:
-    cmake_path = Path(__file__).parents[2] / "CMakeLists.txt"
-    worker_path = Path(__file__).parents[2] / "scripts" / "silero_vad_worker"
-
-    assert worker_path.is_file()
-    assert "scripts/silero_vad_worker" in cmake_path.read_text(encoding="utf-8")

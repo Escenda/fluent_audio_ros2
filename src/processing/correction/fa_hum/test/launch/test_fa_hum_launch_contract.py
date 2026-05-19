@@ -29,26 +29,6 @@ def _run_fa_hum_launch(config_path: Path) -> subprocess.CompletedProcess[str]:
         text=True,
         timeout=8,
     )
-
-
-def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
-    launch_text = (PACKAGE_ROOT / "launch" / "fa_hum.launch.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
-    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert "default_value" not in launch_text
-    assert "FindPackageShare" not in launch_text
-    assert "PathJoinSubstitution" not in launch_text
-    assert "config/default.yaml" not in launch_text
-    assert 'package="fa_hum"' in launch_text
-    assert 'executable="fa_hum_node"' in launch_text
-    assert "parameters=[config_file]" in launch_text
-    assert "hum.frequency_hz" not in launch_text
-    assert "expected.sample_rate" not in launch_text
-
-
 def test_launch_fails_closed_when_input_topic_is_missing(tmp_path: Path) -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")

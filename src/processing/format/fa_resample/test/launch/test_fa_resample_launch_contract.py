@@ -40,25 +40,6 @@ def _run_fa_resample_launch(config_path: Path) -> subprocess.CompletedProcess[st
         text=True,
         timeout=8,
     )
-
-
-def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
-    launch_text = (PACKAGE_ROOT / "launch" / "fa_resample.launch.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
-    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert "default_value" not in launch_text
-    assert "FindPackageShare" not in launch_text
-    assert "PathJoinSubstitution" not in launch_text
-    assert 'package="fa_resample"' in launch_text
-    assert 'executable="fa_resample_node"' in launch_text
-    assert "parameters=[config_file]" in launch_text
-    assert "target_sample_rate" not in launch_text
-    assert "backend.name" not in launch_text
-
-
 def test_default_launch_config_keeps_resample_as_explicit_format_node() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")

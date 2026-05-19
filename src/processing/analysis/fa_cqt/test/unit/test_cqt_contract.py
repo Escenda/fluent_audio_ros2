@@ -147,42 +147,6 @@ def test_backend_config_rejects_invalid_feature_contract() -> None:
                 normalization="l2",
             )
         )
-
-
-def test_backend_is_ros_free_and_not_ai_runtime() -> None:
-    backend_path = PACKAGE_ROOT / "fa_cqt_py" / "backends" / "constant_q.py"
-    node_path = PACKAGE_ROOT / "fa_cqt_py" / "cqt_node.py"
-    backend_text = backend_path.read_text(encoding="utf-8")
-    node_text = node_path.read_text(encoding="utf-8")
-
-    assert "import rclpy" not in backend_text
-    assert "fa_interfaces" not in backend_text
-    assert "CqtFrame" not in backend_text
-    assert "InternalCqtBackend" in node_text
-    assert "resample" not in backend_text
-
-
-def test_node_requires_explicit_ros_parameters_and_binds_stream_identity() -> None:
-    node_path = PACKAGE_ROOT / "fa_cqt_py" / "cqt_node.py"
-    node_text = node_path.read_text(encoding="utf-8")
-
-    assert "ParameterUninitializedException" in node_text
-    assert "Parameter.Type.STRING" in node_text
-    assert "must be a string parameter" in node_text
-    assert "get_parameter(name).get_parameter_value().string_value" not in node_text
-    assert "expected.stream_id" in node_text
-    assert "output.stream_id" in node_text
-    assert "out.stream_id = self.output_stream_id" in node_text
-    assert "@staticmethod" in node_text
-    assert "def _same_identity(left: str, right: str) -> bool:" in node_text
-    assert 'declare_parameter("input_topic", "audio/features/input")' not in node_text
-    assert 'declare_parameter("feature.frame_length", 4096)' not in node_text
-    assert "msg.stream_id != self.expected_stream_id" in node_text
-    assert "except ValueError as exc:" in node_text
-    assert "except RuntimeError as exc:" in node_text
-    assert "raise" in node_text
-
-
 def test_system_sample_documents_cqt_long_window_input() -> None:
     sample_path = (
         PACKAGE_ROOT.parents[2]

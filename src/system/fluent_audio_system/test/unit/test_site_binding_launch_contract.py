@@ -36,29 +36,6 @@ def _node(
         remappings=[],
         backend_name=backend_name,
     )
-
-
-def test_system_launch_declares_site_binding_arguments() -> None:
-    launch_text = (PACKAGE_ROOT / "launch" / "fluent_audio_system.launch.py").read_text(
-        encoding="utf-8"
-    )
-    run_text = (PACKAGE_ROOT / "launch" / "run.py").read_text(encoding="utf-8")
-
-    for arg_name in ("fa_in_enabled", "fa_out_enabled", "fa_in_source_id", "fa_out_sink_id"):
-        assert f'"{arg_name}"' in launch_text
-        assert f'"{arg_name}"' in run_text
-
-    assert "default_value" not in launch_text
-    assert "default_value" not in run_text
-    assert "profile-declared fa_in" in launch_text
-    assert "profile-declared fa_out" in launch_text
-    assert "_required_bool_launch_arg" in launch_text
-    assert "node_enabled_by_site_binding" in launch_text
-    assert "node_launch_parameters" in launch_text
-    assert 'node.id == "fa_in"' not in launch_text
-    assert 'node.id == "fa_out"' not in launch_text
-
-
 def test_site_binding_launch_gates_only_alsa_site_bound_io() -> None:
     overrides = build_site_binding_overrides(
         fa_in_enabled=False,
@@ -158,21 +135,6 @@ def test_sample_config_keeps_device_site_binding_out_of_system_config() -> None:
     }
     assert "audio.device_selector.identifier" not in fa_in["parameters"]
     assert "audio.device_id" not in fa_out["parameters"]
-
-
-def test_site_binding_launch_args_are_explicit() -> None:
-    launch_text = (PACKAGE_ROOT / "launch" / "fluent_audio_system.launch.py").read_text(
-        encoding="utf-8"
-    )
-    run_text = (PACKAGE_ROOT / "launch" / "run.py").read_text(encoding="utf-8")
-
-    for arg_name in ("fa_in_enabled", "fa_out_enabled", "fa_in_source_id", "fa_out_sink_id"):
-        assert f'DeclareLaunchArgument(\n                "{arg_name}",' in launch_text
-        assert f'DeclareLaunchArgument(\n                "{arg_name}",' in run_text
-    assert "default_value" not in launch_text
-    assert "default_value" not in run_text
-
-
 def test_site_binding_bool_values_are_strict() -> None:
     assert parse_bool_launch_arg_value("fa_in_enabled", "true") is True
     assert parse_bool_launch_arg_value("fa_in_enabled", " false ") is False

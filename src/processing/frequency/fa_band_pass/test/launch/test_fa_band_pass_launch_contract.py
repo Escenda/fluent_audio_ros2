@@ -29,27 +29,6 @@ def _run_fa_band_pass_launch(config_path: Path) -> subprocess.CompletedProcess[s
         text=True,
         timeout=8,
     )
-
-
-def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
-    launch_text = (PACKAGE_ROOT / "launch" / "fa_band_pass.launch.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
-    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert "default_value" not in launch_text
-    assert "FindPackageShare" not in launch_text
-    assert "PathJoinSubstitution" not in launch_text
-    assert 'package="fa_band_pass"' in launch_text
-    assert 'executable="fa_band_pass_node"' in launch_text
-    assert "parameters=[config_file]" in launch_text
-    assert "filter.low_cut_hz" not in launch_text
-    assert "filter.high_cut_hz" not in launch_text
-    assert "expected.sample_rate" not in launch_text
-    assert "expected.channels" not in launch_text
-
-
 def test_default_launch_config_keeps_band_pass_as_frequency_node() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")

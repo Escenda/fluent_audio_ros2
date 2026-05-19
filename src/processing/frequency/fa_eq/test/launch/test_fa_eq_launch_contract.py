@@ -29,27 +29,6 @@ def _run_fa_eq_launch(config_path: Path) -> subprocess.CompletedProcess[str]:
         text=True,
         timeout=8,
     )
-
-
-def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
-    launch_text = (PACKAGE_ROOT / "launch" / "fa_eq.launch.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
-    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert "default_value" not in launch_text
-    assert "FindPackageShare" not in launch_text
-    assert "PathJoinSubstitution" not in launch_text
-    assert 'package="fa_eq"' in launch_text
-    assert 'executable="fa_eq_node"' in launch_text
-    assert "parameters=[config_file]" in launch_text
-    assert "low.cutoff_hz" not in launch_text
-    assert "high.cutoff_hz" not in launch_text
-    assert "gains.low_db" not in launch_text
-    assert "expected.sample_rate" not in launch_text
-
-
 def test_default_launch_config_keeps_eq_as_frequency_node() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")

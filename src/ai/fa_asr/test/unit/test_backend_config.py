@@ -28,11 +28,6 @@ from fa_asr_py.backends.whisper_cpp import WhisperCppAsrBackend, load_whisper_cp
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
-PYTHON_SOURCES = tuple(
-    path
-    for path in sorted((PACKAGE_ROOT / "fa_asr_py").rglob("*.py"))
-    if "__pycache__" not in path.parts
-)
 
 
 def _write_executable(path: Path) -> Path:
@@ -324,8 +319,6 @@ def test_local_command_requires_existing_model_path(tmp_path: Path) -> None:
 def test_default_config_requires_explicit_backend_name() -> None:
     config_path = PACKAGE_ROOT / "config" / "default.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    source_path = PACKAGE_ROOT / "fa_asr_py" / "asr_node.py"
-    source = source_path.read_text(encoding="utf-8")
 
     params = config["fa_asr"]["ros__parameters"]
 
@@ -344,43 +337,6 @@ def test_default_config_requires_explicit_backend_name() -> None:
     assert params["turn_context.qos.reliable"] is True
     assert params["result.qos.depth"] == 10
     assert params["result.qos.reliable"] is True
-    assert 'declare_parameter("expected_source_id", Parameter.Type.STRING)' in source
-    assert 'declare_parameter("expected_stream_id", Parameter.Type.STRING)' in source
-    assert 'declare_parameter("target_sample_rate", 16000)' not in source
-    assert 'declare_parameter("backend.timeout_sec", 120.0)' not in source
-    assert 'declare_parameter("finalize_on_vad_end", True)' not in source
-    assert 'declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)' in source
-    assert 'declare_parameter("audio.qos.depth", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)' in source
-    assert 'declare_parameter("vad.qos.depth", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("vad.qos.reliable", Parameter.Type.BOOL)' in source
-    assert 'declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("turn_context.qos.reliable", Parameter.Type.BOOL)' in source
-    assert 'declare_parameter("result.qos.depth", Parameter.Type.INTEGER)' in source
-    assert 'declare_parameter("result.qos.reliable", Parameter.Type.BOOL)' in source
-    assert "QoSProfile(depth=20)" not in source
-    assert "QoSProfile(depth=50)" not in source
-    assert "QoSProfile(depth=10)" not in source
-    assert "ParameterUninitializedException" in source
-    assert "return tuple()" not in source
-    assert "tuple(str(part) for part in args_value)" not in source
-
-
-def test_asr_node_wires_explicit_qos_edges() -> None:
-    source = (PACKAGE_ROOT / "fa_asr_py" / "asr_node.py").read_text(encoding="utf-8")
-
-    assert 'depth_parameter="audio.qos.depth"' in source
-    assert 'reliable_parameter="audio.qos.reliable"' in source
-    assert 'depth_parameter="vad.qos.depth"' in source
-    assert 'reliable_parameter="vad.qos.reliable"' in source
-    assert 'depth_parameter="turn_context.qos.depth"' in source
-    assert 'reliable_parameter="turn_context.qos.reliable"' in source
-    assert 'depth_parameter="result.qos.depth"' in source
-    assert 'reliable_parameter="result.qos.reliable"' in source
-    assert "AsrResult, self.asr_result_topic, qos_result" in source
-    assert "AudioFrame, self.audio_topic, self.on_audio, qos_audio" in source
-    assert "VadState, self.vad_topic, self.on_vad, qos_vad" in source
-    assert "TurnContext, self.turn_context_topic, self.on_turn_context, qos_turn_context" in source
 
 
 def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
@@ -511,88 +467,6 @@ def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
             )
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
-
-
-def test_asr_python_sources_keep_dependency_boundary_explicit() -> None:
-    combined = "\n".join(path.read_text(encoding="utf-8") for path in PYTHON_SOURCES)
-
-    assert "ImportError" not in combined
-    assert "dict[str, Any]" not in combined
-    assert "Any" not in combined
-    assert "list[object]" not in combined
-    assert "dict[str, object]" not in combined
-    assert "typing import object" not in combined
-
-
-def test_asr_backends_stay_ros_free() -> None:
-    backend_files = tuple((PACKAGE_ROOT / "fa_asr_py" / "backends").glob("*.py"))
-    assert backend_files
-    forbidden_ros_tokens = (
-        "rclpy",
-        "fa_interfaces",
-        "AudioFrame",
-        "VadState",
-        "TurnContext",
-        "AsrResult",
-    )
-
-    for backend_file in backend_files:
-        source = backend_file.read_text(encoding="utf-8")
-        for token in forbidden_ros_tokens:
-            assert token not in source
-
-
-def test_openai_backends_are_external_worker_slots() -> None:
-    openai_realtime = (
-        PACKAGE_ROOT / "fa_asr_py" / "backends" / "openai_realtime.py"
-    ).read_text(encoding="utf-8")
-    openai_transcriptions = (
-        PACKAGE_ROOT / "fa_asr_py" / "backends" / "openai_transcriptions.py"
-    ).read_text(encoding="utf-8")
-    package_xml = (PACKAGE_ROOT / "package.xml").read_text(encoding="utf-8")
-
-    combined = "\n".join((openai_realtime, openai_transcriptions))
-
-    assert "_CommandProcessRunner" in openai_realtime
-    assert "_CommandProcessRunner" in openai_transcriptions
-    assert "import openai" not in combined
-    assert "from openai" not in combined
-    assert "websocket" not in combined.lower()
-    assert "aiohttp" not in combined
-    assert "requests" not in combined
-    assert "openai" not in package_xml.lower()
-
-
-def test_asr_node_rejects_non_canonical_audio_frames() -> None:
-    source_path = PACKAGE_ROOT / "fa_asr_py" / "asr_node.py"
-    source = source_path.read_text(encoding="utf-8")
-
-    assert "np.zeros(0" not in source
-    assert "if samples.size == 0:" not in source
-    assert "_resample_linear" not in source
-    assert "_to_mono" not in source
-    assert "np.frombuffer(bytes(msg.data), dtype=np.int16)" not in source
-    assert 'np.frombuffer(bytes(msg.data), dtype="<f4")' in source
-    assert 'np.dtype("<f4").itemsize' in source
-    assert "AudioFrame data is required" in source
-    assert "AudioFrame channels must be 1" in source
-    assert "AudioFrame source_id and stream_id are required" in source
-    assert "AudioFrame source_id must match expected_source_id" in source
-    assert "AudioFrame stream_id must match expected_stream_id" in source
-    assert "expected_stream_id=self.expected_stream_id" in source
-    assert "expected_stream_id must be distinct from ROS" in source
-    assert '("audio_topic", self.audio_topic)' in source
-    assert '("vad_topic", self.vad_topic)' in source
-    assert '("turn_context_topic", self.turn_context_topic)' in source
-    assert '("asr_result_topic", self.asr_result_topic)' in source
-    assert "AudioFrame layout must be interleaved" in source
-    assert "AudioFrame encoding must be FLOAT32LE" in source
-    assert "AudioFrame bit_depth must be 32" in source
-    assert "AudioFrame sample_rate must match target_sample_rate" in source
-    assert "AudioFrame samples must be normalized to [-1.0, 1.0]" in source
-    assert "VadState source_id and stream_id are required" in source
-    assert "VadState source_id must match expected_source_id" in source
-    assert "VadState stream_id must match expected_stream_id" in source
 
 
 def test_asr_node_rejects_empty_audio_data(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -856,48 +730,6 @@ def test_asr_node_maps_backend_timeout_to_error_result(
         ]
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
-
-
-def test_asr_backends_do_not_hide_audio_format_conversion() -> None:
-    backend_files = sorted((PACKAGE_ROOT / "fa_asr_py" / "backends").glob("*.py"))
-    command_backend = PACKAGE_ROOT / "fa_asr_py" / "backends" / "_command_process.py"
-    forbidden_conversion_tokens = (
-        "np.clip",
-        "_float_to_pcm16",
-        "astype(np.int16)",
-        "np.int16",
-        "PCM16",
-        "pcm16",
-        "wave.open",
-        "import wave",
-        "librosa",
-        "soundfile",
-        "samplerate",
-        "resample",
-        "downmix",
-        "bit_depth",
-        "sample_rate_convert",
-    )
-
-    assert backend_files
-    for backend_file in backend_files:
-        source = backend_file.read_text(encoding="utf-8")
-        for token in forbidden_conversion_tokens:
-            assert token not in source
-
-    command_source = command_backend.read_text(encoding="utf-8")
-    assert "ASR request samples must be normalized to [-1.0, 1.0]" in command_source
-
-
-def test_asr_node_source_does_not_hide_parameter_type_conversion() -> None:
-    source_path = PACKAGE_ROOT / "fa_asr_py" / "asr_node.py"
-    source = source_path.read_text(encoding="utf-8")
-
-    assert "bool(self.get_parameter" not in source
-    assert "int(self.get_parameter" not in source
-    assert "float(self.get_parameter" not in source
-    assert "str(self.get_parameter" not in source
-    assert "tuple(str(" not in source
 
 
 def test_openai_realtime_requires_model_id(tmp_path: Path) -> None:

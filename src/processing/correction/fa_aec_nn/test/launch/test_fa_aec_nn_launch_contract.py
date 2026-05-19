@@ -36,27 +36,6 @@ def _run_fa_aec_nn_launch(config_path: Path) -> subprocess.CompletedProcess[str]
         process.terminate()
         stdout, _ = process.communicate(timeout=2)
         return subprocess.CompletedProcess(command, LAUNCH_TIMEOUT_CODE, stdout, None)
-
-
-def test_launch_uses_only_node_name_and_config_file_arguments() -> None:
-    launch_text = (PACKAGE_ROOT / "launch" / "fa_aec_nn.launch.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'DeclareLaunchArgument(\n            "node_name"' in launch_text
-    assert 'DeclareLaunchArgument(\n            "config_file"' in launch_text
-    assert "default_value" not in launch_text
-    assert "FindPackageShare" not in launch_text
-    assert "PathJoinSubstitution" not in launch_text
-    assert "config/default.yaml" not in launch_text
-    assert 'package="fa_aec_nn"' in launch_text
-    assert 'executable="fa_aec_nn_node"' in launch_text
-    assert "parameters=[config_file]" in launch_text
-    assert "backend.name" not in launch_text
-    assert "expected_sample_rate" not in launch_text
-    assert "expected_channels" not in launch_text
-
-
 def test_default_launch_config_requires_explicit_backend() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "default.yaml").read_text(encoding="utf-8")

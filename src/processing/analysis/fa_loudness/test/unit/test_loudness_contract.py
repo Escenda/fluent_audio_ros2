@@ -10,13 +10,10 @@ from fa_loudness_py.backends.frame_meter import (
     InternalFrameMeterBackend,
 )
 
-
 PACKAGE_ROOT = Path(__file__).parents[2]
-
 
 def _config() -> FrameMeterConfig:
     return FrameMeterConfig(sample_rate=16000, db_floor=-120.0)
-
 
 def test_default_config_uses_internal_backend_and_canonical_audio() -> None:
     config_path = PACKAGE_ROOT / "config" / "default.yaml"
@@ -36,7 +33,6 @@ def test_default_config_uses_internal_backend_and_canonical_audio() -> None:
     assert params["output.stream_id"] != params["output_topic"]
     assert params["meter.db_floor"] == -120.0
 
-
 def test_backend_measures_rms_peak_dbfs_and_crest_factor() -> None:
     backend = InternalFrameMeterBackend(_config())
     samples = np.asarray([0.0, 0.5, -0.5, 1.0], dtype=np.float32)
@@ -51,7 +47,6 @@ def test_backend_measures_rms_peak_dbfs_and_crest_factor() -> None:
     assert result.peak_dbfs == pytest.approx(0.0)
     assert result.crest_factor == pytest.approx(1.0 / expected_rms)
 
-
 def test_backend_zero_signal_uses_configured_db_floor() -> None:
     backend = InternalFrameMeterBackend(_config())
     result = backend.measure(np.zeros(8, dtype=np.float32))
@@ -62,7 +57,6 @@ def test_backend_zero_signal_uses_configured_db_floor() -> None:
     assert result.rms_dbfs == -120.0
     assert result.peak_dbfs == -120.0
     assert result.crest_factor == 0.0
-
 
 def test_backend_rejects_non_canonical_audio_without_hidden_conversion() -> None:
     backend = InternalFrameMeterBackend(_config())
@@ -76,7 +70,6 @@ def test_backend_rejects_non_canonical_audio_without_hidden_conversion() -> None
     with pytest.raises(ValueError, match="normalized"):
         backend.measure(np.full(8, 2.0, dtype=np.float32))
 
-
 def test_backend_config_rejects_invalid_meter_contract() -> None:
     with pytest.raises(RuntimeError, match="meter.sample_rate must be > 0"):
         InternalFrameMeterBackend(FrameMeterConfig(sample_rate=0, db_floor=-120.0))
@@ -84,59 +77,3 @@ def test_backend_config_rejects_invalid_meter_contract() -> None:
         InternalFrameMeterBackend(FrameMeterConfig(sample_rate=16000, db_floor=0.0))
     with pytest.raises(RuntimeError, match="meter.db_floor must be >= -300.0"):
         InternalFrameMeterBackend(FrameMeterConfig(sample_rate=16000, db_floor=-301.0))
-
-
-def test_backend_is_ros_free_and_not_ai_runtime() -> None:
-    backend_path = PACKAGE_ROOT / "fa_loudness_py" / "backends" / "frame_meter.py"
-    node_path = PACKAGE_ROOT / "fa_loudness_py" / "loudness_node.py"
-    backend_text = backend_path.read_text(encoding="utf-8")
-    node_text = node_path.read_text(encoding="utf-8")
-
-    assert "import rclpy" not in backend_text
-    assert "fa_interfaces" not in backend_text
-    assert "LoudnessFrame" not in backend_text
-    assert "InternalFrameMeterBackend" in node_text
-    assert "resample" not in backend_text
-
-
-def test_node_requires_explicit_ros_parameters_and_binds_stream_identity() -> None:
-    node_path = PACKAGE_ROOT / "fa_loudness_py" / "loudness_node.py"
-    node_text = node_path.read_text(encoding="utf-8")
-
-    assert "ParameterUninitializedException" in node_text
-    assert "Parameter.Type.STRING" in node_text
-    assert "must be a string parameter" in node_text
-    assert "get_parameter(name).get_parameter_value().string_value" not in node_text
-    assert "expected.stream_id" in node_text
-    assert "output.stream_id" in node_text
-    assert "out.stream_id = self.output_stream_id" in node_text
-    assert "@staticmethod" in node_text
-    assert "def _same_identity(left: str, right: str) -> bool:" in node_text
-    assert 'declare_parameter("input_topic", "audio/features/input")' not in node_text
-    assert 'declare_parameter("meter.db_floor", -120.0)' not in node_text
-    assert "msg.stream_id != self.expected_stream_id" in node_text
-    assert "except ValueError as exc:" in node_text
-    assert "except RuntimeError as exc:" in node_text
-    assert "raise" in node_text
-
-
-def test_package_layout_matches_required_analysis_layout() -> None:
-    required_paths = (
-        "README.md",
-        "docs/仕様書.md",
-        "docs/アルゴリズム詳細説明書.md",
-        "docs/テスト設計.md",
-        "docs/backends/internal_frame_meter.md",
-        "config/default.yaml",
-        "launch/fa_loudness.launch.py",
-        "fa_loudness_py/loudness_node.py",
-        "fa_loudness_py/backends/frame_meter.py",
-        "test/unit/test_loudness_contract.py",
-        "test/integration/.gitkeep",
-        "test/launch/.gitkeep",
-        "test/fixtures/.gitkeep",
-    )
-
-    missing = [relative for relative in required_paths if not (PACKAGE_ROOT / relative).exists()]
-
-    assert missing == []

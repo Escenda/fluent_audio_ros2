@@ -56,6 +56,11 @@ install(PROGRAMS
 )
 
 install(DIRECTORY
+  fa_kws_py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY
   launch
   config
   DESTINATION share/${PROJECT_NAME}

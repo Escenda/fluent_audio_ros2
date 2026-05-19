@@ -10,7 +10,7 @@ fa_audio_embedding:
     expected.bit_depth: 32
     expected.layout: "interleaved"
     embedding.dimension: 0
-    backend.name: "external_worker"
+    backend.name: ""
     backend.command: ""
     backend.model_id: ""
     backend.model_path: ""

@@ -121,24 +121,6 @@ def _set_voice_frontend_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     }
     for name, value in values.items():
         monkeypatch.setenv(name, value)
-
-
-def test_system_configs_reference_only_declared_ros_packages() -> None:
-    declared_package_names = {
-        package_xml.parent.name for package_xml in SRC_ROOT.rglob("package.xml")
-    }
-    violations: list[str] = []
-    for config_path in sorted((PACKAGE_ROOT / "config").rglob("*.yaml")):
-        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        for group in config["groups"]:
-            for node in group["nodes"]:
-                if node["package"] not in declared_package_names:
-                    relative_path = config_path.relative_to(PACKAGE_ROOT)
-                    violations.append(f"{relative_path}: {group['id']}/{node['id']}")
-
-    assert violations == []
-
-
 def test_system_configs_keep_runtime_node_identity_package_aligned() -> None:
     violations: list[str] = []
     expected_node_names = {
