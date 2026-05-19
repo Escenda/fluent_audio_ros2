@@ -13,6 +13,16 @@ from fluent_audio_system.list_required_packages import main as list_required_pac
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
+RUNTIME_BACKEND_PACKAGE_CASES = (
+    ("io", "fa_in", "fa_in_node"),
+    ("io", "fa_out", "fa_out_node"),
+    ("ai", "fa_vad", "fa_vad_node"),
+    ("ai", "fa_kws", "fa_kws_node"),
+    ("ai", "fa_asr", "fa_asr_node"),
+    ("ai", "fa_turn_detector", "fa_turn_detector_node"),
+    ("ai", "fa_audio_embedding", "fa_audio_embedding_node"),
+    ("generation", "fa_tts", "fa_tts_node"),
+)
 
 
 def _valid_system() -> dict[str, float]:
@@ -462,7 +472,7 @@ def test_streaming_group_accepts_streaming_package(tmp_path: Path) -> None:
 def test_ai_group_accepts_audio_embedding_package(tmp_path: Path) -> None:
     params_file = tmp_path / "fa_audio_embedding.yaml"
     params_file.write_text(
-        "fa_audio_embedding:\n  ros__parameters: {}\n",
+        "fa_audio_embedding:\n  ros__parameters:\n    backend.name: external_worker\n",
         encoding="utf-8",
     )
 
@@ -532,6 +542,7 @@ def test_ai_group_accepts_audio_embedding_package(tmp_path: Path) -> None:
             "fa_audio_embedding",
             "fa_audio_embedding_node",
             {
+                "backend.name": "external_worker",
                 "input_topic": "audio/embedding/input",
                 "expected_stream_id": "audio/embedding/input",
             },
@@ -865,7 +876,10 @@ def test_generation_routing_group_accepts_generation_and_routing_packages(
 ) -> None:
     tts_params = tmp_path / "fa_tts.yaml"
     mix_params = tmp_path / "fa_mix.yaml"
-    tts_params.write_text("fa_tts:\n  ros__parameters: {}\n", encoding="utf-8")
+    tts_params.write_text(
+        "fa_tts:\n  ros__parameters:\n    backend.name: pyopenjtalk\n",
+        encoding="utf-8",
+    )
     mix_params.write_text("fa_mix:\n  ros__parameters: {}\n", encoding="utf-8")
 
     spec = parse_system_config(
@@ -1018,14 +1032,12 @@ def test_params_file_without_matching_ros_parameters_fails_closed(
 
 
 @pytest.mark.parametrize(
-    ("package_name", "executable_name"),
-    [
-        ("fa_in", "fa_in_node"),
-        ("fa_out", "fa_out_node"),
-    ],
+    ("group_id", "package_name", "executable_name"),
+    RUNTIME_BACKEND_PACKAGE_CASES,
 )
-def test_source_and_sink_require_backend_name(
+def test_runtime_backend_packages_require_backend_name(
     tmp_path: Path,
+    group_id: str,
     package_name: str,
     executable_name: str,
 ) -> None:
@@ -1044,7 +1056,50 @@ def test_source_and_sink_require_backend_name(
                 "system": _valid_system(),
                 "groups": [
                     {
-                        "id": "io",
+                        "id": group_id,
+                        "enable": True,
+                        "nodes": [
+                            {
+                                "id": package_name,
+                                "enable": True,
+                                "package": package_name,
+                                "exec": executable_name,
+                                "node_name": package_name,
+                                "params_file": str(params_file),
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("group_id", "package_name", "executable_name"),
+    RUNTIME_BACKEND_PACKAGE_CASES,
+)
+def test_runtime_backend_packages_reject_empty_backend_name(
+    tmp_path: Path,
+    group_id: str,
+    package_name: str,
+    executable_name: str,
+) -> None:
+    params_file = tmp_path / f"{package_name}.yaml"
+    params_file.write_text(
+        f"{package_name}:\n  ros__parameters:\n    backend.name: ''\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=f"node {package_name}.backend.name must be a non-empty string",
+    ):
+        parse_system_config(
+            {
+                "system": _valid_system(),
+                "groups": [
+                    {
+                        "id": group_id,
                         "enable": True,
                         "nodes": [
                             {
@@ -1415,7 +1470,10 @@ def test_environment_path_expansion(
     dictionary_dir.mkdir()
 
     params_file = params_dir / "fa_tts.yaml"
-    params_file.write_text("fa_tts:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text(
+        "fa_tts:\n  ros__parameters:\n    backend.name: pyopenjtalk\n",
+        encoding="utf-8",
+    )
     system_file = config_dir / "system.yaml"
     system_file.write_text(
         """
@@ -1462,7 +1520,10 @@ def test_missing_environment_path_fails_closed(
     tmp_path: Path,
 ) -> None:
     params_file = tmp_path / "fa_tts.yaml"
-    params_file.write_text("fa_tts:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text(
+        "fa_tts:\n  ros__parameters:\n    backend.name: pyopenjtalk\n",
+        encoding="utf-8",
+    )
     monkeypatch.delenv("FA_TEST_OPENJTALK_DICT_DIR", raising=False)
 
     with pytest.raises(
@@ -1502,7 +1563,10 @@ def test_empty_environment_path_fails_closed(
     tmp_path: Path,
 ) -> None:
     params_file = tmp_path / "fa_tts.yaml"
-    params_file.write_text("fa_tts:\n  ros__parameters: {}\n", encoding="utf-8")
+    params_file.write_text(
+        "fa_tts:\n  ros__parameters:\n    backend.name: pyopenjtalk\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("FA_TEST_OPENJTALK_DICT_DIR", "  ")
 
     with pytest.raises(

@@ -1,2 +1,3 @@
 fa_vad:
-  ros__parameters: {}
+  ros__parameters:
+    backend.name: silero

@@ -39,6 +39,8 @@ def _patch_profile_package_shares(
             config_text = "fa_in:\n  ros__parameters:\n    backend.name: alsa_capture\n"
         elif package_name == "fa_out":
             config_text = "fa_out:\n  ros__parameters:\n    backend.name: alsa_playback\n"
+        elif package_name == "fa_tts":
+            config_text = "fa_tts:\n  ros__parameters:\n    backend.name: pyopenjtalk\n"
         else:
             config_text = f"{package_name}:\n  ros__parameters: {{}}\n"
         (config_dir / "default.yaml").write_text(config_text, encoding="utf-8")

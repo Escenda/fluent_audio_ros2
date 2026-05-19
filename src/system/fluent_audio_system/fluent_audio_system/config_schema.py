@@ -164,7 +164,16 @@ _GROUP_CATEGORY_TOKENS = frozenset((
 ))
 _GROUP_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _BASE_REQUIRED_PACKAGES = ("fa_interfaces", "fluent_audio_system")
-_BACKEND_NAME_REQUIRED_PACKAGES = frozenset(("fa_in", "fa_out"))
+_BACKEND_NAME_REQUIRED_PACKAGES = frozenset((
+    "fa_in",
+    "fa_out",
+    "fa_vad",
+    "fa_kws",
+    "fa_asr",
+    "fa_turn_detector",
+    "fa_audio_embedding",
+    "fa_tts",
+))
 
 
 class _TimingConfig(BaseModel):

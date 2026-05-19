@@ -23,7 +23,7 @@ ros2 launch fluent_audio_system run.py \
 ```
 
 Missing config や missing params file は起動失敗にします。`params_file` は対象 node 用の `ros__parameters` block を持つ必要があります。暗黙の device 推測、model fallback、temporary YAML 書き換えは行いません。
-`fa_in` / `fa_out` は effective `backend.name` を必須にし、runtime default backend へ落としません。
+`fa_in` / `fa_out` と、AI / TTS の runtime backend package は effective `backend.name` を必須にし、runtime default backend へ落としません。
 `config`、`fa_in_enabled`、`fa_out_enabled`、`fa_in_source_id`、`fa_out_sink_id` に launch default はありません。profile で enabled な IO を起動しない場合は、site profile または debug launch で `fa_in_enabled:=false` / `fa_out_enabled:=false` を明示します。
 
 VLAbor / Docker 側で system config から build 対象 package を解決する場合は、次の CLI を使います。出力は `fa_interfaces`、`fluent_audio_system`、enabled node package の順で 1 行 1 package です。
