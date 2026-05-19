@@ -16,6 +16,15 @@ namespace
 
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietGraphNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.enable_rosout(false);
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  return options;
+}
+
 std::vector<uint8_t> float32LeBytes(const std::vector<float> & samples)
 {
   std::vector<uint8_t> bytes;
@@ -89,7 +98,7 @@ protected:
 
 TEST_F(RclcppFixture, PublishesOnlyMatchingEpochPairWithOutputStreamIdentity)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietGraphNodeOptions();
   options.parameter_overrides({
     rclcpp::Parameter("input_a_topic", "/fa_crossfade_test/input_a"),
     rclcpp::Parameter("input_b_topic", "/fa_crossfade_test/input_b"),
@@ -105,17 +114,17 @@ TEST_F(RclcppFixture, PublishesOnlyMatchingEpochPairWithOutputStreamIdentity)
     rclcpp::Parameter("expected.bit_depth", 32),
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 
   auto crossfade_node = std::make_shared<fa_crossfade::FaCrossfadeNode>(options);
-  auto test_node = std::make_shared<rclcpp::Node>("fa_crossfade_graph_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_crossfade_graph_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher_a = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_crossfade_test/input_a",
     qos);

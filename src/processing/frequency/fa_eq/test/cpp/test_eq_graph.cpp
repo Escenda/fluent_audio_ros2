@@ -16,6 +16,15 @@ namespace
 
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietGraphNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.enable_rosout(false);
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  return options;
+}
+
 constexpr double kPi = 3.14159265358979323846;
 constexpr const char * kInputStreamId = "audio/test/eq_input";
 constexpr const char * kOutputStreamId = "audio/test/eq_output";
@@ -183,7 +192,7 @@ void waitForReceivedCount(
 
 rclcpp::NodeOptions eqNodeOptions()
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietGraphNodeOptions();
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_eq_test/input"),
     rclcpp::Parameter("output_topic", "/fa_eq_test/output"),
@@ -200,7 +209,7 @@ rclcpp::NodeOptions eqNodeOptions()
     rclcpp::Parameter("expected.bit_depth", 32),
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
@@ -213,10 +222,10 @@ rclcpp::NodeOptions eqNodeOptions()
 TEST_F(RclcppFixture, PublishesThreeBandEqFloat32Frame)
 {
   auto eq_node = std::make_shared<fa_eq::FaEqNode>(eqNodeOptions());
-  auto test_node = std::make_shared<rclcpp::Node>("fa_eq_graph_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_eq_graph_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_eq_test/input",
     qos);
@@ -294,10 +303,10 @@ TEST_F(RclcppFixture, PublishesThreeBandEqFloat32Frame)
 TEST_F(RclcppFixture, ResetsFilterStateOnForwardEpochGap)
 {
   auto eq_node = std::make_shared<fa_eq::FaEqNode>(eqNodeOptions());
-  auto test_node = std::make_shared<rclcpp::Node>("fa_eq_epoch_gap_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_eq_epoch_gap_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_eq_test/input",
     qos);

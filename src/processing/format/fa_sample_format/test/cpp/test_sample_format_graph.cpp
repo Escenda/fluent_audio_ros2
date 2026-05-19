@@ -16,6 +16,15 @@ namespace
 
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietGraphNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.enable_rosout(false);
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  return options;
+}
+
 float readFloat32Le(const std::vector<uint8_t> & bytes, const size_t index)
 {
   const size_t offset = index * sizeof(float);
@@ -68,7 +77,7 @@ protected:
 
 TEST_F(RclcppFixture, PublishesFloat32FrameFromPcm16Input)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietGraphNodeOptions();
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_sample_format_test/input"),
     rclcpp::Parameter("output_topic", "/fa_sample_format_test/output"),
@@ -82,17 +91,17 @@ TEST_F(RclcppFixture, PublishesFloat32FrameFromPcm16Input)
     rclcpp::Parameter("expected.channels", 1),
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
 
   auto sample_format_node = std::make_shared<fa_sample_format::FaSampleFormatNode>(options);
-  auto test_node = std::make_shared<rclcpp::Node>("fa_sample_format_graph_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_sample_format_graph_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_sample_format_test/input",
     qos);

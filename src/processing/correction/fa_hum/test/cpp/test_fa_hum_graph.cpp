@@ -16,6 +16,15 @@ namespace
 
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietGraphNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.enable_rosout(false);
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  return options;
+}
+
 std::vector<uint8_t> float32LeBytes(const std::vector<float> & samples)
 {
   std::vector<uint8_t> bytes;
@@ -54,7 +63,7 @@ rclcpp::NodeOptions validNodeOptions(
   const std::string & input_stream_id = "fa_hum_test/input_stream",
   const std::string & output_stream_id = "fa_hum_test/output_stream")
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietGraphNodeOptions();
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", input_topic),
     rclcpp::Parameter("output_topic", output_topic),
@@ -69,7 +78,7 @@ rclcpp::NodeOptions validNodeOptions(
     rclcpp::Parameter("expected.bit_depth", 32),
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
@@ -102,10 +111,10 @@ protected:
 TEST_F(RclcppFixture, PublishesHumRemovedFloat32Frame)
 {
   auto hum_node = std::make_shared<fa_hum::FaHumNode>(validNodeOptions());
-  auto test_node = std::make_shared<rclcpp::Node>("fa_hum_graph_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_hum_graph_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_hum_test/input",
     qos);
@@ -148,10 +157,10 @@ TEST_F(RclcppFixture, PublishesHumRemovedFloat32Frame)
 TEST_F(RclcppFixture, DropsOlderStampForSameSourceAndEpoch)
 {
   auto hum_node = std::make_shared<fa_hum::FaHumNode>(validNodeOptions());
-  auto test_node = std::make_shared<rclcpp::Node>("fa_hum_stale_stamp_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_hum_stale_stamp_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_hum_test/input",
     qos);
@@ -193,10 +202,10 @@ TEST_F(RclcppFixture, DropsOlderStampForSameSourceAndEpoch)
 TEST_F(RclcppFixture, DropsStaleEpochForSameSource)
 {
   auto hum_node = std::make_shared<fa_hum::FaHumNode>(validNodeOptions());
-  auto test_node = std::make_shared<rclcpp::Node>("fa_hum_stale_epoch_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_hum_stale_epoch_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_hum_test/input",
     qos);
@@ -238,10 +247,10 @@ TEST_F(RclcppFixture, DropsStaleEpochForSameSource)
 TEST_F(RclcppFixture, DropsFrameWhenStreamIdentityDoesNotMatchInputStream)
 {
   auto hum_node = std::make_shared<fa_hum::FaHumNode>(validNodeOptions());
-  auto test_node = std::make_shared<rclcpp::Node>("fa_hum_stream_identity_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_hum_stream_identity_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_hum_test/input",
     qos);

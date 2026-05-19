@@ -16,6 +16,15 @@ namespace
 
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietGraphNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.enable_rosout(false);
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  return options;
+}
+
 std::vector<uint8_t> float32LeBytes(const std::vector<float> & samples)
 {
   std::vector<uint8_t> bytes;
@@ -85,7 +94,7 @@ protected:
 
 TEST_F(RclcppFixture, PublishesLimitedFloat32Frame)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietGraphNodeOptions();
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_limiter_test/input"),
     rclcpp::Parameter("output_topic", "/fa_limiter_test/output"),
@@ -98,17 +107,17 @@ TEST_F(RclcppFixture, PublishesLimitedFloat32Frame)
     rclcpp::Parameter("expected.bit_depth", 32),
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 
   auto limiter_node = std::make_shared<fa_limiter::FaLimiterNode>(options);
-  auto test_node = std::make_shared<rclcpp::Node>("fa_limiter_graph_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_limiter_graph_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_limiter_test/input",
     qos);
@@ -155,7 +164,7 @@ TEST_F(RclcppFixture, PublishesLimitedFloat32Frame)
 
 TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietGraphNodeOptions();
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_limiter_drop_test/input"),
     rclcpp::Parameter("output_topic", "/fa_limiter_drop_test/output"),
@@ -168,17 +177,17 @@ TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
     rclcpp::Parameter("expected.bit_depth", 32),
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
 
   auto limiter_node = std::make_shared<fa_limiter::FaLimiterNode>(options);
-  auto test_node = std::make_shared<rclcpp::Node>("fa_limiter_drop_graph_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_limiter_drop_graph_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_limiter_drop_test/input",
     qos);

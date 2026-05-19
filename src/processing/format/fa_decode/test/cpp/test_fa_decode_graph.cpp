@@ -15,6 +15,15 @@ namespace
 
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietGraphNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.enable_rosout(false);
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  return options;
+}
+
 fa_interfaces::msg::EncodedAudioChunk makeEncodedChunk(const rclcpp::Node & node)
 {
   fa_interfaces::msg::EncodedAudioChunk chunk;
@@ -62,7 +71,7 @@ protected:
 
 TEST_F(RclcppFixture, PublishesAudioFrameFromEncodedInput)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietGraphNodeOptions();
   options.parameter_overrides({
     rclcpp::Parameter("backend.name", "external_codec_decoder"),
     rclcpp::Parameter("backend.command.executable", "/bin/cat"),
@@ -84,17 +93,17 @@ TEST_F(RclcppFixture, PublishesAudioFrameFromEncodedInput)
     rclcpp::Parameter("output.bit_depth", 16),
     rclcpp::Parameter("output.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", true),
   });
 
   auto decode_node = std::make_shared<fa_decode::FaDecodeNode>(options);
-  auto test_node = std::make_shared<rclcpp::Node>("fa_decode_graph_test");
+  auto test_node = std::make_shared<rclcpp::Node>("fa_decode_graph_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::EncodedAudioChunk>(
     "/fa_decode_test/input",
     qos);
