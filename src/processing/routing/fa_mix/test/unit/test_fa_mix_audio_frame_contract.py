@@ -215,3 +215,4 @@ def test_package_layout_and_colcon_test_contracts() -> None:
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_lint_auto</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
+    assert "<test_depend>rclpy</test_depend>" in package_xml
