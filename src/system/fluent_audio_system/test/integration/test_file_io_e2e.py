@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import signal
 import shutil
 import subprocess
 import time
@@ -41,6 +42,8 @@ def _write_file_io_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) -> 
                     "playback.loop": True,
                     "audio.qos.depth": 10,
                     "audio.qos.reliable": True,
+                    "startup.required_subscribers": 1,
+                    "startup.subscriber_wait_timeout_ms": 5000,
                     "diagnostics.publish_period_ms": 1000,
                     "diagnostics.qos.depth": 10,
                     "diagnostics.qos.reliable": True,
@@ -140,11 +143,17 @@ def _wait_for_output(output_pcm: Path, expected_payload: bytes) -> bool:
 
 def _stop_process(process: subprocess.Popen[str]) -> str:
     if process.poll() is None:
-        process.terminate()
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
     try:
         stdout, _stderr = process.communicate(timeout=5)
     except subprocess.TimeoutExpired:
-        process.kill()
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         stdout, _stderr = process.communicate(timeout=5)
     return stdout
 
@@ -183,6 +192,7 @@ def test_fluent_audio_system_launches_file_source_to_file_sink_e2e(
         env=os.environ.copy(),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        start_new_session=True,
         text=True,
     )
     try:

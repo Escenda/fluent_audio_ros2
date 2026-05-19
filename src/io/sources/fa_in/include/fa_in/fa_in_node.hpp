@@ -45,6 +45,8 @@ struct AudioConfig
   std::string layout{};
   uint32_t audio_qos_depth{0};
   bool audio_qos_reliable{false};
+  uint32_t startup_required_subscribers{0};
+  uint32_t startup_subscriber_wait_timeout_ms{0};
   uint32_t diagnostics_qos_depth{0};
   bool diagnostics_qos_reliable{false};
   uint32_t diag_period_ms{0};
@@ -73,6 +75,7 @@ private:
   void startCaptureThread();
   void stopCaptureThread();
   void captureLoop();
+  bool waitForRequiredSubscribers();
   void publishFrame(const uint8_t *data, size_t data_size);
   void publishDiagnostics();
   fa_in::backends::DeviceInfo determineDeviceFromConfig();

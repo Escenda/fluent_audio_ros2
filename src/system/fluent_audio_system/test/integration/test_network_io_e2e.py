@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import signal
 import shutil
 import socket
 import subprocess
@@ -67,6 +68,8 @@ def _write_network_io_params(
                     "network.source_timeout_ms": source_timeout_ms,
                     "audio.qos.depth": 10,
                     "audio.qos.reliable": True,
+                    "startup.required_subscribers": 0,
+                    "startup.subscriber_wait_timeout_ms": 0,
                     "diagnostics.publish_period_ms": 1000,
                     "diagnostics.qos.depth": 10,
                     "diagnostics.qos.reliable": True,
@@ -163,11 +166,17 @@ def _wait_for_network_output(
 
 def _stop_process(process: subprocess.Popen[str]) -> str:
     if process.poll() is None:
-        process.terminate()
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
     try:
         stdout, _stderr = process.communicate(timeout=5)
     except subprocess.TimeoutExpired:
-        process.kill()
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         stdout, _stderr = process.communicate(timeout=5)
     return stdout
 
@@ -204,6 +213,7 @@ def test_fluent_audio_system_launches_network_source_to_network_sink_e2e(
             env=os.environ.copy(),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            start_new_session=True,
             text=True,
         )
         try:

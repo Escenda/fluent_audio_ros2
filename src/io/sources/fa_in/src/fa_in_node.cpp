@@ -229,6 +229,8 @@ void FaInNode::loadParameters()
   this->declare_parameter<std::string>("audio.layout");
   this->declare_parameter<int>("audio.qos.depth");
   this->declare_parameter<bool>("audio.qos.reliable");
+  this->declare_parameter<int>("startup.required_subscribers");
+  this->declare_parameter<int>("startup.subscriber_wait_timeout_ms");
   this->declare_parameter<int>("diagnostics.qos.depth");
   this->declare_parameter<bool>("diagnostics.qos.reliable");
   this->declare_parameter<int>("diagnostics.publish_period_ms");
@@ -272,6 +274,12 @@ void FaInNode::loadParameters()
     "audio.qos.depth",
     readRequiredInt(*this, "audio.qos.depth"));
   config_.audio_qos_reliable = readRequiredBool(*this, "audio.qos.reliable");
+  config_.startup_required_subscribers = validation::requireNonNegativeUint32(
+    "startup.required_subscribers",
+    readRequiredInt(*this, "startup.required_subscribers"));
+  config_.startup_subscriber_wait_timeout_ms = validation::requireNonNegativeUint32(
+    "startup.subscriber_wait_timeout_ms",
+    readRequiredInt(*this, "startup.subscriber_wait_timeout_ms"));
   config_.diagnostics_qos_depth = validation::requirePositiveUint32(
     "diagnostics.qos.depth",
     readRequiredInt(*this, "diagnostics.qos.depth"));
@@ -327,6 +335,12 @@ void FaInNode::loadParameters()
     throw std::runtime_error(
       "audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32");
   }
+  if (config_.startup_required_subscribers > 0u &&
+      config_.startup_subscriber_wait_timeout_ms == 0u)
+  {
+    throw std::runtime_error(
+      "startup.subscriber_wait_timeout_ms must be > 0 when startup.required_subscribers > 0");
+  }
 
   bytes_per_frame_ = validation::bytesPerFrame(config_.channels, config_.bit_depth);
   if (config_.backend_name == kBackendNetworkPcmReceiver) {
@@ -345,9 +359,13 @@ void FaInNode::loadParameters()
   }
   last_frame_time_ = std::chrono::steady_clock::now();
 
-  RCLCPP_INFO(this->get_logger(), "Audio configuration: backend.name=%s rate=%uHz channels=%u bits=%u chunk=%ums",
+  RCLCPP_INFO(
+    this->get_logger(),
+    "Audio configuration: backend.name=%s rate=%uHz channels=%u bits=%u chunk=%ums "
+    "startup_required_subscribers=%u startup_subscriber_wait_timeout_ms=%u",
     config_.backend_name.c_str(), config_.sample_rate, config_.channels,
-    config_.bit_depth, config_.chunk_ms);
+    config_.bit_depth, config_.chunk_ms, config_.startup_required_subscribers,
+    config_.startup_subscriber_wait_timeout_ms);
 }
 
 void FaInNode::initializeBackend()
@@ -455,6 +473,9 @@ void FaInNode::captureLoop()
     failClosed("capture loop started without required source backend");
     return;
   }
+  if (!waitForRequiredSubscribers()) {
+    return;
+  }
 
   std::vector<uint8_t> buffer(bytes_per_buffer_);
 
@@ -509,6 +530,36 @@ void FaInNode::captureLoop()
   }
 }
 
+bool FaInNode::waitForRequiredSubscribers()
+{
+  if (config_.startup_required_subscribers == 0u) {
+    return true;
+  }
+  if (!audio_pub_) {
+    failClosed("audio publisher is not initialized before subscriber wait");
+    return false;
+  }
+
+  const auto deadline = std::chrono::steady_clock::now() +
+    std::chrono::milliseconds(config_.startup_subscriber_wait_timeout_ms);
+  while (rclcpp::ok() && capturing_.load()) {
+    const size_t subscriber_count = audio_pub_->get_subscription_count();
+    if (subscriber_count >= static_cast<size_t>(config_.startup_required_subscribers)) {
+      return true;
+    }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      failClosed(
+        "audio output topic " + config_.output_topic + " matched " +
+        std::to_string(subscriber_count) + " subscribers before startup.subscriber_wait_timeout_ms=" +
+        std::to_string(config_.startup_subscriber_wait_timeout_ms) + ", required " +
+        std::to_string(config_.startup_required_subscribers));
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return false;
+}
+
 void FaInNode::publishFrame(const uint8_t *data, size_t data_size)
 {
   fa_interfaces::msg::AudioFrame frame_msg;
@@ -546,7 +597,7 @@ void FaInNode::publishDiagnostics()
     status.values.push_back(kv);
   };
 
-  status.values.reserve(14);
+  status.values.reserve(16);
   push_kv("device_id", active_device_id_);
   push_kv("source_id", active_source_id_);
   push_kv("output_topic", config_.output_topic);
@@ -555,6 +606,10 @@ void FaInNode::publishDiagnostics()
   push_kv("channels", std::to_string(config_.channels));
   push_kv("encoding", config_.encoding);
   push_kv("chunk_ms", std::to_string(config_.chunk_ms));
+  push_kv("startup.required_subscribers", std::to_string(config_.startup_required_subscribers));
+  push_kv(
+    "startup.subscriber_wait_timeout_ms",
+    std::to_string(config_.startup_subscriber_wait_timeout_ms));
   push_kv("frames_published", std::to_string(frames_published_.load()));
   push_kv("xruns", std::to_string(xruns_.load()));
   push_kv("last_frame_age_ms", std::to_string(age_ms));

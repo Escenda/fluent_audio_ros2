@@ -63,6 +63,8 @@ def _write_network_backend_config(
         "audio.layout": "interleaved",
         "audio.qos.depth": 10,
         "audio.qos.reliable": False,
+        "startup.required_subscribers": 0,
+        "startup.subscriber_wait_timeout_ms": 0,
         "diagnostics.qos.depth": 10,
         "diagnostics.qos.reliable": False,
         "diagnostics.publish_period_ms": 1000,

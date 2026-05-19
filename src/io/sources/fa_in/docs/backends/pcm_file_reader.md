@@ -32,6 +32,8 @@ unsupported encoding / bit depth / sample_rate / channels / layout / file shape 
 - `audio.layout`
 - `audio.chunk_ms`
 - `playback.loop`
+- `startup.required_subscribers`
+- `startup.subscriber_wait_timeout_ms`
 
 `AudioFrame.stream_id` は `fa_in` node の `audio.stream_id` を使う。`file.path` を stream identity として流用しない。
 
@@ -48,3 +50,5 @@ unsupported encoding / bit depth / sample_rate / channels / layout / file shape 
 - partial byte frame
 
 EOF は `playback.loop=false` の場合に source completion として扱う。別 source への fallback はしない。`playback.loop=true` の場合は明示設定に基づき file 先頭へ戻る。
+
+finite file source で最初の frame を落とせない場合は、node parameter `startup.required_subscribers` を 1 以上にする。`pcm_file_reader` backend 自体は ROS discovery を知らず、subscriber 待機は `fa_in_node` が source read 前に行う。

@@ -273,6 +273,8 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("audio.layout", "interleaved"),
     rclcpp::Parameter("audio.qos.depth", 10),
     rclcpp::Parameter("audio.qos.reliable", false),
+    rclcpp::Parameter("startup.required_subscribers", 0),
+    rclcpp::Parameter("startup.subscriber_wait_timeout_ms", 0),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
@@ -307,6 +309,8 @@ std::vector<rclcpp::Parameter> validFileParameters(const std::filesystem::path &
     rclcpp::Parameter("playback.loop", true),
     rclcpp::Parameter("audio.qos.depth", 10),
     rclcpp::Parameter("audio.qos.reliable", false),
+    rclcpp::Parameter("startup.required_subscribers", 0),
+    rclcpp::Parameter("startup.subscriber_wait_timeout_ms", 0),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
@@ -333,6 +337,8 @@ std::vector<rclcpp::Parameter> validNetworkParameters(const TestEndpoint & endpo
     rclcpp::Parameter("audio.layout", "interleaved"),
     rclcpp::Parameter("audio.qos.depth", 10),
     rclcpp::Parameter("audio.qos.reliable", false),
+    rclcpp::Parameter("startup.required_subscribers", 0),
+    rclcpp::Parameter("startup.subscriber_wait_timeout_ms", 0),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
@@ -515,6 +521,65 @@ TEST_F(RclcppContractTest, PublishesConfiguredMetadataAndRawSourcePayload)
   EXPECT_EQ(received->data, state->payload);
   EXPECT_GE(state->read_calls.load(), 1u);
   EXPECT_FALSE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, WaitsForRequiredSubscriberBeforeFirstSourceRead)
+{
+  const auto state = std::make_shared<FakeSourceState>();
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("startup.required_subscribers", 1));
+  replaceParameter(parameters, rclcpp::Parameter("startup.subscriber_wait_timeout_ms", 2000));
+
+  auto node = std::make_shared<fa_in::FaInNode>(
+    optionsWith(std::move(parameters)),
+    factoryFor(state));
+
+  std::this_thread::sleep_for(50ms);
+  EXPECT_EQ(state->read_calls.load(), 0u);
+
+  auto subscriber_node = std::make_shared<rclcpp::Node>(
+    "fa_in_required_subscriber_contract_subscriber",
+    quietContractNodeOptions());
+  std::optional<fa_interfaces::msg::AudioFrame> received;
+  auto subscription = subscriber_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    "fa_in_contract/output",
+    rclcpp::QoS(10).best_effort(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received = *msg;
+    });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(subscriber_node);
+
+  EXPECT_TRUE(spinUntil(executor, [&received]() {
+    return received.has_value();
+  }));
+  ASSERT_TRUE(received.has_value());
+  EXPECT_EQ(received->data, state->payload);
+  EXPECT_GE(state->read_calls.load(), 1u);
+  EXPECT_FALSE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, RequiredSubscriberTimeoutFailsClosedBeforeReading)
+{
+  const auto state = std::make_shared<FakeSourceState>();
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("startup.required_subscribers", 1));
+  replaceParameter(parameters, rclcpp::Parameter("startup.subscriber_wait_timeout_ms", 30));
+
+  auto node = std::make_shared<fa_in::FaInNode>(
+    optionsWith(std::move(parameters)),
+    factoryFor(state));
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+
+  EXPECT_TRUE(spinUntil(executor, [&node]() {
+    return node->hasFatalError();
+  }));
+  EXPECT_TRUE(node->hasFatalError());
+  EXPECT_EQ(state->read_calls.load(), 0u);
 }
 
 TEST_F(RclcppContractTest, FileBackendPublishesRawPcmChunksWithoutFormatMutation)
@@ -710,12 +775,23 @@ TEST_F(RclcppContractTest, ReadFailureFailsClosedWithoutRetry)
 {
   const auto state = std::make_shared<FakeSourceState>();
   state->fail_on_read.store(true);
+  auto parameters = validParameters();
+  replaceParameter(parameters, rclcpp::Parameter("startup.required_subscribers", 1));
+  replaceParameter(parameters, rclcpp::Parameter("startup.subscriber_wait_timeout_ms", 2000));
   auto node = std::make_shared<fa_in::FaInNode>(
-    optionsWith(validParameters()),
+    optionsWith(std::move(parameters)),
     factoryFor(state));
+  auto subscriber_node = std::make_shared<rclcpp::Node>(
+    "fa_in_read_failure_contract_subscriber",
+    quietContractNodeOptions());
+  auto subscription = subscriber_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    "fa_in_contract/output",
+    rclcpp::QoS(10).best_effort(),
+    [](const fa_interfaces::msg::AudioFrame::SharedPtr /*msg*/) {});
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
+  executor.add_node(subscriber_node);
 
   EXPECT_TRUE(spinUntil(executor, [&node]() {
     return node->hasFatalError();

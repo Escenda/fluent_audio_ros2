@@ -17,6 +17,9 @@ fa_in:
       qos:
         depth: 10
         reliable: false
+    startup:
+      required_subscribers: 0
+      subscriber_wait_timeout_ms: 0
     diagnostics:
       qos:
         depth: 10

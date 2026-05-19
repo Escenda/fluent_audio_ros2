@@ -20,6 +20,17 @@ inline uint32_t requirePositiveUint32(const char * parameter_name, const int64_t
   return static_cast<uint32_t>(value);
 }
 
+inline uint32_t requireNonNegativeUint32(const char * parameter_name, const int64_t value)
+{
+  if (value < 0) {
+    throw std::runtime_error(std::string(parameter_name) + " must be >= 0");
+  }
+  if (static_cast<uint64_t>(value) > std::numeric_limits<uint32_t>::max()) {
+    throw std::runtime_error(std::string(parameter_name) + " exceeds uint32 range");
+  }
+  return static_cast<uint32_t>(value);
+}
+
 inline bool isRawAlsaHardwareSource(const std::string & source_id)
 {
   return source_id.rfind("hw:", 0) == 0;
