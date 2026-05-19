@@ -1,9 +1,11 @@
 #include "fa_audio_window/fa_audio_window_node.hpp"
 
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iomanip>
 #include <iterator>
 #include <memory>
 #include <sstream>
@@ -15,6 +17,7 @@
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
+#include <openssl/evp.h>
 #include <rclcpp/rclcpp.hpp>
 
 namespace
@@ -55,6 +58,11 @@ std::filesystem::path outputDirectoryForCurrentTest()
     sanitizeTestName(std::string{test_info->test_suite_name()} + "_" + test_info->name());
 }
 
+std::filesystem::path storeDirectoryForCurrentTest()
+{
+  return outputDirectoryForCurrentTest() / "durable_store";
+}
+
 rclcpp::NodeOptions quietNodeOptions()
 {
   rclcpp::NodeOptions options;
@@ -89,6 +97,29 @@ std::vector<rclcpp::Parameter> validParameters()
     rclcpp::Parameter("qos.depth", 10),
     rclcpp::Parameter("qos.reliable", false),
   };
+}
+
+std::vector<rclcpp::Parameter> filesystemArchiveStoreParameters()
+{
+  std::vector<rclcpp::Parameter> parameters = validParameters();
+  parameters.emplace_back("archive.store.backend", "filesystem");
+  parameters.emplace_back("archive.store.directory", storeDirectoryForCurrentTest().string());
+  parameters.emplace_back("archive.store.uri_prefix", "r2://daihen/v2/audio/");
+  parameters.emplace_back("archive.store.metadata_uri_prefix", "r2://daihen/v2/audio_metadata/");
+  return parameters;
+}
+
+void replaceParameter(
+  std::vector<rclcpp::Parameter> & parameters,
+  const rclcpp::Parameter & replacement)
+{
+  for (rclcpp::Parameter & parameter : parameters) {
+    if (parameter.get_name() == replacement.get_name()) {
+      parameter = replacement;
+      return;
+    }
+  }
+  parameters.push_back(replacement);
 }
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
@@ -184,6 +215,45 @@ std::vector<uint8_t> readBinaryFile(const std::filesystem::path & path)
   };
 }
 
+std::string hexBytes(const unsigned char * data, const unsigned int size)
+{
+  std::ostringstream out;
+  out << std::hex << std::nouppercase << std::setfill('0');
+  for (unsigned int i = 0u; i < size; ++i) {
+    out << std::setw(2) << static_cast<unsigned int>(data[i]);
+  }
+  return out.str();
+}
+
+std::string sha256Hex(const std::vector<uint8_t> & bytes)
+{
+  EVP_MD_CTX * raw_context = EVP_MD_CTX_new();
+  if (raw_context == nullptr) {
+    throw std::runtime_error("failed to allocate test SHA-256 context");
+  }
+  std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(raw_context, EVP_MD_CTX_free);
+  if (EVP_DigestInit_ex(context.get(), EVP_sha256(), nullptr) != 1) {
+    throw std::runtime_error("failed to initialize test SHA-256 digest");
+  }
+  if (!bytes.empty() && EVP_DigestUpdate(context.get(), bytes.data(), bytes.size()) != 1) {
+    throw std::runtime_error("failed to update test SHA-256 digest");
+  }
+  std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+  unsigned int digest_size = 0u;
+  if (EVP_DigestFinal_ex(context.get(), digest.data(), &digest_size) != 1) {
+    throw std::runtime_error("failed to finalize test SHA-256 digest");
+  }
+  if (digest_size != 32u) {
+    throw std::runtime_error("unexpected test SHA-256 digest size");
+  }
+  return hexBytes(digest.data(), digest_size);
+}
+
+std::string sha256HexForFile(const std::filesystem::path & path)
+{
+  return sha256Hex(readBinaryFile(path));
+}
+
 std::filesystem::path pathFromClipRef(const fa_interfaces::msg::AudioClipRef & ref)
 {
   const std::string file_prefix = "file://";
@@ -191,6 +261,26 @@ std::filesystem::path pathFromClipRef(const fa_interfaces::msg::AudioClipRef & r
     throw std::runtime_error("clip ref URI is not a file URI");
   }
   return ref.uri.substr(file_prefix.size());
+}
+
+std::filesystem::path localClipPathForId(const std::string & clip_id)
+{
+  return outputDirectoryForCurrentTest() / (clip_id + ".wav");
+}
+
+std::filesystem::path localMetadataPathForId(const std::string & clip_id)
+{
+  return outputDirectoryForCurrentTest() / (clip_id + ".wav.metadata.json");
+}
+
+std::filesystem::path storeClipPathForId(const std::string & clip_id)
+{
+  return storeDirectoryForCurrentTest() / (clip_id + ".wav");
+}
+
+std::filesystem::path storeMetadataPathForId(const std::string & clip_id)
+{
+  return storeDirectoryForCurrentTest() / (clip_id + ".metadata.json");
 }
 
 size_t countWavFiles(const std::filesystem::path & directory)
@@ -221,6 +311,9 @@ void expectSameClipRef(
 {
   EXPECT_EQ(left.clip_id, right.clip_id);
   EXPECT_EQ(left.uri, right.uri);
+  EXPECT_EQ(left.metadata_uri, right.metadata_uri);
+  EXPECT_EQ(left.content_sha256, right.content_sha256);
+  EXPECT_EQ(left.metadata_sha256, right.metadata_sha256);
   EXPECT_EQ(left.codec, right.codec);
   EXPECT_EQ(left.container, right.container);
   EXPECT_EQ(left.payload_format, right.payload_format);
@@ -334,6 +427,8 @@ TEST_F(AudioWindowServiceContractTest, ReturnsExplicitFailureContracts)
   EXPECT_EQ(success_response->audio_clip_ref.codec, "pcm_s16le");
   EXPECT_EQ(success_response->audio_clip_ref.container, "wav");
   EXPECT_EQ(success_response->audio_clip_ref.payload_format, "audio/wav");
+  EXPECT_EQ(success_response->audio_clip_ref.metadata_uri, "");
+  EXPECT_EQ(success_response->audio_clip_ref.metadata_sha256, "");
   EXPECT_EQ(success_response->audio_clip_ref.sample_rate, 10u);
   EXPECT_EQ(success_response->audio_clip_ref.channels, 1u);
   EXPECT_EQ(success_response->audio_clip_ref.duration_ns, 400000000u);
@@ -344,6 +439,7 @@ TEST_F(AudioWindowServiceContractTest, ReturnsExplicitFailureContracts)
   ASSERT_EQ(success_response->audio_clip_ref.uri.rfind(file_prefix, 0u), 0u);
   const std::filesystem::path exported_path = success_response->audio_clip_ref.uri.substr(file_prefix.size());
   EXPECT_TRUE(std::filesystem::exists(exported_path));
+  EXPECT_EQ(success_response->audio_clip_ref.content_sha256, sha256HexForFile(exported_path));
 
   publisher->publish(validFrameAt(11000000000LL, 2u));
   executor.spin_some(100ms);
@@ -390,7 +486,11 @@ TEST_F(AudioWindowServiceContractTest, RepeatedExportRequestReturnsDeterministic
   expectSameClipRef(first_response->audio_clip_ref, second_response->audio_clip_ref);
   EXPECT_EQ(first_response->time_range.start_unix_ns, second_response->time_range.start_unix_ns);
   EXPECT_EQ(first_response->time_range.end_unix_ns, second_response->time_range.end_unix_ns);
-  EXPECT_TRUE(std::filesystem::exists(pathFromClipRef(first_response->audio_clip_ref)));
+  const std::filesystem::path exported_path = pathFromClipRef(first_response->audio_clip_ref);
+  EXPECT_TRUE(std::filesystem::exists(exported_path));
+  EXPECT_EQ(first_response->audio_clip_ref.content_sha256, sha256HexForFile(exported_path));
+  EXPECT_EQ(first_response->audio_clip_ref.metadata_uri, "");
+  EXPECT_EQ(first_response->audio_clip_ref.metadata_sha256, "");
   EXPECT_EQ(countWavFiles(outputDirectoryForCurrentTest()), 1u);
 }
 
@@ -485,8 +585,12 @@ TEST_F(AudioWindowServiceContractTest, RepeatedArchiveRequestReturnsDeterministi
   const auto first_response = first.get();
   ASSERT_TRUE(first_response->success);
   const std::filesystem::path first_path = pathFromClipRef(first_response->audio_clip_ref);
+  const std::filesystem::path first_metadata_path = first_path.string() + ".metadata.json";
   const std::vector<uint8_t> first_bytes = readBinaryFile(first_path);
-  const std::string first_metadata = readTextFile(first_path.string() + ".metadata.json");
+  const std::string first_metadata = readTextFile(first_metadata_path);
+  EXPECT_EQ(first_response->audio_clip_ref.metadata_uri, "file://" + first_metadata_path.string());
+  EXPECT_EQ(first_response->audio_clip_ref.content_sha256, sha256HexForFile(first_path));
+  EXPECT_EQ(first_response->audio_clip_ref.metadata_sha256, sha256HexForFile(first_metadata_path));
 
   auto second = client->async_send_request(
     archiveRequestFor(
@@ -506,6 +610,10 @@ TEST_F(AudioWindowServiceContractTest, RepeatedArchiveRequestReturnsDeterministi
   EXPECT_EQ(first_path, second_path);
   EXPECT_EQ(first_bytes, readBinaryFile(second_path));
   EXPECT_EQ(first_metadata, readTextFile(second_path.string() + ".metadata.json"));
+  EXPECT_EQ(second_response->audio_clip_ref.content_sha256, sha256HexForFile(second_path));
+  EXPECT_EQ(
+    second_response->audio_clip_ref.metadata_sha256,
+    sha256HexForFile(second_path.string() + ".metadata.json"));
   EXPECT_EQ(countWavFiles(outputDirectoryForCurrentTest()), 1u);
 }
 
@@ -619,6 +727,182 @@ TEST_F(AudioWindowServiceContractTest, RejectsPreexistingDeterministicArchiveCon
     "deterministic archive metadata path exists with different content");
 }
 
+TEST_F(AudioWindowServiceContractTest, FilesystemArchiveStorePublishesDurableClipAndMetadata)
+{
+  auto node = std::make_shared<fa_audio_window::FaAudioWindowNode>(
+    optionsWith(filesystemArchiveStoreParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_audio_window_filesystem_store_io", quietNodeOptions());
+  auto client = io_node->create_client<ArchiveAudioWindow>(kArchiveServiceName);
+  auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic,
+    rclcpp::QoS(10).best_effort());
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  ASSERT_TRUE(spinUntil(executor, [&publisher]() {
+    return publisher->get_subscription_count() > 0u;
+  }));
+  publisher->publish(validFrame());
+  executor.spin_some(100ms);
+
+  auto first = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "filesystem durable evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(first, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto first_response = first.get();
+  ASSERT_TRUE(first_response->success);
+  const std::string clip_id = first_response->audio_clip_ref.clip_id;
+  ASSERT_FALSE(clip_id.empty());
+  EXPECT_EQ(first_response->audio_clip_ref.uri, "r2://daihen/v2/audio/" + clip_id + ".wav");
+  EXPECT_EQ(
+    first_response->audio_clip_ref.metadata_uri,
+    "r2://daihen/v2/audio_metadata/" + clip_id + ".metadata.json");
+
+  const std::filesystem::path local_clip_path = localClipPathForId(clip_id);
+  const std::filesystem::path local_metadata_path = localMetadataPathForId(clip_id);
+  const std::filesystem::path store_clip_path = storeClipPathForId(clip_id);
+  const std::filesystem::path store_metadata_path = storeMetadataPathForId(clip_id);
+  ASSERT_TRUE(std::filesystem::exists(local_clip_path));
+  ASSERT_TRUE(std::filesystem::exists(local_metadata_path));
+  ASSERT_TRUE(std::filesystem::exists(store_clip_path));
+  ASSERT_TRUE(std::filesystem::exists(store_metadata_path));
+  EXPECT_EQ(readBinaryFile(local_clip_path), readBinaryFile(store_clip_path));
+  EXPECT_EQ(readBinaryFile(local_metadata_path), readBinaryFile(store_metadata_path));
+  EXPECT_EQ(first_response->audio_clip_ref.content_sha256, sha256HexForFile(store_clip_path));
+  EXPECT_EQ(first_response->audio_clip_ref.metadata_sha256, sha256HexForFile(store_metadata_path));
+
+  const nlohmann::json metadata = nlohmann::json::parse(readTextFile(store_metadata_path));
+  EXPECT_EQ(metadata.at("audio_clip_ref").at("uri").get<std::string>(), first_response->audio_clip_ref.uri);
+  EXPECT_FALSE(metadata.at("audio_clip_ref").contains("metadata_uri"));
+  EXPECT_FALSE(metadata.at("audio_clip_ref").contains("content_sha256"));
+  EXPECT_FALSE(metadata.at("audio_clip_ref").contains("metadata_sha256"));
+
+  auto second = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "filesystem durable evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(second, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto second_response = second.get();
+  ASSERT_TRUE(second_response->success);
+  expectSameClipRef(first_response->audio_clip_ref, second_response->audio_clip_ref);
+  EXPECT_EQ(readBinaryFile(store_clip_path), readBinaryFile(local_clip_path));
+  EXPECT_EQ(readBinaryFile(store_metadata_path), readBinaryFile(local_metadata_path));
+  EXPECT_EQ(countWavFiles(storeDirectoryForCurrentTest()), 1u);
+}
+
+TEST_F(AudioWindowServiceContractTest, FilesystemArchiveStoreRejectsMediaAndMetadataConflicts)
+{
+  auto node = std::make_shared<fa_audio_window::FaAudioWindowNode>(
+    optionsWith(filesystemArchiveStoreParameters()));
+  auto io_node = std::make_shared<rclcpp::Node>("fa_audio_window_filesystem_conflict_io", quietNodeOptions());
+  auto client = io_node->create_client<ArchiveAudioWindow>(kArchiveServiceName);
+  auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    kInputTopic,
+    rclcpp::QoS(10).best_effort());
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(io_node);
+  ASSERT_TRUE(spinUntil(executor, [&client]() {
+    return client->service_is_ready();
+  }));
+  ASSERT_TRUE(spinUntil(executor, [&publisher]() {
+    return publisher->get_subscription_count() > 0u;
+  }));
+  publisher->publish(validFrame());
+  executor.spin_some(100ms);
+
+  auto media_success = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "filesystem media conflict evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(media_success, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto media_success_response = media_success.get();
+  ASSERT_TRUE(media_success_response->success);
+  {
+    std::ofstream out(
+      storeClipPathForId(media_success_response->audio_clip_ref.clip_id),
+      std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(out.is_open());
+    out << "durable corrupt wav";
+  }
+
+  auto media_conflict = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "filesystem media conflict evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(media_conflict, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto media_conflict_response = media_conflict.get();
+  EXPECT_FALSE(media_conflict_response->success);
+  EXPECT_EQ(media_conflict_response->error_code, ArchiveAudioWindow::Response::ERROR_ARCHIVE_FAILED);
+  EXPECT_EQ(
+    media_conflict_response->message,
+    "archive store audio clip path exists with different bytes");
+
+  auto metadata_success = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "filesystem metadata conflict evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(metadata_success, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto metadata_success_response = metadata_success.get();
+  ASSERT_TRUE(metadata_success_response->success);
+  {
+    std::ofstream out(
+      storeMetadataPathForId(metadata_success_response->audio_clip_ref.clip_id),
+      std::ios::binary | std::ios::trunc);
+    ASSERT_TRUE(out.is_open());
+    out << "{\"schema\":\"durable corrupt\"}\n";
+  }
+
+  auto metadata_conflict = client->async_send_request(
+    archiveRequestFor("10000000000..10400000000", "mic", "filesystem metadata conflict evidence"));
+  ASSERT_EQ(executor.spin_until_future_complete(metadata_conflict, 2s), rclcpp::FutureReturnCode::SUCCESS);
+  const auto metadata_conflict_response = metadata_conflict.get();
+  EXPECT_FALSE(metadata_conflict_response->success);
+  EXPECT_EQ(metadata_conflict_response->error_code, ArchiveAudioWindow::Response::ERROR_ARCHIVE_FAILED);
+  EXPECT_EQ(
+    metadata_conflict_response->message,
+    "archive store metadata path exists with different content");
+}
+
+TEST_F(AudioWindowServiceContractTest, RejectsInvalidArchiveStoreConfigurationAtConstruction)
+{
+  std::vector<rclcpp::Parameter> unknown_backend = validParameters();
+  replaceParameter(unknown_backend, rclcpp::Parameter("archive.store.backend", "unknown"));
+  EXPECT_THROW(
+    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(unknown_backend)),
+    std::runtime_error);
+
+  std::vector<rclcpp::Parameter> missing_directory = validParameters();
+  replaceParameter(missing_directory, rclcpp::Parameter("archive.store.backend", "filesystem"));
+  replaceParameter(missing_directory, rclcpp::Parameter("archive.store.uri_prefix", "r2://daihen/audio/"));
+  replaceParameter(
+    missing_directory,
+    rclcpp::Parameter("archive.store.metadata_uri_prefix", "r2://daihen/metadata/"));
+  EXPECT_THROW(
+    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(missing_directory)),
+    std::runtime_error);
+
+  std::vector<rclcpp::Parameter> missing_prefix = validParameters();
+  replaceParameter(missing_prefix, rclcpp::Parameter("archive.store.backend", "filesystem"));
+  replaceParameter(
+    missing_prefix,
+    rclcpp::Parameter("archive.store.directory", storeDirectoryForCurrentTest().string()));
+  replaceParameter(missing_prefix, rclcpp::Parameter("archive.store.uri_prefix", "r2://daihen/audio/"));
+  EXPECT_THROW(
+    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(missing_prefix)),
+    std::runtime_error);
+
+  std::vector<rclcpp::Parameter> file_uri_prefix = filesystemArchiveStoreParameters();
+  replaceParameter(file_uri_prefix, rclcpp::Parameter("archive.store.uri_prefix", "file:///tmp/not_durable/"));
+  EXPECT_THROW(
+    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(file_uri_prefix)),
+    std::runtime_error);
+
+  std::vector<rclcpp::Parameter> file_metadata_uri_prefix = filesystemArchiveStoreParameters();
+  replaceParameter(
+    file_metadata_uri_prefix,
+    rclcpp::Parameter("archive.store.metadata_uri_prefix", "file:///tmp/not_durable_metadata/"));
+  EXPECT_THROW(
+    (void)std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(file_metadata_uri_prefix)),
+    std::runtime_error);
+}
+
 TEST_F(AudioWindowServiceContractTest, ArchiveServiceReturnsClipOrExplicitErrors)
 {
   auto node = std::make_shared<fa_audio_window::FaAudioWindowNode>(optionsWith(validParameters()));
@@ -692,6 +976,9 @@ TEST_F(AudioWindowServiceContractTest, ArchiveServiceReturnsClipOrExplicitErrors
   EXPECT_EQ(success_response->audio_clip_ref.codec, "pcm_s16le");
   EXPECT_EQ(success_response->audio_clip_ref.container, "wav");
   EXPECT_EQ(success_response->audio_clip_ref.payload_format, "audio/wav");
+  EXPECT_FALSE(success_response->audio_clip_ref.metadata_uri.empty());
+  EXPECT_FALSE(success_response->audio_clip_ref.content_sha256.empty());
+  EXPECT_FALSE(success_response->audio_clip_ref.metadata_sha256.empty());
   EXPECT_EQ(success_response->audio_clip_ref.duration_ns, 400000000u);
   EXPECT_EQ(success_response->time_range.start_unix_ns, 10000000000LL);
   EXPECT_EQ(success_response->time_range.end_unix_ns, 10400000000LL);
@@ -702,6 +989,9 @@ TEST_F(AudioWindowServiceContractTest, ArchiveServiceReturnsClipOrExplicitErrors
   EXPECT_TRUE(std::filesystem::exists(archived_path));
   const std::filesystem::path metadata_path = archived_path.string() + ".metadata.json";
   ASSERT_TRUE(std::filesystem::exists(metadata_path));
+  EXPECT_EQ(success_response->audio_clip_ref.metadata_uri, "file://" + metadata_path.string());
+  EXPECT_EQ(success_response->audio_clip_ref.content_sha256, sha256HexForFile(archived_path));
+  EXPECT_EQ(success_response->audio_clip_ref.metadata_sha256, sha256HexForFile(metadata_path));
   EXPECT_EQ(countTemporaryPublishFiles(outputDirectoryForCurrentTest()), 0u);
   const nlohmann::json metadata = nlohmann::json::parse(readTextFile(metadata_path));
   EXPECT_EQ(metadata.at("schema").get<std::string>(), "fluent_audio.archive_metadata.v1");
@@ -727,6 +1017,9 @@ TEST_F(AudioWindowServiceContractTest, ArchiveServiceReturnsClipOrExplicitErrors
   const nlohmann::json clip_ref = metadata.at("audio_clip_ref");
   EXPECT_EQ(clip_ref.at("clip_id").get<std::string>(), success_response->audio_clip_ref.clip_id);
   EXPECT_EQ(clip_ref.at("uri").get<std::string>(), success_response->audio_clip_ref.uri);
+  EXPECT_FALSE(clip_ref.contains("metadata_uri"));
+  EXPECT_FALSE(clip_ref.contains("content_sha256"));
+  EXPECT_FALSE(clip_ref.contains("metadata_sha256"));
   EXPECT_EQ(clip_ref.at("codec").get<std::string>(), "pcm_s16le");
   EXPECT_EQ(clip_ref.at("container").get<std::string>(), "wav");
   EXPECT_EQ(clip_ref.at("payload_format").get<std::string>(), "audio/wav");

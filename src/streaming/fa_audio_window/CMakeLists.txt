@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(fa_interfaces REQUIRED)
+find_package(OpenSSL REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 
@@ -22,6 +23,10 @@ add_library(fa_audio_window_core
 
 target_include_directories(fa_audio_window_core PUBLIC
   include
+)
+
+target_link_libraries(fa_audio_window_core
+  OpenSSL::Crypto
 )
 
 ament_target_dependencies(fa_audio_window_core
@@ -80,6 +85,7 @@ if(BUILD_TESTING)
     rclcpp
   )
   target_link_libraries(${PROJECT_NAME}_service_contract_test fa_audio_window_core)
+  target_link_libraries(${PROJECT_NAME}_service_contract_test OpenSSL::Crypto)
   target_link_libraries(${PROJECT_NAME}_service_contract_test nlohmann_json::nlohmann_json)
 
   ament_lint_auto_find_test_dependencies()

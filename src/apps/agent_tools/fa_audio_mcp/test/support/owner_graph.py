@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -461,6 +462,11 @@ def assert_export_result_for_spec(
         requested_spec=requested_spec,
     )
     _, clip_path = _assert_audio_clip_result_for_expectation(export, expectation)
+    clip_ref = export["audio_clip_ref"]
+    if not isinstance(clip_ref, dict):
+        raise RuntimeError("audio_clip_ref must be a JSON mapping")
+    assert clip_ref["metadata_uri"] == ""
+    assert clip_ref["metadata_sha256"] == ""
     return clip_path
 
 
@@ -508,6 +514,7 @@ def _assert_audio_clip_result_for_expectation(
         sample_count=expectation.sample_count,
         expected_duration_ns=expectation.duration_ns,
     )
+    assert clip_ref["content_sha256"] == hashlib.sha256(clip_path.read_bytes()).hexdigest()
     return clip_ref, clip_path
 
 
@@ -539,7 +546,10 @@ def assert_archive_metadata(
     expectation: AudioRangeExpectation,
 ) -> None:
     metadata_path = Path(str(clip_path) + ".metadata.json")
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata_bytes = metadata_path.read_bytes()
+    metadata = json.loads(metadata_bytes.decode("utf-8"))
+    assert clip_ref["metadata_uri"] == "file://" + str(metadata_path)
+    assert clip_ref["metadata_sha256"] == hashlib.sha256(metadata_bytes).hexdigest()
     assert metadata["reason"] == ARCHIVE_REASON
     assert metadata["related_artifact_ids"] == [ARCHIVE_ARTIFACT_ID]
     assert metadata["source_id"] == "test-mic"
@@ -548,6 +558,9 @@ def assert_archive_metadata(
     assert metadata["window_epoch"] == 7
     assert metadata["audio_scope"] == "mic"
     assert metadata["audio_clip_ref"]["uri"] == clip_ref["uri"]
+    assert "metadata_uri" not in metadata["audio_clip_ref"]
+    assert "content_sha256" not in metadata["audio_clip_ref"]
+    assert "metadata_sha256" not in metadata["audio_clip_ref"]
     assert metadata["time_range"] == expected_time_range_for_values(
         expectation.start_unix_ns,
         expectation.end_unix_ns,

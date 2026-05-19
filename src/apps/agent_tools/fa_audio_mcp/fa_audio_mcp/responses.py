@@ -18,6 +18,9 @@ class TimeRangeLike(Protocol):
 class AudioClipRefLike(Protocol):
     clip_id: str
     uri: str
+    metadata_uri: str
+    content_sha256: str
+    metadata_sha256: str
     codec: str
     container: str
     payload_format: str
@@ -95,6 +98,9 @@ def _format_audio_clip_result(
         "audio_clip_ref": {
             "clip_id": clip_ref.clip_id,
             "uri": clip_ref.uri,
+            "metadata_uri": clip_ref.metadata_uri,
+            "content_sha256": clip_ref.content_sha256,
+            "metadata_sha256": clip_ref.metadata_sha256,
             "codec": clip_ref.codec,
             "container": clip_ref.container,
             "payload_format": clip_ref.payload_format,

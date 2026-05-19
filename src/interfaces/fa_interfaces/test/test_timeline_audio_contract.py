@@ -40,6 +40,9 @@ def test_audio_refs_can_describe_window_clip_and_model_contracts() -> None:
     clip_ref = AudioClipRef(
         clip_id="clip_20260519_001",
         uri="s3://daihen/v2/audio/clip_20260519_001.wav",
+        metadata_uri="s3://daihen/v2/audio/clip_20260519_001.metadata.json",
+        content_sha256="0" * 64,
+        metadata_sha256="1" * 64,
         codec="pcm_s16le",
         container="wav",
         payload_format="audio/wav",
@@ -59,6 +62,9 @@ def test_audio_refs_can_describe_window_clip_and_model_contracts() -> None:
 
     assert window_ref.time_range.clock == ResolvedTimeRange.CLOCK_AGENT
     assert clip_ref.uri.startswith("s3://")
+    assert clip_ref.metadata_uri.endswith(".metadata.json")
+    assert len(clip_ref.content_sha256) == 64
+    assert len(clip_ref.metadata_sha256) == 64
     assert clip_ref.sample_rate == 16000
     assert model_ref.model_id == "asr-ja-001"
 

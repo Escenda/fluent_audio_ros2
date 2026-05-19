@@ -102,7 +102,7 @@ def test_mcp_tools_call_real_ros_services_and_return_timeline_results() -> None:
                 ("action_12", "video_observation_9"),
             )
         ]
-        assert archive["audio_clip_ref"] == _expected_clip_ref()
+        assert archive["audio_clip_ref"] == _expected_archive_clip_ref()
         assert archive["time_range"] == _expected_time_range()
         assert archive["requested_time_range"] == {
             "start_unix_ns": 10_000_000_000,
@@ -119,7 +119,7 @@ def test_mcp_tools_call_real_ros_services_and_return_timeline_results() -> None:
                 "audio/wav",
             )
         ]
-        assert export["audio_clip_ref"] == _expected_clip_ref()
+        assert export["audio_clip_ref"] == _expected_export_clip_ref()
         assert export["time_range"] == _expected_time_range()
         assert export["requested_time_range"] == {
             "start_unix_ns": 10_000_000_000,
@@ -196,10 +196,13 @@ def _expected_time_range() -> JsonObject:
     }
 
 
-def _expected_clip_ref() -> JsonObject:
+def _expected_archive_clip_ref() -> JsonObject:
     return {
         "clip_id": "clip-smoke",
-        "uri": "file:///tmp/clip-smoke.wav",
+        "uri": "r2://daihen/v2/audio/clip-smoke.wav",
+        "metadata_uri": "r2://daihen/v2/audio_metadata/clip-smoke.metadata.json",
+        "content_sha256": "0" * 64,
+        "metadata_sha256": "1" * 64,
         "codec": "pcm_s16le",
         "container": "wav",
         "payload_format": "audio/wav",
@@ -208,6 +211,14 @@ def _expected_clip_ref() -> JsonObject:
         "duration_ns": 10_000_000_000,
         "time_range": _expected_time_range(),
     }
+
+
+def _expected_export_clip_ref() -> JsonObject:
+    clip_ref = _expected_archive_clip_ref()
+    clip_ref["uri"] = "file:///tmp/clip-smoke.wav"
+    clip_ref["metadata_uri"] = ""
+    clip_ref["metadata_sha256"] = ""
+    return clip_ref
 
 
 class _RosSmokeContext:
@@ -298,7 +309,7 @@ class _RosSmokeContext:
         response.error_code = ExportAudioWindow.Response.ERROR_NONE
         response.message = ""
         response.time_range = _time_range_msg()
-        response.audio_clip_ref = _clip_ref_msg()
+        response.audio_clip_ref = _export_clip_ref_msg()
         return response
 
     def _handle_archive(self, request, response):
@@ -319,7 +330,7 @@ class _RosSmokeContext:
         response.error_code = ArchiveAudioWindow.Response.ERROR_NONE
         response.message = ""
         response.time_range = _time_range_msg()
-        response.audio_clip_ref = _clip_ref_msg()
+        response.audio_clip_ref = _archive_clip_ref_msg()
         return response
 
     def _handle_transcribe(self, request, response):
@@ -349,10 +360,13 @@ def _time_range_msg() -> ResolvedTimeRange:
     return time_range
 
 
-def _clip_ref_msg() -> AudioClipRef:
+def _archive_clip_ref_msg() -> AudioClipRef:
     clip_ref = AudioClipRef()
     clip_ref.clip_id = "clip-smoke"
-    clip_ref.uri = "file:///tmp/clip-smoke.wav"
+    clip_ref.uri = "r2://daihen/v2/audio/clip-smoke.wav"
+    clip_ref.metadata_uri = "r2://daihen/v2/audio_metadata/clip-smoke.metadata.json"
+    clip_ref.content_sha256 = "0" * 64
+    clip_ref.metadata_sha256 = "1" * 64
     clip_ref.codec = "pcm_s16le"
     clip_ref.container = "wav"
     clip_ref.payload_format = "audio/wav"
@@ -360,6 +374,14 @@ def _clip_ref_msg() -> AudioClipRef:
     clip_ref.channels = 1
     clip_ref.duration_ns = 10_000_000_000
     clip_ref.time_range = _time_range_msg()
+    return clip_ref
+
+
+def _export_clip_ref_msg() -> AudioClipRef:
+    clip_ref = _archive_clip_ref_msg()
+    clip_ref.uri = "file:///tmp/clip-smoke.wav"
+    clip_ref.metadata_uri = ""
+    clip_ref.metadata_sha256 = ""
     return clip_ref
 
 

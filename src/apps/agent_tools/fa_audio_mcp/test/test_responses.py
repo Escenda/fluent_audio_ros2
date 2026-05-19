@@ -24,6 +24,9 @@ class FakeTimeRange:
 class FakeAudioClipRef:
     clip_id: str
     uri: str
+    metadata_uri: str
+    content_sha256: str
+    metadata_sha256: str
     codec: str
     container: str
     payload_format: str
@@ -108,6 +111,9 @@ def test_archive_response_formatter_returns_clip_and_time_range_data() -> None:
     assert result["audio_clip_ref"] == {
         "clip_id": "clip-1",
         "uri": "s3://daihen/v2/audio/clip-1.flac",
+        "metadata_uri": "s3://daihen/v2/audio/clip-1.metadata.json",
+        "content_sha256": "0" * 64,
+        "metadata_sha256": "1" * 64,
         "codec": "flac",
         "container": "wav",
         "payload_format": "file",
@@ -143,6 +149,9 @@ def test_export_response_formatter_returns_clip_and_time_range_data() -> None:
 
     assert result["audio_clip_ref"]["clip_id"] == "clip-1"
     assert result["audio_clip_ref"]["uri"] == "s3://daihen/v2/audio/clip-1.flac"
+    assert result["audio_clip_ref"]["metadata_uri"] == "s3://daihen/v2/audio/clip-1.metadata.json"
+    assert result["audio_clip_ref"]["content_sha256"] == "0" * 64
+    assert result["audio_clip_ref"]["metadata_sha256"] == "1" * 64
     assert result["time_range"] == {
         "start_unix_ns": 10,
         "end_unix_ns": 20,
@@ -224,6 +233,9 @@ def _archive_response(success: bool, error_code: str) -> FakeArchiveAudioRespons
         audio_clip_ref=FakeAudioClipRef(
             clip_id="clip-1",
             uri="s3://daihen/v2/audio/clip-1.flac",
+            metadata_uri="s3://daihen/v2/audio/clip-1.metadata.json",
+            content_sha256="0" * 64,
+            metadata_sha256="1" * 64,
             codec="flac",
             container="wav",
             payload_format="file",

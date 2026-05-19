@@ -1,6 +1,7 @@
 #include "fa_audio_window/fa_audio_window_node.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <builtin_interfaces/msg/time.hpp>
 #include <cerrno>
@@ -20,6 +21,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <openssl/evp.h>
 #include <unistd.h>
 
 #include "fa_audio_window/time_range_parser.hpp"
@@ -224,6 +226,70 @@ std::string hex64(const uint64_t value)
   return out.str();
 }
 
+std::vector<uint8_t> readBinaryFile(const std::filesystem::path & path);
+
+std::string hexBytes(const unsigned char * data, const unsigned int size)
+{
+  std::ostringstream out;
+  out << std::hex << std::nouppercase << std::setfill('0');
+  for (unsigned int i = 0u; i < size; ++i) {
+    out << std::setw(2) << static_cast<unsigned int>(data[i]);
+  }
+  return out.str();
+}
+
+std::string sha256Hex(const std::vector<uint8_t> & bytes)
+{
+  EVP_MD_CTX * raw_context = EVP_MD_CTX_new();
+  if (raw_context == nullptr) {
+    throw std::runtime_error("failed to allocate SHA-256 context");
+  }
+  std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(raw_context, EVP_MD_CTX_free);
+
+  if (EVP_DigestInit_ex(context.get(), EVP_sha256(), nullptr) != 1) {
+    throw std::runtime_error("failed to initialize SHA-256 digest");
+  }
+  if (!bytes.empty() && EVP_DigestUpdate(context.get(), bytes.data(), bytes.size()) != 1) {
+    throw std::runtime_error("failed to update SHA-256 digest");
+  }
+
+  std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+  unsigned int digest_size = 0u;
+  if (EVP_DigestFinal_ex(context.get(), digest.data(), &digest_size) != 1) {
+    throw std::runtime_error("failed to finalize SHA-256 digest");
+  }
+  if (digest_size != 32u) {
+    throw std::runtime_error("unexpected SHA-256 digest size");
+  }
+  return hexBytes(digest.data(), digest_size);
+}
+
+std::string sha256HexForFile(const std::filesystem::path & path)
+{
+  return sha256Hex(readBinaryFile(path));
+}
+
+bool startsWith(const std::string & value, const std::string & prefix)
+{
+  return value.rfind(prefix, 0u) == 0u;
+}
+
+ArchiveStoreBackend archiveStoreBackendFromName(const std::string & backend_name)
+{
+  if (backend_name == "local_file") {
+    return ArchiveStoreBackend::kLocalFile;
+  }
+  if (backend_name == "filesystem") {
+    return ArchiveStoreBackend::kFilesystem;
+  }
+  throw std::runtime_error("archive.store.backend is unsupported: " + backend_name);
+}
+
+std::string buildPrefixedUri(const std::string & prefix, const std::string & filename)
+{
+  return prefix + filename;
+}
+
 std::string operationIdentity(const std::string & operation_name)
 {
   if (operation_name == "export") {
@@ -335,6 +401,35 @@ PublishStatus publishTempFileNoClobber(
   std::filesystem::remove(temp_path, remove_error);
   throw std::runtime_error(publish_error_message + ": " + errnoMessage(link_errno));
 }
+
+PublishStatus publishExistingFileNoClobber(
+  const std::filesystem::path & source_path,
+  const std::filesystem::path & target_path,
+  const std::string & inspect_error_message,
+  const std::string & conflict_error_message,
+  const std::string & publish_error_message)
+{
+  std::filesystem::path temp_path;
+  try {
+    temp_path = reserveTemporaryPublishPath(target_path);
+    std::filesystem::copy_file(
+      source_path,
+      temp_path,
+      std::filesystem::copy_options::overwrite_existing);
+    return publishTempFileNoClobber(
+      temp_path,
+      target_path,
+      inspect_error_message,
+      conflict_error_message,
+      publish_error_message);
+  } catch (...) {
+    std::error_code remove_error;
+    if (!temp_path.empty()) {
+      std::filesystem::remove(temp_path, remove_error);
+    }
+    throw;
+  }
+}
 }  // namespace
 
 FaAudioWindowNode::FaAudioWindowNode(const rclcpp::NodeOptions & options)
@@ -367,6 +462,10 @@ void FaAudioWindowNode::loadParameters()
   this->declare_parameter<std::string>("export.codec", "pcm_s16le");
   this->declare_parameter<std::string>("export.container", "wav");
   this->declare_parameter<std::string>("export.payload_format", "audio/wav");
+  this->declare_parameter<std::string>("archive.store.backend", "local_file");
+  this->declare_parameter<std::string>("archive.store.directory", "");
+  this->declare_parameter<std::string>("archive.store.uri_prefix", "");
+  this->declare_parameter<std::string>("archive.store.metadata_uri_prefix", "");
   this->declare_parameter<std::string>("window.id", "fa_audio_window");
   this->declare_parameter<int>("window.epoch", 1);
   this->declare_parameter<int>("qos.depth", 10);
@@ -389,6 +488,12 @@ void FaAudioWindowNode::loadParameters()
   config_.supported_codec = this->get_parameter("export.codec").as_string();
   config_.supported_container = this->get_parameter("export.container").as_string();
   config_.supported_payload_format = this->get_parameter("export.payload_format").as_string();
+  config_.archive_store.backend_name = this->get_parameter("archive.store.backend").as_string();
+  config_.archive_store.backend = archiveStoreBackendFromName(config_.archive_store.backend_name);
+  config_.archive_store.directory = this->get_parameter("archive.store.directory").as_string();
+  config_.archive_store.uri_prefix = this->get_parameter("archive.store.uri_prefix").as_string();
+  config_.archive_store.metadata_uri_prefix =
+    this->get_parameter("archive.store.metadata_uri_prefix").as_string();
   config_.window_id = this->get_parameter("window.id").as_string();
   config_.window_epoch = readPositiveUint32Parameter(*this, "window.epoch");
   config_.qos_depth = readIntParameter(*this, "qos.depth");
@@ -423,6 +528,20 @@ void FaAudioWindowNode::loadParameters()
   {
     throw std::runtime_error("export codec/container/payload_format are required");
   }
+  if (config_.archive_store.backend == ArchiveStoreBackend::kFilesystem) {
+    if (config_.archive_store.directory.empty()) {
+      throw std::runtime_error("archive.store.directory is required for filesystem archive store");
+    }
+    if (config_.archive_store.uri_prefix.empty() || config_.archive_store.metadata_uri_prefix.empty()) {
+      throw std::runtime_error(
+        "archive.store.uri_prefix and archive.store.metadata_uri_prefix are required for filesystem archive store");
+    }
+    if (startsWith(config_.archive_store.uri_prefix, "file://") ||
+        startsWith(config_.archive_store.metadata_uri_prefix, "file://"))
+    {
+      throw std::runtime_error("filesystem archive store URI prefixes must not use file://");
+    }
+  }
   if (config_.qos_depth <= 0) {
     throw std::runtime_error("qos.depth must be > 0");
   }
@@ -431,7 +550,7 @@ void FaAudioWindowNode::loadParameters()
     this->get_logger(),
     "Audio window config: topic=%s export_service=%s archive_service=%s source=%s stream=%s "
     "format=%s/%uHz/%uch/%ubit/%s "
-    "retention_ns=%" PRIu64 " scope=%s output=%s export=%s/%s/%s",
+    "retention_ns=%" PRIu64 " scope=%s output=%s export=%s/%s/%s archive_store=%s",
     config_.input_topic.c_str(),
     config_.service_name.c_str(),
     config_.archive_service_name.c_str(),
@@ -447,7 +566,8 @@ void FaAudioWindowNode::loadParameters()
     config_.output_directory.string().c_str(),
     config_.supported_codec.c_str(),
     config_.supported_container.c_str(),
-    config_.supported_payload_format.c_str());
+    config_.supported_payload_format.c_str(),
+    config_.archive_store.backend_name.c_str());
 }
 
 void FaAudioWindowNode::setupInterfaces()
@@ -666,22 +786,56 @@ FaAudioWindowNode::ClipOperationResult FaAudioWindowNode::writeWindowClip(
     return result;
   }
 
-  result.success = true;
-  result.error = ClipOperationError::kNone;
-  result.message.clear();
   fillResolvedRange(result.time_range, query.exported_range);
   fillAudioClipRef(
     result.audio_clip_ref,
     clip_id,
-    output_path,
+    clipUriFor(clip_id, output_path, is_archive),
+    is_archive ? metadataUriFor(clip_id, metadata_path) : std::string{},
     query);
-  if (is_archive) {
-    try {
+
+  bool local_metadata_published = false;
+  try {
+    if (is_archive) {
       const std::string expected_metadata =
         archiveMetadataJson(request, result.audio_clip_ref, query.exported_range);
-      writeTextAtomically(metadata_path, expected_metadata);
-    } catch (const std::exception & e) {
+      local_metadata_published = writeTextAtomically(metadata_path, expected_metadata);
+
+      if (config_.archive_store.backend == ArchiveStoreBackend::kFilesystem) {
+        const std::filesystem::path store_content_path = archiveStoreContentPathFor(clip_id);
+        const std::filesystem::path store_metadata_path = archiveStoreMetadataPathFor(clip_id);
+        PublishStatus store_content_status = publishExistingFileNoClobber(
+          output_path,
+          store_content_path,
+          "failed to inspect archive store audio clip path",
+          "archive store audio clip path exists with different bytes",
+          "failed to publish archive store audio clip file");
+        try {
+          (void)publishExistingFileNoClobber(
+            metadata_path,
+            store_metadata_path,
+            "failed to inspect archive store metadata path",
+            "archive store metadata path exists with different content",
+            "failed to publish archive store metadata file");
+        } catch (...) {
+          if (store_content_status == PublishStatus::kPublished) {
+            std::error_code remove_error;
+            std::filesystem::remove(store_content_path, remove_error);
+          }
+          throw;
+        }
+        finalizeClipHashes(result.audio_clip_ref, store_content_path, store_metadata_path);
+      } else {
+        finalizeClipHashes(result.audio_clip_ref, output_path, metadata_path);
+      }
+    } else {
+      finalizeClipHashes(result.audio_clip_ref, output_path, std::filesystem::path{});
+    }
+  } catch (const std::exception & e) {
       std::error_code remove_error;
+      if (local_metadata_published) {
+        std::filesystem::remove(metadata_path, remove_error);
+      }
       if (publish_status == PublishStatus::kPublished) {
         std::filesystem::remove(output_path, remove_error);
       }
@@ -691,8 +845,11 @@ FaAudioWindowNode::ClipOperationResult FaAudioWindowNode::writeWindowClip(
       result.audio_clip_ref = fa_interfaces::msg::AudioClipRef{};
       result.time_range = fa_interfaces::msg::ResolvedTimeRange{};
       return result;
-    }
   }
+
+  result.success = true;
+  result.error = ClipOperationError::kNone;
+  result.message.clear();
   return result;
 }
 
@@ -875,11 +1032,15 @@ void FaAudioWindowNode::fillResolvedRange(
 void FaAudioWindowNode::fillAudioClipRef(
   fa_interfaces::msg::AudioClipRef & ref,
   const std::string & clip_id,
-  const std::filesystem::path & path,
+  const std::string & uri,
+  const std::string & metadata_uri,
   const WindowQueryResult & query) const
 {
   ref.clip_id = clip_id;
-  ref.uri = "file://" + path.string();
+  ref.uri = uri;
+  ref.metadata_uri = metadata_uri;
+  ref.content_sha256.clear();
+  ref.metadata_sha256.clear();
   ref.codec = config_.supported_codec;
   ref.container = config_.supported_container;
   ref.payload_format = config_.supported_payload_format;
@@ -888,6 +1049,19 @@ void FaAudioWindowNode::fillAudioClipRef(
   ref.duration_ns =
     static_cast<uint64_t>(query.exported_range.end_unix_ns - query.exported_range.start_unix_ns);
   fillResolvedRange(ref.time_range, query.exported_range);
+}
+
+void FaAudioWindowNode::finalizeClipHashes(
+  fa_interfaces::msg::AudioClipRef & ref,
+  const std::filesystem::path & content_path,
+  const std::filesystem::path & metadata_path) const
+{
+  ref.content_sha256 = sha256HexForFile(content_path);
+  if (metadata_path.empty()) {
+    ref.metadata_sha256.clear();
+    return;
+  }
+  ref.metadata_sha256 = sha256HexForFile(metadata_path);
 }
 
 std::string FaAudioWindowNode::clipIdFor(
@@ -934,6 +1108,37 @@ std::filesystem::path FaAudioWindowNode::clipPathFor(const std::string & clip_id
   return config_.output_directory / (clip_id + ".wav");
 }
 
+std::filesystem::path FaAudioWindowNode::archiveStoreContentPathFor(const std::string & clip_id) const
+{
+  return config_.archive_store.directory / (clip_id + ".wav");
+}
+
+std::filesystem::path FaAudioWindowNode::archiveStoreMetadataPathFor(const std::string & clip_id) const
+{
+  return config_.archive_store.directory / (clip_id + ".metadata.json");
+}
+
+std::string FaAudioWindowNode::clipUriFor(
+  const std::string & clip_id,
+  const std::filesystem::path & local_clip_path,
+  const bool is_archive) const
+{
+  if (is_archive && config_.archive_store.backend == ArchiveStoreBackend::kFilesystem) {
+    return buildPrefixedUri(config_.archive_store.uri_prefix, clip_id + ".wav");
+  }
+  return "file://" + local_clip_path.string();
+}
+
+std::string FaAudioWindowNode::metadataUriFor(
+  const std::string & clip_id,
+  const std::filesystem::path & local_metadata_path) const
+{
+  if (config_.archive_store.backend == ArchiveStoreBackend::kFilesystem) {
+    return buildPrefixedUri(config_.archive_store.metadata_uri_prefix, clip_id + ".metadata.json");
+  }
+  return "file://" + local_metadata_path.string();
+}
+
 std::string FaAudioWindowNode::archiveMetadataJson(
   const ClipOperationRequest & request,
   const fa_interfaces::msg::AudioClipRef & clip_ref,
@@ -973,7 +1178,7 @@ std::string FaAudioWindowNode::archiveMetadataJson(
   return out.str();
 }
 
-void FaAudioWindowNode::writeTextAtomically(
+bool FaAudioWindowNode::writeTextAtomically(
   const std::filesystem::path & path,
   const std::string & content) const
 {
@@ -992,12 +1197,12 @@ void FaAudioWindowNode::writeTextAtomically(
     throw std::runtime_error("failed to write archive metadata file");
   }
 
-  (void)publishTempFileNoClobber(
+  return publishTempFileNoClobber(
     temp_path,
     path,
     "failed to inspect deterministic metadata path",
     "deterministic archive metadata path exists with different content",
-    "failed to publish archive metadata file");
+    "failed to publish archive metadata file") == PublishStatus::kPublished;
 }
 
 }  // namespace fa_audio_window

@@ -31,6 +31,13 @@ fa_audio_window:
       container: "wav"
       payload_format: "audio/wav"
 
+    archive:
+      store:
+        backend: "local_file"
+        directory: ""
+        uri_prefix: ""
+        metadata_uri_prefix: ""
+
     qos:
       depth: 10
       reliable: false

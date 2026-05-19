@@ -3,6 +3,9 @@
 
 string clip_id
 string uri
+string metadata_uri
+string content_sha256
+string metadata_sha256
 string codec
 string container
 string payload_format

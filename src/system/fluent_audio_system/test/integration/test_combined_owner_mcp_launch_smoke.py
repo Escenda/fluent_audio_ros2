@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 import json
 import os
@@ -304,6 +305,7 @@ def test_fluent_audio_system_composes_owner_and_mcp_adapter_configs(
         export_clip = _assert_audio_clip_response(export, ExportAudioWindow)
         archive_clip = _assert_audio_clip_response(archive, ArchiveAudioWindow)
         _assert_wav_clip(export_clip, sample_count=_SAMPLE_COUNT)
+        _assert_no_metadata_ref(export_clip)
         archive_path = _assert_wav_clip(archive_clip, sample_count=_SAMPLE_COUNT)
         _assert_archive_metadata(archive_clip, archive_path, config)
 
@@ -430,6 +432,7 @@ def test_so101_profile_pair_runs_owner_services_and_mcp_tools(
                 ArchiveAudioWindow,
             )
             _assert_profile_wav_clip(export_clip, config)
+            _assert_no_metadata_ref(export_clip)
             archive_path = _assert_profile_wav_clip(archive_clip, config)
             _assert_profile_archive_metadata(archive_clip, archive_path, config)
 
@@ -1327,6 +1330,7 @@ async def _assert_streamable_http_tools(url: str, config: _SmokeConfig) -> None:
                 requested_spec=_AUDIO_RANGE_SPEC,
             )
             _assert_wav_clip_json(export_clip, sample_count=_SAMPLE_COUNT)
+            _assert_no_metadata_ref_json(export_clip)
 
             unsupported_scope = await session.call_tool(
                 "transcribe_audio",
@@ -1415,6 +1419,7 @@ async def _assert_generated_owner_adapter_launch_relative_time_smoke(
             )
             _assert_requested_time_range_duration(export)
             _assert_wav_clip_json(export_clip, sample_count=_RELATIVE_SAMPLE_COUNT)
+            _assert_no_metadata_ref_json(export_clip)
 
 
 async def _assert_profile_streamable_http_tools(
@@ -1468,6 +1473,7 @@ async def _assert_profile_streamable_http_tools(
             export = _tool_result_json(export_result)
             export_clip = _assert_profile_audio_clip_json(export, config)
             _assert_profile_wav_clip_json(export_clip, config)
+            _assert_no_metadata_ref_json(export_clip)
 
 
 def _tool_result_json(result) -> JsonMapping:
@@ -1641,6 +1647,7 @@ def _assert_audio_clip_response(response, service_cls):
     _assert_time_range(clip_ref.time_range)
     assert clip_ref.uri.startswith("file://")
     assert clip_ref.clip_id
+    assert clip_ref.content_sha256
     return clip_ref
 
 
@@ -1663,6 +1670,7 @@ def _assert_profile_audio_clip_response(
     _assert_profile_time_range(clip_ref.time_range, config)
     assert clip_ref.uri.startswith("file://")
     assert clip_ref.clip_id
+    assert clip_ref.content_sha256
     return clip_ref
 
 
@@ -1692,6 +1700,7 @@ def _assert_audio_clip_json(
     )
     assert str(clip_ref["uri"]).startswith("file://")
     assert clip_ref["clip_id"]
+    assert clip_ref["content_sha256"]
     return clip_ref
 
 
@@ -1721,7 +1730,18 @@ def _assert_profile_audio_clip_json(
     )
     assert str(clip_ref["uri"]).startswith("file://")
     assert clip_ref["clip_id"]
+    assert clip_ref["content_sha256"]
     return clip_ref
+
+
+def _assert_no_metadata_ref(clip_ref) -> None:
+    assert clip_ref.metadata_uri == ""
+    assert clip_ref.metadata_sha256 == ""
+
+
+def _assert_no_metadata_ref_json(clip_ref: JsonMapping) -> None:
+    assert clip_ref["metadata_uri"] == ""
+    assert clip_ref["metadata_sha256"] == ""
 
 
 def _assert_time_range(time_range) -> None:
@@ -1777,6 +1797,7 @@ def _assert_requested_time_range_duration(result: JsonMapping) -> None:
 def _assert_wav_clip(clip_ref, *, sample_count: int) -> Path:
     clip_path = _clip_path(clip_ref)
     assert clip_path.is_file()
+    assert clip_ref.content_sha256 == hashlib.sha256(clip_path.read_bytes()).hexdigest()
     with wave.open(str(clip_path), "rb") as wav_file:
         assert wav_file.getnchannels() == 1
         assert wav_file.getframerate() == _SAMPLE_RATE
@@ -1793,6 +1814,7 @@ def _assert_wav_clip(clip_ref, *, sample_count: int) -> Path:
 
 def _assert_profile_wav_clip(clip_ref, config: _ProfileSmokeConfig) -> Path:
     clip_path = _clip_path(clip_ref)
+    assert clip_ref.content_sha256 == hashlib.sha256(clip_path.read_bytes()).hexdigest()
     _assert_profile_wav_path(clip_path, config)
     return clip_path
 
@@ -1800,6 +1822,7 @@ def _assert_profile_wav_clip(clip_ref, config: _ProfileSmokeConfig) -> Path:
 def _assert_wav_clip_json(clip_ref: JsonMapping, *, sample_count: int) -> Path:
     clip_path = _clip_path_json(clip_ref)
     assert clip_path.is_file()
+    assert clip_ref["content_sha256"] == hashlib.sha256(clip_path.read_bytes()).hexdigest()
     with wave.open(str(clip_path), "rb") as wav_file:
         assert wav_file.getnchannels() == 1
         assert wav_file.getframerate() == _SAMPLE_RATE
@@ -1819,6 +1842,7 @@ def _assert_profile_wav_clip_json(
     config: _ProfileSmokeConfig,
 ) -> Path:
     clip_path = _clip_path_json(clip_ref)
+    assert clip_ref["content_sha256"] == hashlib.sha256(clip_path.read_bytes()).hexdigest()
     _assert_profile_wav_path(clip_path, config)
     return clip_path
 
@@ -1840,7 +1864,10 @@ def _assert_profile_wav_path(clip_path: Path, config: _ProfileSmokeConfig) -> No
 
 def _assert_archive_metadata(clip_ref, clip_path: Path, config: _SmokeConfig) -> None:
     metadata_path = Path(str(clip_path) + ".metadata.json")
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata_bytes = metadata_path.read_bytes()
+    metadata = json.loads(metadata_bytes.decode("utf-8"))
+    assert clip_ref.metadata_uri == "file://" + str(metadata_path)
+    assert clip_ref.metadata_sha256 == hashlib.sha256(metadata_bytes).hexdigest()
     assert metadata["schema"] == "fluent_audio.archive_metadata.v1"
     assert metadata["operation"] == "archive_audio_window"
     assert metadata["reason"] == _ARCHIVE_REASON
@@ -1859,6 +1886,9 @@ def _assert_archive_metadata(clip_ref, clip_path: Path, config: _SmokeConfig) ->
     }
     assert metadata["audio_clip_ref"]["clip_id"] == clip_ref.clip_id
     assert metadata["audio_clip_ref"]["uri"] == clip_ref.uri
+    assert "metadata_uri" not in metadata["audio_clip_ref"]
+    assert "content_sha256" not in metadata["audio_clip_ref"]
+    assert "metadata_sha256" not in metadata["audio_clip_ref"]
     assert metadata["audio_clip_ref"]["codec"] == "pcm_s16le"
     assert metadata["audio_clip_ref"]["container"] == "wav"
     assert metadata["audio_clip_ref"]["payload_format"] == "audio/wav"
@@ -1874,7 +1904,10 @@ def _assert_profile_archive_metadata(
     config: _ProfileSmokeConfig,
 ) -> None:
     metadata_path = Path(str(clip_path) + ".metadata.json")
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata_bytes = metadata_path.read_bytes()
+    metadata = json.loads(metadata_bytes.decode("utf-8"))
+    assert clip_ref.metadata_uri == "file://" + str(metadata_path)
+    assert clip_ref.metadata_sha256 == hashlib.sha256(metadata_bytes).hexdigest()
     assert metadata["schema"] == "fluent_audio.archive_metadata.v1"
     assert metadata["operation"] == "archive_audio_window"
     assert metadata["reason"] == _ARCHIVE_REASON
@@ -1890,6 +1923,9 @@ def _assert_profile_archive_metadata(
     )
     assert metadata["audio_clip_ref"]["clip_id"] == clip_ref.clip_id
     assert metadata["audio_clip_ref"]["uri"] == clip_ref.uri
+    assert "metadata_uri" not in metadata["audio_clip_ref"]
+    assert "content_sha256" not in metadata["audio_clip_ref"]
+    assert "metadata_sha256" not in metadata["audio_clip_ref"]
     assert metadata["audio_clip_ref"]["codec"] == "pcm_s16le"
     assert metadata["audio_clip_ref"]["container"] == "wav"
     assert metadata["audio_clip_ref"]["payload_format"] == "audio/wav"
@@ -1908,7 +1944,10 @@ def _assert_archive_metadata_json(
     expected_duration_ns: int,
 ) -> None:
     metadata_path = Path(str(clip_path) + ".metadata.json")
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata_bytes = metadata_path.read_bytes()
+    metadata = json.loads(metadata_bytes.decode("utf-8"))
+    assert clip_ref["metadata_uri"] == "file://" + str(metadata_path)
+    assert clip_ref["metadata_sha256"] == hashlib.sha256(metadata_bytes).hexdigest()
     assert metadata["schema"] == "fluent_audio.archive_metadata.v1"
     assert metadata["operation"] == "archive_audio_window"
     assert metadata["reason"] == _ARCHIVE_REASON
@@ -1921,6 +1960,9 @@ def _assert_archive_metadata_json(
     assert metadata["time_range"] == _expected_time_range_json(start_unix_ns, end_unix_ns)
     assert metadata["audio_clip_ref"]["clip_id"] == clip_ref["clip_id"]
     assert metadata["audio_clip_ref"]["uri"] == clip_ref["uri"]
+    assert "metadata_uri" not in metadata["audio_clip_ref"]
+    assert "content_sha256" not in metadata["audio_clip_ref"]
+    assert "metadata_sha256" not in metadata["audio_clip_ref"]
     assert metadata["audio_clip_ref"]["codec"] == "pcm_s16le"
     assert metadata["audio_clip_ref"]["container"] == "wav"
     assert metadata["audio_clip_ref"]["payload_format"] == "audio/wav"
@@ -1936,7 +1978,10 @@ def _assert_profile_archive_metadata_json(
     config: _ProfileSmokeConfig,
 ) -> None:
     metadata_path = Path(str(clip_path) + ".metadata.json")
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata_bytes = metadata_path.read_bytes()
+    metadata = json.loads(metadata_bytes.decode("utf-8"))
+    assert clip_ref["metadata_uri"] == "file://" + str(metadata_path)
+    assert clip_ref["metadata_sha256"] == hashlib.sha256(metadata_bytes).hexdigest()
     assert metadata["schema"] == "fluent_audio.archive_metadata.v1"
     assert metadata["operation"] == "archive_audio_window"
     assert metadata["reason"] == _ARCHIVE_REASON
@@ -1952,6 +1997,9 @@ def _assert_profile_archive_metadata_json(
     )
     assert metadata["audio_clip_ref"]["clip_id"] == clip_ref["clip_id"]
     assert metadata["audio_clip_ref"]["uri"] == clip_ref["uri"]
+    assert "metadata_uri" not in metadata["audio_clip_ref"]
+    assert "content_sha256" not in metadata["audio_clip_ref"]
+    assert "metadata_sha256" not in metadata["audio_clip_ref"]
     assert metadata["audio_clip_ref"]["codec"] == "pcm_s16le"
     assert metadata["audio_clip_ref"]["container"] == "wav"
     assert metadata["audio_clip_ref"]["payload_format"] == "audio/wav"

@@ -20,6 +20,21 @@
 namespace fa_audio_window
 {
 
+enum class ArchiveStoreBackend
+{
+  kLocalFile,
+  kFilesystem,
+};
+
+struct ArchiveStoreConfig
+{
+  ArchiveStoreBackend backend{ArchiveStoreBackend::kLocalFile};
+  std::string backend_name{"local_file"};
+  std::filesystem::path directory{};
+  std::string uri_prefix{};
+  std::string metadata_uri_prefix{};
+};
+
 struct AudioWindowConfig
 {
   std::string input_topic{};
@@ -37,6 +52,7 @@ struct AudioWindowConfig
   std::string supported_payload_format{};
   std::string window_id{};
   uint64_t window_epoch{1};
+  ArchiveStoreConfig archive_store{};
   int qos_depth{0};
   bool qos_reliable{false};
 };
@@ -119,18 +135,32 @@ private:
   void fillAudioClipRef(
     fa_interfaces::msg::AudioClipRef & ref,
     const std::string & clip_id,
-    const std::filesystem::path & path,
+    const std::string & uri,
+    const std::string & metadata_uri,
     const WindowQueryResult & query) const;
+  void finalizeClipHashes(
+    fa_interfaces::msg::AudioClipRef & ref,
+    const std::filesystem::path & content_path,
+    const std::filesystem::path & metadata_path) const;
   std::string clipIdFor(
     const ClipOperationRequest & request,
     const std::string & resolved_scope,
     const TimeRange & exported_range) const;
   std::filesystem::path clipPathFor(const std::string & clip_id) const;
+  std::filesystem::path archiveStoreContentPathFor(const std::string & clip_id) const;
+  std::filesystem::path archiveStoreMetadataPathFor(const std::string & clip_id) const;
+  std::string clipUriFor(
+    const std::string & clip_id,
+    const std::filesystem::path & local_clip_path,
+    bool is_archive) const;
+  std::string metadataUriFor(
+    const std::string & clip_id,
+    const std::filesystem::path & local_metadata_path) const;
   std::string archiveMetadataJson(
     const ClipOperationRequest & request,
     const fa_interfaces::msg::AudioClipRef & clip_ref,
     const TimeRange & exported_range) const;
-  void writeTextAtomically(
+  bool writeTextAtomically(
     const std::filesystem::path & path,
     const std::string & content) const;
 
