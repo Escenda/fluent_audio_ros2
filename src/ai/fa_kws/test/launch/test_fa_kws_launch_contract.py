@@ -58,3 +58,17 @@ def test_launch_does_not_embed_backend_or_model_fallback() -> None:
     assert "model.encoder" not in launch_text
     assert "backend.execution_provider" not in launch_text
     assert "cpu" not in launch_text
+
+
+def test_launch_and_install_use_only_declared_kws_node_executable() -> None:
+    launch_text = (PACKAGE_ROOT / "launch" / "fa_kws.launch.py").read_text(
+        encoding="utf-8"
+    )
+    cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    assert 'executable="fa_kws_node"' in launch_text
+    assert "LaunchConfiguration(\"executable\")" not in launch_text
+    assert "fa_kws_node_fallback" not in launch_text
+    assert "fa_kws_stub" not in launch_text
+    assert "add_executable(fa_kws_node" in cmake_text
+    assert "install(TARGETS fa_kws_node fa_kws_wav_tool" in cmake_text
