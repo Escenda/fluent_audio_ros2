@@ -11,8 +11,8 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import Bool, Float32
 
 from fa_interfaces.msg import AudioFrame, VadState
-from fa_vad_py.backends.base import Float32MonoWindow, VADBackend
-from fa_vad_py.backends.silero import SileroVAD
+from fa_vad_py.backends.base import Float32MonoWindow
+from fa_vad_py.backends.factory import VadBackendSettings, build_vad_backend
 from fa_vad_py.contracts import (
     audio_frame_to_float_samples,
     validate_node_config,
@@ -50,6 +50,7 @@ class FaVadNode(Node):
             backend_frame_ms=backend_frame_ms,
         )
 
+        backend_name = self._string_parameter("backend.name").strip()
         model_path = self._string_parameter("backend.model_path").strip()
         execution_provider = self._string_parameter("backend.execution_provider").strip()
         command = self._string_parameter("backend.command").strip()
@@ -80,31 +81,36 @@ class FaVadNode(Node):
             AudioFrame, self._input_topic, self._on_audio_frame, qos
         )
 
-        self._vad = self._load_backend(
-            threshold_start=threshold_start,
-            threshold_end=threshold_end,
-            hangover_ms=hangover_ms,
-            frame_ms=backend_frame_ms,
-            model_path=model_path,
-            execution_provider=execution_provider,
-            command=command,
-            args=backend_args,
-            timeout_sec=timeout_sec,
-            workspace_dir=workspace_dir,
-            cleanup_audio_files=cleanup_audio_files,
+        self._vad = build_vad_backend(
+            VadBackendSettings(
+                name=backend_name,
+                sample_rate=self._target_sample_rate,
+                frame_ms=backend_frame_ms,
+                hangover_ms=hangover_ms,
+                threshold_start=threshold_start,
+                threshold_end=threshold_end,
+                model_path=model_path,
+                execution_provider=execution_provider,
+                command=command,
+                args=backend_args,
+                timeout_sec=timeout_sec,
+                workspace_dir=workspace_dir,
+                cleanup_audio_files=cleanup_audio_files,
+            )
         )
 
         self._last_is_speech: bool | None = None
 
         self.get_logger().info(
-            "FA VAD (Silero): "
+            "FA VAD: "
             f"input={self._input_topic} input_stream_id={self._input_stream_id} "
             f"expected_source_id={self._expected_source_id} "
             f"output={self._output_topic} "
             f"vad_state={self._vad_state_topic if self._publish_vad_state else '(disabled)'} "
             f"target_sr={self._target_sample_rate} start={threshold_start:.2f} "
             f"end={threshold_end:.2f} hangover={hangover_ms}ms "
-            f"provider={execution_provider} model_path={model_path} command={command}"
+            f"backend.name={backend_name} provider={execution_provider} "
+            f"model_path={model_path} command={command}"
         )
 
     def _declare_required_parameters(self) -> None:
@@ -157,41 +163,6 @@ class FaVadNode(Node):
     def _same_identity_string(cls, left: str, right: str) -> bool:
         return left == right or (
             cls._remove_leading_slashes(left) == cls._remove_leading_slashes(right)
-        )
-
-    def _load_backend(
-        self,
-        *,
-        threshold_start: float,
-        threshold_end: float,
-        hangover_ms: int,
-        frame_ms: int,
-        model_path: str,
-        execution_provider: str,
-        command: str,
-        args: tuple[str, ...],
-        timeout_sec: float,
-        workspace_dir: str,
-        cleanup_audio_files: bool,
-    ) -> VADBackend:
-        backend_name = self._string_parameter("backend.name").strip()
-        if not backend_name:
-            raise RuntimeError("backend.name is required")
-        if backend_name != SileroVAD.name:
-            raise RuntimeError(f"unsupported VAD backend.name: {backend_name}")
-        return SileroVAD(
-            sample_rate=self._target_sample_rate,
-            frame_ms=frame_ms,
-            hangover_ms=hangover_ms,
-            threshold_start=threshold_start,
-            threshold_end=threshold_end,
-            model_path=model_path,
-            execution_provider=execution_provider,
-            command=command,
-            args=args,
-            timeout_sec=timeout_sec,
-            workspace_dir=workspace_dir,
-            cleanup_audio_files=cleanup_audio_files,
         )
 
     def _string_parameter(self, name: str) -> str:

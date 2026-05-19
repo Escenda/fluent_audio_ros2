@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from fa_vad_py.backends.base import Float32MonoWindow
+from fa_vad_py.backends.factory import VadBackendSettings, build_vad_backend
 from fa_vad_py.backends.silero import SileroVAD
 from fa_vad_py.backends.silero_worker import parse_args
 from fa_vad_py.contracts import (
@@ -223,6 +224,31 @@ def _silero_backend(
     )
 
 
+def _vad_backend_settings(
+    tmp_path: Path,
+    *,
+    backend_name: str = "silero",
+) -> VadBackendSettings:
+    model_path = _write_silero_repo(tmp_path / "silero_repo")
+    command_path = tmp_path / "vad_worker"
+    _write_executable(command_path)
+    return VadBackendSettings(
+        name=backend_name,
+        sample_rate=16000,
+        frame_ms=20,
+        threshold_start=0.5,
+        threshold_end=0.1,
+        hangover_ms=300,
+        model_path=str(model_path),
+        execution_provider="cpu",
+        command=str(command_path),
+        args=DEFAULT_ARGS,
+        timeout_sec=1.0,
+        workspace_dir=str(tmp_path / "workspace"),
+        cleanup_audio_files=True,
+    )
+
+
 def _float32_window(
     *, sample_rate: int = 16000, sample_count: int = 512
 ) -> Float32MonoWindow:
@@ -278,6 +304,10 @@ def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     assert "silero" not in params
     assert '"backend.args",' in source
     assert '"backend.frame_ms",' in source
+    assert "VadBackendSettings" in source
+    assert "build_vad_backend" in source
+    assert "from fa_vad_py.backends.silero import SileroVAD" not in source
+    assert "SileroVAD(" not in source
     assert "Parameter.Type.STRING_ARRAY" in source
     assert 'declare_parameter("backend.frame_ms", Parameter.Type.INTEGER)' in source
     assert 'declare_parameter("input_topic", Parameter.Type.STRING)' in source
@@ -305,61 +335,20 @@ def test_default_config_requires_explicit_backend_and_silero_inputs() -> None:
     assert "tuple(str(item) for item in self.get_parameter" not in source
 
 
-def test_vad_node_backend_name_validation_rejects_missing_and_unknown(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    package_root = Path(__file__).parents[2]
-    shutdown_calls: list[bool] = []
-    _install_vad_node_import_fakes(monkeypatch, shutdown_calls)
-    monkeypatch.syspath_prepend(str(package_root))
-    sys.modules.pop("fa_vad_py.vad_node", None)
+def test_build_vad_backend_rejects_missing_backend_name(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="backend.name is required"):
+        build_vad_backend(_vad_backend_settings(tmp_path, backend_name=""))
 
-    try:
-        module = importlib.import_module("fa_vad_py.vad_node")
-        node = module.FaVadNode.__new__(module.FaVadNode)
-        node._target_sample_rate = 16000
 
-        def missing_backend_name(name: str) -> str:
-            assert name == "backend.name"
-            return ""
+def test_build_vad_backend_rejects_unknown_backend_name(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="unsupported VAD backend.name: bogus"):
+        build_vad_backend(_vad_backend_settings(tmp_path, backend_name="bogus"))
 
-        node._string_parameter = missing_backend_name
-        with pytest.raises(RuntimeError, match="backend.name is required"):
-            node._load_backend(
-                threshold_start=0.5,
-                threshold_end=0.1,
-                hangover_ms=300,
-                frame_ms=20,
-                model_path="/tmp/model",
-                execution_provider="cpu",
-                command="/tmp/worker",
-                args=DEFAULT_ARGS,
-                timeout_sec=1.0,
-                workspace_dir="/tmp/work",
-                cleanup_audio_files=True,
-            )
 
-        def unknown_backend_name(name: str) -> str:
-            assert name == "backend.name"
-            return "bogus"
+def test_build_vad_backend_constructs_silero_backend(tmp_path: Path) -> None:
+    backend = build_vad_backend(_vad_backend_settings(tmp_path))
 
-        node._string_parameter = unknown_backend_name
-        with pytest.raises(RuntimeError, match="unsupported VAD backend.name: bogus"):
-            node._load_backend(
-                threshold_start=0.5,
-                threshold_end=0.1,
-                hangover_ms=300,
-                frame_ms=20,
-                model_path="/tmp/model",
-                execution_provider="cpu",
-                command="/tmp/worker",
-                args=DEFAULT_ARGS,
-                timeout_sec=1.0,
-                workspace_dir="/tmp/work",
-                cleanup_audio_files=True,
-            )
-    finally:
-        sys.modules.pop("fa_vad_py.vad_node", None)
+    assert isinstance(backend, SileroVAD)
 
 
 def test_vad_node_parameter_helpers_reject_wrong_ros_parameter_types(
@@ -497,7 +486,8 @@ def test_vad_node_source_does_not_hide_format_conversion() -> None:
     assert "expected_stream_id=self._input_stream_id" in source
     assert "out.source_id = msg.source_id" in source
     assert "out.stream_id = msg.stream_id" in source
-    assert '"FA VAD (Silero): "' in source
+    assert '"FA VAD: "' in source
+    assert "backend.name={backend_name}" in source
     assert "Dropping invalid AudioFrame: %s" not in source
     assert "VAD backend failed: %s" not in source
     assert "Speech START (prob=%.2f)" not in source
