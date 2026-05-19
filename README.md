@@ -17,7 +17,7 @@
 - `fa_record`（`src/io/utilities/fa_record/`）: `audio/frame` をWAVへ録音（`record` サービス）
 - `fa_stream`（`src/io/utilities/fa_stream/`）: `audio/frame` を外部へ配信する utility（Icecast向け `fa_stream_node.py`）
 - `fa_vad`（`src/ai/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と source / stream identity 付き `voice/vad_state` を提供
-- `fa_kws`（`src/ai/fa_kws/`）: sherpa-onnx によるローカルKWS、`voice/wake_word`を提供
+- `fa_kws`（`src/ai/fa_kws/`）: 外部 worker 境界の sherpa-onnx KWS、`voice/wake_word`を提供
 - `fa_asr`（`src/ai/fa_asr/`）: ローカルASRコマンド（whisper.cpp等）を呼び出し、`voice/asr/result`を提供
 - `fa_turn_detector`（`src/ai/fa_turn_detector/`）: Smart Turn v3 ONNX によるターン終了推定、`voice/turn_end`を提供
 - `fa_tts`（`src/processing/generation/fa_tts/`）: pyopenjtalk(Open JTalk) によるTTS（`speak` サービス）/ `AudioFrame` 出力
@@ -36,7 +36,7 @@
 - ALSA: `libasound2-dev`
 - TTS: `pyopenjtalk`, `python3-numpy`
 - VAD/ASR/TD: `python3-numpy`, 外部 VAD worker command, `onnxruntime`（TD）, ローカルASR実行ファイル（例: whisper.cpp）
-- KWS: sherpa-onnx C API
+- KWS: 外部 sherpa-onnx worker command（例: `fa_kws/scripts/sherpa_onnx_kws_worker`）
 - （任意）`ffmpeg`: `fa_stream` の `fa_stream_node.py` で使用
 
 ### ビルド
@@ -50,13 +50,13 @@ source install/setup.bash
 ### 1) TTS をスピーカーへ再生
 ```bash
 # Terminal A
-ros2 launch fa_out fa_out.launch.py
+ros2 launch fa_out fa_out.launch.py node_name:=fa_out config_file:=/path/to/fa_out.yaml
 
 # Terminal B
-ros2 launch fa_tts fa_tts.launch.py
+ros2 launch fa_tts fa_tts.launch.py node_name:=fa_tts config_file:=/path/to/fa_tts.yaml
 
 # Terminal C
-ros2 launch fa_mix fa_mix.launch.py
+ros2 launch fa_mix fa_mix.launch.py node_name:=fa_mix config_file:=/path/to/fa_mix.yaml
 
 # Terminal D（サービス名は namespace により変わる場合があります。`ros2 service list | grep speak` で確認）
 ros2 service call /speak fa_interfaces/srv/Speak "{text: 'こんにちは', voice_id: '', play: false, volume_db: 0.0, cache_key: ''}"
@@ -65,20 +65,21 @@ ros2 service call /speak fa_interfaces/srv/Speak "{text: 'こんにちは', voic
 
 ### 2) マイク入力 + VAD
 ```bash
-ros2 launch fa_in fa_in.launch.py
-ros2 launch fa_vad fa_vad.launch.py
+ros2 launch fa_in fa_in.launch.py node_name:=fa_in config_file:=/path/to/fa_in.yaml
+ros2 launch fa_vad fa_vad.launch.py node_name:=fa_vad config_file:=/path/to/fa_vad.yaml
 ```
 
 ### 3) 音声対話コア（VAD/KWS/ASR/TD）
 ```bash
-ros2 launch fa_in fa_in.launch.py
-ros2 launch fa_vad fa_vad.launch.py
-ros2 launch fa_kws fa_kws.launch.py
-ros2 launch fa_asr fa_asr.launch.py
-ros2 launch fa_turn_detector fa_turn_detector.launch.py
+ros2 launch fluent_audio_system run.py \
+  config:=/path/to/so101_kws_frontend.yaml \
+  fa_in_enabled:=true \
+  fa_out_enabled:=false \
+  fa_in_source_id:=hw:CARD=Mic,DEV=0 \
+  fa_out_sink_id:=disabled
 ```
 
-`fa_kws` / `fa_asr` / `fa_turn_detector` はローカルモデルのパスが必須です。未設定または存在しない場合は起動時に失敗します。
+`fa_kws` / `fa_asr` / `fa_turn_detector` はローカルモデルまたは external worker の契約が必須です。KWS では `backend.command`、`backend.args`、`backend.health_args`、model files、provider、workspace、`output.qos.*` を node config または system config に明示します。未設定または存在しない場合は起動時に失敗します。
 
 `voice/vad_state` は `fa_vad` が判定した `AudioFrame.source_id` / `stream_id` を保持します。`fa_kws` / `fa_asr` / `fa_turn_detector` は topic 名だけで VAD state を信頼せず、自分が処理する audio stream と identity が一致しない VAD state を reject します。
 

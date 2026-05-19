@@ -30,6 +30,8 @@ def _patch_profile_package_shares(
         "fa_out",
         "fa_sample_format",
         "fa_resample",
+        "fa_vad",
+        "fa_kws",
         "fa_tts",
         "fa_mix",
     ):
@@ -39,6 +41,10 @@ def _patch_profile_package_shares(
             config_text = "fa_in:\n  ros__parameters:\n    backend.name: alsa_capture\n"
         elif package_name == "fa_out":
             config_text = "fa_out:\n  ros__parameters:\n    backend.name: alsa_playback\n"
+        elif package_name == "fa_vad":
+            config_text = "fa_vad:\n  ros__parameters: {}\n"
+        elif package_name == "fa_kws":
+            config_text = "fa_kws:\n  ros__parameters: {}\n"
         elif package_name == "fa_tts":
             config_text = "fa_tts:\n  ros__parameters:\n    backend.name: pyopenjtalk\n"
         else:
@@ -53,6 +59,8 @@ def _patch_profile_package_shares(
             "fa_out",
             "fa_sample_format",
             "fa_resample",
+            "fa_vad",
+            "fa_kws",
             "fa_tts",
             "fa_mix",
         ):
@@ -60,6 +68,23 @@ def _patch_profile_package_shares(
         raise RuntimeError(f"unexpected package share lookup: {package_name}")
 
     monkeypatch.setattr(config_schema, "_get_package_share_directory", package_share)
+
+
+def _set_kws_frontend_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    values = {
+        "FLUENT_AUDIO_VAD_MODEL_DIR": str(tmp_path / "models" / "silero"),
+        "FLUENT_AUDIO_VAD_PROVIDER": "cpu",
+        "FLUENT_AUDIO_VAD_WORKER": str(tmp_path / "bin" / "silero_vad_worker"),
+        "FLUENT_AUDIO_KWS_PROVIDER": "cpu",
+        "FLUENT_AUDIO_KWS_WORKER": str(tmp_path / "bin" / "sherpa_onnx_kws_worker"),
+        "FLUENT_AUDIO_KWS_ENCODER": str(tmp_path / "models" / "kws" / "encoder.onnx"),
+        "FLUENT_AUDIO_KWS_DECODER": str(tmp_path / "models" / "kws" / "decoder.onnx"),
+        "FLUENT_AUDIO_KWS_JOINER": str(tmp_path / "models" / "kws" / "joiner.onnx"),
+        "FLUENT_AUDIO_KWS_TOKENS": str(tmp_path / "models" / "kws" / "tokens.txt"),
+        "FLUENT_AUDIO_KWS_KEYWORDS": str(tmp_path / "models" / "kws" / "keywords.txt"),
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
 
 
 def test_system_configs_reference_only_declared_ros_packages() -> None:
@@ -300,6 +325,106 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
     }
 
 
+def test_so101_kws_frontend_profile_expands_vad_and_kws_worker_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+    _set_kws_frontend_env(monkeypatch, tmp_path)
+
+    spec = load_system_config(
+        "${share:fluent_audio_system}/config/profiles/so101_kws_frontend.yaml"
+    )
+
+    enabled_nodes = [
+        node
+        for group in spec.groups
+        for node in group.nodes
+    ]
+    params_by_id = {node.id: node.parameters for node in enabled_nodes}
+
+    assert [node.id for node in enabled_nodes] == [
+        "fa_in",
+        "fa_sample_format",
+        "fa_resample",
+        "fa_vad",
+        "fa_kws",
+    ]
+    assert [node.package for node in enabled_nodes] == [
+        "fa_in",
+        "fa_sample_format",
+        "fa_resample",
+        "fa_vad",
+        "fa_kws",
+    ]
+
+    vad_params = params_by_id["fa_vad"]
+    assert vad_params["input_topic"] == "audio/resample16k/mic"
+    assert vad_params["input_stream_id"] == "audio/preprocessed/mono16k"
+    assert vad_params["backend.name"] == "silero"
+    assert vad_params["backend.model_path"] == str(tmp_path / "models" / "silero")
+    assert vad_params["backend.execution_provider"] == "cpu"
+    assert vad_params["backend.command"] == str(tmp_path / "bin" / "silero_vad_worker")
+
+    kws_params = params_by_id["fa_kws"]
+    assert kws_params["audio_topic"] == vad_params["input_topic"]
+    assert kws_params["expected_stream_id"] == vad_params["input_stream_id"]
+    assert kws_params["vad_topic"] == "voice/vad_state"
+    assert kws_params["output_topic"] == "voice/wake_word"
+    assert kws_params["backend.name"] == "sherpa_onnx_kws"
+    assert kws_params["backend.execution_provider"] == "cpu"
+    assert kws_params["backend.command"] == str(
+        tmp_path / "bin" / "sherpa_onnx_kws_worker"
+    )
+    assert kws_params["model.encoder"] == str(tmp_path / "models" / "kws" / "encoder.onnx")
+    assert kws_params["model.decoder"] == str(tmp_path / "models" / "kws" / "decoder.onnx")
+    assert kws_params["model.joiner"] == str(tmp_path / "models" / "kws" / "joiner.onnx")
+    assert kws_params["model.tokens"] == str(tmp_path / "models" / "kws" / "tokens.txt")
+    assert kws_params["kws.keywords_file"] == str(
+        tmp_path / "models" / "kws" / "keywords.txt"
+    )
+    assert kws_params["backend.args"][:3] == ["detect", "--audio", "{audio}"]
+    assert "{audio}" not in kws_params["backend.health_args"]
+    assert kws_params["backend.timeout_sec"] == 5.0
+    assert kws_params["backend.workspace_dir"] == "/tmp/fluent_audio/fa_kws/so101"
+    assert kws_params["backend.cleanup_audio_files"] is True
+    assert kws_params["output.qos.depth"] == 10
+    assert kws_params["output.qos.reliable"] is False
+    assert "qos.depth" not in kws_params
+    assert "qos.reliable" not in kws_params
+    for placeholder in (
+        "{encoder}",
+        "{decoder}",
+        "{joiner}",
+        "{tokens}",
+        "{keywords}",
+        "{provider}",
+        "{sample_rate}",
+        "{num_threads}",
+        "{max_active_paths}",
+        "{num_trailing_blanks}",
+        "{keywords_score}",
+        "{keywords_threshold}",
+    ):
+        assert placeholder in kws_params["backend.args"]
+        assert placeholder in kws_params["backend.health_args"]
+
+
+def test_so101_kws_frontend_profile_requires_worker_and_model_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_profile_package_shares(monkeypatch, tmp_path)
+
+    with pytest.raises(
+        RuntimeError,
+        match="environment variable FLUENT_AUDIO_VAD_MODEL_DIR is required",
+    ):
+        load_system_config(
+            "${share:fluent_audio_system}/config/profiles/so101_kws_frontend.yaml"
+        )
+
+
 @pytest.mark.parametrize(
     ("profile_path", "group_id"),
     (
@@ -329,6 +454,43 @@ def test_voice_frontend_profiles_bind_ai_consumers_to_resampled_mic_stream(
     assert params_by_id["fa_audio_embedding"]["expected_stream_id"] == vad_stream_id
 
 
+@pytest.mark.parametrize(
+    ("profile_path", "group_id"),
+    (
+        ("config/fluent_audio_system.sample.yaml", "ai"),
+        ("config/profiles/so101.yaml", "ai"),
+        ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
+        ("config/profiles/so101_kws_frontend.yaml", "voice_frontend"),
+    ),
+)
+def test_kws_profiles_carry_external_worker_contract_in_system_config(
+    profile_path: str,
+    group_id: str,
+) -> None:
+    config = yaml.safe_load((PACKAGE_ROOT / profile_path).read_text(encoding="utf-8"))
+    group = next(group for group in config["groups"] if group["id"] == group_id)
+    kws = next(node for node in group["nodes"] if node["id"] == "fa_kws")
+    params = kws["parameters"]
+
+    assert params["backend.name"] == "sherpa_onnx_kws"
+    assert params["backend.command"] == "${env:FLUENT_AUDIO_KWS_WORKER}"
+    assert params["backend.execution_provider"] == "${env:FLUENT_AUDIO_KWS_PROVIDER}"
+    assert params["model.encoder"] == "${env:FLUENT_AUDIO_KWS_ENCODER}"
+    assert params["model.decoder"] == "${env:FLUENT_AUDIO_KWS_DECODER}"
+    assert params["model.joiner"] == "${env:FLUENT_AUDIO_KWS_JOINER}"
+    assert params["model.tokens"] == "${env:FLUENT_AUDIO_KWS_TOKENS}"
+    assert params["kws.keywords_file"] == "${env:FLUENT_AUDIO_KWS_KEYWORDS}"
+    assert params["backend.timeout_sec"] == 5.0
+    assert params["backend.workspace_dir"]
+    assert params["backend.cleanup_audio_files"] is True
+    assert params["output.qos.depth"] == 10
+    assert params["output.qos.reliable"] is False
+    assert "{audio}" in params["backend.args"]
+    assert "{audio}" not in params["backend.health_args"]
+    assert "qos.depth" not in params
+    assert "qos.reliable" not in params
+
+
 def test_required_packages_for_so101_mic_frontend_profile(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -345,6 +507,26 @@ def test_required_packages_for_so101_mic_frontend_profile(
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+    ]
+
+
+def test_required_packages_for_so101_kws_frontend_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_fluent_audio_system_share(monkeypatch)
+
+    packages = load_required_packages(
+        "${share:fluent_audio_system}/config/profiles/so101_kws_frontend.yaml"
+    )
+
+    assert packages == [
+        "fa_interfaces",
+        "fluent_audio_system",
+        "fa_in",
+        "fa_sample_format",
+        "fa_resample",
+        "fa_vad",
+        "fa_kws",
     ]
 
 

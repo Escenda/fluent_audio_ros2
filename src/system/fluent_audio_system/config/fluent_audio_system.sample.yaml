@@ -632,6 +632,80 @@ groups:
         parameters:
           audio_topic: "audio/resample16k/mic"
           expected_stream_id: "audio/preprocessed/mono16k"
+          vad_topic: "voice/vad_state"
+          output_topic: "voice/wake_word"
+          backend.name: "sherpa_onnx_kws"
+          backend.execution_provider: "${env:FLUENT_AUDIO_KWS_PROVIDER}"
+          backend.command: "${env:FLUENT_AUDIO_KWS_WORKER}"
+          backend.args:
+            - "detect"
+            - "--audio"
+            - "{audio}"
+            - "--encoder"
+            - "{encoder}"
+            - "--decoder"
+            - "{decoder}"
+            - "--joiner"
+            - "{joiner}"
+            - "--tokens"
+            - "{tokens}"
+            - "--keywords"
+            - "{keywords}"
+            - "--provider"
+            - "{provider}"
+            - "--sample-rate"
+            - "{sample_rate}"
+            - "--num-threads"
+            - "{num_threads}"
+            - "--max-active-paths"
+            - "{max_active_paths}"
+            - "--num-trailing-blanks"
+            - "{num_trailing_blanks}"
+            - "--keywords-score"
+            - "{keywords_score}"
+            - "--keywords-threshold"
+            - "{keywords_threshold}"
+          backend.health_args:
+            - "health"
+            - "--encoder"
+            - "{encoder}"
+            - "--decoder"
+            - "{decoder}"
+            - "--joiner"
+            - "{joiner}"
+            - "--tokens"
+            - "{tokens}"
+            - "--keywords"
+            - "{keywords}"
+            - "--provider"
+            - "{provider}"
+            - "--sample-rate"
+            - "{sample_rate}"
+            - "--num-threads"
+            - "{num_threads}"
+            - "--max-active-paths"
+            - "{max_active_paths}"
+            - "--num-trailing-blanks"
+            - "{num_trailing_blanks}"
+            - "--keywords-score"
+            - "{keywords_score}"
+            - "--keywords-threshold"
+            - "{keywords_threshold}"
+          backend.timeout_sec: 5.0
+          backend.workspace_dir: "/tmp/fluent_audio/fa_kws/sample"
+          backend.cleanup_audio_files: true
+          output.qos.depth: 10
+          output.qos.reliable: false
+          model.encoder: "${env:FLUENT_AUDIO_KWS_ENCODER}"
+          model.decoder: "${env:FLUENT_AUDIO_KWS_DECODER}"
+          model.joiner: "${env:FLUENT_AUDIO_KWS_JOINER}"
+          model.tokens: "${env:FLUENT_AUDIO_KWS_TOKENS}"
+          kws.keywords_file: "${env:FLUENT_AUDIO_KWS_KEYWORDS}"
+          model.num_threads: 4
+          kws.max_active_paths: 32
+          kws.num_trailing_blanks: 1
+          kws.keywords_score: 1.0
+          kws.keywords_threshold: 0.25
 
       - id: fa_asr
         enable: false

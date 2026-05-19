@@ -114,14 +114,16 @@ VAD/KWS/ASR/TD を同じ音声 stream で連携する場合、`fa_vad.input_stre
 
 ## 5. ランチ例
 ```bash
-ros2 launch fa_in fa_in.launch.py
-ros2 launch fa_vad fa_vad.launch.py
-ros2 launch fa_out fa_out.launch.py
-ros2 launch fa_tts fa_tts.launch.py
-ros2 launch fa_kws fa_kws.launch.py
-ros2 launch fa_asr fa_asr.launch.py
-ros2 launch fa_turn_detector fa_turn_detector.launch.py
+ros2 launch fa_in fa_in.launch.py node_name:=fa_in config_file:=/path/to/fa_in.yaml
+ros2 launch fa_vad fa_vad.launch.py node_name:=fa_vad config_file:=/path/to/fa_vad.yaml
+ros2 launch fa_out fa_out.launch.py node_name:=fa_out config_file:=/path/to/fa_out.yaml
+ros2 launch fa_tts fa_tts.launch.py node_name:=fa_tts config_file:=/path/to/fa_tts.yaml
+ros2 launch fa_kws fa_kws.launch.py node_name:=fa_kws config_file:=/path/to/fa_kws.yaml
+ros2 launch fa_asr fa_asr.launch.py node_name:=fa_asr config_file:=/path/to/fa_asr.yaml
+ros2 launch fa_turn_detector fa_turn_detector.launch.py node_name:=fa_turn_detector config_file:=/path/to/fa_turn_detector.yaml
 ```
+
+VAD / KWS / ASR / Turn Detector の backend/model 詳細は、単体 launch 引数ではなく各 node config または `fluent_audio_system` の system config に置きます。SO101 で VAD + KWS をまとめて起動する場合は `fluent_audio_system/config/profiles/so101_kws_frontend.yaml` を使い、worker command と model path はその system config 内の `${env:...}` で明示します。
 
 ## 6. 実装フェーズ案（更新用メモ）
 1. `fa_interfaces`: `AudioFrame`/主要srvの確定

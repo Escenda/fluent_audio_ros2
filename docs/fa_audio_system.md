@@ -79,6 +79,8 @@ passthrough contract や skeleton 実装の package は、各 package の `docs/
 
 この経路では `fa_vad` の入力 stream と、`fa_kws` / `fa_asr` / `fa_turn_detector` が処理する audio stream を一致させる必要があります。`VadState.source_id` / `stream_id` が一致しない場合、後段 node はその VAD state を gate / finalize / turn-end trigger として使いません。
 
+SO101 の VAD + KWS frontend は `fluent_audio_system/config/profiles/so101_kws_frontend.yaml` に system config として定義します。VLAbor profile には enable / config path / source binding だけを置き、Silero / sherpa-onnx の worker command、model path、provider、keywords file は system config 側の `${env:...}` で明示します。
+
 ### 5.4 録音（WAV）
 1. `fa_in`と`fa_record`を起動
 2. `record`サービスで開始/停止し、WAVを保存
