@@ -210,6 +210,16 @@ def _buildable_package_paths_under(root: Path) -> set[str]:
     }
 
 
+def _production_python_files_under(root: Path) -> list[Path]:
+    production_files: list[Path] = []
+    for path in sorted(root.rglob("*.py")):
+        relative_parts = path.relative_to(root).parts
+        if "test" in relative_parts or "__pycache__" in relative_parts:
+            continue
+        production_files.append(path)
+    return production_files
+
+
 def test_processing_readme_package_status_matches_buildable_processing_packages() -> None:
     expected_packages_by_category: dict[str, set[str]] = {}
 
@@ -241,6 +251,26 @@ def test_readmes_track_network_io_backend_boundaries() -> None:
     assert "raw PCM UDP sink backends" in sink_readme
     assert "Network sinks remain" not in sink_readme
     assert "jitter buffering, packet loss concealment, clock drift correction" in sink_readme
+
+
+def test_ai_production_python_keeps_explicit_backend_boundaries() -> None:
+    forbidden_patterns = (
+        ("Any import", r"\btyping\s+import\s+.*\bAny\b"),
+        ("Any annotation", r"(:|->)\s*Any\b"),
+        ("dict Any", r"\b(Dict|dict)\[str,\s*Any\]"),
+        ("object annotation", r"(:|->)\s*object\b"),
+        ("object container", r"\b(list|dict)\[[^\]]*object[^\]]*\]"),
+        ("ImportError branch", r"\bImportError\b"),
+    )
+    violations: list[str] = []
+
+    for path in _production_python_files_under(SRC_ROOT / "ai"):
+        source = path.read_text(encoding="utf-8")
+        for label, pattern in forbidden_patterns:
+            if re.search(pattern, source):
+                violations.append(f"{path.relative_to(SRC_ROOT)}: {label}")
+
+    assert violations == []
 
 
 def test_buildable_packages_have_standard_documentation_layout() -> None:
