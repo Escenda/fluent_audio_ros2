@@ -349,6 +349,8 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_audio_config_validation_test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_network_pcm_sender_backend_test" in cmake_text
+    assert "test/cpp/test_network_pcm_sender_backend.cpp" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "find_package(std_msgs REQUIRED)" in cmake_text
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
