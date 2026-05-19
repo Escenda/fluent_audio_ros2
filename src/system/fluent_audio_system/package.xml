@@ -17,6 +17,7 @@
 
   <test_depend>python3-pytest</test_depend>
   <test_depend>rclpy</test_depend>
+  <test_depend>rosgraph_msgs</test_depend>
   <test_depend>ros2launch</test_depend>
   <test_depend>fa_asr</test_depend>
   <test_depend>fa_audio_mcp</test_depend>

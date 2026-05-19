@@ -31,11 +31,16 @@ JsonValue: TypeAlias = JsonScalar | JsonMapping | JsonSequence
 
 _SAMPLE_RATE = 16_000
 _SAMPLE_COUNT = 8_000
-_AUDIO_START_SEC = 10
+_NSEC_PER_SEC = 1_000_000_000
 _AUDIO_START_NS = 10_000_000_000
 _AUDIO_END_NS = 10_500_000_000
 _AUDIO_RANGE_SPEC = "10000000000..10500000000"
 _EXPECTED_DURATION_NS = _AUDIO_END_NS - _AUDIO_START_NS
+_RELATIVE_TIME_RANGE_SPEC = "now-10s..now"
+_RELATIVE_AUDIO_START_NS = 20_000_000_000
+_RELATIVE_AUDIO_END_NS = 30_000_000_000
+_RELATIVE_SAMPLE_COUNT = _SAMPLE_RATE * 10
+_RELATIVE_EXPECTED_DURATION_NS = _RELATIVE_AUDIO_END_NS - _RELATIVE_AUDIO_START_NS
 _ASR_SAMPLE_VALUE = 0.125
 _WINDOW_SAMPLE_VALUE = 1000
 _TRANSCRIPT = "combined launch transcript"
@@ -146,6 +151,7 @@ def test_fluent_audio_system_composes_owner_and_mcp_adapter_configs(
     from rclpy.context import Context
     from rclpy.executors import SingleThreadedExecutor
     from rclpy.qos import QoSProfile, ReliabilityPolicy
+    from rosgraph_msgs.msg import Clock
 
     from fa_interfaces.msg import AudioFrame
     from fa_interfaces.srv import ArchiveAudioWindow, ExportAudioWindow, TranscribeAudio
@@ -180,6 +186,8 @@ def test_fluent_audio_system_composes_owner_and_mcp_adapter_configs(
             AudioFrame,
             QoSProfile,
             ReliabilityPolicy,
+            start_unix_ns=_AUDIO_START_NS,
+            sample_count=_SAMPLE_COUNT,
         )
 
         transcribe = _call_transcribe(
@@ -195,13 +203,36 @@ def test_fluent_audio_system_composes_owner_and_mcp_adapter_configs(
         _assert_transcribe_response(transcribe, config, TranscribeAudio)
         export_clip = _assert_audio_clip_response(export, ExportAudioWindow)
         archive_clip = _assert_audio_clip_response(archive, ArchiveAudioWindow)
-        _assert_wav_clip(export_clip)
-        archive_path = _assert_wav_clip(archive_clip)
+        _assert_wav_clip(export_clip, sample_count=_SAMPLE_COUNT)
+        archive_path = _assert_wav_clip(archive_clip, sample_count=_SAMPLE_COUNT)
         _assert_archive_metadata(archive_clip, archive_path, config)
 
         mcp_url = f"http://127.0.0.1:{config.mcp_port}/mcp"
         asyncio.run(_wait_for_streamable_http_ready(mcp_url, process))
-        asyncio.run(_assert_streamable_http_tools(mcp_url, config))
+        clock_pub = _create_sim_clock_publisher(node, executor, process, Clock)
+        try:
+            _publish_sim_clock(executor, process, clock_pub, Clock)
+            asyncio.run(_assert_streamable_http_tools(mcp_url, config))
+            _publish_owner_frames(
+                node,
+                executor,
+                process,
+                config,
+                AudioFrame,
+                QoSProfile,
+                ReliabilityPolicy,
+                start_unix_ns=_RELATIVE_AUDIO_START_NS,
+                sample_count=_RELATIVE_SAMPLE_COUNT,
+            )
+            _publish_sim_clock(executor, process, clock_pub, Clock)
+            asyncio.run(
+                _assert_generated_owner_adapter_launch_relative_time_smoke(
+                    mcp_url,
+                    config,
+                )
+            )
+        finally:
+            node.destroy_publisher(clock_pub)
     except Exception as exc:
         stdout = _stop_process(process)
         raise AssertionError(f"{exc}\n\nros2 launch output:\n{stdout}") from exc
@@ -366,7 +397,9 @@ def _write_mcp_params(config: _SmokeConfig) -> None:
         config.mcp_params_path,
         {
             config.mcp_node_name: {
-                "ros__parameters": {},
+                "ros__parameters": {
+                    "use_sim_time": True,
+                },
             }
         },
     )
@@ -543,6 +576,9 @@ def _publish_owner_frames(
     audio_frame_cls,
     qos_profile_cls,
     reliability_policy_cls,
+    *,
+    start_unix_ns: int,
+    sample_count: int,
 ) -> None:
     asr_pub = node.create_publisher(
         audio_frame_cls,
@@ -563,7 +599,8 @@ def _publish_owner_frames(
                 stream_id=_ASR_STREAM_ID,
                 encoding="FLOAT32LE",
                 bit_depth=32,
-                data=_float32le_bytes(_ASR_SAMPLE_VALUE, _SAMPLE_COUNT),
+                start_unix_ns=start_unix_ns,
+                data=_float32le_bytes(_ASR_SAMPLE_VALUE, sample_count),
             )
         )
         window_pub.publish(
@@ -573,7 +610,8 @@ def _publish_owner_frames(
                 stream_id=_WINDOW_STREAM_ID,
                 encoding="PCM16LE",
                 bit_depth=16,
-                data=_pcm16le_bytes(_WINDOW_SAMPLE_VALUE, _SAMPLE_COUNT),
+                start_unix_ns=start_unix_ns,
+                data=_pcm16le_bytes(_WINDOW_SAMPLE_VALUE, sample_count),
             )
         )
         end_time = time.monotonic() + 0.4
@@ -613,11 +651,13 @@ def _audio_frame(
     stream_id: str,
     encoding: str,
     bit_depth: int,
+    start_unix_ns: int,
     data: bytes,
 ):
     frame = audio_frame_cls()
-    frame.header.stamp.sec = _AUDIO_START_SEC
-    frame.header.stamp.nanosec = 0
+    start_sec, start_nanosec = divmod(start_unix_ns, _NSEC_PER_SEC)
+    frame.header.stamp.sec = start_sec
+    frame.header.stamp.nanosec = start_nanosec
     frame.source_id = source_id
     frame.stream_id = stream_id
     frame.encoding = encoding
@@ -628,6 +668,34 @@ def _audio_frame(
     frame.data = data
     frame.epoch = 1
     return frame
+
+
+def _create_sim_clock_publisher(node, executor, process: subprocess.Popen[str], clock_msg_cls):
+    clock_pub = node.create_publisher(clock_msg_cls, "/clock", 10)
+    deadline = time.monotonic() + 8.0
+    while time.monotonic() < deadline:
+        _ensure_launch_running(process)
+        executor.spin_once(timeout_sec=0.05)
+        if clock_pub.get_subscription_count() >= 1:
+            return clock_pub
+    node.destroy_publisher(clock_pub)
+    raise RuntimeError("MCP node did not subscribe to /clock with use_sim_time enabled")
+
+
+def _publish_sim_clock(
+    executor,
+    process: subprocess.Popen[str],
+    clock_pub,
+    clock_msg_cls,
+) -> None:
+    clock_msg = clock_msg_cls()
+    clock_sec, clock_nanosec = divmod(_RELATIVE_AUDIO_END_NS, _NSEC_PER_SEC)
+    clock_msg.clock.sec = clock_sec
+    clock_msg.clock.nanosec = clock_nanosec
+    for _index in range(5):
+        _ensure_launch_running(process)
+        clock_pub.publish(clock_msg)
+        executor.spin_once(timeout_sec=0.02)
 
 
 def _float32le_bytes(value: float, count: int) -> bytes:
@@ -764,7 +832,13 @@ async def _assert_streamable_http_tools(url: str, config: _SmokeConfig) -> None:
                 {"time_range": _AUDIO_RANGE_SPEC},
             )
             transcribe = _tool_result_json(transcribe_result)
-            _assert_transcribe_json(transcribe, config)
+            _assert_transcribe_json(
+                transcribe,
+                config,
+                start_unix_ns=_AUDIO_START_NS,
+                end_unix_ns=_AUDIO_END_NS,
+                requested_spec=_AUDIO_RANGE_SPEC,
+            )
 
             archive_result = await session.call_tool(
                 "archive_audio_window",
@@ -775,17 +849,36 @@ async def _assert_streamable_http_tools(url: str, config: _SmokeConfig) -> None:
                 },
             )
             archive = _tool_result_json(archive_result)
-            archive_clip = _assert_audio_clip_json(archive)
-            archive_path = _assert_wav_clip_json(archive_clip)
-            _assert_archive_metadata_json(archive_clip, archive_path, config)
+            archive_clip = _assert_audio_clip_json(
+                archive,
+                start_unix_ns=_AUDIO_START_NS,
+                end_unix_ns=_AUDIO_END_NS,
+                expected_duration_ns=_EXPECTED_DURATION_NS,
+                requested_spec=_AUDIO_RANGE_SPEC,
+            )
+            archive_path = _assert_wav_clip_json(archive_clip, sample_count=_SAMPLE_COUNT)
+            _assert_archive_metadata_json(
+                archive_clip,
+                archive_path,
+                config,
+                start_unix_ns=_AUDIO_START_NS,
+                end_unix_ns=_AUDIO_END_NS,
+                expected_duration_ns=_EXPECTED_DURATION_NS,
+            )
 
             export_result = await session.call_tool(
                 "export_audio_window",
                 {"time_range": _AUDIO_RANGE_SPEC},
             )
             export = _tool_result_json(export_result)
-            export_clip = _assert_audio_clip_json(export)
-            _assert_wav_clip_json(export_clip)
+            export_clip = _assert_audio_clip_json(
+                export,
+                start_unix_ns=_AUDIO_START_NS,
+                end_unix_ns=_AUDIO_END_NS,
+                expected_duration_ns=_EXPECTED_DURATION_NS,
+                requested_spec=_AUDIO_RANGE_SPEC,
+            )
+            _assert_wav_clip_json(export_clip, sample_count=_SAMPLE_COUNT)
 
             unsupported_scope = await session.call_tool(
                 "transcribe_audio",
@@ -798,6 +891,82 @@ async def _assert_streamable_http_tools(url: str, config: _SmokeConfig) -> None:
             error_text = _tool_result_text(unsupported_scope)
             assert "unsupported_audio_scope" in error_text
             assert "audio_scope 'system' is not configured" in error_text
+
+
+async def _assert_generated_owner_adapter_launch_relative_time_smoke(
+    url: str,
+    config: _SmokeConfig,
+) -> None:
+    # MCP imports stay deferred so non-ROS shells can collect the ROS-gated smoke.
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    async with streamable_http_client(url) as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            transcribe_result = await session.call_tool(
+                "transcribe_audio",
+                {"time_range": _RELATIVE_TIME_RANGE_SPEC},
+            )
+            transcribe = _tool_result_json(transcribe_result)
+            _assert_transcribe_json(
+                transcribe,
+                config,
+                start_unix_ns=_RELATIVE_AUDIO_START_NS,
+                end_unix_ns=_RELATIVE_AUDIO_END_NS,
+                requested_spec=_RELATIVE_TIME_RANGE_SPEC,
+            )
+            _assert_requested_time_range_duration(transcribe)
+
+            archive_result = await session.call_tool(
+                "archive_audio_window",
+                {
+                    "time_range": _RELATIVE_TIME_RANGE_SPEC,
+                    "reason": _ARCHIVE_REASON,
+                    "related_artifact_ids": [_ARCHIVE_ARTIFACT_ID],
+                },
+            )
+            archive = _tool_result_json(archive_result)
+            archive_clip = _assert_audio_clip_json(
+                archive,
+                start_unix_ns=_RELATIVE_AUDIO_START_NS,
+                end_unix_ns=_RELATIVE_AUDIO_END_NS,
+                expected_duration_ns=_RELATIVE_EXPECTED_DURATION_NS,
+                requested_spec=_RELATIVE_TIME_RANGE_SPEC,
+            )
+            _assert_requested_time_range_duration(archive)
+            archive_path = _assert_wav_clip_json(
+                archive_clip,
+                sample_count=_RELATIVE_SAMPLE_COUNT,
+            )
+            _assert_archive_metadata_json(
+                archive_clip,
+                archive_path,
+                config,
+                start_unix_ns=_RELATIVE_AUDIO_START_NS,
+                end_unix_ns=_RELATIVE_AUDIO_END_NS,
+                expected_duration_ns=_RELATIVE_EXPECTED_DURATION_NS,
+            )
+
+            export_result = await session.call_tool(
+                "export_audio_window",
+                {"time_range": _RELATIVE_TIME_RANGE_SPEC},
+            )
+            export = _tool_result_json(export_result)
+            export_clip = _assert_audio_clip_json(
+                export,
+                start_unix_ns=_RELATIVE_AUDIO_START_NS,
+                end_unix_ns=_RELATIVE_AUDIO_END_NS,
+                expected_duration_ns=_RELATIVE_EXPECTED_DURATION_NS,
+                requested_spec=_RELATIVE_TIME_RANGE_SPEC,
+            )
+            _assert_requested_time_range_duration(export)
+            _assert_wav_clip_json(export_clip, sample_count=_RELATIVE_SAMPLE_COUNT)
 
 
 def _tool_result_json(result) -> JsonMapping:
@@ -846,23 +1015,34 @@ def _assert_transcribe_response(response, config: _SmokeConfig, transcribe_srv) 
     assert model_ref.model_revision == _MODEL_REVISION
 
 
-def _assert_transcribe_json(transcribe: JsonMapping, config: _SmokeConfig) -> None:
+def _assert_transcribe_json(
+    transcribe: JsonMapping,
+    config: _SmokeConfig,
+    *,
+    start_unix_ns: int,
+    end_unix_ns: int,
+    requested_spec: str,
+) -> None:
     assert transcribe["segments"] == [
         {
-            "start_unix_ns": _AUDIO_START_NS,
-            "end_unix_ns": _AUDIO_END_NS,
+            "start_unix_ns": start_unix_ns,
+            "end_unix_ns": end_unix_ns,
             "text": _TRANSCRIPT,
             "speaker_label": "",
         }
     ]
-    assert transcribe["time_range"] == _expected_time_range_json()
-    assert transcribe["requested_time_range"] == _expected_requested_time_range_json()
+    assert transcribe["time_range"] == _expected_time_range_json(start_unix_ns, end_unix_ns)
+    assert transcribe["requested_time_range"] == _expected_requested_time_range_json(
+        start_unix_ns,
+        end_unix_ns,
+        requested_spec,
+    )
     assert transcribe["audio_window_ref"] == {
         "window_id": "combined_launch_asr_window",
         "window_epoch": 11,
         "source_id": _SOURCE_ID,
         "stream_id": _ASR_STREAM_ID,
-        "time_range": _expected_time_range_json(),
+        "time_range": _expected_time_range_json(start_unix_ns, end_unix_ns),
     }
     assert transcribe["model_ref"] == {
         "backend_name": "local_command",
@@ -892,7 +1072,14 @@ def _assert_audio_clip_response(response, service_cls):
     return clip_ref
 
 
-def _assert_audio_clip_json(result: JsonMapping) -> JsonMapping:
+def _assert_audio_clip_json(
+    result: JsonMapping,
+    *,
+    start_unix_ns: int,
+    end_unix_ns: int,
+    expected_duration_ns: int,
+    requested_spec: str,
+) -> JsonMapping:
     clip_ref = result["audio_clip_ref"]
     if not isinstance(clip_ref, dict):
         raise RuntimeError("audio_clip_ref must be a JSON mapping")
@@ -901,10 +1088,14 @@ def _assert_audio_clip_json(result: JsonMapping) -> JsonMapping:
     assert clip_ref["payload_format"] == "audio/wav"
     assert clip_ref["sample_rate"] == _SAMPLE_RATE
     assert clip_ref["channels"] == 1
-    assert clip_ref["duration_ns"] == _EXPECTED_DURATION_NS
-    assert clip_ref["time_range"] == _expected_time_range_json()
-    assert result["time_range"] == _expected_time_range_json()
-    assert result["requested_time_range"] == _expected_requested_time_range_json()
+    assert clip_ref["duration_ns"] == expected_duration_ns
+    assert clip_ref["time_range"] == _expected_time_range_json(start_unix_ns, end_unix_ns)
+    assert result["time_range"] == _expected_time_range_json(start_unix_ns, end_unix_ns)
+    assert result["requested_time_range"] == _expected_requested_time_range_json(
+        start_unix_ns,
+        end_unix_ns,
+        requested_spec,
+    )
     assert str(clip_ref["uri"]).startswith("file://")
     assert clip_ref["clip_id"]
     return clip_ref
@@ -918,25 +1109,41 @@ def _assert_time_range(time_range) -> None:
     assert time_range.uncertainty_reason == ""
 
 
-def _expected_time_range_json() -> JsonMapping:
+def _expected_time_range_json(start_unix_ns: int, end_unix_ns: int) -> JsonMapping:
     return {
-        "start_unix_ns": _AUDIO_START_NS,
-        "end_unix_ns": _AUDIO_END_NS,
+        "start_unix_ns": start_unix_ns,
+        "end_unix_ns": end_unix_ns,
         "clock": "media",
         "uncertainty_ns": 0,
         "uncertainty_reason": "",
     }
 
 
-def _expected_requested_time_range_json() -> JsonMapping:
+def _expected_requested_time_range_json(
+    start_unix_ns: int,
+    end_unix_ns: int,
+    spec: str,
+) -> JsonMapping:
     return {
-        "start_unix_ns": _AUDIO_START_NS,
-        "end_unix_ns": _AUDIO_END_NS,
-        "spec": _AUDIO_RANGE_SPEC,
+        "start_unix_ns": start_unix_ns,
+        "end_unix_ns": end_unix_ns,
+        "spec": spec,
     }
 
 
-def _assert_wav_clip(clip_ref) -> Path:
+def _assert_requested_time_range_duration(result: JsonMapping) -> None:
+    requested = result["requested_time_range"]
+    if not isinstance(requested, dict):
+        raise RuntimeError("requested_time_range must be a JSON mapping")
+    start_unix_ns = requested["start_unix_ns"]
+    end_unix_ns = requested["end_unix_ns"]
+    if not isinstance(start_unix_ns, int) or not isinstance(end_unix_ns, int):
+        raise RuntimeError("requested_time_range endpoints must be integers")
+    assert requested["spec"] == _RELATIVE_TIME_RANGE_SPEC
+    assert end_unix_ns - start_unix_ns == _RELATIVE_EXPECTED_DURATION_NS
+
+
+def _assert_wav_clip(clip_ref, *, sample_count: int) -> Path:
     clip_path = _clip_path(clip_ref)
     assert clip_path.is_file()
     with wave.open(str(clip_path), "rb") as wav_file:
@@ -944,16 +1151,16 @@ def _assert_wav_clip(clip_ref) -> Path:
         assert wav_file.getframerate() == _SAMPLE_RATE
         assert wav_file.getsampwidth() == 2
         assert wav_file.getcomptype() == "NONE"
-        assert wav_file.getnframes() == _SAMPLE_COUNT
+        assert wav_file.getnframes() == sample_count
         duration_ns = wav_file.getnframes() * 1_000_000_000 // wav_file.getframerate()
-        assert duration_ns == _EXPECTED_DURATION_NS
-        frames = wav_file.readframes(_SAMPLE_COUNT + 1)
-    expected_payload = _pcm16le_bytes(_WINDOW_SAMPLE_VALUE, _SAMPLE_COUNT)
+        assert duration_ns == sample_count * _NSEC_PER_SEC // _SAMPLE_RATE
+        frames = wav_file.readframes(sample_count + 1)
+    expected_payload = _pcm16le_bytes(_WINDOW_SAMPLE_VALUE, sample_count)
     assert frames == expected_payload
     return clip_path
 
 
-def _assert_wav_clip_json(clip_ref: JsonMapping) -> Path:
+def _assert_wav_clip_json(clip_ref: JsonMapping, *, sample_count: int) -> Path:
     clip_path = _clip_path_json(clip_ref)
     assert clip_path.is_file()
     with wave.open(str(clip_path), "rb") as wav_file:
@@ -961,11 +1168,11 @@ def _assert_wav_clip_json(clip_ref: JsonMapping) -> Path:
         assert wav_file.getframerate() == _SAMPLE_RATE
         assert wav_file.getsampwidth() == 2
         assert wav_file.getcomptype() == "NONE"
-        assert wav_file.getnframes() == _SAMPLE_COUNT
+        assert wav_file.getnframes() == sample_count
         duration_ns = wav_file.getnframes() * 1_000_000_000 // wav_file.getframerate()
-        assert duration_ns == _EXPECTED_DURATION_NS
-        frames = wav_file.readframes(_SAMPLE_COUNT + 1)
-    expected_payload = _pcm16le_bytes(_WINDOW_SAMPLE_VALUE, _SAMPLE_COUNT)
+        assert duration_ns == sample_count * _NSEC_PER_SEC // _SAMPLE_RATE
+        frames = wav_file.readframes(sample_count + 1)
+    expected_payload = _pcm16le_bytes(_WINDOW_SAMPLE_VALUE, sample_count)
     assert frames == expected_payload
     return clip_path
 
@@ -1004,6 +1211,10 @@ def _assert_archive_metadata_json(
     clip_ref: JsonMapping,
     clip_path: Path,
     config: _SmokeConfig,
+    *,
+    start_unix_ns: int,
+    end_unix_ns: int,
+    expected_duration_ns: int,
 ) -> None:
     metadata_path = Path(str(clip_path) + ".metadata.json")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -1016,7 +1227,7 @@ def _assert_archive_metadata_json(
     assert metadata["window_id"] == "combined_launch_audio_window"
     assert metadata["window_epoch"] == 7
     assert metadata["audio_scope"] == "mic"
-    assert metadata["time_range"] == _expected_time_range_json()
+    assert metadata["time_range"] == _expected_time_range_json(start_unix_ns, end_unix_ns)
     assert metadata["audio_clip_ref"]["clip_id"] == clip_ref["clip_id"]
     assert metadata["audio_clip_ref"]["uri"] == clip_ref["uri"]
     assert metadata["audio_clip_ref"]["codec"] == "pcm_s16le"
@@ -1024,7 +1235,7 @@ def _assert_archive_metadata_json(
     assert metadata["audio_clip_ref"]["payload_format"] == "audio/wav"
     assert metadata["audio_clip_ref"]["sample_rate"] == _SAMPLE_RATE
     assert metadata["audio_clip_ref"]["channels"] == 1
-    assert metadata["audio_clip_ref"]["duration_ns"] == _EXPECTED_DURATION_NS
+    assert metadata["audio_clip_ref"]["duration_ns"] == expected_duration_ns
     assert clip_path.parent == config.archive_dir
 
 

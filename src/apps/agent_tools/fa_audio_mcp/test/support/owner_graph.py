@@ -26,13 +26,15 @@ from fa_audio_mcp.json_types import JsonValue
 
 JsonObject: TypeAlias = dict[str, JsonValue]
 
-AUDIO_START_SEC = 10
 SAMPLE_RATE = 16_000
 SAMPLE_COUNT = 8_000
 AUDIO_START_NS = 10_000_000_000
 AUDIO_END_NS = 10_500_000_000
-AUDIO_RANGE_SPEC = "10000000000..10500000000"
-EXPECTED_DURATION_NS = AUDIO_END_NS - AUDIO_START_NS
+AUDIO_RANGE_SPEC = f"{AUDIO_START_NS}..{AUDIO_END_NS}"
+NOW_RELATIVE_TIME_RANGE_SPEC = "now-10s..now"
+NOW_RELATIVE_SIM_NOW_NS = 30_000_000_000
+NOW_RELATIVE_START_NS = 20_000_000_000
+NOW_RELATIVE_SAMPLE_COUNT = SAMPLE_RATE * 10
 ARCHIVE_REASON = "real owner graph smoke"
 ARCHIVE_ARTIFACT_ID = "owner_graph_smoke"
 
@@ -44,10 +46,31 @@ class ProcStat:
     state: str
 
 
+@dataclass(frozen=True)
+class AudioRangeExpectation:
+    start_unix_ns: int
+    end_unix_ns: int
+    sample_count: int
+    duration_ns: int
+    requested_spec: str
+
+
 class OwnerGraphConfig:
-    def __init__(self, tmp_path: Path, suffix: str) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        suffix: str,
+        *,
+        audio_start_ns: int,
+        sample_count: int,
+    ) -> None:
         self.tmp_path = tmp_path
         self.suffix = suffix
+        self.audio_start_ns = audio_start_ns
+        self.sample_count = sample_count
+        self.audio_duration_ns = _sample_count_to_duration_ns(sample_count)
+        self.audio_end_ns = audio_start_ns + self.audio_duration_ns
+        self.audio_range_spec = f"{self.audio_start_ns}..{self.audio_end_ns}"
         self.asr_audio_topic = f"/fa_audio_mcp_owner/{suffix}/asr_audio"
         self.window_audio_topic = f"/fa_audio_mcp_owner/{suffix}/window_audio"
         self.vad_topic = f"/fa_audio_mcp_owner/{suffix}/vad"
@@ -178,7 +201,21 @@ class ManagedProcess:
 
 
 def build_owner_graph_config(tmp_path: Path) -> OwnerGraphConfig:
-    return OwnerGraphConfig(tmp_path, "s_" + uuid.uuid4().hex)
+    return OwnerGraphConfig(
+        tmp_path,
+        "s_" + uuid.uuid4().hex,
+        audio_start_ns=AUDIO_START_NS,
+        sample_count=SAMPLE_COUNT,
+    )
+
+
+def build_now_relative_owner_graph_config(tmp_path: Path) -> OwnerGraphConfig:
+    return OwnerGraphConfig(
+        tmp_path,
+        "s_" + uuid.uuid4().hex,
+        audio_start_ns=NOW_RELATIVE_START_NS,
+        sample_count=NOW_RELATIVE_SAMPLE_COUNT,
+    )
 
 
 def start_owner_nodes(config: OwnerGraphConfig) -> list[ManagedProcess]:
@@ -334,8 +371,8 @@ def publish_owner_frames(
     )
     try:
         _wait_for_publisher_subscriptions(asr_pub, window_pub)
-        asr_pub.publish(_asr_audio_frame())
-        window_pub.publish(_window_audio_frame())
+        asr_pub.publish(_asr_audio_frame(config))
+        window_pub.publish(_window_audio_frame(config))
         end_time = time.monotonic() + 0.3
         while time.monotonic() < end_time:
             executor.spin_once(timeout_sec=0.05)
@@ -348,21 +385,33 @@ def assert_transcribe_result(
     transcribe: JsonObject,
     config: OwnerGraphConfig,
 ) -> None:
+    assert_transcribe_result_for_spec(transcribe, config, config.audio_range_spec)
+
+
+def assert_transcribe_result_for_spec(
+    transcribe: JsonObject,
+    config: OwnerGraphConfig,
+    requested_spec: str,
+) -> None:
     assert transcribe["segments"] == [
         {
-            "start_unix_ns": AUDIO_START_NS,
-            "end_unix_ns": AUDIO_END_NS,
+            "start_unix_ns": config.audio_start_ns,
+            "end_unix_ns": config.audio_end_ns,
             "text": "real owner transcript",
             "speaker_label": "",
         }
     ]
-    assert transcribe["time_range"] == expected_time_range()
+    assert transcribe["time_range"] == expected_time_range(config)
+    assert transcribe["requested_time_range"] == expected_requested_time_range(
+        config,
+        requested_spec,
+    )
     assert transcribe["audio_window_ref"] == {
         "window_id": "real_owner_asr_window",
         "window_epoch": 11,
         "source_id": "test-mic",
         "stream_id": "audio/high_pass/mic",
-        "time_range": expected_time_range(),
+        "time_range": expected_time_range(config),
     }
     assert transcribe["model_ref"] == {
         "backend_name": "local_command",
@@ -375,7 +424,63 @@ def assert_transcribe_result(
 
 
 def assert_archive_result(archive: JsonObject) -> Path:
-    clip_ref = archive["audio_clip_ref"]
+    expectation = _audio_range_expectation(
+        start_unix_ns=AUDIO_START_NS,
+        sample_count=SAMPLE_COUNT,
+        requested_spec=AUDIO_RANGE_SPEC,
+    )
+    return _assert_archive_result_for_expectation(archive, expectation)
+
+
+def assert_archive_result_for_spec(
+    archive: JsonObject,
+    config: OwnerGraphConfig,
+    requested_spec: str,
+) -> Path:
+    expectation = _audio_range_expectation(
+        start_unix_ns=config.audio_start_ns,
+        sample_count=config.sample_count,
+        requested_spec=requested_spec,
+    )
+    clip_ref, clip_path = _assert_audio_clip_result_for_expectation(
+        archive,
+        expectation,
+    )
+    assert_archive_metadata(clip_ref, clip_path, expectation)
+    return clip_path
+
+
+def assert_export_result_for_spec(
+    export: JsonObject,
+    config: OwnerGraphConfig,
+    requested_spec: str,
+) -> Path:
+    expectation = _audio_range_expectation(
+        start_unix_ns=config.audio_start_ns,
+        sample_count=config.sample_count,
+        requested_spec=requested_spec,
+    )
+    _, clip_path = _assert_audio_clip_result_for_expectation(export, expectation)
+    return clip_path
+
+
+def _assert_archive_result_for_expectation(
+    archive: JsonObject,
+    expectation: AudioRangeExpectation,
+) -> Path:
+    clip_ref, clip_path = _assert_audio_clip_result_for_expectation(
+        archive,
+        expectation,
+    )
+    assert_archive_metadata(clip_ref, clip_path, expectation)
+    return clip_path
+
+
+def _assert_audio_clip_result_for_expectation(
+    result: JsonObject,
+    expectation: AudioRangeExpectation,
+) -> tuple[JsonObject, Path]:
+    clip_ref = result["audio_clip_ref"]
     if not isinstance(clip_ref, dict):
         raise RuntimeError("audio_clip_ref must be a JSON mapping")
     assert clip_ref["codec"] == "pcm_s16le"
@@ -383,21 +488,35 @@ def assert_archive_result(archive: JsonObject) -> Path:
     assert clip_ref["payload_format"] == "audio/wav"
     assert clip_ref["sample_rate"] == SAMPLE_RATE
     assert clip_ref["channels"] == 1
-    assert clip_ref["duration_ns"] == EXPECTED_DURATION_NS
-    assert clip_ref["time_range"] == expected_time_range()
+    assert clip_ref["duration_ns"] == expectation.duration_ns
+    assert clip_ref["time_range"] == expected_time_range_for_values(
+        expectation.start_unix_ns,
+        expectation.end_unix_ns,
+    )
     assert str(clip_ref["uri"]).startswith("file://")
-    assert archive["time_range"] == expected_time_range()
-    assert archive["requested_time_range"] == {
-        "start_unix_ns": AUDIO_START_NS,
-        "end_unix_ns": AUDIO_END_NS,
-        "spec": AUDIO_RANGE_SPEC,
+    assert result["time_range"] == expected_time_range_for_values(
+        expectation.start_unix_ns,
+        expectation.end_unix_ns,
+    )
+    assert result["requested_time_range"] == {
+        "start_unix_ns": expectation.start_unix_ns,
+        "end_unix_ns": expectation.end_unix_ns,
+        "spec": expectation.requested_spec,
     }
-    clip_path = assert_archive_wav_clip(clip_ref)
-    assert_archive_metadata(clip_ref, clip_path)
-    return clip_path
+    clip_path = assert_archive_wav_clip(
+        clip_ref,
+        sample_count=expectation.sample_count,
+        expected_duration_ns=expectation.duration_ns,
+    )
+    return clip_ref, clip_path
 
 
-def assert_archive_wav_clip(clip_ref: JsonObject) -> Path:
+def assert_archive_wav_clip(
+    clip_ref: JsonObject,
+    *,
+    sample_count: int,
+    expected_duration_ns: int,
+) -> Path:
     clip_path = _audio_clip_path(clip_ref)
     assert clip_path.is_file()
     with wave.open(str(clip_path), "rb") as wav_file:
@@ -405,16 +524,20 @@ def assert_archive_wav_clip(clip_ref: JsonObject) -> Path:
         assert wav_file.getframerate() == SAMPLE_RATE
         assert wav_file.getsampwidth() == 2
         assert wav_file.getcomptype() == "NONE"
-        assert wav_file.getnframes() == SAMPLE_COUNT
+        assert wav_file.getnframes() == sample_count
         duration_ns = wav_file.getnframes() * 1_000_000_000 // wav_file.getframerate()
-        assert duration_ns == EXPECTED_DURATION_NS
-        frames = wav_file.readframes(SAMPLE_COUNT + 1)
-    assert len(frames) == SAMPLE_COUNT * 2
+        assert duration_ns == expected_duration_ns
+        frames = wav_file.readframes(sample_count + 1)
+    assert len(frames) == sample_count * 2
     assert frames[:2] == struct.pack("<h", 1000)
     return clip_path
 
 
-def assert_archive_metadata(clip_ref: JsonObject, clip_path: Path) -> None:
+def assert_archive_metadata(
+    clip_ref: JsonObject,
+    clip_path: Path,
+    expectation: AudioRangeExpectation,
+) -> None:
     metadata_path = Path(str(clip_path) + ".metadata.json")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert metadata["reason"] == ARCHIVE_REASON
@@ -425,16 +548,34 @@ def assert_archive_metadata(clip_ref: JsonObject, clip_path: Path) -> None:
     assert metadata["window_epoch"] == 7
     assert metadata["audio_scope"] == "mic"
     assert metadata["audio_clip_ref"]["uri"] == clip_ref["uri"]
-    assert metadata["time_range"] == expected_time_range()
+    assert metadata["time_range"] == expected_time_range_for_values(
+        expectation.start_unix_ns,
+        expectation.end_unix_ns,
+    )
 
 
-def expected_time_range() -> JsonObject:
+def expected_time_range(config: OwnerGraphConfig) -> JsonObject:
+    return expected_time_range_for_values(config.audio_start_ns, config.audio_end_ns)
+
+
+def expected_time_range_for_values(start_unix_ns: int, end_unix_ns: int) -> JsonObject:
     return {
-        "start_unix_ns": AUDIO_START_NS,
-        "end_unix_ns": AUDIO_END_NS,
+        "start_unix_ns": start_unix_ns,
+        "end_unix_ns": end_unix_ns,
         "clock": "media",
         "uncertainty_ns": 0,
         "uncertainty_reason": "",
+    }
+
+
+def expected_requested_time_range(
+    config: OwnerGraphConfig,
+    requested_spec: str,
+) -> JsonObject:
+    return {
+        "start_unix_ns": config.audio_start_ns,
+        "end_unix_ns": config.audio_end_ns,
+        "spec": requested_spec,
     }
 
 
@@ -569,28 +710,31 @@ def _wait_for_publisher_subscriptions(
     raise RuntimeError("real owner frame publishers did not discover subscribers")
 
 
-def _asr_audio_frame() -> AudioFrame:
+def _asr_audio_frame(config: OwnerGraphConfig) -> AudioFrame:
     return _audio_frame(
+        config=config,
         source_id="test-mic",
         stream_id="audio/high_pass/mic",
         encoding="FLOAT32LE",
         bit_depth=32,
-        data=_float32le_bytes(0.125, SAMPLE_COUNT),
+        data=_float32le_bytes(0.125, config.sample_count),
     )
 
 
-def _window_audio_frame() -> AudioFrame:
+def _window_audio_frame(config: OwnerGraphConfig) -> AudioFrame:
     return _audio_frame(
+        config=config,
         source_id="test-mic",
         stream_id="audio/archive_pcm16/mic",
         encoding="PCM16LE",
         bit_depth=16,
-        data=_pcm16le_bytes(1000, SAMPLE_COUNT),
+        data=_pcm16le_bytes(1000, config.sample_count),
     )
 
 
 def _audio_frame(
     *,
+    config: OwnerGraphConfig,
     source_id: str,
     stream_id: str,
     encoding: str,
@@ -598,8 +742,8 @@ def _audio_frame(
     data: bytes,
 ) -> AudioFrame:
     frame = AudioFrame()
-    frame.header.stamp.sec = AUDIO_START_SEC
-    frame.header.stamp.nanosec = 0
+    frame.header.stamp.sec = config.audio_start_ns // 1_000_000_000
+    frame.header.stamp.nanosec = config.audio_start_ns % 1_000_000_000
     frame.source_id = source_id
     frame.stream_id = stream_id
     frame.encoding = encoding
@@ -618,6 +762,30 @@ def _float32le_bytes(value: float, count: int) -> bytes:
 
 def _pcm16le_bytes(value: int, count: int) -> bytes:
     return struct.pack("<h", value) * count
+
+
+def _sample_count_to_duration_ns(sample_count: int) -> int:
+    numerator = sample_count * 1_000_000_000
+    duration_ns, remainder = divmod(numerator, SAMPLE_RATE)
+    if remainder != 0:
+        raise ValueError("sample_count must map exactly to nanoseconds")
+    return duration_ns
+
+
+def _audio_range_expectation(
+    *,
+    start_unix_ns: int,
+    sample_count: int,
+    requested_spec: str,
+) -> AudioRangeExpectation:
+    duration_ns = _sample_count_to_duration_ns(sample_count)
+    return AudioRangeExpectation(
+        start_unix_ns=start_unix_ns,
+        end_unix_ns=start_unix_ns + duration_ns,
+        sample_count=sample_count,
+        duration_ns=duration_ns,
+        requested_spec=requested_spec,
+    )
 
 
 def _audio_qos() -> QoSProfile:
