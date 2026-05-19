@@ -125,6 +125,17 @@ def test_buildable_ai_packages_have_spec_to_test_traceability() -> None:
     assert missing_traceability == []
 
 
+def test_fluent_audio_system_has_spec_to_test_traceability() -> None:
+    test_design_path = PACKAGE_ROOT / "docs" / "テスト設計.md"
+    mapped_lines = [
+        line
+        for line in test_design_path.read_text(encoding="utf-8").splitlines()
+        if "`FA-SYS-TC-" in line and "->" in line and "`FA-SYS-SPEC-" in line
+    ]
+
+    assert mapped_lines
+
+
 def test_ai_and_streaming_packages_stay_out_of_processing_analysis() -> None:
     processing_analysis_packages = {
         package_dir.name
