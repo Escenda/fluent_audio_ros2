@@ -123,11 +123,12 @@ class _SmokeConfig:
     asr_params_path: Path
     window_params_path: Path
     mcp_params_path: Path
-    system_config_path: Path
+    owner_config_path: Path
+    adapter_config_path: Path
     mcp_port: int
 
 
-def test_fluent_audio_system_launches_owner_nodes_and_mcp_adapter(
+def test_fluent_audio_system_composes_owner_and_mcp_adapter_configs(
     tmp_path: Path,
 ) -> None:
     ros2 = shutil.which("ros2")
@@ -226,7 +227,8 @@ def _build_smoke_config(tmp_path: Path) -> _SmokeConfig:
         asr_params_path=tmp_path / "fa_asr.params.yaml",
         window_params_path=tmp_path / "fa_audio_window.params.yaml",
         mcp_params_path=tmp_path / "fa_audio_mcp.params.yaml",
-        system_config_path=tmp_path / "combined_owner_mcp_system.yaml",
+        owner_config_path=tmp_path / "combined_owner_system.yaml",
+        adapter_config_path=tmp_path / "combined_mcp_adapter_system.yaml",
         mcp_port=_port_for_suffix(suffix),
     )
 
@@ -240,7 +242,8 @@ def _write_runtime_files(config: _SmokeConfig) -> None:
     _write_asr_params(config)
     _write_audio_window_params(config)
     _write_mcp_params(config)
-    _write_system_config(config)
+    _write_owner_system_config(config)
+    _write_adapter_system_config(config)
 
 
 def _write_asr_params(config: _SmokeConfig) -> None:
@@ -359,14 +362,18 @@ def _write_mcp_params(config: _SmokeConfig) -> None:
     )
 
 
-def _write_system_config(config: _SmokeConfig) -> None:
+def _system_delays() -> YamlMapping:
+    return {
+        "default_start_delay": 0.1,
+        "inter_group_delay": 0.0,
+    }
+
+
+def _write_owner_system_config(config: _SmokeConfig) -> None:
     _write_yaml(
-        config.system_config_path,
+        config.owner_config_path,
         {
-            "system": {
-                "default_start_delay": 0.1,
-                "inter_group_delay": 0.0,
-            },
+            "system": _system_delays(),
             "groups": [
                 {
                     "id": "voice_frontend",
@@ -396,6 +403,17 @@ def _write_system_config(config: _SmokeConfig) -> None:
                         },
                     ],
                 },
+            ],
+        },
+    )
+
+
+def _write_adapter_system_config(config: _SmokeConfig) -> None:
+    _write_yaml(
+        config.adapter_config_path,
+        {
+            "system": _system_delays(),
+            "groups": [
                 {
                     "id": "apps",
                     "enable": True,
@@ -445,7 +463,7 @@ def _start_launch_process(ros2: str, config: _SmokeConfig) -> subprocess.Popen[s
             "launch",
             "fluent_audio_system",
             "run.py",
-            f"config:={config.system_config_path}",
+            f"config:={config.owner_config_path},{config.adapter_config_path}",
             "fa_in_enabled:=false",
             "fa_out_enabled:=false",
             f"fa_in_source_id:={_DISABLED_SITE_BINDING}",

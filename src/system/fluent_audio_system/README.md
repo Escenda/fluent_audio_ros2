@@ -43,7 +43,7 @@ VLAbor / Docker 側で system config から build 対象 package を解決する
 ros2 run fluent_audio_system list_required_packages --config /path/to/fluent_audio_system.yaml
 ```
 
-`--config` も同じカンマ区切り config path list を受け付けます。これは child-side FluentAudio config composition の検証であり、親 VLAbor profile integration、Agent Runtime / MCP client integration、durable storage、World Station、実 SO101 device / model provisioning、ROS runtime launch smoke が検証済みであることを意味しません。
+`--config` も同じカンマ区切り config path list を受け付けます。child-side FluentAudio config composition は package-local config / CLI で検証済みです。さらに Docker ROS2 環境で `fluent_audio_system` rebuild 後、`python3 -m pytest src/system/fluent_audio_system/test/integration/test_combined_owner_mcp_launch_smoke.py -q` を実行し、`config:=owner.yaml,adapter.yaml` 形式の multi-config runtime launch smoke は `1 passed in 2.39s` として確認済みです。この結果は親 VLAbor profile integration、Agent Runtime / MCP client integration、durable storage、World Station、実 SO101 device / model provisioning の検証完了を意味しません。
 
 ## Profiles
 
