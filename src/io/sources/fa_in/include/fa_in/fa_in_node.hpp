@@ -18,6 +18,7 @@
 #include "fa_interfaces/msg/audio_frame.hpp"
 #include "fa_interfaces/srv/list_devices.hpp"
 #include "fa_interfaces/srv/switch_device.hpp"
+#include "fa_in/backends/factory.hpp"
 #include "fa_in/backends/source_backend.hpp"
 
 namespace fa_in
@@ -54,7 +55,7 @@ struct AudioConfig
 class FaInNode : public rclcpp::Node
 {
 public:
-  using BackendFactory = std::function<std::unique_ptr<fa_in::backends::SourceBackend>()>;
+  using BackendFactory = fa_in::backends::SourceBackendFactory;
 
   explicit FaInNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   FaInNode(const rclcpp::NodeOptions & options, BackendFactory backend_factory);

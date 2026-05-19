@@ -1,6 +1,7 @@
 #include "fa_in/fa_in_node.hpp"
 
 #include "fa_in/audio_config_validation.hpp"
+#include "fa_in/backends/factory.hpp"
 
 #include <functional>
 #include <limits>
@@ -10,10 +11,6 @@
 #include <utility>
 
 #include "rclcpp/exceptions.hpp"
-
-#include "fa_in/backends/alsa_capture_backend.hpp"
-#include "fa_in/backends/network_pcm_receiver_backend.hpp"
-#include "fa_in/backends/pcm_file_reader_backend.hpp"
 
 namespace fa_in
 {
@@ -63,13 +60,6 @@ backends::DeviceSelector backendSelectorFromConfig(const AudioConfig & config)
 std::string displayName(const backends::DeviceInfo & device)
 {
   return device.name;
-}
-
-FaInNode::BackendFactory defaultBackendFactory()
-{
-  return []() {
-    return std::make_unique<backends::AlsaCaptureBackend>();
-  };
 }
 
 std::string removeLeadingSlashes(std::string value)
@@ -161,7 +151,7 @@ rcl_interfaces::msg::ParameterDescriptor dynamicParameterDescriptor()
 }  // namespace
 
 FaInNode::FaInNode(const rclcpp::NodeOptions & options)
-: FaInNode(options, defaultBackendFactory())
+: FaInNode(options, backends::defaultAlsaCaptureBackendFactory())
 {
 }
 
@@ -355,22 +345,9 @@ void FaInNode::loadParameters()
 
 void FaInNode::initializeBackend()
 {
-  if (config_.backend_name == kBackendAlsaCapture) {
-    source_backend_ = backend_factory_();
-    if (!source_backend_) {
-      throw std::runtime_error("fa_in backend factory returned null backend");
-    }
-    return;
-  }
-  if (config_.backend_name == kBackendPcmFileReader) {
-    source_backend_ = std::make_unique<backends::PcmFileReaderBackend>();
-    return;
-  }
-  if (config_.backend_name == kBackendNetworkPcmReceiver) {
-    source_backend_ = std::make_unique<backends::NetworkPcmReceiverBackend>();
-    return;
-  }
-  throw std::runtime_error("unsupported fa_in backend.name: " + config_.backend_name);
+  source_backend_ = backends::buildSourceBackend(
+    backends::SourceBackendSettings{config_.backend_name},
+    backend_factory_);
 }
 
 void FaInNode::shutdownBackend()

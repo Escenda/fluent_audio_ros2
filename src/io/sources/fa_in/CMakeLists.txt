@@ -19,6 +19,7 @@ pkg_check_modules(ALSA REQUIRED alsa)
 
 add_library(fa_in_backends
   src/backends/alsa_capture_backend.cpp
+  src/backends/factory.cpp
   src/backends/network_pcm_receiver_backend.cpp
   src/backends/pcm_file_reader_backend.cpp
 )
@@ -94,6 +95,16 @@ if(BUILD_TESTING)
   )
   target_include_directories(${PROJECT_NAME}_audio_config_validation_test PRIVATE
     include
+  )
+
+  ament_add_gtest(${PROJECT_NAME}_source_backend_factory_test
+    test/cpp/test_source_backend_factory.cpp
+  )
+  target_include_directories(${PROJECT_NAME}_source_backend_factory_test PRIVATE
+    include
+  )
+  target_link_libraries(${PROJECT_NAME}_source_backend_factory_test
+    fa_in_backends
   )
 
   ament_add_gtest(${PROJECT_NAME}_node_contract_test

@@ -308,6 +308,7 @@ def test_backend_builds_as_separate_library() -> None:
 
     assert "add_library(fa_in_backends" in cmake_text
     assert "src/backends/alsa_capture_backend.cpp" in cmake_text
+    assert "src/backends/factory.cpp" in cmake_text
     assert "src/backends/pcm_file_reader_backend.cpp" in cmake_text
     assert "add_library(fa_in_node_core" in cmake_text
     assert "src/fa_in_node.cpp" in cmake_text
@@ -337,14 +338,52 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_audio_config_validation_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_source_backend_factory_test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_network_pcm_receiver_backend_test" in cmake_text
+    assert "test/cpp/test_source_backend_factory.cpp" in cmake_text
     assert "test/cpp/test_network_pcm_receiver_backend.cpp" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
+
+
+def test_node_uses_ros_free_source_backend_factory() -> None:
+    package_root = Path(__file__).parents[2]
+    node_source = (package_root / "src" / "fa_in_node.cpp").read_text(encoding="utf-8")
+    header_text = (package_root / "include" / "fa_in" / "fa_in_node.hpp").read_text(
+        encoding="utf-8"
+    )
+    factory_header = (
+        package_root / "include" / "fa_in" / "backends" / "factory.hpp"
+    ).read_text(encoding="utf-8")
+    factory_source = (package_root / "src" / "backends" / "factory.cpp").read_text(
+        encoding="utf-8"
+    )
+    factory_test = (
+        package_root / "test" / "cpp" / "test_source_backend_factory.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert '#include "fa_in/backends/factory.hpp"' in node_source
+    assert "source_backend_ = backends::buildSourceBackend(" in node_source
+    assert "backends::SourceBackendSettings{config_.backend_name}" in node_source
+    assert "std::make_unique<backends::PcmFileReaderBackend>" not in node_source
+    assert "std::make_unique<backends::NetworkPcmReceiverBackend>" not in node_source
+    assert '#include "fa_in/backends/alsa_capture_backend.hpp"' not in node_source
+    assert '#include "fa_in/backends/pcm_file_reader_backend.hpp"' not in node_source
+    assert '#include "fa_in/backends/network_pcm_receiver_backend.hpp"' not in node_source
+    assert "using BackendFactory = fa_in::backends::SourceBackendFactory;" in header_text
+    assert "struct SourceBackendSettings" in factory_header
+    assert "SourceBackendFactory defaultAlsaCaptureBackendFactory()" in factory_header
+    assert "std::make_unique<AlsaCaptureBackend>()" in factory_source
+    assert "std::make_unique<PcmFileReaderBackend>()" in factory_source
+    assert "std::make_unique<NetworkPcmReceiverBackend>()" in factory_source
+    assert "BuildsPcmFileReaderBackend" in factory_test
+    assert "BuildsNetworkPcmReceiverBackend" in factory_test
+    assert "RejectsMissingBackendName" in factory_test
+    assert "RejectsUnknownBackendName" in factory_test
 
 
 def test_source_adapter_exposes_file_and_network_backends_but_no_dsp_surface() -> None:
