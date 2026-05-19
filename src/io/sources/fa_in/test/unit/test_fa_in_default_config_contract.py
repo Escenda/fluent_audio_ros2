@@ -437,6 +437,17 @@ def test_source_adapter_exposes_file_and_network_backends_but_no_dsp_surface() -
     assert (package_root / "docs" / "backends" / "network_pcm_receiver.md").is_file()
 
 
+def test_source_adapter_docs_route_analysis_and_vad_to_correct_layers() -> None:
+    package_root = Path(__file__).parents[2]
+    algorithm_text = (
+        package_root / "docs" / "アルゴリズム詳細説明書.md"
+    ).read_text(encoding="utf-8")
+
+    assert "RMS / peak は `src/processing/analysis`" in algorithm_text
+    assert "VAD は `src/ai/fa_vad`" in algorithm_text
+    assert "VAD は専用 processing node" not in algorithm_text
+
+
 def test_network_receiver_idle_timeout_is_explicit_and_test_mapped() -> None:
     package_root = Path(__file__).parents[2]
     source_text = (package_root / "src" / "fa_in_node.cpp").read_text(encoding="utf-8")

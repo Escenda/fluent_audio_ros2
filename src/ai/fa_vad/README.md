@@ -1,6 +1,6 @@
 # FA VAD
 
-`fa_vad`は`fa_in`等が配信するPCMフレームを購読し、外部 Silero VAD worker process で音声活動検知を行うノードです（オフライン前提）。
+`fa_vad`は`fa_in`等が配信するPCMフレームを購読し、明示された local Silero VAD worker process で音声活動検知を行うノードです。
 
 ## 機能
 - `input_topic` で指定した `fa_interfaces/msg/AudioFrame` を購読

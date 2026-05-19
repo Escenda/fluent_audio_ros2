@@ -389,6 +389,17 @@ def _current_audio_doc_files() -> list[Path]:
     )
 
 
+def _current_audio_readme_and_doc_files() -> list[Path]:
+    return sorted(
+        path
+        for root in (REPO_ROOT, SRC_ROOT)
+        for path in root.rglob("*.md")
+        if path.is_file()
+        and "archive" not in path.parts
+        and "__pycache__" not in path.parts
+    )
+
+
 def _collect_yaml_keys(value: YamlValue) -> list[str]:
     keys: list[str] = []
     if isinstance(value, dict):
@@ -563,7 +574,7 @@ def test_current_audio_docs_do_not_publish_offline_only_or_legacy_asr_contracts(
     )
     violations: list[str] = []
 
-    for doc_path in _current_audio_doc_files() + [REPO_ROOT / "README.md"]:
+    for doc_path in _current_audio_readme_and_doc_files():
         source = doc_path.read_text(encoding="utf-8")
         for forbidden_token in forbidden_tokens:
             if forbidden_token in source:
