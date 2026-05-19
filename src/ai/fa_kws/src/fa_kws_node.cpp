@@ -229,8 +229,8 @@ private:
     if (vad_qos_depth_ <= 0) {
       throw std::runtime_error("vad.qos.depth must be greater than zero");
     }
-    if (result_qos_depth_ <= 0) {
-      throw std::runtime_error("result.qos.depth must be greater than zero");
+    if (output_qos_depth_ <= 0) {
+      throw std::runtime_error("output.qos.depth must be greater than zero");
     }
   }
 
@@ -264,8 +264,8 @@ private:
     audio_qos_reliable_ = this->declare_parameter<bool>("audio.qos.reliable");
     vad_qos_depth_ = this->declare_parameter<int>("vad.qos.depth");
     vad_qos_reliable_ = this->declare_parameter<bool>("vad.qos.reliable");
-    result_qos_depth_ = this->declare_parameter<int>("result.qos.depth");
-    result_qos_reliable_ = this->declare_parameter<bool>("result.qos.reliable");
+    output_qos_depth_ = this->declare_parameter<int>("output.qos.depth");
+    output_qos_reliable_ = this->declare_parameter<bool>("output.qos.reliable");
 
     encoder_path_ = this->declare_parameter<std::string>("model.encoder");
     decoder_path_ = this->declare_parameter<std::string>("model.decoder");
@@ -286,9 +286,9 @@ private:
   {
     const rclcpp::QoS qos_audio = makeExplicitQos(audio_qos_depth_, audio_qos_reliable_);
     const rclcpp::QoS qos_vad = makeExplicitQos(vad_qos_depth_, vad_qos_reliable_);
-    const rclcpp::QoS qos_result = makeExplicitQos(result_qos_depth_, result_qos_reliable_);
+    const rclcpp::QoS qos_output = makeExplicitQos(output_qos_depth_, output_qos_reliable_);
 
-    wake_pub_ = this->create_publisher<WakeWordResult>(output_topic_, qos_result);
+    wake_pub_ = this->create_publisher<WakeWordResult>(output_topic_, qos_output);
 
     vad_sub_ = this->create_subscription<VadState>(
       vad_topic_, qos_vad,
@@ -507,8 +507,8 @@ private:
   bool audio_qos_reliable_{};
   int vad_qos_depth_{};
   bool vad_qos_reliable_{};
-  int result_qos_depth_{};
-  bool result_qos_reliable_{};
+  int output_qos_depth_{};
+  bool output_qos_reliable_{};
 
   std::string encoder_path_;
   std::string decoder_path_;

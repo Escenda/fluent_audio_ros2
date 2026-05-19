@@ -23,8 +23,8 @@ def test_default_config_requires_explicit_backend_and_execution_provider() -> No
     assert params["audio.qos.reliable"] is False
     assert params["vad.qos.depth"] == 20
     assert params["vad.qos.reliable"] is False
-    assert params["result.qos.depth"] == 10
-    assert params["result.qos.reliable"] is False
+    assert params["output.qos.depth"] == 10
+    assert params["output.qos.reliable"] is False
     assert "model.provider" not in params
 
 
@@ -148,8 +148,8 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     assert 'declare_parameter<bool>("audio.qos.reliable");' in node_text
     assert 'declare_parameter<int>("vad.qos.depth");' in node_text
     assert 'declare_parameter<bool>("vad.qos.reliable");' in node_text
-    assert 'declare_parameter<int>("result.qos.depth");' in node_text
-    assert 'declare_parameter<bool>("result.qos.reliable");' in node_text
+    assert 'declare_parameter<int>("output.qos.depth");' in node_text
+    assert 'declare_parameter<bool>("output.qos.reliable");' in node_text
     assert 'declare_parameter<int>("model.num_threads");' in node_text
     assert 'declare_parameter<int>("kws.max_active_paths");' in node_text
     assert 'declare_parameter<int>("kws.num_trailing_blanks");' in node_text
@@ -163,10 +163,10 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     assert "rclcpp::KeepLast(20)" not in node_text
     assert "const rclcpp::QoS qos_audio = makeExplicitQos(audio_qos_depth_, audio_qos_reliable_);" in node_text
     assert "const rclcpp::QoS qos_vad = makeExplicitQos(vad_qos_depth_, vad_qos_reliable_);" in node_text
-    assert "const rclcpp::QoS qos_result = makeExplicitQos(result_qos_depth_, result_qos_reliable_);" in node_text
+    assert "const rclcpp::QoS qos_output = makeExplicitQos(output_qos_depth_, output_qos_reliable_);" in node_text
     assert "audio.qos.depth must be greater than zero" in node_text
     assert "vad.qos.depth must be greater than zero" in node_text
-    assert "result.qos.depth must be greater than zero" in node_text
+    assert "output.qos.depth must be greater than zero" in node_text
     assert "vad.probability_gate must be finite and in (0.0, 1.0]" in node_text
     assert "vad.max_age_ms must be greater than zero" in node_text
     assert "expected_stream_id is required" in node_text

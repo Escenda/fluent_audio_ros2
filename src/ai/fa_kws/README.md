@@ -14,7 +14,7 @@
 
 `expected_source_id` と `expected_stream_id` も必須です。受信した `AudioFrame.source_id` と `VadState.source_id` は `expected_source_id` と一致し、`AudioFrame.stream_id` と `VadState.stream_id` は `expected_stream_id` と一致する必要があります。`audio_topic` は ROS transport の接続点であり、frame identity ではありません。別 source / stream の audio frame または VAD state は backend に渡さず reject します。
 
-audio / VAD / result topic QoS は `audio.qos.*`、`vad.qos.*`、`result.qos.*` で明示します。depth が 0 以下の場合は起動失敗し、node code 内の hidden depth / reliability へ切り替えません。
+audio / VAD / output topic QoS は `audio.qos.*`、`vad.qos.*`、`output.qos.*` で明示します。depth が 0 以下の場合は起動失敗し、node code 内の hidden depth / reliability へ切り替えません。
 
 通常の workspace build では `fa_kws_node` と `fa_kws_wav_tool` を build します。既定の `-DFA_KWS_SHERPA_ONNX=OFF` では sherpa-onnx C API にリンクせず、`backend.name=sherpa_onnx_kws` を選択した起動時に fail closed します。
 

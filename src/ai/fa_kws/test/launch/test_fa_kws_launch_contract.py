@@ -43,8 +43,8 @@ def test_default_config_requires_explicit_backend_and_kws_inputs() -> None:
     assert params["audio.qos.reliable"] is False
     assert params["vad.qos.depth"] > 0
     assert params["vad.qos.reliable"] is False
-    assert params["result.qos.depth"] > 0
-    assert params["result.qos.reliable"] is False
+    assert params["output.qos.depth"] > 0
+    assert params["output.qos.reliable"] is False
     assert "dump_audio.enable" not in params
     assert "dump_audio.path" not in params
 
