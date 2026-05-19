@@ -75,11 +75,18 @@ protected:
   }
 };
 
-}  // namespace
-
-TEST_F(RclcppFixture, PublishesAgcFloat32Frame)
+rclcpp::NodeOptions quietGraphNodeOptions()
 {
   rclcpp::NodeOptions options;
+  options.enable_rosout(false);
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  return options;
+}
+
+rclcpp::NodeOptions agcNodeOptions()
+{
+  rclcpp::NodeOptions options = quietGraphNodeOptions();
   options.parameter_overrides({
     rclcpp::Parameter("input_topic", "/fa_agc_test/input"),
     rclcpp::Parameter("output_topic", "/fa_agc_test/output"),
@@ -96,17 +103,50 @@ TEST_F(RclcppFixture, PublishesAgcFloat32Frame)
     rclcpp::Parameter("expected.bit_depth", 32),
     rclcpp::Parameter("expected.layout", "interleaved"),
     rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
+    rclcpp::Parameter("qos.reliable", false),
     rclcpp::Parameter("diagnostics.qos.depth", 10),
     rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   });
+  return options;
+}
 
-  auto agc_node = std::make_shared<fa_agc::FaAgcNode>(options);
-  auto test_node = std::make_shared<rclcpp::Node>("fa_agc_graph_test");
+rclcpp::NodeOptions agcDropNodeOptions()
+{
+  rclcpp::NodeOptions options = quietGraphNodeOptions();
+  options.parameter_overrides({
+    rclcpp::Parameter("input_topic", "/fa_agc_drop_test/input"),
+    rclcpp::Parameter("output_topic", "/fa_agc_drop_test/output"),
+    rclcpp::Parameter("input_stream_id", "fa_agc_drop_test/input_stream"),
+    rclcpp::Parameter("output.stream_id", "fa_agc_drop_test/output_stream"),
+    rclcpp::Parameter("agc.target_rms", 0.5),
+    rclcpp::Parameter("agc.min_gain", 0.25),
+    rclcpp::Parameter("agc.max_gain", 4.0),
+    rclcpp::Parameter("agc.attack_ms", 0.001),
+    rclcpp::Parameter("agc.release_ms", 0.001),
+    rclcpp::Parameter("expected.sample_rate", 16000),
+    rclcpp::Parameter("expected.channels", 1),
+    rclcpp::Parameter("expected.encoding", "FLOAT32LE"),
+    rclcpp::Parameter("expected.bit_depth", 32),
+    rclcpp::Parameter("expected.layout", "interleaved"),
+    rclcpp::Parameter("qos.depth", 10),
+    rclcpp::Parameter("qos.reliable", false),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", false),
+    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+  });
+  return options;
+}
+
+}  // namespace
+
+TEST_F(RclcppFixture, PublishesAgcFloat32Frame)
+{
+  auto agc_node = std::make_shared<fa_agc::FaAgcNode>(agcNodeOptions());
+  auto test_node = std::make_shared<rclcpp::Node>("fa_agc_graph_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_agc_test/input",
     qos);
@@ -152,34 +192,11 @@ TEST_F(RclcppFixture, PublishesAgcFloat32Frame)
 
 TEST_F(RclcppFixture, DropsFrameWhenStreamIdDoesNotMatchInputTopic)
 {
-  rclcpp::NodeOptions options;
-  options.parameter_overrides({
-    rclcpp::Parameter("input_topic", "/fa_agc_drop_test/input"),
-    rclcpp::Parameter("output_topic", "/fa_agc_drop_test/output"),
-    rclcpp::Parameter("input_stream_id", "fa_agc_drop_test/input_stream"),
-    rclcpp::Parameter("output.stream_id", "fa_agc_drop_test/output_stream"),
-    rclcpp::Parameter("agc.target_rms", 0.5),
-    rclcpp::Parameter("agc.min_gain", 0.25),
-    rclcpp::Parameter("agc.max_gain", 4.0),
-    rclcpp::Parameter("agc.attack_ms", 0.001),
-    rclcpp::Parameter("agc.release_ms", 0.001),
-    rclcpp::Parameter("expected.sample_rate", 16000),
-    rclcpp::Parameter("expected.channels", 1),
-    rclcpp::Parameter("expected.encoding", "FLOAT32LE"),
-    rclcpp::Parameter("expected.bit_depth", 32),
-    rclcpp::Parameter("expected.layout", "interleaved"),
-    rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", true),
-    rclcpp::Parameter("diagnostics.qos.depth", 10),
-    rclcpp::Parameter("diagnostics.qos.reliable", false),
-    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
-  });
-
-  auto agc_node = std::make_shared<fa_agc::FaAgcNode>(options);
-  auto test_node = std::make_shared<rclcpp::Node>("fa_agc_drop_graph_test");
+  auto agc_node = std::make_shared<fa_agc::FaAgcNode>(agcDropNodeOptions());
+  auto test_node = std::make_shared<rclcpp::Node>("fa_agc_drop_graph_test", quietGraphNodeOptions());
 
   rclcpp::QoS qos(10);
-  qos.reliable();
+  qos.best_effort();
   auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     "/fa_agc_drop_test/input",
     qos);

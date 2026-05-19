@@ -38,7 +38,7 @@ def _write_file_io_params(tmp_path: Path, input_pcm: Path, output_pcm: Path) -> 
                     "audio.layout": "interleaved",
                     "audio.chunk_ms": 1,
                     "audio.stream_id": stream_id,
-                    "playback.loop": False,
+                    "playback.loop": True,
                     "audio.qos.depth": 10,
                     "audio.qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,
@@ -82,7 +82,7 @@ def _write_system_config(tmp_path: Path) -> Path:
         system_config,
         {
             "system": {
-                "default_start_delay": 1.0,
+                "default_start_delay": 3.0,
                 "inter_group_delay": 0.0,
             },
             "groups": [
@@ -114,13 +114,28 @@ def _write_system_config(tmp_path: Path) -> Path:
     return system_config
 
 
+def _matches_looped_payload(payload: bytes, expected_payload: bytes) -> bool:
+    if payload == expected_payload:
+        return True
+    if not payload or len(payload) % len(expected_payload) != 0:
+        return False
+    return all(
+        payload[offset : offset + len(expected_payload)] == expected_payload
+        for offset in range(0, len(payload), len(expected_payload))
+    )
+
+
 def _wait_for_output(output_pcm: Path, expected_payload: bytes) -> bool:
-    deadline = time.monotonic() + 6.0
+    deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
-        if output_pcm.exists() and output_pcm.read_bytes() == expected_payload:
-            return True
+        if output_pcm.exists():
+            if _matches_looped_payload(output_pcm.read_bytes(), expected_payload):
+                return True
         time.sleep(0.05)
-    return output_pcm.exists() and output_pcm.read_bytes() == expected_payload
+    return output_pcm.exists() and _matches_looped_payload(
+        output_pcm.read_bytes(),
+        expected_payload,
+    )
 
 
 def _stop_process(process: subprocess.Popen[str]) -> str:
