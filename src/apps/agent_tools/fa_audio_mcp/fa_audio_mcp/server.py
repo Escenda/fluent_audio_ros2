@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from threading import Lock
+
 from mcp.server.fastmcp import FastMCP
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 
 from fa_interfaces.srv import ArchiveAudioWindow, ExportAudioWindow, TranscribeAudio
@@ -41,6 +44,7 @@ class RosAudioTimelineClient:
             TranscribeAudio,
             config.transcribe_service_name,
         )
+        self._service_call_lock = Lock()
 
     def now_unix_ns(self) -> int:
         return self._node.get_clock().now().nanoseconds
@@ -84,14 +88,24 @@ class RosAudioTimelineClient:
         )
 
     def _call_service(self, client, request, tool_name: str):
-        if not client.wait_for_service(timeout_sec=self._timeout_sec):
-            raise AudioToolError(
-                "service_unavailable",
-                f"{tool_name} ROS service was not available before timeout",
-            )
-        future = client.call_async(request)
-        rclpy.spin_until_future_complete(self._node, future, timeout_sec=self._timeout_sec)
-        response = future.result()
+        with self._service_call_lock:
+            if not client.wait_for_service(timeout_sec=self._timeout_sec):
+                raise AudioToolError(
+                    "service_unavailable",
+                    f"{tool_name} ROS service was not available before timeout",
+                )
+            future = client.call_async(request)
+            executor = SingleThreadedExecutor(context=self._node.context)
+            try:
+                rclpy.spin_until_future_complete(
+                    self._node,
+                    future,
+                    executor=executor,
+                    timeout_sec=self._timeout_sec,
+                )
+            finally:
+                executor.shutdown()
+            response = future.result()
         if response is None:
             raise AudioToolError(
                 "service_timeout",
@@ -109,7 +123,7 @@ def build_mcp_server(
 ) -> FastMCP:
     mcp = FastMCP("fluent-audio")
 
-    @mcp.tool()
+    @mcp.tool(structured_output=False)
     def export_audio_window(
         time_range: str,
         audio_scope: str | None = None,
@@ -129,7 +143,7 @@ def build_mcp_server(
         response = ros_client.export_audio_window(values)
         return format_export_audio_result(response, values.time_range)
 
-    @mcp.tool()
+    @mcp.tool(structured_output=False)
     def archive_audio_window(
         time_range: str,
         reason: str,
@@ -153,7 +167,7 @@ def build_mcp_server(
         response = ros_client.archive_audio_window(values)
         return format_archive_audio_result(response, values.time_range)
 
-    @mcp.tool()
+    @mcp.tool(structured_output=False)
     def transcribe_audio(
         time_range: str,
         audio_scope: str | None = None,

@@ -1,6 +1,7 @@
 import importlib
 import inspect
 import sys
+import threading
 from collections.abc import Callable
 from types import ModuleType
 
@@ -24,10 +25,16 @@ class _FakeFastMCP:
     def __init__(self, name: str) -> None:
         self.name = name
         self.tools: dict[str, ToolFunction] = {}
+        self.structured_output_by_tool: dict[str, bool | None] = {}
 
-    def tool(self):
+    def tool(
+        self,
+        *,
+        structured_output: bool | None = None,
+    ):
         def _decorator(func: ToolFunction) -> ToolFunction:
             self.tools[func.__name__] = func
+            self.structured_output_by_tool[func.__name__] = structured_output
             return func
 
         return _decorator
@@ -51,6 +58,15 @@ class _FakeTranscribeAudio:
 
 class _FakeNodeBase:
     pass
+
+
+class _FakeExecutor:
+    def __init__(self, *, context: str | None = None) -> None:
+        self.context = context
+        self.shutdown_called = False
+
+    def shutdown(self) -> None:
+        self.shutdown_called = True
 
 
 class _FakeResponse:
@@ -173,6 +189,7 @@ class _FakeNode:
         self._archive_client = archive_client
         self._transcribe_client = transcribe_client
         self._now_unix_ns = now_unix_ns
+        self.context = "fake-context"
         self.created_service_names: list[str] = []
 
     def create_client(self, service_type, service_name: str) -> _FakeClient:
@@ -199,6 +216,8 @@ def _install_fake_server_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
     rclpy_module.spin_until_future_complete = _spin_until_future_complete
     node_module = ModuleType("rclpy.node")
     node_module.Node = _FakeNodeBase
+    executors_module = ModuleType("rclpy.executors")
+    executors_module.SingleThreadedExecutor = _FakeExecutor
 
     fa_interfaces_module = ModuleType("fa_interfaces")
     srv_module = ModuleType("fa_interfaces.srv")
@@ -211,6 +230,7 @@ def _install_fake_server_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fastmcp_module)
     monkeypatch.setitem(sys.modules, "rclpy", rclpy_module)
     monkeypatch.setitem(sys.modules, "rclpy.node", node_module)
+    monkeypatch.setitem(sys.modules, "rclpy.executors", executors_module)
     monkeypatch.setitem(sys.modules, "fa_interfaces", fa_interfaces_module)
     monkeypatch.setitem(sys.modules, "fa_interfaces.srv", srv_module)
     sys.modules.pop("fa_audio_mcp.server", None)
@@ -220,9 +240,11 @@ def _spin_until_future_complete(
     node: _FakeNode,
     future: _FakeFuture,
     *,
+    executor: _FakeExecutor,
     timeout_sec: float,
 ) -> None:
     node.spin_timeout_sec = timeout_sec
+    node.spin_executor = executor
 
 
 def _import_server(monkeypatch: pytest.MonkeyPatch):
@@ -326,11 +348,101 @@ def test_ros_client_returns_response_and_populates_request(
     assert result is response
     assert transcribe_client.request.time_range_spec == "10..20"
     assert transcribe_client.request.audio_scope == "audio/high_pass/mic"
+    assert node.spin_executor.context == "fake-context"
+    assert node.spin_executor.shutdown_called is True
     assert node.created_service_names == [
         "export_audio_window",
         "archive_audio_window",
         "transcribe_audio",
     ]
+
+
+def test_ros_client_serializes_service_calls_on_one_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = _import_server(monkeypatch)
+    rclpy_module = sys.modules["rclpy"]
+    first_spin_entered = threading.Event()
+    release_first_spin = threading.Event()
+    second_call_started = threading.Event()
+    second_call_finished = threading.Event()
+    active_spin_count = 0
+    max_active_spin_count = 0
+    counter_lock = threading.Lock()
+
+    def _blocking_spin(
+        node: _FakeNode,
+        future: _FakeFuture,
+        *,
+        executor: _FakeExecutor,
+        timeout_sec: float,
+    ) -> None:
+        nonlocal active_spin_count
+        nonlocal max_active_spin_count
+        with counter_lock:
+            active_spin_count += 1
+            max_active_spin_count = max(max_active_spin_count, active_spin_count)
+        first_spin_entered.set()
+        release_first_spin.wait(timeout=1.0)
+        with counter_lock:
+            active_spin_count -= 1
+
+    rclpy_module.spin_until_future_complete = _blocking_spin
+
+    archive_client = _FakeClient(available=True, response=_FakeResponse())
+    transcribe_client = _FakeClient(available=True, response=_FakeResponse())
+    ros_client = server.RosAudioTimelineClient(
+        _FakeNode(archive_client, transcribe_client),
+        _server_config(),
+    )
+    time_range = NumericTimeRange(start_unix_ns=10, end_unix_ns=20)
+    failures: list[BaseException] = []
+
+    def _run_archive_call() -> None:
+        try:
+            ros_client.archive_audio_window(
+                ArchiveAudioRequestValues(
+                    time_range=time_range,
+                    time_range_spec=time_range.spec,
+                    audio_scope="mic",
+                    reason="evidence",
+                    related_artifact_ids=[],
+                    codec="pcm_s16le",
+                    container="wav",
+                    payload_format="audio/wav",
+                )
+            )
+        except BaseException as exc:
+            failures.append(exc)
+
+    def _run_transcribe_call() -> None:
+        second_call_started.set()
+        try:
+            ros_client.transcribe_audio(
+                TranscribeAudioRequestValues(
+                    time_range=time_range,
+                    time_range_spec=time_range.spec,
+                    audio_scope="audio/high_pass/mic",
+                )
+            )
+        except BaseException as exc:
+            failures.append(exc)
+        finally:
+            second_call_finished.set()
+
+    archive_thread = threading.Thread(target=_run_archive_call)
+    transcribe_thread = threading.Thread(target=_run_transcribe_call)
+    archive_thread.start()
+    assert first_spin_entered.wait(timeout=1.0)
+    transcribe_thread.start()
+    assert second_call_started.wait(timeout=1.0)
+    assert not second_call_finished.wait(timeout=0.05)
+    release_first_spin.set()
+    archive_thread.join(timeout=1.0)
+    transcribe_thread.join(timeout=1.0)
+
+    assert failures == []
+    assert max_active_spin_count == 1
 
 
 def test_ros_client_populates_export_request(
@@ -411,6 +523,11 @@ def test_mcp_tools_make_audio_scope_omittable(
     assert archive_signature.parameters["audio_scope"].default is None
     assert export_signature.parameters["audio_scope"].default is None
     assert transcribe_signature.parameters["audio_scope"].default is None
+    assert mcp.structured_output_by_tool == {
+        "export_audio_window": False,
+        "archive_audio_window": False,
+        "transcribe_audio": False,
+    }
 
 
 def test_transcribe_mcp_tool_resolves_now_relative_range_before_ros_service(
