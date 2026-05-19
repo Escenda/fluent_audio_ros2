@@ -52,6 +52,7 @@ External Silero VAD process。
 `backend.frame_ms` は Silero backend の decision frame duration です。node はこの値を ROS integer parameter として必須扱いで読み、`hangover_ms` が `backend.frame_ms` 以上かつ割り切れることを起動時に検証します。未設定・不正値を 20ms に丸める fallback はありません。
 
 `backend.command` は ROS2 node と異なる Python / venv / container runtime を指すための境界です。path 指定された command は起動時に実体解決され、実行不能なら起動失敗します。command が失敗しても別 backend へ fallback しません。
+Silero VAD backend は startup health check 用の `backend.health_args` を定義しません。起動時には command / model path / provider / args の contract を検証し、worker の実行失敗、timeout、invalid probability は runtime failure として fail closed にします。
 
 `fa_vad` は `scripts/silero_vad_worker` を reference worker として同梱します。この script は entrypoint のみを持ち、実装は `fa_vad_py.backends.silero_worker` に置きます。運用では同梱 script をそのまま使っても、別 venv / 別 container に配置した互換 worker command を指定してもかまいません。互換 worker は `--audio`, `--model`, `--provider`, `--sample-rate` を受け取り、stdout の最終非空行に probability float を出力します。
 window が Silero 必要 sample 数に満たない場合、backend は `None` を返します。これは no-decision であり、node は `VadState` / probability / Bool を publish しません。

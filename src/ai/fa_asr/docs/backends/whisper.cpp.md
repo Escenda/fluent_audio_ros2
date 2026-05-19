@@ -15,7 +15,7 @@
 - `backend.model_path`: ggml model file path
 - `backend.language`
 - `backend.args`: `{audio}`、`{model}`、`{sample_rate}` を含む
-- `backend.health_args`: 任意。指定時は startup health check として `{model}` を含む command を実行する
+- `backend.health_args`: package 単体では任意。profile template で ASR を enable 可能にする場合は明示する。指定時は startup health check として `{model}` を含む command を実行する
 
 ## Failure Conditions
 

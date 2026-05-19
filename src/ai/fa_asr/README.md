@@ -35,6 +35,7 @@ default config は backend を暗黙選択しません。利用環境ごとの l
 - `parakeet_worker`: `backend.command` と `backend.model` が必須です。Python version / venv / SDK が異なる処理は外部 worker / process / container 側へ置きます。
 - `openai_realtime` / `openai_transcriptions`: `backend.command`、`backend.model`、対応する `backend.openai_*.api_key_env` が必須です。OpenAI SDK/API client は外部 worker / process / container 側へ置きます。
 - `backend.args` は default config では空です。backend ごとの worker/CLI contract として `{audio}`、`{model}`、`{sample_rate}` を含む配列を明示してください。
+- `backend.health_args` は `parakeet_worker` / `openai_realtime` / `openai_transcriptions` では必須です。`local_command` / `whisper.cpp` では package 単体の backend contract としては任意ですが、package-owned SO101 profile template では startup health check を明示するために設定します。
 
 例: whisper.cpp を raw float32le worker 経由で使う場合
 
@@ -44,6 +45,7 @@ backend.command: "/opt/fluent_audio/bin/whisper_cpp_worker"
 backend.model_path: "/models/ggml-large-v3.bin"
 backend.language: "ja"
 backend.args: ["--model", "{model}", "--language", "{language}", "--audio-f32", "{audio}", "--sample-rate", "{sample_rate}"]
+backend.health_args: ["health", "--model", "{model}", "--language", "{language}"]
 ```
 
 OpenAI 系 backend は OpenAI 直結実装ではなく、外部 worker command を呼ぶ backend slot です。API key の値、network、SDK は worker 側の責務です。`fa_asr` は `api_key_env` の指定と、その環境変数が空でないことだけを検証し、未設定なら起動失敗します。
