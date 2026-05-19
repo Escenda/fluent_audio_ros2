@@ -335,6 +335,8 @@ def test_load_required_packages_works_before_node_packages_are_installed(
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
     ]
 
 

@@ -50,6 +50,43 @@ groups:
           mic.input_stream_id: "audio/float32/mic"
           mic.output.stream_id: "audio/preprocessed/mono16k"
 
+  - id: audio_correction
+    enable: true
+    nodes:
+      - id: fa_dc_offset_removal
+        enable: true
+        package: fa_dc_offset_removal
+        exec: fa_dc_offset_removal_node
+        node_name: fa_dc_offset_removal_mic
+        namespace: ""
+        params_file: "${share:fa_dc_offset_removal}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/resample16k/mic"
+          output_topic: "audio/dc_offset_removed/frame"
+          input_stream_id: "audio/preprocessed/mono16k"
+          output.stream_id: "audio/dc_offset_removed/mic"
+          expected.sample_rate: 16000
+
+  - id: audio_frequency
+    enable: true
+    nodes:
+      - id: fa_high_pass
+        enable: true
+        package: fa_high_pass
+        exec: fa_high_pass_node
+        node_name: fa_high_pass_mic
+        namespace: ""
+        params_file: "${share:fa_high_pass}/config/default.yaml"
+        remappings: {}
+        parameters:
+          input_topic: "audio/dc_offset_removed/frame"
+          output_topic: "audio/high_pass/frame"
+          input_stream_id: "audio/dc_offset_removed/mic"
+          output.stream_id: "audio/high_pass/mic"
+          filter.cutoff_hz: 80.0
+          expected.sample_rate: 16000
+
   - id: voice_frontend
     enable: true
     nodes:
@@ -62,8 +99,8 @@ groups:
         params_file: "${share:fa_vad}/config/default.yaml"
         remappings: {}
         parameters:
-          input_topic: "audio/resample16k/mic"
-          input_stream_id: "audio/preprocessed/mono16k"
+          input_topic: "audio/high_pass/frame"
+          input_stream_id: "audio/high_pass/mic"
           backend.name: "silero"
           backend.model_path: "${env:FLUENT_AUDIO_VAD_MODEL_DIR}"
           backend.execution_provider: "${env:FLUENT_AUDIO_VAD_PROVIDER}"
@@ -78,8 +115,8 @@ groups:
         params_file: "${share:fa_kws}/config/default.yaml"
         remappings: {}
         parameters:
-          audio_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/preprocessed/mono16k"
+          audio_topic: "audio/high_pass/frame"
+          expected_stream_id: "audio/high_pass/mic"
           vad_topic: "voice/vad_state"
           output_topic: "voice/wake_word"
           backend.name: "sherpa_onnx_kws"
@@ -164,8 +201,8 @@ groups:
         params_file: "${share:fa_asr}/config/default.yaml"
         remappings: {}
         parameters:
-          audio_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/preprocessed/mono16k"
+          audio_topic: "audio/high_pass/frame"
+          expected_stream_id: "audio/high_pass/mic"
           vad_topic: "voice/vad_state"
           turn_context_topic: "conversation/turn_context"
           asr_result_topic: "voice/asr/result"
@@ -203,8 +240,8 @@ groups:
         params_file: "${share:fa_turn_detector}/config/default.yaml"
         remappings: {}
         parameters:
-          audio_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/preprocessed/mono16k"
+          audio_topic: "audio/high_pass/frame"
+          expected_stream_id: "audio/high_pass/mic"
           vad_topic: "voice/vad_state"
           turn_context_topic: "conversation/turn_context"
           output_topic: "voice/turn_end"

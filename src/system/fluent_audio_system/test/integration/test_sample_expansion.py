@@ -30,6 +30,8 @@ def _patch_profile_package_shares(
         "fa_out",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
         "fa_vad",
         "fa_kws",
         "fa_asr",
@@ -65,6 +67,8 @@ def _patch_profile_package_shares(
             "fa_out",
             "fa_sample_format",
             "fa_resample",
+            "fa_dc_offset_removal",
+            "fa_high_pass",
             "fa_vad",
             "fa_kws",
             "fa_asr",
@@ -262,17 +266,25 @@ def test_audio_embedding_profiles_keep_backend_and_model_out_of_profile_config()
         assert audio_embedding["params_file"] == (
             "${share:fa_audio_embedding}/config/default.yaml"
         )
-        assert audio_embedding["parameters"] == {
-            "input_topic": "audio/resample16k/mic",
-            "expected_stream_id": "audio/preprocessed/mono16k",
-        }
+        expected_binding = (
+            {
+                "input_topic": "audio/high_pass/frame",
+                "expected_stream_id": "audio/high_pass/mic",
+            }
+            if profile_path == "config/profiles/so101_mic_frontend.yaml"
+            else {
+                "input_topic": "audio/resample16k/mic",
+                "expected_stream_id": "audio/preprocessed/mono16k",
+            }
+        )
+        assert audio_embedding["parameters"] == expected_binding
         assert all(
             not key.startswith("backend.") and "model" not in key
             for key in audio_embedding["parameters"]
         )
 
 
-def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
+def test_so101_mic_frontend_profile_expands_explicit_preprocess_pipeline(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -292,11 +304,15 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
     ]
     assert [node.package for node in enabled_nodes] == [
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
     ]
     assert enabled_nodes[0].node_name == "fa_in"
     assert enabled_nodes[0].parameters == {
@@ -335,6 +351,38 @@ def test_so101_mic_frontend_profile_expands_explicit_format_pipeline(
         "mic.output.stream_id": "audio/preprocessed/mono16k",
     }
 
+    dc_offset = enabled_nodes[3]
+    assert dc_offset.params_file == str(
+        tmp_path / "fa_dc_offset_removal" / "config" / "default.yaml"
+    )
+    assert dc_offset.parameters == {
+        "input_topic": "audio/resample16k/mic",
+        "output_topic": "audio/dc_offset_removed/frame",
+        "input_stream_id": "audio/preprocessed/mono16k",
+        "output.stream_id": "audio/dc_offset_removed/mic",
+        "expected.sample_rate": 16000,
+    }
+    assert dc_offset.parameters["input_topic"] == resample.parameters["mic.output_topic"]
+    assert (
+        dc_offset.parameters["input_stream_id"]
+        == resample.parameters["mic.output.stream_id"]
+    )
+
+    high_pass = enabled_nodes[4]
+    assert high_pass.params_file == str(
+        tmp_path / "fa_high_pass" / "config" / "default.yaml"
+    )
+    assert high_pass.parameters == {
+        "input_topic": "audio/dc_offset_removed/frame",
+        "output_topic": "audio/high_pass/frame",
+        "input_stream_id": "audio/dc_offset_removed/mic",
+        "output.stream_id": "audio/high_pass/mic",
+        "filter.cutoff_hz": 80.0,
+        "expected.sample_rate": 16000,
+    }
+    assert high_pass.parameters["input_topic"] == dc_offset.parameters["output_topic"]
+    assert high_pass.parameters["input_stream_id"] == dc_offset.parameters["output.stream_id"]
+
 
 def test_so101_kws_frontend_profile_expands_vad_and_kws_worker_contract(
     monkeypatch: pytest.MonkeyPatch,
@@ -358,6 +406,8 @@ def test_so101_kws_frontend_profile_expands_vad_and_kws_worker_contract(
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
         "fa_vad",
         "fa_kws",
     ]
@@ -365,13 +415,16 @@ def test_so101_kws_frontend_profile_expands_vad_and_kws_worker_contract(
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
         "fa_vad",
         "fa_kws",
     ]
 
     vad_params = params_by_id["fa_vad"]
-    assert vad_params["input_topic"] == "audio/resample16k/mic"
-    assert vad_params["input_stream_id"] == "audio/preprocessed/mono16k"
+    high_pass_params = params_by_id["fa_high_pass"]
+    assert vad_params["input_topic"] == high_pass_params["output_topic"]
+    assert vad_params["input_stream_id"] == high_pass_params["output.stream_id"]
     assert vad_params["backend.name"] == "silero"
     assert vad_params["backend.model_path"] == str(tmp_path / "models" / "silero")
     assert vad_params["backend.execution_provider"] == "cpu"
@@ -454,6 +507,8 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
         "fa_vad",
         "fa_kws",
         "fa_asr",
@@ -463,6 +518,8 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
         "fa_vad",
         "fa_kws",
         "fa_asr",
@@ -470,9 +527,12 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
     ]
 
     vad_params = params_by_id["fa_vad"]
+    high_pass_params = params_by_id["fa_high_pass"]
     asr_params = params_by_id["fa_asr"]
     turn_detector_params = params_by_id["fa_turn_detector"]
 
+    assert vad_params["input_topic"] == high_pass_params["output_topic"]
+    assert vad_params["input_stream_id"] == high_pass_params["output.stream_id"]
     assert asr_params["audio_topic"] == vad_params["input_topic"]
     assert asr_params["expected_stream_id"] == vad_params["input_stream_id"]
     assert asr_params["vad_topic"] == "voice/vad_state"
@@ -583,8 +643,13 @@ def test_vad_profiles_carry_external_worker_contract_in_system_config(
     assert params["backend.model_path"] == "${env:FLUENT_AUDIO_VAD_MODEL_DIR}"
     assert params["backend.execution_provider"] == "${env:FLUENT_AUDIO_VAD_PROVIDER}"
     assert params["backend.command"] == "${env:FLUENT_AUDIO_VAD_WORKER}"
-    assert params["input_topic"] == "audio/resample16k/mic"
-    assert params["input_stream_id"] == "audio/preprocessed/mono16k"
+    expected_topic, expected_stream_id = (
+        ("audio/high_pass/frame", "audio/high_pass/mic")
+        if profile_path.startswith("config/profiles/so101_")
+        else ("audio/resample16k/mic", "audio/preprocessed/mono16k")
+    )
+    assert params["input_topic"] == expected_topic
+    assert params["input_stream_id"] == expected_stream_id
 
 
 @pytest.mark.parametrize(
@@ -719,6 +784,8 @@ def test_required_packages_for_so101_mic_frontend_profile(
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
     ]
 
 
@@ -737,6 +804,8 @@ def test_required_packages_for_so101_kws_frontend_profile(
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
         "fa_vad",
         "fa_kws",
     ]
@@ -757,6 +826,8 @@ def test_required_packages_for_so101_voice_frontend_profile(
         "fa_in",
         "fa_sample_format",
         "fa_resample",
+        "fa_dc_offset_removal",
+        "fa_high_pass",
         "fa_vad",
         "fa_kws",
         "fa_asr",
