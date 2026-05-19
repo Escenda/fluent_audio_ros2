@@ -246,5 +246,9 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "<test_depend>ament_cmake_gtest</test_depend>" in package_xml
     assert "<test_depend>ament_cmake_pytest</test_depend>" in package_xml
+    assert "<exec_depend>launch</exec_depend>" in package_xml
+    assert "<exec_depend>launch_ros</exec_depend>" in package_xml
+    assert "<test_depend>fa_resample</test_depend>" in package_xml
     assert "<test_depend>python3-pytest</test_depend>" in package_xml
     assert "<test_depend>python3-yaml</test_depend>" in package_xml
+    assert "<test_depend>rclpy</test_depend>" in package_xml
