@@ -4,7 +4,6 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -16,6 +15,7 @@
 #include "fa_interfaces/msg/audio_frame.hpp"
 #include "fa_interfaces/msg/playback_done.hpp"
 #include "fa_interfaces/srv/playback_control.hpp"
+#include "fa_out/backends/factory.hpp"
 #include "fa_out/backends/sink_backend.hpp"
 #include "std_msgs/msg/header.hpp"
 
@@ -67,8 +67,7 @@ struct QueuedFrame
 class FaOutNode : public rclcpp::Node
 {
 public:
-  using BackendFactory = std::function<
-    std::unique_ptr<backends::SinkBackend>(const backends::AlsaPlaybackConfig &)>;
+  using BackendFactory = backends::AlsaPlaybackBackendFactory;
 
   explicit FaOutNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   FaOutNode(const rclcpp::NodeOptions & options, BackendFactory backend_factory);

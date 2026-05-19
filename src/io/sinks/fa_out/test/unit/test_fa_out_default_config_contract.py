@@ -148,12 +148,16 @@ def test_playback_contract_is_pcm16_only_at_startup() -> None:
 def test_file_writer_backend_is_explicit_and_does_not_hide_processing() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_out_node.cpp").read_text(encoding="utf-8")
+    factory_source = (package_root / "src" / "backends" / "factory.cpp").read_text(
+        encoding="utf-8"
+    )
     backend_source = (
         package_root / "src" / "backends" / "pcm_file_writer_backend.cpp"
     ).read_text(encoding="utf-8")
 
     assert "kBackendNetworkPcmSender" in source
-    assert "std::make_unique<backends::PcmFileWriterBackend>" in source
+    assert "backend_settings.pcm_file_writer.file_path = config_.file_path;" in source
+    assert "std::make_unique<PcmFileWriterBackend>" in factory_source
     assert "file.path is required for backend.name=pcm_file_writer" in source
     assert "audio.encoding/audio.bit_depth must be one of PCM16LE/16, PCM32LE/32, FLOAT32LE/32" in source
     assert "codec" not in backend_source
@@ -165,11 +169,15 @@ def test_file_writer_backend_is_explicit_and_does_not_hide_processing() -> None:
 def test_network_sender_backend_is_explicit_and_preserves_packet_boundary() -> None:
     package_root = Path(__file__).parents[2]
     source = (package_root / "src" / "fa_out_node.cpp").read_text(encoding="utf-8")
+    factory_source = (package_root / "src" / "backends" / "factory.cpp").read_text(
+        encoding="utf-8"
+    )
     backend_source = (
         package_root / "src" / "backends" / "network_pcm_sender_backend.cpp"
     ).read_text(encoding="utf-8")
 
-    assert "std::make_unique<backends::NetworkPcmSenderBackend>" in source
+    assert "backend_settings.network_pcm_sender.endpoint_uri = config_.endpoint_uri;" in source
+    assert "std::make_unique<NetworkPcmSenderBackend>" in factory_source
     assert "endpoint.uri is required for backend.name=network_pcm_sender" in source
     assert "network.max_packet_bytes must be divisible by expected frame byte size" in source
     assert "config_.backend_name == kBackendNetworkPcmSender ? total_bytes" in source
@@ -310,6 +318,7 @@ def test_backend_builds_as_separate_library() -> None:
     assert "add_library(fa_out_backends" in cmake_text
     assert "src/backends/sink_backend.cpp" in cmake_text
     assert "src/backends/alsa_playback_backend.cpp" in cmake_text
+    assert "src/backends/factory.cpp" in cmake_text
     assert "add_library(fa_out_node_core" in cmake_text
     assert "src/fa_out_node.cpp" in cmake_text
     assert "src/main.cpp" in cmake_text
@@ -327,7 +336,9 @@ def test_node_stores_abstract_sink_backend() -> None:
     assert "#include \"fa_out/backends/sink_backend.hpp\"" in header_text
     assert "std::unique_ptr<backends::SinkBackend> sink_backend_;" in header_text
     assert "std::unique_ptr<backends::AlsaPlaybackBackend>" not in header_text
-    assert "std::make_unique<backends::AlsaPlaybackBackend>" in source_text
+    assert "std::make_unique<backends::AlsaPlaybackBackend>" not in source_text
+    assert "std::make_unique<backends::PcmFileWriterBackend>" not in source_text
+    assert "std::make_unique<backends::NetworkPcmSenderBackend>" not in source_text
 
 
 def test_fa_out_node_header_does_not_store_alsa_handle() -> None:
@@ -348,8 +359,10 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "find_package(ament_cmake_gtest REQUIRED)" in cmake_text
     assert "ament_add_pytest_test(${PROJECT_NAME}_pytest test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_audio_config_validation_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_sink_backend_factory_test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_node_contract_test" in cmake_text
     assert "ament_add_gtest(${PROJECT_NAME}_network_pcm_sender_backend_test" in cmake_text
+    assert "test/cpp/test_sink_backend_factory.cpp" in cmake_text
     assert "test/cpp/test_network_pcm_sender_backend.cpp" in cmake_text
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1" in cmake_text
     assert "find_package(std_msgs REQUIRED)" in cmake_text
@@ -360,6 +373,44 @@ def test_colcon_runs_pytest_contracts() -> None:
     assert "<depend>std_msgs</depend>" in package_xml
     assert "diagnostic_msgs" not in cmake_text
     assert "diagnostic_msgs" not in package_xml
+
+
+def test_node_uses_ros_free_sink_backend_factory() -> None:
+    package_root = Path(__file__).parents[2]
+    node_source = (package_root / "src" / "fa_out_node.cpp").read_text(encoding="utf-8")
+    header_text = (package_root / "include" / "fa_out" / "fa_out_node.hpp").read_text(
+        encoding="utf-8"
+    )
+    factory_header = (
+        package_root / "include" / "fa_out" / "backends" / "factory.hpp"
+    ).read_text(encoding="utf-8")
+    factory_source = (package_root / "src" / "backends" / "factory.cpp").read_text(
+        encoding="utf-8"
+    )
+    factory_test = (
+        package_root / "test" / "cpp" / "test_sink_backend_factory.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert '#include "fa_out/backends/factory.hpp"' in node_source
+    assert "auto backend = backends::buildSinkBackend(" in node_source
+    assert "backends::SinkBackendSettings backend_settings;" in node_source
+    assert "backend_settings.name = config_.backend_name;" in node_source
+    assert '#include "fa_out/backends/alsa_playback_backend.hpp"' not in node_source
+    assert '#include "fa_out/backends/pcm_file_writer_backend.hpp"' not in node_source
+    assert '#include "fa_out/backends/network_pcm_sender_backend.hpp"' not in node_source
+    assert "using BackendFactory = backends::AlsaPlaybackBackendFactory;" in header_text
+    assert "struct SinkBackendSettings" in factory_header
+    assert "AlsaPlaybackBackendFactory defaultAlsaPlaybackBackendFactory()" in factory_header
+    assert "std::make_unique<AlsaPlaybackBackend>(config)" in factory_source
+    assert "std::make_unique<PcmFileWriterBackend>(settings.pcm_file_writer)" in factory_source
+    assert (
+        "std::make_unique<NetworkPcmSenderBackend>(settings.network_pcm_sender)"
+        in factory_source
+    )
+    assert "BuildsPcmFileWriterBackend" in factory_test
+    assert "BuildsNetworkPcmSenderBackend" in factory_test
+    assert "RejectsMissingBackendName" in factory_test
+    assert "RejectsUnknownBackendName" in factory_test
 
 
 def test_sink_adapter_exposes_only_playback_lifecycle_control_surface() -> None:

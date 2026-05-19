@@ -1,9 +1,7 @@
 #include "fa_out/fa_out_node.hpp"
 
 #include "fa_out/audio_config_validation.hpp"
-#include "fa_out/backends/alsa_playback_backend.hpp"
-#include "fa_out/backends/network_pcm_sender_backend.hpp"
-#include "fa_out/backends/pcm_file_writer_backend.hpp"
+#include "fa_out/backends/factory.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -30,13 +28,6 @@ constexpr const char * kPlaybackCommandResume = "resume";
 constexpr const char * kBackendAlsaPlayback = "alsa_playback";
 constexpr const char * kBackendPcmFileWriter = "pcm_file_writer";
 constexpr const char * kBackendNetworkPcmSender = "network_pcm_sender";
-
-FaOutNode::BackendFactory defaultBackendFactory()
-{
-  return [](const backends::AlsaPlaybackConfig & backend_config) {
-    return std::make_unique<backends::AlsaPlaybackBackend>(backend_config);
-  };
-}
 
 bool isSupportedRawEncodingPair(const std::string & encoding, const uint32_t bit_depth)
 {
@@ -120,7 +111,7 @@ rcl_interfaces::msg::ParameterDescriptor dynamicParameterDescriptor()
 }
 
 FaOutNode::FaOutNode(const rclcpp::NodeOptions & options)
-: FaOutNode(options, defaultBackendFactory())
+: FaOutNode(options, backends::defaultAlsaPlaybackBackendFactory())
 {
 }
 
@@ -348,39 +339,32 @@ void FaOutNode::openBackend()
 {
   closeBackend();
 
-  std::unique_ptr<backends::SinkBackend> backend;
+  backends::SinkBackendSettings backend_settings;
+  backend_settings.name = config_.backend_name;
   if (config_.backend_name == kBackendAlsaPlayback) {
-    backends::AlsaPlaybackConfig backend_config;
-    backend_config.device_id = config_.device_id;
-    backend_config.encoding = config_.encoding;
-    backend_config.sample_rate = config_.sample_rate;
-    backend_config.channels = config_.channels;
-    backend_config.bit_depth = config_.bit_depth;
-    backend_config.buffer_frames = config_.alsa_buffer_frames;
-    backend_config.period_frames = config_.alsa_period_frames;
-    backend = backend_factory_(backend_config);
+    backend_settings.alsa_playback.device_id = config_.device_id;
+    backend_settings.alsa_playback.encoding = config_.encoding;
+    backend_settings.alsa_playback.sample_rate = config_.sample_rate;
+    backend_settings.alsa_playback.channels = config_.channels;
+    backend_settings.alsa_playback.bit_depth = config_.bit_depth;
+    backend_settings.alsa_playback.buffer_frames = config_.alsa_buffer_frames;
+    backend_settings.alsa_playback.period_frames = config_.alsa_period_frames;
   } else if (config_.backend_name == kBackendPcmFileWriter) {
-    backends::PcmFileWriterConfig backend_config;
-    backend_config.file_path = config_.file_path;
-    backend_config.encoding = config_.encoding;
-    backend_config.channels = config_.channels;
-    backend_config.bit_depth = config_.bit_depth;
-    backend_config.overwrite_enabled = config_.overwrite_enabled;
-    backend = std::make_unique<backends::PcmFileWriterBackend>(backend_config);
+    backend_settings.pcm_file_writer.file_path = config_.file_path;
+    backend_settings.pcm_file_writer.encoding = config_.encoding;
+    backend_settings.pcm_file_writer.channels = config_.channels;
+    backend_settings.pcm_file_writer.bit_depth = config_.bit_depth;
+    backend_settings.pcm_file_writer.overwrite_enabled = config_.overwrite_enabled;
   } else if (config_.backend_name == kBackendNetworkPcmSender) {
-    backends::NetworkPcmSenderConfig backend_config;
-    backend_config.endpoint_uri = config_.endpoint_uri;
-    backend_config.encoding = config_.encoding;
-    backend_config.channels = config_.channels;
-    backend_config.bit_depth = config_.bit_depth;
-    backend_config.max_packet_bytes = config_.network_max_packet_bytes;
-    backend = std::make_unique<backends::NetworkPcmSenderBackend>(backend_config);
+    backend_settings.network_pcm_sender.endpoint_uri = config_.endpoint_uri;
+    backend_settings.network_pcm_sender.encoding = config_.encoding;
+    backend_settings.network_pcm_sender.channels = config_.channels;
+    backend_settings.network_pcm_sender.bit_depth = config_.bit_depth;
+    backend_settings.network_pcm_sender.max_packet_bytes = config_.network_max_packet_bytes;
   } else {
     throw std::runtime_error("unsupported fa_out backend.name: " + config_.backend_name);
   }
-  if (!backend) {
-    throw std::runtime_error("fa_out backend factory returned null backend");
-  }
+  auto backend = backends::buildSinkBackend(backend_settings, backend_factory_);
   try {
     const backends::SinkOpenInfo open_info = backend->open();
     for (const auto & info : open_info.info_messages) {

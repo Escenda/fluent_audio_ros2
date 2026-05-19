@@ -18,6 +18,7 @@ pkg_check_modules(ALSA REQUIRED alsa)
 
 add_library(fa_out_backends
   src/backends/alsa_playback_backend.cpp
+  src/backends/factory.cpp
   src/backends/network_pcm_sender_backend.cpp
   src/backends/pcm_file_writer_backend.cpp
   src/backends/sink_backend.cpp
@@ -93,6 +94,16 @@ if(BUILD_TESTING)
   )
   target_include_directories(${PROJECT_NAME}_audio_config_validation_test PRIVATE
     include
+  )
+
+  ament_add_gtest(${PROJECT_NAME}_sink_backend_factory_test
+    test/cpp/test_sink_backend_factory.cpp
+  )
+  target_include_directories(${PROJECT_NAME}_sink_backend_factory_test PRIVATE
+    include
+  )
+  target_link_libraries(${PROJECT_NAME}_sink_backend_factory_test
+    fa_out_backends
   )
 
   ament_add_gtest(${PROJECT_NAME}_node_contract_test
