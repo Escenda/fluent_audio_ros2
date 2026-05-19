@@ -42,14 +42,20 @@ def test_backend_config_has_no_provider_default() -> None:
         / "backends"
         / "sherpa_onnx_kws_backend.hpp"
     )
+    factory_header_path = (
+        PACKAGE_ROOT / "include" / "fa_kws" / "backends" / "factory.hpp"
+    )
     interface_path = (
         PACKAGE_ROOT / "include" / "fa_kws" / "backends" / "kws_backend.hpp"
     )
 
     header_text = header_path.read_text(encoding="utf-8")
+    factory_header_text = factory_header_path.read_text(encoding="utf-8")
     interface_text = interface_path.read_text(encoding="utf-8")
 
     assert "std::string execution_provider;" in header_text
+    assert "struct KwsBackendSettings" in factory_header_text
+    assert "std::unique_ptr<KwsBackend> buildKwsBackend" in factory_header_text
     assert "std::string execution_provider{};" not in header_text
     assert "class KwsBackend" in interface_text
     assert "struct KwsDetection" in interface_text
@@ -67,6 +73,9 @@ def test_backend_config_has_no_provider_default() -> None:
 
 def test_node_fails_closed_for_missing_or_unknown_backend_name() -> None:
     node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
+    factory_text = (PACKAGE_ROOT / "src" / "backends" / "factory.cpp").read_text(
+        encoding="utf-8"
+    )
     validation_header = (
         PACKAGE_ROOT / "include" / "fa_kws" / "backend_config_validation.hpp"
     ).read_text(encoding="utf-8")
@@ -76,8 +85,10 @@ def test_node_fails_closed_for_missing_or_unknown_backend_name() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
     assert 'declare_parameter<std::string>("backend.name");' in node_text
-    assert "validateBackendOrThrow();" in node_text
-    assert "validation::requireSupportedBackendName(backend_name_);" in node_text
+    assert "KwsBackendSettings backend_settings;" in node_text
+    assert "backend_settings.name = backend_name_;" in node_text
+    assert "kws_backend_ = buildKwsBackend(backend_settings);" in node_text
+    assert "validation::requireSupportedBackendName(settings.name);" in factory_text
     assert "backend.name is required" in validation_header
     assert "unsupported fa_kws backend.name: " in validation_header
     assert 'kBackendSherpaOnnxKws = "sherpa_onnx_kws"' in validation_header
@@ -85,9 +96,12 @@ def test_node_fails_closed_for_missing_or_unknown_backend_name() -> None:
     assert "RejectsUnknownBackendName" in validation_test
     assert "AcceptsSherpaOnnxKwsBackendName" in validation_test
     assert "ament_add_gtest(${PROJECT_NAME}_backend_config_validation_test" in cmake_text
+    assert "ament_add_gtest(${PROJECT_NAME}_backend_factory_test" in cmake_text
     assert "test/unit/backend_config_validation_contract.cpp" in cmake_text
+    assert "test/unit/backend_factory_contract.cpp" in cmake_text
     assert 'backend_name_ != "sherpa_onnx_kws"' not in node_text
     assert 'declare_parameter<std::string>("backend.name", "sherpa_onnx_kws")' not in node_text
+    assert "SherpaOnnxKwsBackend" not in node_text
 
 
 def test_cmake_removes_native_sherpa_link_mode() -> None:
@@ -118,6 +132,7 @@ def test_backend_builds_as_shared_runtime_boundary() -> None:
     cmake_text = (PACKAGE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
     assert "add_library(fa_kws_backends STATIC" in cmake_text
+    assert "src/backends/factory.cpp" in cmake_text
     assert "src/backends/sherpa_onnx_kws_backend.cpp" in cmake_text
     assert "src/backends/sherpa_onnx_kws_backend_unavailable.cpp" not in cmake_text
     assert "target_link_libraries(fa_kws_node" in cmake_text
@@ -157,12 +172,22 @@ def test_node_uses_backend_execution_provider_parameter() -> None:
     assert "validateTopicBindingsOrThrow();" in node_text
     assert "frameToCanonicalFloat(*msg, expected_source_id_, expected_stream_id_)" in node_text
     assert 'declare_parameter<double>("vad.probability_gate");' in node_text
-    assert "backend.execution_provider is required" in node_text
-    assert "backend.command is required" in node_text
-    assert "backend.args must not be empty" in node_text
-    assert "backend.health_args must not be empty" in node_text
-    assert "backend.timeout_sec must be finite and greater than zero" in node_text
-    assert "backend.workspace_dir is required" in node_text
+    assert "backend.execution_provider is required" not in node_text
+    assert "backend.command is required" not in node_text
+    assert "backend.args must not be empty" not in node_text
+    assert "backend.health_args must not be empty" not in node_text
+    assert "backend.timeout_sec must be finite and greater than zero" not in node_text
+    assert "backend.workspace_dir is required" not in node_text
+    backend_text = (
+        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
+    ).read_text(encoding="utf-8")
+    assert "backend.execution_provider is required" in backend_text
+    assert "unsupported backend.execution_provider for sherpa_onnx_kws" in backend_text
+    assert "requireExecutableCommand(config_.command)" in backend_text
+    assert "backend.args must not be empty" in backend_text
+    assert "backend.health_args must not be empty" in backend_text
+    assert "backend.timeout_sec must be finite and greater than zero" in backend_text
+    assert "backend.workspace_dir is required" in backend_text
     assert 'declare_parameter<int>("vad.max_age_ms");' in node_text
     assert 'declare_parameter<int>("cooldown_ms");' in node_text
     assert 'declare_parameter<double>("debug.status_period_sec");' in node_text
@@ -237,13 +262,15 @@ def test_reference_worker_is_external_entrypoint() -> None:
 
 
 def test_model_file_validation_rejects_non_regular_or_unreadable_paths() -> None:
-    node_text = (PACKAGE_ROOT / "src" / "fa_kws_node.cpp").read_text(encoding="utf-8")
+    backend_text = (
+        PACKAGE_ROOT / "src" / "backends" / "sherpa_onnx_kws_backend.cpp"
+    ).read_text(encoding="utf-8")
     spec_text = (PACKAGE_ROOT / "docs" / "仕様書.md").read_text(encoding="utf-8")
 
-    assert "std::filesystem::is_regular_file(path, ec)" in node_text
-    assert "not a regular file" in node_text
-    assert "std::ifstream probe(path, std::ios::binary)" in node_text
-    assert "not readable" in node_text
+    assert "std::filesystem::is_regular_file(path, ec)" in backend_text
+    assert "must be a regular readable file" in backend_text
+    assert "std::ifstream probe(path, std::ios::binary)" in backend_text
+    assert "not readable" in backend_text
     assert "model path missing / not a regular readable file" in spec_text
 
 

@@ -439,6 +439,9 @@ void SherpaOnnxKwsBackend::validateConfig() const
   if (config_.model_num_threads <= 0) {
     throw std::invalid_argument("backend.model_num_threads must be > 0");
   }
+  if (config_.execution_provider.empty()) {
+    throw std::invalid_argument("backend.execution_provider is required");
+  }
   if (!isSupportedSherpaOnnxExecutionProvider(config_.execution_provider)) {
     throw std::invalid_argument(
       "unsupported backend.execution_provider for sherpa_onnx_kws: " +

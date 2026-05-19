@@ -15,6 +15,7 @@ find_package(fa_interfaces REQUIRED)
 include_directories(include)
 
 add_library(fa_kws_backends STATIC
+  src/backends/factory.cpp
   src/backends/sherpa_onnx_kws_backend.cpp
 )
 
@@ -80,6 +81,18 @@ if(BUILD_TESTING)
   if(TARGET ${PROJECT_NAME}_backend_config_validation_test)
     target_include_directories(${PROJECT_NAME}_backend_config_validation_test PRIVATE
       include
+    )
+  endif()
+
+  ament_add_gtest(${PROJECT_NAME}_backend_factory_test
+    test/unit/backend_factory_contract.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_backend_factory_test)
+    target_include_directories(${PROJECT_NAME}_backend_factory_test PRIVATE
+      include
+    )
+    target_link_libraries(${PROJECT_NAME}_backend_factory_test
+      fa_kws_backends
     )
   endif()
 

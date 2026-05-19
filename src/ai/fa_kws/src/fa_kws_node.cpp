@@ -5,10 +5,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <memory>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -19,9 +16,8 @@
 #include "rclcpp/rclcpp.hpp"
 
 #include "fa_kws/audio_utils.hpp"
-#include "fa_kws/backend_config_validation.hpp"
+#include "fa_kws/backends/factory.hpp"
 #include "fa_kws/backends/kws_backend.hpp"
-#include "fa_kws/backends/sherpa_onnx_kws_backend.hpp"
 #include "fa_kws/vad_gate.hpp"
 #include "fa_kws/vad_state_identity.hpp"
 
@@ -94,35 +90,32 @@ public:
   {
     loadParameters();
     validateTopicBindingsOrThrow();
-    validateBackendOrThrow();
     validateVadInputOrThrow();
 
-    validateExecutionProviderOrThrow();
-    validateModelFilesOrThrow();
+    KwsBackendSettings backend_settings;
+    backend_settings.name = backend_name_;
+    backend_settings.target_sample_rate = target_sample_rate_;
+    backend_settings.model_num_threads = model_num_threads_;
+    backend_settings.execution_provider = execution_provider_;
+    backend_settings.encoder_path = encoder_path_;
+    backend_settings.decoder_path = decoder_path_;
+    backend_settings.joiner_path = joiner_path_;
+    backend_settings.tokens_path = tokens_path_;
+    backend_settings.keywords_path = keywords_path_;
+    backend_settings.max_active_paths = kws_max_active_paths_;
+    backend_settings.num_trailing_blanks = kws_num_trailing_blanks_;
+    backend_settings.keywords_score = static_cast<float>(kws_keywords_score_);
+    backend_settings.keywords_threshold = static_cast<float>(kws_keywords_threshold_);
+    backend_settings.vad_threshold = static_cast<float>(probability_gate_);
+    backend_settings.cooldown = std::chrono::milliseconds(cooldown_ms_);
+    backend_settings.command = backend_command_;
+    backend_settings.args = backend_args_;
+    backend_settings.health_args = backend_health_args_;
+    backend_settings.timeout_sec = backend_timeout_sec_;
+    backend_settings.workspace_dir = backend_workspace_dir_;
+    backend_settings.cleanup_audio_files = backend_cleanup_audio_files_;
 
-    SherpaOnnxKwsBackendConfig cfg;
-    cfg.target_sample_rate = target_sample_rate_;
-    cfg.model_num_threads = model_num_threads_;
-    cfg.execution_provider = execution_provider_;
-    cfg.encoder_path = encoder_path_;
-    cfg.decoder_path = decoder_path_;
-    cfg.joiner_path = joiner_path_;
-    cfg.tokens_path = tokens_path_;
-    cfg.keywords_path = keywords_path_;
-    cfg.max_active_paths = kws_max_active_paths_;
-    cfg.num_trailing_blanks = kws_num_trailing_blanks_;
-    cfg.keywords_score = static_cast<float>(kws_keywords_score_);
-    cfg.keywords_threshold = static_cast<float>(kws_keywords_threshold_);
-    cfg.vad_threshold = static_cast<float>(probability_gate_);
-    cfg.cooldown = std::chrono::milliseconds(cooldown_ms_);
-    cfg.command = backend_command_;
-    cfg.args = backend_args_;
-    cfg.health_args = backend_health_args_;
-    cfg.timeout_sec = backend_timeout_sec_;
-    cfg.workspace_dir = backend_workspace_dir_;
-    cfg.cleanup_audio_files = backend_cleanup_audio_files_;
-
-    kws_backend_ = std::make_unique<SherpaOnnxKwsBackend>(cfg);
+    kws_backend_ = buildKwsBackend(backend_settings);
 
     setupCommunication();
     setupDebug();
@@ -143,11 +136,6 @@ public:
   = default;
 
 private:
-  void validateBackendOrThrow() const
-  {
-    validation::requireSupportedBackendName(backend_name_);
-  }
-
   void validateTopicBindingsOrThrow() const
   {
     if (audio_topic_.empty()) {
@@ -179,46 +167,6 @@ private:
     }
   }
 
-  void validateModelFilesOrThrow() const
-  {
-    auto check_file = [](const char *label, const std::string &path, std::ostringstream &oss) {
-      if (path.empty()) {
-        oss << "  - " << label << ": (empty)\n";
-        return;
-      }
-      std::error_code ec;
-      const bool exists = std::filesystem::exists(path, ec) && !ec;
-      if (!exists) {
-        oss << "  - " << label << ": not found (" << path << ")\n";
-        return;
-      }
-      const bool is_regular = std::filesystem::is_regular_file(path, ec) && !ec;
-      if (!is_regular) {
-        oss << "  - " << label << ": not a regular file (" << path << ")\n";
-        return;
-      }
-      std::ifstream probe(path, std::ios::binary);
-      if (!probe.is_open()) {
-        oss << "  - " << label << ": not readable (" << path << ")\n";
-      }
-    };
-
-    std::ostringstream errors;
-    check_file("model.encoder", encoder_path_, errors);
-    check_file("model.decoder", decoder_path_, errors);
-    check_file("model.joiner", joiner_path_, errors);
-    check_file("model.tokens", tokens_path_, errors);
-    check_file("kws.keywords_file", keywords_path_, errors);
-
-    const std::string missing = errors.str();
-    if (!missing.empty()) {
-      std::ostringstream oss;
-      oss << "fa_kws model/keywords files are missing:\n" << missing
-          << "Hint: check fa_kws/config/default.yaml and ensure models are installed under ros2_ws/models.";
-      throw std::runtime_error(oss.str());
-    }
-  }
-
   void validateVadInputOrThrow() const
   {
     if (!isValidVadGateThreshold(probability_gate_)) {
@@ -238,33 +186,6 @@ private:
     }
     if (output_qos_depth_ <= 0) {
       throw std::runtime_error("output.qos.depth must be greater than zero");
-    }
-  }
-
-  void validateExecutionProviderOrThrow() const
-  {
-    if (execution_provider_.empty()) {
-      throw std::runtime_error("backend.execution_provider is required");
-    }
-    if (!isSupportedSherpaOnnxExecutionProvider(execution_provider_)) {
-      throw std::runtime_error(
-        "unsupported fa_kws backend.execution_provider: " + execution_provider_ +
-        "; supported providers: " + supportedSherpaOnnxExecutionProvidersForMessage());
-    }
-    if (backend_command_.empty()) {
-      throw std::runtime_error("backend.command is required");
-    }
-    if (backend_args_.empty()) {
-      throw std::runtime_error("backend.args must not be empty");
-    }
-    if (backend_health_args_.empty()) {
-      throw std::runtime_error("backend.health_args must not be empty");
-    }
-    if (!std::isfinite(backend_timeout_sec_) || backend_timeout_sec_ <= 0.0) {
-      throw std::runtime_error("backend.timeout_sec must be finite and greater than zero");
-    }
-    if (backend_workspace_dir_.empty()) {
-      throw std::runtime_error("backend.workspace_dir is required");
     }
   }
 
