@@ -140,6 +140,7 @@ def test_parse_valid_config_with_params_file(tmp_path: Path) -> None:
     ]
     assert spec.groups[0].nodes[0].launch_parameters() == [
         str(params_file),
+        {"backend.name": "alsa_capture"},
         {
             "audio.sample_rate": 48000,
             "audio.encoding": "PCM16LE",
@@ -184,6 +185,53 @@ fa_in:
     )
 
     assert spec.groups[0].nodes[0].backend_name == "pcm_file_reader"
+
+
+def test_launch_parameters_omit_empty_arrays_from_auxiliary_params_dict(
+    tmp_path: Path,
+) -> None:
+    params_file = tmp_path / "fa_asr.yaml"
+    params_file.write_text(
+        """
+fa_asr:
+  ros__parameters:
+    backend.name: local_command
+    backend.args: []
+    backend.health_args: []
+    audio.qos.depth: 20
+""",
+        encoding="utf-8",
+    )
+
+    spec = parse_system_config(
+        {
+            "system": _valid_system(),
+            "groups": [
+                {
+                    "id": "ai",
+                    "enable": True,
+                    "nodes": [
+                        {
+                            "id": "fa_asr",
+                            "enable": True,
+                            "package": "fa_asr",
+                            "exec": "fa_asr_node",
+                            "node_name": "fa_asr_profile",
+                            "params_file": str(params_file),
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert spec.groups[0].nodes[0].launch_parameters() == [
+        str(params_file),
+        {
+            "backend.name": "local_command",
+            "audio.qos.depth": 20,
+        },
+    ]
 
 
 def test_disabled_nodes_are_not_expanded() -> None:

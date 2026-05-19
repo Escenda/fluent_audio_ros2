@@ -43,7 +43,9 @@ _RELATIVE_SAMPLE_COUNT = _SAMPLE_RATE * 10
 _RELATIVE_EXPECTED_DURATION_NS = _RELATIVE_AUDIO_END_NS - _RELATIVE_AUDIO_START_NS
 _ASR_SAMPLE_VALUE = 0.125
 _WINDOW_SAMPLE_VALUE = 1000
+_PROFILE_ARCHIVE_SAMPLE_VALUE = 4096
 _TRANSCRIPT = "combined launch transcript"
+_PROFILE_TRANSCRIPT = "so101 profile launch transcript"
 _MODEL_ID = "combined-launch-fake-asr"
 _MODEL_VERSION = "test"
 _MODEL_REVISION = "combined-launch-smoke"
@@ -53,6 +55,11 @@ _ASR_STREAM_ID = "audio/high_pass/mic"
 _WINDOW_STREAM_ID = "audio/archive_pcm16/mic"
 _ARCHIVE_REASON = "combined launch smoke"
 _ARCHIVE_ARTIFACT_ID = "fluent_audio_system_launch"
+_PROFILE_MCP_PORT = 9110
+_PROFILE_CONFIG_ARG = (
+    "${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml,"
+    "${share:fluent_audio_system}/config/profiles/so101_agent_audio_tools.yaml"
+)
 _FAKE_ASR_WORKER = """#!/usr/bin/env python3
 from __future__ import annotations
 
@@ -111,6 +118,63 @@ def main() -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 """
+_PROFILE_FAKE_ASR_WORKER = """#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import math
+from pathlib import Path
+import struct
+
+
+def _samples(audio_path: Path) -> list[float]:
+    audio_bytes = audio_path.read_bytes()
+    if not audio_bytes:
+        raise RuntimeError("empty audio")
+    if len(audio_bytes) % 4 != 0:
+        raise RuntimeError("expected float32le audio")
+    samples = [sample for (sample,) in struct.iter_unpack("<f", audio_bytes)]
+    if not samples:
+        raise RuntimeError("empty float32le audio")
+    if not all(math.isfinite(sample) for sample in samples):
+        raise RuntimeError("expected finite float32le audio")
+    if any(sample < -1.0 or sample > 1.0 for sample in samples):
+        raise RuntimeError("expected normalized float32le audio")
+    if not all(abs(sample - 0.125) <= 1.0e-7 for sample in samples):
+        raise RuntimeError("unexpected profile audio sample values")
+    return samples
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    health_parser = subparsers.add_parser("health")
+    health_parser.add_argument("--model", required=True)
+    health_parser.add_argument("--language", required=True)
+    transcribe_parser = subparsers.add_parser("transcribe")
+    transcribe_parser.add_argument("--audio", required=True)
+    transcribe_parser.add_argument("--model", required=True)
+    transcribe_parser.add_argument("--sample-rate", type=int, required=True)
+    transcribe_parser.add_argument("--language", required=True)
+    args = parser.parse_args()
+
+    model_path = Path(args.model)
+    if not model_path.is_file():
+        raise RuntimeError(f"missing model: {model_path}")
+    if not args.language:
+        raise RuntimeError("language is required")
+    if args.command == "health":
+        return 0
+    if args.sample_rate <= 0:
+        raise RuntimeError("sample rate must be positive")
+    _samples(Path(args.audio))
+    print(model_path.read_text(encoding="utf-8").strip())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
 
 
 @dataclass(frozen=True)
@@ -137,6 +201,42 @@ class _SmokeConfig:
     owner_config_path: Path
     adapter_config_path: Path
     mcp_port: int
+
+
+@dataclass(frozen=True)
+class _ProfileSmokeConfig:
+    suffix: str
+    client_node_name: str
+    high_pass_topic: str
+    transcribe_service: str
+    export_service: str
+    archive_service: str
+    asr_node_name: str
+    audio_window_node_name: str
+    mcp_node_name: str
+    asr_model_path: Path
+    asr_worker_path: Path
+    vad_model_dir: Path
+    vad_worker_path: Path
+    kws_worker_path: Path
+    kws_encoder_path: Path
+    kws_decoder_path: Path
+    kws_joiner_path: Path
+    kws_tokens_path: Path
+    kws_keywords_path: Path
+    turn_model_path: Path
+    turn_worker_path: Path
+    start_unix_ns: int
+    sample_count: int
+    mcp_port: int
+
+    @property
+    def end_unix_ns(self) -> int:
+        return self.start_unix_ns + self.sample_count * _NSEC_PER_SEC // _SAMPLE_RATE
+
+    @property
+    def time_range_spec(self) -> str:
+        return f"{self.start_unix_ns}..{self.end_unix_ns}"
 
 
 def test_fluent_audio_system_composes_owner_and_mcp_adapter_configs(
@@ -245,6 +345,114 @@ def test_fluent_audio_system_composes_owner_and_mcp_adapter_configs(
             rclpy.shutdown(context=context)
 
 
+def test_so101_profile_pair_runs_owner_services_and_mcp_tools(
+    tmp_path: Path,
+) -> None:
+    ros2 = shutil.which("ros2")
+    if ros2 is None:
+        pytest.skip("ros2 executable is required for fluent_audio_system profile launch")
+    if not _is_tcp_port_free(_PROFILE_MCP_PORT):
+        pytest.skip(f"streamable HTTP MCP profile port {_PROFILE_MCP_PORT} is already in use")
+
+    config = _build_profile_smoke_config(tmp_path)
+    _write_profile_runtime_files(config)
+    domain_id = _isolated_ros_domain_id(config.suffix)
+    previous_domain_id = os.environ.get("ROS_DOMAIN_ID")
+    os.environ["ROS_DOMAIN_ID"] = domain_id
+    try:
+        # ROS imports are deferred so non-ROS developer shells can collect this skip-only test.
+        import rclpy
+        from rclpy.context import Context
+        from rclpy.executors import SingleThreadedExecutor
+        from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+        from fa_interfaces.msg import AudioFrame
+        from fa_interfaces.srv import ArchiveAudioWindow, ExportAudioWindow, TranscribeAudio
+
+        context = Context()
+        rclpy.init(context=context)
+        node = rclpy.create_node(config.client_node_name, context=context)
+        executor = SingleThreadedExecutor(context=context)
+        executor.add_node(node)
+        process = _start_profile_launch_process(ros2, config, domain_id=domain_id)
+        try:
+            _wait_for_mcp_node(node, executor, process, config)
+            _wait_for_owner_services(
+                node,
+                executor,
+                process,
+                config,
+                TranscribeAudio,
+                ExportAudioWindow,
+                ArchiveAudioWindow,
+            )
+            _publish_profile_high_pass_frames(
+                node,
+                executor,
+                process,
+                config,
+                AudioFrame,
+                QoSProfile,
+                ReliabilityPolicy,
+            )
+
+            transcribe = _call_profile_transcribe(
+                node,
+                executor,
+                process,
+                config,
+                TranscribeAudio,
+            )
+            export = _call_profile_export(
+                node,
+                executor,
+                process,
+                config,
+                ExportAudioWindow,
+            )
+            archive = _call_profile_archive(
+                node,
+                executor,
+                process,
+                config,
+                ArchiveAudioWindow,
+            )
+
+            _assert_profile_transcribe_response(transcribe, config, TranscribeAudio)
+            export_clip = _assert_profile_audio_clip_response(
+                export,
+                config,
+                ExportAudioWindow,
+            )
+            archive_clip = _assert_profile_audio_clip_response(
+                archive,
+                config,
+                ArchiveAudioWindow,
+            )
+            _assert_profile_wav_clip(export_clip, config)
+            archive_path = _assert_profile_wav_clip(archive_clip, config)
+            _assert_profile_archive_metadata(archive_clip, archive_path, config)
+
+            mcp_url = f"http://127.0.0.1:{config.mcp_port}/mcp"
+            asyncio.run(_wait_for_streamable_http_ready(mcp_url, process))
+            asyncio.run(_assert_profile_streamable_http_tools(mcp_url, config))
+        except Exception as exc:
+            stdout = _stop_process(process)
+            raise AssertionError(f"{exc}\n\nros2 launch output:\n{stdout}") from exc
+        finally:
+            if process.poll() is None:
+                _stop_process(process)
+            executor.shutdown()
+            node.destroy_node()
+            if rclpy.ok(context=context):
+                rclpy.shutdown(context=context)
+    finally:
+        if previous_domain_id is None:
+            os.environ.pop("ROS_DOMAIN_ID", None)
+        else:
+            os.environ["ROS_DOMAIN_ID"] = previous_domain_id
+
+
 def _build_smoke_config(tmp_path: Path) -> _SmokeConfig:
     suffix = "s_" + uuid.uuid4().hex
     base = f"/fluent_audio_system_e2e/{suffix}"
@@ -274,6 +482,38 @@ def _build_smoke_config(tmp_path: Path) -> _SmokeConfig:
     )
 
 
+def _build_profile_smoke_config(tmp_path: Path) -> _ProfileSmokeConfig:
+    suffix = "p_" + uuid.uuid4().hex
+    source_index = int(suffix[-8:], 16) % 10_000
+    start_unix_ns = 40_000_000_000 + source_index * _NSEC_PER_SEC
+    return _ProfileSmokeConfig(
+        suffix=suffix,
+        client_node_name=f"so101_profile_smoke_client_{suffix}",
+        high_pass_topic="audio/high_pass/frame",
+        transcribe_service="transcribe_audio",
+        export_service="export_audio_window",
+        archive_service="archive_audio_window",
+        asr_node_name="fa_asr",
+        audio_window_node_name="fa_audio_window_mic",
+        mcp_node_name="fa_audio_mcp_server",
+        asr_model_path=tmp_path / "profile_fake_asr_model.txt",
+        asr_worker_path=tmp_path / "profile_fake_asr_worker.py",
+        vad_model_dir=tmp_path / "fake_silero_model",
+        vad_worker_path=tmp_path / "fake_vad_worker.py",
+        kws_worker_path=tmp_path / "fake_kws_worker.py",
+        kws_encoder_path=tmp_path / "kws_encoder.onnx",
+        kws_decoder_path=tmp_path / "kws_decoder.onnx",
+        kws_joiner_path=tmp_path / "kws_joiner.onnx",
+        kws_tokens_path=tmp_path / "kws_tokens.txt",
+        kws_keywords_path=tmp_path / "kws_keywords.txt",
+        turn_model_path=tmp_path / "fake_smart_turn.onnx",
+        turn_worker_path=tmp_path / "fake_turn_worker.py",
+        start_unix_ns=start_unix_ns,
+        sample_count=_SAMPLE_COUNT,
+        mcp_port=_PROFILE_MCP_PORT,
+    )
+
+
 def _write_runtime_files(config: _SmokeConfig) -> None:
     # A non-empty fa_in_source_id is propagated to source-bound owner nodes by launch.
     # The smoke frames use that same explicit disabled binding to test effective launch behavior.
@@ -285,6 +525,45 @@ def _write_runtime_files(config: _SmokeConfig) -> None:
     _write_mcp_params(config)
     _write_owner_system_config(config)
     _write_adapter_system_config(config)
+
+
+def _write_profile_runtime_files(config: _ProfileSmokeConfig) -> None:
+    config.asr_model_path.write_text(_PROFILE_TRANSCRIPT + "\n", encoding="utf-8")
+    config.asr_worker_path.write_text(_PROFILE_FAKE_ASR_WORKER, encoding="utf-8")
+    config.asr_worker_path.chmod(0o755)
+
+    config.vad_model_dir.mkdir(parents=True, exist_ok=True)
+    (config.vad_model_dir / "hubconf.py").write_text("# fake silero hub\n", encoding="utf-8")
+    (config.vad_model_dir / "probability.txt").write_text("0.75\n", encoding="utf-8")
+    ai_root = Path(__file__).parents[4] / "ai"
+    _copy_executable_fixture(
+        ai_root / "fa_vad" / "test" / "fixtures" / "fake_vad_worker.py",
+        config.vad_worker_path,
+    )
+
+    for model_file in (
+        config.kws_encoder_path,
+        config.kws_decoder_path,
+        config.kws_joiner_path,
+        config.kws_tokens_path,
+        config.kws_keywords_path,
+    ):
+        model_file.write_text(f"{model_file.name}\n", encoding="utf-8")
+    _copy_executable_fixture(
+        ai_root / "fa_kws" / "test" / "fixtures" / "fake_kws_worker.py",
+        config.kws_worker_path,
+    )
+
+    config.turn_model_path.write_text("0.25\n" + ("x" * 2048), encoding="utf-8")
+    _copy_executable_fixture(
+        ai_root / "fa_turn_detector" / "test" / "fixtures" / "fake_turn_worker.py",
+        config.turn_worker_path,
+    )
+
+
+def _copy_executable_fixture(source: Path, destination: Path) -> None:
+    shutil.copy2(source, destination)
+    destination.chmod(destination.stat().st_mode | 0o111)
 
 
 def _write_asr_params(config: _SmokeConfig) -> None:
@@ -501,6 +780,19 @@ def _free_tcp_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def _is_tcp_port_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+        return True
+
+
+def _isolated_ros_domain_id(suffix: str) -> str:
+    return str(20 + (int(suffix[-4:], 16) % 80))
+
+
 def _start_launch_process(ros2: str, config: _SmokeConfig) -> subprocess.Popen[str]:
     return subprocess.Popen(
         [
@@ -515,6 +807,54 @@ def _start_launch_process(ros2: str, config: _SmokeConfig) -> subprocess.Popen[s
             f"fa_out_sink_id:={_DISABLED_SITE_BINDING}",
         ],
         env=os.environ.copy(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+        text=True,
+    )
+
+
+def _start_profile_launch_process(
+    ros2: str,
+    config: _ProfileSmokeConfig,
+    *,
+    domain_id: str,
+) -> subprocess.Popen[str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "ROS_DOMAIN_ID": domain_id,
+            "FLUENT_AUDIO_VAD_MODEL_DIR": str(config.vad_model_dir),
+            "FLUENT_AUDIO_VAD_PROVIDER": "cpu",
+            "FLUENT_AUDIO_VAD_WORKER": str(config.vad_worker_path),
+            "FLUENT_AUDIO_KWS_PROVIDER": "cpu",
+            "FLUENT_AUDIO_KWS_WORKER": str(config.kws_worker_path),
+            "FLUENT_AUDIO_KWS_ENCODER": str(config.kws_encoder_path),
+            "FLUENT_AUDIO_KWS_DECODER": str(config.kws_decoder_path),
+            "FLUENT_AUDIO_KWS_JOINER": str(config.kws_joiner_path),
+            "FLUENT_AUDIO_KWS_TOKENS": str(config.kws_tokens_path),
+            "FLUENT_AUDIO_KWS_KEYWORDS": str(config.kws_keywords_path),
+            "FLUENT_AUDIO_ASR_MODEL_PATH": str(config.asr_model_path),
+            "FLUENT_AUDIO_ASR_WORKER": str(config.asr_worker_path),
+            "FLUENT_AUDIO_TURN_DETECTOR_MODEL": str(config.turn_model_path),
+            "FLUENT_AUDIO_TURN_DETECTOR_PROVIDER": "CPUExecutionProvider",
+            "FLUENT_AUDIO_TURN_DETECTOR_WORKER": str(config.turn_worker_path),
+            "FA_KWS_FAKE_MODE": "none",
+        }
+    )
+    return subprocess.Popen(
+        [
+            ros2,
+            "launch",
+            "fluent_audio_system",
+            "run.py",
+            f"config:={_PROFILE_CONFIG_ARG}",
+            "fa_in_enabled:=false",
+            "fa_out_enabled:=false",
+            f"fa_in_source_id:={_DISABLED_SITE_BINDING}",
+            f"fa_out_sink_id:={_DISABLED_SITE_BINDING}",
+        ],
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         start_new_session=True,
@@ -623,6 +963,41 @@ def _publish_owner_frames(
         node.destroy_publisher(window_pub)
 
 
+def _publish_profile_high_pass_frames(
+    node,
+    executor,
+    process: subprocess.Popen[str],
+    config: _ProfileSmokeConfig,
+    audio_frame_cls,
+    qos_profile_cls,
+    reliability_policy_cls,
+) -> None:
+    high_pass_pub = node.create_publisher(
+        audio_frame_cls,
+        config.high_pass_topic,
+        _audio_qos(qos_profile_cls, reliability_policy_cls),
+    )
+    try:
+        _wait_for_profile_high_pass_subscriptions(high_pass_pub, executor, process)
+        high_pass_pub.publish(
+            _audio_frame(
+                audio_frame_cls,
+                source_id=_SOURCE_ID,
+                stream_id=_ASR_STREAM_ID,
+                encoding="FLOAT32LE",
+                bit_depth=32,
+                start_unix_ns=config.start_unix_ns,
+                data=_float32le_bytes(_ASR_SAMPLE_VALUE, config.sample_count),
+            )
+        )
+        end_time = time.monotonic() + 0.8
+        while time.monotonic() < end_time:
+            _ensure_launch_running(process)
+            executor.spin_once(timeout_sec=0.05)
+    finally:
+        node.destroy_publisher(high_pass_pub)
+
+
 def _wait_for_publisher_subscriptions(
     asr_pub,
     window_pub,
@@ -636,6 +1011,20 @@ def _wait_for_publisher_subscriptions(
         if asr_pub.get_subscription_count() >= 1 and window_pub.get_subscription_count() >= 1:
             return
     raise RuntimeError("owner frame publishers did not discover subscribers")
+
+
+def _wait_for_profile_high_pass_subscriptions(
+    high_pass_pub,
+    executor,
+    process: subprocess.Popen[str],
+) -> None:
+    deadline = time.monotonic() + 12.0
+    while time.monotonic() < deadline:
+        _ensure_launch_running(process)
+        executor.spin_once(timeout_sec=0.05)
+        if high_pass_pub.get_subscription_count() >= 3:
+            return
+    raise RuntimeError("profile high-pass publisher did not discover expected subscribers")
 
 
 def _audio_qos(qos_profile_cls, reliability_policy_cls):
@@ -748,6 +1137,65 @@ def _call_archive(
     try:
         request = archive_srv.Request()
         request.time_range_spec = _AUDIO_RANGE_SPEC
+        request.audio_scope = "mic"
+        request.reason = _ARCHIVE_REASON
+        request.related_artifact_ids = [_ARCHIVE_ARTIFACT_ID]
+        request.codec = "pcm_s16le"
+        request.container = "wav"
+        request.payload_format = "audio/wav"
+        return _call_service(executor, process, client, request, "ArchiveAudioWindow")
+    finally:
+        node.destroy_client(client)
+
+
+def _call_profile_transcribe(
+    node,
+    executor,
+    process: subprocess.Popen[str],
+    config: _ProfileSmokeConfig,
+    transcribe_srv,
+):
+    client = node.create_client(transcribe_srv, config.transcribe_service)
+    try:
+        request = transcribe_srv.Request()
+        request.time_range_spec = config.time_range_spec
+        request.audio_scope = ""
+        return _call_service(executor, process, client, request, "TranscribeAudio")
+    finally:
+        node.destroy_client(client)
+
+
+def _call_profile_export(
+    node,
+    executor,
+    process: subprocess.Popen[str],
+    config: _ProfileSmokeConfig,
+    export_srv,
+):
+    client = node.create_client(export_srv, config.export_service)
+    try:
+        request = export_srv.Request()
+        request.time_range_spec = config.time_range_spec
+        request.audio_scope = "mic"
+        request.codec = "pcm_s16le"
+        request.container = "wav"
+        request.payload_format = "audio/wav"
+        return _call_service(executor, process, client, request, "ExportAudioWindow")
+    finally:
+        node.destroy_client(client)
+
+
+def _call_profile_archive(
+    node,
+    executor,
+    process: subprocess.Popen[str],
+    config: _ProfileSmokeConfig,
+    archive_srv,
+):
+    client = node.create_client(archive_srv, config.archive_service)
+    try:
+        request = archive_srv.Request()
+        request.time_range_spec = config.time_range_spec
         request.audio_scope = "mic"
         request.reason = _ARCHIVE_REASON
         request.related_artifact_ids = [_ARCHIVE_ARTIFACT_ID]
@@ -969,6 +1417,59 @@ async def _assert_generated_owner_adapter_launch_relative_time_smoke(
             _assert_wav_clip_json(export_clip, sample_count=_RELATIVE_SAMPLE_COUNT)
 
 
+async def _assert_profile_streamable_http_tools(
+    url: str,
+    config: _ProfileSmokeConfig,
+) -> None:
+    # MCP imports stay deferred so non-ROS shells can collect the ROS-gated smoke.
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    async with streamable_http_client(url) as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            tools = await session.list_tools()
+            tool_names = {tool.name for tool in tools.tools}
+            assert {
+                "transcribe_audio",
+                "archive_audio_window",
+                "export_audio_window",
+            } <= tool_names
+
+            transcribe_result = await session.call_tool(
+                "transcribe_audio",
+                {"time_range": config.time_range_spec},
+            )
+            transcribe = _tool_result_json(transcribe_result)
+            _assert_profile_transcribe_json(transcribe, config)
+
+            archive_result = await session.call_tool(
+                "archive_audio_window",
+                {
+                    "time_range": config.time_range_spec,
+                    "reason": _ARCHIVE_REASON,
+                    "related_artifact_ids": [_ARCHIVE_ARTIFACT_ID],
+                },
+            )
+            archive = _tool_result_json(archive_result)
+            archive_clip = _assert_profile_audio_clip_json(archive, config)
+            archive_path = _assert_profile_wav_clip_json(archive_clip, config)
+            _assert_profile_archive_metadata_json(archive_clip, archive_path, config)
+
+            export_result = await session.call_tool(
+                "export_audio_window",
+                {"time_range": config.time_range_spec},
+            )
+            export = _tool_result_json(export_result)
+            export_clip = _assert_profile_audio_clip_json(export, config)
+            _assert_profile_wav_clip_json(export_clip, config)
+
+
 def _tool_result_json(result) -> JsonMapping:
     assert not result.isError
     text = _tool_result_text(result)
@@ -1015,6 +1516,38 @@ def _assert_transcribe_response(response, config: _SmokeConfig, transcribe_srv) 
     assert model_ref.model_revision == _MODEL_REVISION
 
 
+def _assert_profile_transcribe_response(
+    response,
+    config: _ProfileSmokeConfig,
+    transcribe_srv,
+) -> None:
+    assert response.success, response.message
+    assert response.error_code == transcribe_srv.Response.ERROR_NONE
+    assert response.message == ""
+    assert len(response.segments) == 1
+    segment = response.segments[0]
+    assert segment.start_unix_ns == config.start_unix_ns
+    assert segment.end_unix_ns == config.end_unix_ns
+    assert segment.text == _PROFILE_TRANSCRIPT
+    assert segment.speaker_label == ""
+    _assert_profile_time_range(response.time_range, config)
+
+    window_ref = response.audio_window_ref
+    assert window_ref.window_id == "so101_voice_frontend_mic_asr"
+    assert window_ref.window_epoch == 1
+    assert window_ref.source_id == _SOURCE_ID
+    assert window_ref.stream_id == _ASR_STREAM_ID
+    _assert_profile_time_range(window_ref.time_range, config)
+
+    model_ref = response.model_ref
+    assert model_ref.backend_name == "whisper.cpp"
+    assert model_ref.backend_kind == "asr"
+    assert model_ref.model_id == ""
+    assert model_ref.model_path == str(config.asr_model_path)
+    assert model_ref.model_version == ""
+    assert model_ref.model_revision == ""
+
+
 def _assert_transcribe_json(
     transcribe: JsonMapping,
     config: _SmokeConfig,
@@ -1054,6 +1587,45 @@ def _assert_transcribe_json(
     }
 
 
+def _assert_profile_transcribe_json(
+    transcribe: JsonMapping,
+    config: _ProfileSmokeConfig,
+) -> None:
+    assert transcribe["segments"] == [
+        {
+            "start_unix_ns": config.start_unix_ns,
+            "end_unix_ns": config.end_unix_ns,
+            "text": _PROFILE_TRANSCRIPT,
+            "speaker_label": "",
+        }
+    ]
+    expected_time_range = _expected_time_range_json(
+        config.start_unix_ns,
+        config.end_unix_ns,
+    )
+    assert transcribe["time_range"] == expected_time_range
+    assert transcribe["requested_time_range"] == _expected_requested_time_range_json(
+        config.start_unix_ns,
+        config.end_unix_ns,
+        config.time_range_spec,
+    )
+    assert transcribe["audio_window_ref"] == {
+        "window_id": "so101_voice_frontend_mic_asr",
+        "window_epoch": 1,
+        "source_id": _SOURCE_ID,
+        "stream_id": _ASR_STREAM_ID,
+        "time_range": expected_time_range,
+    }
+    assert transcribe["model_ref"] == {
+        "backend_name": "whisper.cpp",
+        "backend_kind": "asr",
+        "model_id": "",
+        "model_path": str(config.asr_model_path),
+        "model_version": "",
+        "model_revision": "",
+    }
+
+
 def _assert_audio_clip_response(response, service_cls):
     assert response.success, response.message
     assert response.error_code == service_cls.Response.ERROR_NONE
@@ -1067,6 +1639,28 @@ def _assert_audio_clip_response(response, service_cls):
     assert clip_ref.channels == 1
     assert clip_ref.duration_ns == _EXPECTED_DURATION_NS
     _assert_time_range(clip_ref.time_range)
+    assert clip_ref.uri.startswith("file://")
+    assert clip_ref.clip_id
+    return clip_ref
+
+
+def _assert_profile_audio_clip_response(
+    response,
+    config: _ProfileSmokeConfig,
+    service_cls,
+):
+    assert response.success, response.message
+    assert response.error_code == service_cls.Response.ERROR_NONE
+    assert response.message == ""
+    _assert_profile_time_range(response.time_range, config)
+    clip_ref = response.audio_clip_ref
+    assert clip_ref.codec == "pcm_s16le"
+    assert clip_ref.container == "wav"
+    assert clip_ref.payload_format == "audio/wav"
+    assert clip_ref.sample_rate == _SAMPLE_RATE
+    assert clip_ref.channels == 1
+    assert clip_ref.duration_ns == config.end_unix_ns - config.start_unix_ns
+    _assert_profile_time_range(clip_ref.time_range, config)
     assert clip_ref.uri.startswith("file://")
     assert clip_ref.clip_id
     return clip_ref
@@ -1101,9 +1695,46 @@ def _assert_audio_clip_json(
     return clip_ref
 
 
+def _assert_profile_audio_clip_json(
+    result: JsonMapping,
+    config: _ProfileSmokeConfig,
+) -> JsonMapping:
+    clip_ref = result["audio_clip_ref"]
+    if not isinstance(clip_ref, dict):
+        raise RuntimeError("audio_clip_ref must be a JSON mapping")
+    expected_time_range = _expected_time_range_json(
+        config.start_unix_ns,
+        config.end_unix_ns,
+    )
+    assert clip_ref["codec"] == "pcm_s16le"
+    assert clip_ref["container"] == "wav"
+    assert clip_ref["payload_format"] == "audio/wav"
+    assert clip_ref["sample_rate"] == _SAMPLE_RATE
+    assert clip_ref["channels"] == 1
+    assert clip_ref["duration_ns"] == config.end_unix_ns - config.start_unix_ns
+    assert clip_ref["time_range"] == expected_time_range
+    assert result["time_range"] == expected_time_range
+    assert result["requested_time_range"] == _expected_requested_time_range_json(
+        config.start_unix_ns,
+        config.end_unix_ns,
+        config.time_range_spec,
+    )
+    assert str(clip_ref["uri"]).startswith("file://")
+    assert clip_ref["clip_id"]
+    return clip_ref
+
+
 def _assert_time_range(time_range) -> None:
     assert time_range.start_unix_ns == _AUDIO_START_NS
     assert time_range.end_unix_ns == _AUDIO_END_NS
+    assert time_range.clock == "media"
+    assert time_range.uncertainty_ns == 0
+    assert time_range.uncertainty_reason == ""
+
+
+def _assert_profile_time_range(time_range, config: _ProfileSmokeConfig) -> None:
+    assert time_range.start_unix_ns == config.start_unix_ns
+    assert time_range.end_unix_ns == config.end_unix_ns
     assert time_range.clock == "media"
     assert time_range.uncertainty_ns == 0
     assert time_range.uncertainty_reason == ""
@@ -1160,6 +1791,12 @@ def _assert_wav_clip(clip_ref, *, sample_count: int) -> Path:
     return clip_path
 
 
+def _assert_profile_wav_clip(clip_ref, config: _ProfileSmokeConfig) -> Path:
+    clip_path = _clip_path(clip_ref)
+    _assert_profile_wav_path(clip_path, config)
+    return clip_path
+
+
 def _assert_wav_clip_json(clip_ref: JsonMapping, *, sample_count: int) -> Path:
     clip_path = _clip_path_json(clip_ref)
     assert clip_path.is_file()
@@ -1175,6 +1812,30 @@ def _assert_wav_clip_json(clip_ref: JsonMapping, *, sample_count: int) -> Path:
     expected_payload = _pcm16le_bytes(_WINDOW_SAMPLE_VALUE, sample_count)
     assert frames == expected_payload
     return clip_path
+
+
+def _assert_profile_wav_clip_json(
+    clip_ref: JsonMapping,
+    config: _ProfileSmokeConfig,
+) -> Path:
+    clip_path = _clip_path_json(clip_ref)
+    _assert_profile_wav_path(clip_path, config)
+    return clip_path
+
+
+def _assert_profile_wav_path(clip_path: Path, config: _ProfileSmokeConfig) -> None:
+    assert clip_path.is_file()
+    with wave.open(str(clip_path), "rb") as wav_file:
+        assert wav_file.getnchannels() == 1
+        assert wav_file.getframerate() == _SAMPLE_RATE
+        assert wav_file.getsampwidth() == 2
+        assert wav_file.getcomptype() == "NONE"
+        assert wav_file.getnframes() == config.sample_count
+        duration_ns = wav_file.getnframes() * _NSEC_PER_SEC // wav_file.getframerate()
+        assert duration_ns == config.end_unix_ns - config.start_unix_ns
+        frames = wav_file.readframes(config.sample_count + 1)
+    expected_payload = _pcm16le_bytes(_PROFILE_ARCHIVE_SAMPLE_VALUE, config.sample_count)
+    assert frames == expected_payload
 
 
 def _assert_archive_metadata(clip_ref, clip_path: Path, config: _SmokeConfig) -> None:
@@ -1207,6 +1868,36 @@ def _assert_archive_metadata(clip_ref, clip_path: Path, config: _SmokeConfig) ->
     assert clip_path.parent == config.archive_dir
 
 
+def _assert_profile_archive_metadata(
+    clip_ref,
+    clip_path: Path,
+    config: _ProfileSmokeConfig,
+) -> None:
+    metadata_path = Path(str(clip_path) + ".metadata.json")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["schema"] == "fluent_audio.archive_metadata.v1"
+    assert metadata["operation"] == "archive_audio_window"
+    assert metadata["reason"] == _ARCHIVE_REASON
+    assert metadata["related_artifact_ids"] == [_ARCHIVE_ARTIFACT_ID]
+    assert metadata["source_id"] == _SOURCE_ID
+    assert metadata["stream_id"] == _WINDOW_STREAM_ID
+    assert metadata["window_id"] == "so101_voice_frontend_mic_archive"
+    assert metadata["window_epoch"] == 1
+    assert metadata["audio_scope"] == "mic"
+    assert metadata["time_range"] == _expected_time_range_json(
+        config.start_unix_ns,
+        config.end_unix_ns,
+    )
+    assert metadata["audio_clip_ref"]["clip_id"] == clip_ref.clip_id
+    assert metadata["audio_clip_ref"]["uri"] == clip_ref.uri
+    assert metadata["audio_clip_ref"]["codec"] == "pcm_s16le"
+    assert metadata["audio_clip_ref"]["container"] == "wav"
+    assert metadata["audio_clip_ref"]["payload_format"] == "audio/wav"
+    assert metadata["audio_clip_ref"]["sample_rate"] == _SAMPLE_RATE
+    assert metadata["audio_clip_ref"]["channels"] == 1
+    assert metadata["audio_clip_ref"]["duration_ns"] == config.end_unix_ns - config.start_unix_ns
+
+
 def _assert_archive_metadata_json(
     clip_ref: JsonMapping,
     clip_path: Path,
@@ -1237,6 +1928,36 @@ def _assert_archive_metadata_json(
     assert metadata["audio_clip_ref"]["channels"] == 1
     assert metadata["audio_clip_ref"]["duration_ns"] == expected_duration_ns
     assert clip_path.parent == config.archive_dir
+
+
+def _assert_profile_archive_metadata_json(
+    clip_ref: JsonMapping,
+    clip_path: Path,
+    config: _ProfileSmokeConfig,
+) -> None:
+    metadata_path = Path(str(clip_path) + ".metadata.json")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["schema"] == "fluent_audio.archive_metadata.v1"
+    assert metadata["operation"] == "archive_audio_window"
+    assert metadata["reason"] == _ARCHIVE_REASON
+    assert metadata["related_artifact_ids"] == [_ARCHIVE_ARTIFACT_ID]
+    assert metadata["source_id"] == _SOURCE_ID
+    assert metadata["stream_id"] == _WINDOW_STREAM_ID
+    assert metadata["window_id"] == "so101_voice_frontend_mic_archive"
+    assert metadata["window_epoch"] == 1
+    assert metadata["audio_scope"] == "mic"
+    assert metadata["time_range"] == _expected_time_range_json(
+        config.start_unix_ns,
+        config.end_unix_ns,
+    )
+    assert metadata["audio_clip_ref"]["clip_id"] == clip_ref["clip_id"]
+    assert metadata["audio_clip_ref"]["uri"] == clip_ref["uri"]
+    assert metadata["audio_clip_ref"]["codec"] == "pcm_s16le"
+    assert metadata["audio_clip_ref"]["container"] == "wav"
+    assert metadata["audio_clip_ref"]["payload_format"] == "audio/wav"
+    assert metadata["audio_clip_ref"]["sample_rate"] == _SAMPLE_RATE
+    assert metadata["audio_clip_ref"]["channels"] == 1
+    assert metadata["audio_clip_ref"]["duration_ns"] == config.end_unix_ns - config.start_unix_ns
 
 
 def _clip_path(clip_ref) -> Path:

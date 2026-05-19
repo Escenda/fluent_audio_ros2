@@ -260,12 +260,21 @@ class AudioNodeSpec:
     parameters: dict[str, ParamValue]
     remappings: list[RemappingSpec]
     backend_name: str | None
+    params_file_parameters: dict[str, ParamValue] = dataclass_field(default_factory=dict)
     env: dict[str, str] = dataclass_field(default_factory=dict)
 
     def launch_parameters(self) -> list[str | dict[str, ParamValue]]:
-        sources = []
+        sources: list[str | dict[str, ParamValue]] = []
         if self.params_file:
             sources.append(self.params_file)
+        launchable_params_file_parameters = {
+            key: value
+            for key, value in self.params_file_parameters.items()
+            # launch_ros cannot transport empty arrays in dict parameter sources.
+            if not (isinstance(value, list) and not value)
+        }
+        if launchable_params_file_parameters:
+            sources.append(launchable_params_file_parameters)
         if self.parameters:
             sources.append(self.parameters)
         return sources
@@ -690,6 +699,7 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
         remappings=remappings,
         env=env,
         backend_name=backend_name,
+        params_file_parameters=params_file_parameters,
     )
 
 
