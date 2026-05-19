@@ -19,6 +19,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 constexpr const char * kInputTopic = "audio/test/chunk_overlap_input";
 constexpr const char * kOutputTopic = "audio/test/chunk_overlap_output";
 constexpr const char * kInputStreamId = "audio/test/chunk_overlap_input_stream";
@@ -52,7 +61,7 @@ std::vector<rclcpp::Parameter> validParameters()
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -170,7 +179,7 @@ TEST_F(RclcppContractTest, PublishesOverlappedWindowsAndAdvancesRetainedHeader)
 {
   auto node = std::make_shared<fa_chunk_overlap::FaChunkOverlapNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_chunk_overlap_window_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_chunk_overlap_window_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopic, rclcpp::QoS(10).reliable());
@@ -210,7 +219,7 @@ TEST_F(RclcppContractTest, InvalidFrameDoesNotDiscardValidPartialBuffer)
 {
   auto node = std::make_shared<fa_chunk_overlap::FaChunkOverlapNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_chunk_overlap_invalid_retention_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_chunk_overlap_invalid_retention_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopic, rclcpp::QoS(10).reliable());
@@ -247,7 +256,7 @@ TEST_F(RclcppContractTest, SourceChangeClearsPartialBufferBeforeNewSourceWindow)
 {
   auto node = std::make_shared<fa_chunk_overlap::FaChunkOverlapNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_chunk_overlap_source_switch_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_chunk_overlap_source_switch_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopic, rclcpp::QoS(10).reliable());
@@ -285,7 +294,7 @@ TEST_F(RclcppContractTest, DropsMismatchedStreamWithoutPublishing)
 {
   auto node = std::make_shared<fa_chunk_overlap::FaChunkOverlapNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_chunk_overlap_stream_mismatch_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_chunk_overlap_stream_mismatch_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopic, rclcpp::QoS(10).reliable());

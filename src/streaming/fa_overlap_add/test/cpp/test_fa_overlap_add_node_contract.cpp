@@ -19,6 +19,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 constexpr const char * kInputTopic = "audio/test/overlap_add_input";
 constexpr const char * kOutputTopic = "audio/test/overlap_add_output";
 constexpr const char * kInputStreamId = "audio/test/overlap_add_input_stream";
@@ -54,7 +63,7 @@ std::vector<rclcpp::Parameter> validParameters()
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -172,7 +181,7 @@ TEST_F(RclcppContractTest, ReconstructsHopSequenceFromRectangularOverlappedChunk
 {
   auto node = std::make_shared<fa_overlap_add::FaOverlapAddNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_overlap_add_reconstruct_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_overlap_add_reconstruct_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopic, rclcpp::QoS(10).reliable());
@@ -212,7 +221,7 @@ TEST_F(RclcppContractTest, InvalidFrameDoesNotMutateAccumulatorState)
 {
   auto node = std::make_shared<fa_overlap_add::FaOverlapAddNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_overlap_add_invalid_retention_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_overlap_add_invalid_retention_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopic, rclcpp::QoS(10).reliable());
@@ -250,7 +259,7 @@ TEST_F(RclcppContractTest, FutureEpochGapResetsStateWithoutMixingOldTail)
 {
   auto node = std::make_shared<fa_overlap_add::FaOverlapAddNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_overlap_add_future_gap_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_overlap_add_future_gap_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopic, rclcpp::QoS(10).reliable());
@@ -286,7 +295,7 @@ TEST_F(RclcppContractTest, DuplicateInputEpochDropsWithoutReissuingOutput)
 {
   auto node = std::make_shared<fa_overlap_add::FaOverlapAddNode>(
     optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_overlap_add_duplicate_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_overlap_add_duplicate_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto publisher = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopic, rclcpp::QoS(10).reliable());

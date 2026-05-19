@@ -18,6 +18,15 @@ namespace
 {
 using namespace std::chrono_literals;
 
+rclcpp::NodeOptions quietContractNodeOptions()
+{
+  rclcpp::NodeOptions options;
+  options.start_parameter_services(false);
+  options.start_parameter_event_publisher(false);
+  options.enable_rosout(false);
+  return options;
+}
+
 constexpr const char * kInputTopicA = "audio/test/mix_a";
 constexpr const char * kInputTopicB = "audio/test/mix_b";
 constexpr const char * kOutputTopic = "audio/test/mix_output";
@@ -67,7 +76,7 @@ void replaceParameter(
 
 rclcpp::NodeOptions optionsWith(std::vector<rclcpp::Parameter> parameters)
 {
-  rclcpp::NodeOptions options;
+  rclcpp::NodeOptions options = quietContractNodeOptions();
   options.parameter_overrides(std::move(parameters));
   return options;
 }
@@ -177,7 +186,7 @@ protected:
 TEST_F(RclcppContractTest, DropsWholeMixWhenConfiguredInputIsMissing)
 {
   auto node = std::make_shared<fa_mix::FaMixNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_missing_input_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_missing_input_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto input_a = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopicA, rclcpp::QoS(10).reliable());
@@ -204,7 +213,7 @@ TEST_F(RclcppContractTest, DropsWholeMixWhenConfiguredInputIsMissing)
 TEST_F(RclcppContractTest, PublishesOnlyAfterAllInputsHaveFreshMatchingFrames)
 {
   auto node = std::make_shared<fa_mix::FaMixNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_complete_input_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_complete_input_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto input_a = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopicA, rclcpp::QoS(10).reliable());
@@ -247,7 +256,7 @@ TEST_F(RclcppContractTest, PublishesOnlyAfterAllInputsHaveFreshMatchingFrames)
 TEST_F(RclcppContractTest, DropsWholeMixWhenBufferedInputTimestampIsStale)
 {
   auto node = std::make_shared<fa_mix::FaMixNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_stale_timestamp_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_stale_timestamp_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto input_a = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopicA, rclcpp::QoS(10).reliable());
@@ -280,7 +289,7 @@ TEST_F(RclcppContractTest, DropsWholeMixWhenBufferedInputTimestampIsStale)
 TEST_F(RclcppContractTest, RejectsZeroTimestampBeforeFrameCanRefreshInput)
 {
   auto node = std::make_shared<fa_mix::FaMixNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_zero_timestamp_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_zero_timestamp_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto input_a = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopicA, rclcpp::QoS(10).reliable());
@@ -313,7 +322,7 @@ TEST_F(RclcppContractTest, RejectsZeroTimestampBeforeFrameCanRefreshInput)
 TEST_F(RclcppContractTest, DropsWholeMixWhenInputSampleCountDiffers)
 {
   auto node = std::make_shared<fa_mix::FaMixNode>(optionsWith(validParameters()));
-  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_size_mismatch_contract_io");
+  auto io_node = std::make_shared<rclcpp::Node>("fa_mix_size_mismatch_contract_io", quietContractNodeOptions());
   std::vector<fa_interfaces::msg::AudioFrame> received;
   auto input_a = io_node->create_publisher<fa_interfaces::msg::AudioFrame>(
     kInputTopicA, rclcpp::QoS(10).reliable());
