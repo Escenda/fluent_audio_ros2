@@ -29,6 +29,8 @@ groups:
         parameters:
           input_topic: "audio/output/frame"
           input_stream_id: "audio/playback/main"
+          playback_done_topic: "audio/output/playback_done"
+          playback_control_service: "audio/output/playback_control"
 
   - id: format
     enable: true

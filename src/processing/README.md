@@ -40,6 +40,8 @@ parameters fail closed at the package boundary.
 The taxonomy directories are stable even when a category has no concrete ROS 2
 package yet. A directory without `package.xml` is a roadmap/category placeholder
 and must not be counted as functional implementation coverage.
+Roadmap-only directories and promotion priority are classified in repository
+root `docs/roadmap_placeholders.md`.
 
 | Category | Current ROS 2 packages | Status |
 | --- | --- | --- |

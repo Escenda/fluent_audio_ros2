@@ -19,7 +19,7 @@
 
 ## overlap-add 境界
 
-DTLN overlap-add は ROS-free `dtln_onnx` backend 内部の model reconstruction である。decode 後の normalized PCM samples を消費し、encode 前の denoised PCM samples を返す。transport stabilization ではなく、overlapped `AudioFrame` chunk、timestamp / epoch / gap handling、jitter buffer、clock drift correction は扱わない。streaming pipeline の overlap-add は `src/streaming/fa_overlap_add` の責務であり、この backend はそれを置き換えない。
+DTLN overlap-add は ROS-free `dtln_onnx` backend 内部の model reconstruction である。decode 後の normalized PCM samples を消費し、encode 前の denoised PCM samples を返す。transport / streaming stabilization ではなく、overlapped `AudioFrame` chunk、timestamp / epoch / gap handling、jitter buffer、clock drift correction は扱わない。streaming pipeline の overlap-add は `src/streaming/fa_overlap_add` の責務であり、この backend はその責務を持たない。
 
 ## runtime dependency
 

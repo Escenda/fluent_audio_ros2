@@ -42,6 +42,9 @@ def _write_network_io_params(
 ) -> None:
     topic = "audio/e2e/network_pcm"
     stream_id = "audio/e2e/network_pcm_stream"
+    polling_period_ms = 10
+    source_timeout_ms = 5000
+    assert source_timeout_ms >= polling_period_ms
     _write_yaml(
         tmp_path / "fa_in_network.params.yaml",
         {
@@ -60,8 +63,8 @@ def _write_network_io_params(
                     "audio.layout": "interleaved",
                     "audio.chunk_ms": 10,
                     "network.max_packet_bytes": 1024,
-                    "polling.period_ms": 10,
-                    "network.source_timeout_ms": 5000,
+                    "polling.period_ms": polling_period_ms,
+                    "network.source_timeout_ms": source_timeout_ms,
                     "audio.qos.depth": 10,
                     "audio.qos.reliable": True,
                     "diagnostics.publish_period_ms": 1000,

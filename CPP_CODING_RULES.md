@@ -57,10 +57,18 @@ Use a ROS-free backend interface for device, file, network, DSP engine, and
 external worker adapters. The ROS node owns parameters, publishers,
 subscriptions, services, lifecycle, and message conversion at the boundary.
 
+This C++ rule file does not ban Python packages. Python ROS adapters and Python
+worker boundaries are allowed when the current package is designed for Python.
+Model engines that require incompatible Python versions, virtual environments,
+SDKs, GPUs, or cloud clients must stay behind an explicit worker, process, or
+container backend contract instead of being imported into a C++ ROS node.
+
 ## 4. Parameters And Contracts
 
 - Declare required ROS parameters without runtime defaults that would hide
   missing config.
+- Do not accept legacy aliases, deprecated config keys, or compatibility backend
+  names. Update the caller/config and fail closed on stale names.
 - Validate types explicitly before converting signed ROS parameter values to
   unsigned or size types.
 - Keep ROS topic names and stream identities separate. A `*_topic` value must not

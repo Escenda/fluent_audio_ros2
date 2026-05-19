@@ -2,18 +2,23 @@ fa_in:
   ros__parameters:
     backend.name: "alsa_capture"
     output_topic: "audio/frame"
-    audio.device_selector.mode: "id"
-    audio.device_selector.identifier: "hw:CARD=Loopback,DEV=0"
-    audio.device_selector.index: -1
-    audio.sample_rate: 48000
-    audio.channels: 1
-    audio.bit_depth: 16
-    audio.chunk_ms: 20
-    audio.encoding: "PCM16LE"
-    audio.stream_id: "audio/raw/mic"
-    audio.layout: "interleaved"
-    audio.qos.depth: 10
-    audio.qos.reliable: false
-    diagnostics.publish_period_ms: 1000
-    diagnostics.qos.depth: 10
-    diagnostics.qos.reliable: false
+    audio:
+      device_selector:
+        mode: "id"
+        identifier: "hw:CARD=Loopback,DEV=0"
+        index: -1
+      sample_rate: 48000
+      channels: 1
+      bit_depth: 16
+      chunk_ms: 20
+      encoding: "PCM16LE"
+      stream_id: "audio/raw/mic"
+      layout: "interleaved"
+      qos:
+        depth: 10
+        reliable: false
+    diagnostics:
+      publish_period_ms: 1000
+      qos:
+        depth: 10
+        reliable: false

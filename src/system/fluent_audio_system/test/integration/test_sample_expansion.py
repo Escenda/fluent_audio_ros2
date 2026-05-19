@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import TypeAlias
 
 import pytest
 import yaml
@@ -10,6 +11,10 @@ from fluent_audio_system.config_schema import load_required_packages, load_syste
 PACKAGE_ROOT = Path(__file__).parents[2]
 SRC_ROOT = PACKAGE_ROOT.parents[1]
 FIXTURE_DIR = PACKAGE_ROOT / "test" / "fixtures"
+
+FixtureParamScalar: TypeAlias = str | int | float | bool
+FixtureParamMapping: TypeAlias = dict[str, "FixtureParamValue"]
+FixtureParamValue: TypeAlias = FixtureParamScalar | FixtureParamMapping
 
 
 def _patch_fluent_audio_system_share(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -177,7 +182,29 @@ def test_valid_fixture_expands_enabled_nodes_and_remappings(
     assert node.launch_remappings() == [("audio/frame", "robot/audio/input")]
 
     params = _load_fixture_params("fa_in.params.yaml", "fa_in")
+    for required_param in (
+        "backend.name",
+        "output_topic",
+        "audio.device_selector.mode",
+        "audio.device_selector.identifier",
+        "audio.device_selector.index",
+        "audio.sample_rate",
+        "audio.channels",
+        "audio.bit_depth",
+        "audio.chunk_ms",
+        "audio.encoding",
+        "audio.stream_id",
+        "audio.layout",
+        "audio.qos.depth",
+        "audio.qos.reliable",
+        "diagnostics.publish_period_ms",
+        "diagnostics.qos.depth",
+        "diagnostics.qos.reliable",
+    ):
+        assert required_param in params
     assert params["output_topic"] == "audio/frame"
+    assert params["audio.device_selector.mode"] == "id"
+    assert params["audio.device_selector.identifier"] == "hw:CARD=Loopback,DEV=0"
     assert params["audio.device_selector.index"] == -1
     assert params["audio.stream_id"] == "audio/raw/mic"
     assert params["audio.layout"] == "interleaved"
@@ -238,6 +265,8 @@ def test_so101_profile_config_expands_default_site_bound_nodes(
     assert enabled_nodes[1].parameters == {
         "input_topic": "audio/output/frame",
         "input_stream_id": "audio/playback/main",
+        "playback_done_topic": "audio/output/playback_done",
+        "playback_control_service": "audio/output/playback_control",
     }
 
 
@@ -1009,6 +1038,8 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
     assert enabled_nodes[1].parameters == {
         "input_topic": "audio/output/frame",
         "input_stream_id": "audio/playback/main",
+        "playback_done_topic": "audio/output/playback_done",
+        "playback_control_service": "audio/output/playback_control",
     }
     assert enabled_nodes[2].parameters == {
         "input_topic": "audio/frame",
@@ -1023,6 +1054,22 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
         "mic.input_stream_id": "audio/float32/mic",
         "mic.output.stream_id": "audio/preprocessed/mono16k",
     }
+    assert (
+        enabled_nodes[2].parameters["input_topic"]
+        == enabled_nodes[0].parameters["output_topic"]
+    )
+    assert (
+        enabled_nodes[2].parameters["input_stream_id"]
+        == enabled_nodes[0].parameters["audio.stream_id"]
+    )
+    assert (
+        enabled_nodes[3].parameters["mic.input_topic"]
+        == enabled_nodes[2].parameters["output_topic"]
+    )
+    assert (
+        enabled_nodes[3].parameters["mic.input_stream_id"]
+        == enabled_nodes[2].parameters["output.stream_id"]
+    )
 
     raw = yaml.safe_load(
         (PACKAGE_ROOT / "config" / "fluent_audio_system.sample.yaml").read_text(
@@ -1097,6 +1144,14 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
         "expected.bit_depth": 16,
         "expected.encoding": "PCM16LE",
     }
+    assert (
+        generation_nodes["fa_mix"]["parameters"]["output_topic"]
+        == enabled_nodes[1].parameters["input_topic"]
+    )
+    assert (
+        generation_nodes["fa_mix"]["parameters"]["output.stream_id"]
+        == enabled_nodes[1].parameters["input_stream_id"]
+    )
 
 
 def test_sample_config_documents_disabled_analysis_feature_nodes() -> None:
@@ -1249,6 +1304,26 @@ def test_sequence_remapping_fixture_expands_to_launch_pairs(
     ]
 
 
-def _load_fixture_params(fixture_name: str, node_name: str) -> dict[str, str | int | bool]:
+def _flatten_fixture_params(
+    params: FixtureParamMapping,
+    prefix: str = "",
+) -> dict[str, FixtureParamScalar]:
+    flattened: dict[str, FixtureParamScalar] = {}
+    for key, value in params.items():
+        param_key = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            flattened.update(_flatten_fixture_params(value, param_key))
+            continue
+        if isinstance(value, (str, int, float, bool)):
+            flattened[param_key] = value
+            continue
+        raise AssertionError(f"unsupported fixture parameter type for {param_key}")
+    return flattened
+
+
+def _load_fixture_params(
+    fixture_name: str,
+    node_name: str,
+) -> dict[str, FixtureParamScalar]:
     raw = yaml.safe_load((FIXTURE_DIR / fixture_name).read_text(encoding="utf-8"))
-    return raw[node_name]["ros__parameters"]
+    return _flatten_fixture_params(raw[node_name]["ros__parameters"])

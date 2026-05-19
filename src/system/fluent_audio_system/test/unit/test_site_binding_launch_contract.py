@@ -153,6 +153,8 @@ def test_sample_config_keeps_device_site_binding_out_of_system_config() -> None:
     assert fa_out["parameters"] == {
         "input_topic": "audio/output/frame",
         "input_stream_id": "audio/playback/main",
+        "playback_done_topic": "audio/output/playback_done",
+        "playback_control_service": "audio/output/playback_control",
     }
     assert "audio.device_selector.identifier" not in fa_in["parameters"]
     assert "audio.device_id" not in fa_out["parameters"]

@@ -1,7 +1,7 @@
 # FluentAudio Agent Rules
 
-This file is for AI agents working inside `fluent_audio_ros2`. It replaces the
-old vision-pipeline workflow. The active product is FluentAudio.
+This file is for AI agents working inside `fluent_audio_ros2`. It defines the
+FluentAudio-specific workflow for this child repository.
 
 ## 1. Repository Boundaries
 
@@ -15,20 +15,25 @@ old vision-pipeline workflow. The active product is FluentAudio.
   parent `.git/modules`, rerun the same submodule command with escalation.
 - Never modify `ros2_ws/src/vlabor_ros2` as part of FluentAudio-only work unless
   the user explicitly reopens VLAbor changes.
+- In tracked docs, configs, and launch files, use repository-relative,
+  package-relative, or environment-derived paths. Do not hard-code developer
+  machine paths such as `/home/...`; runtime artifact paths must be explicit
+  config or environment inputs.
 
 ## 2. Required Context
 
 Before design or implementation work, read the relevant files:
 
 - parent `AGENTS.md`
-- `docs/設計/2026-05-17-FluentAudio全体設計.md`
-- `docs/設計/2026-05-17-FluentAudio-VLAborプロファイル連携設計.md`
+- `docs/fa_audio_design.md`
+- `docs/fa_audio_system.md`
+- `docs/仕様書.md`
 - this file
 - `CPP_CODING_RULES.md`
 
-Treat active design docs as the source of truth. If implementation disagrees,
-update implementation and the directly relevant package docs. Do not preserve
-legacy paths or aliases.
+Treat active FluentAudio docs as the source of truth. If implementation
+disagrees, update implementation and the directly relevant package docs. Do not
+preserve legacy paths, aliases, backend names, or config keys.
 
 ## 3. Architecture Rules
 
@@ -45,6 +50,9 @@ legacy paths or aliases.
 - Python is allowed for ROS adapters and worker boundaries when the package is
   designed for it. Do not mix incompatible Python versions or venv-dependent
   model engines into a ROS node process; use an external worker boundary.
+- External worker, process, and container backends are allowed when the backend
+  contract is explicit and the ROS node still owns parameters, topics,
+  lifecycle, and message conversion.
 
 ## 4. Fail-Closed Policy
 

@@ -1,9 +1,9 @@
 # FluentAudio ノード設計メモ
 
-upstream の `fluent_vision_ros2` の設計思想（ノード分割、低遅延、YAML/launch 運用）を踏襲し、ROS2上で音声入出力・音声処理を扱うためのパッケージ群を整理します。
+ROS2 上で音声入出力・音声処理・音声 AI を扱うため、ノード分割、低遅延、YAML/launch 運用、明示 backend contract を前提にパッケージ群を整理します。
 
-- 本リポジトリは音声にフォーカスしており、vision 系の実装は upstream を参照してください。
-- Local model、external worker、cloud API はすべて明示 backend として扱います。OpenAI Realtime / Transcriptions も fallback ではなく、config で選択された ASR backend の一種です。
+- 本リポジトリは音声にフォーカスする。FluentAudio package は音声の責務と経路だけを扱う。
+- Local model、external worker、cloud API はすべて明示 backend として扱います。OpenAI Realtime / Transcriptions は ASR の explicit external-worker backend slot としてだけ扱い、node-global dependency、default backend、local backend の fallback にはしません。
 
 ## パッケージ配置（このリポジトリ）
 - `src/interfaces/`: msg/srv/action（`fa_interfaces`）
@@ -119,14 +119,17 @@ fa_tts
 VAD/KWS/ASR/TD を同じ音声 stream で連携する場合、`fa_vad.input_stream_id`、`fa_kws.expected_stream_id`、`fa_turn_detector.expected_stream_id`、`fa_asr.expected_stream_id` を同じ `AudioFrame.stream_id` に揃える必要があります。`fa_vad.input_topic`、`fa_kws.audio_topic`、`fa_turn_detector.audio_topic`、`fa_asr.audio_topic` は ROS transport topic であり、frame identity ではありません。`VadState.stream_id` は `fa_vad` の入力 `AudioFrame.stream_id` を引き継ぎ、後段 node は不一致の VAD state を処理に使いません。
 
 ## 5. ランチ例
+
+例では `FA_CONFIG_DIR` が環境ごとの config directory を指す前提にする。tracked docs / launch / config に developer machine の絶対パスは書かない。
+
 ```bash
-ros2 launch fa_in fa_in.launch.py node_name:=fa_in config_file:=/path/to/fa_in.yaml
-ros2 launch fa_vad fa_vad.launch.py node_name:=fa_vad config_file:=/path/to/fa_vad.yaml
-ros2 launch fa_out fa_out.launch.py node_name:=fa_out config_file:=/path/to/fa_out.yaml
-ros2 launch fa_tts fa_tts.launch.py node_name:=fa_tts config_file:=/path/to/fa_tts.yaml
-ros2 launch fa_kws fa_kws.launch.py node_name:=fa_kws config_file:=/path/to/fa_kws.yaml
-ros2 launch fa_asr fa_asr.launch.py node_name:=fa_asr config_file:=/path/to/fa_asr.yaml
-ros2 launch fa_turn_detector fa_turn_detector.launch.py node_name:=fa_turn_detector config_file:=/path/to/fa_turn_detector.yaml
+ros2 launch fa_in fa_in.launch.py node_name:=fa_in config_file:=$FA_CONFIG_DIR/fa_in.yaml
+ros2 launch fa_vad fa_vad.launch.py node_name:=fa_vad config_file:=$FA_CONFIG_DIR/fa_vad.yaml
+ros2 launch fa_out fa_out.launch.py node_name:=fa_out config_file:=$FA_CONFIG_DIR/fa_out.yaml
+ros2 launch fa_tts fa_tts.launch.py node_name:=fa_tts config_file:=$FA_CONFIG_DIR/fa_tts.yaml
+ros2 launch fa_kws fa_kws.launch.py node_name:=fa_kws config_file:=$FA_CONFIG_DIR/fa_kws.yaml
+ros2 launch fa_asr fa_asr.launch.py node_name:=fa_asr config_file:=$FA_CONFIG_DIR/fa_asr.yaml
+ros2 launch fa_turn_detector fa_turn_detector.launch.py node_name:=fa_turn_detector config_file:=$FA_CONFIG_DIR/fa_turn_detector.yaml
 ```
 
 VAD / KWS / ASR / Turn Detector の backend/model 詳細は、単体 launch 引数ではなく各 node config または `fluent_audio_system` の system config に置きます。SO101 で VAD + KWS をまとめて起動する場合は `fluent_audio_system/config/profiles/so101_kws_frontend.yaml` を使い、worker command と model path はその system config 内の `${env:...}` で明示します。この profile は `fa_asr` / `fa_turn_detector` を起動しません。ASR / Turn Detector は、それらを enabled にする別の system config 側で backend command、model path、provider、endpoint、credential env、health args を明示します。
