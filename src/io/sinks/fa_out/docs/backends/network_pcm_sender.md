@@ -9,3 +9,12 @@
 - `network.max_packet_bytes`: 1 UDP packet の最大 byte 数
 
 backend は POSIX socket と raw byte buffer だけを扱い、ROS2 topic、ROS2 message、`rclcpp` を知りません。`fa_out` は accepted `AudioFrame` 1 件を 1 UDP packet として backend に渡します。encode、resample、gain、jitter buffer、PLC、clock drift correction は行いません。
+
+Fail closed 条件:
+
+- `endpoint.uri` が空、`udp://IPv4:port` でない、host が IPv4 address でない、port が空 / 非数 / `0` / `65535` 超過
+- `network.max_packet_bytes <= 0`
+- `network.max_packet_bytes` が expected frame byte size で割り切れない
+- `writeFrames()` に渡された frame count が `0`
+- `writeFrames()` の byte count が `network.max_packet_bytes` を超える
+- UDP socket open / send が失敗する
