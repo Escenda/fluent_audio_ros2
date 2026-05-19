@@ -216,6 +216,10 @@ groups:
           vad_topic: "voice/vad_state"
           turn_context_topic: "conversation/turn_context"
           asr_result_topic: "voice/asr/result"
+          timeline.retention_sec: 1800.0
+          timeline.clock: "media"
+          timeline.window_id: "so101_mic_frontend_mic_asr"
+          timeline.window_epoch: 1
           backend.name: "whisper.cpp"
           backend.model_path: "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
           backend.command: "${env:FLUENT_AUDIO_ASR_WORKER}"

@@ -609,6 +609,10 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
     assert asr_params["vad_topic"] == "voice/vad_state"
     assert asr_params["turn_context_topic"] == "conversation/turn_context"
     assert asr_params["asr_result_topic"] == "voice/asr/result"
+    assert asr_params["timeline.retention_sec"] == audio_window_params["window.retention_seconds"]
+    assert asr_params["timeline.clock"] == "media"
+    assert asr_params["timeline.window_id"] == "so101_voice_frontend_mic_asr"
+    assert asr_params["timeline.window_epoch"] == audio_window_params["window.epoch"]
     assert asr_params["backend.name"] == "whisper.cpp"
     assert asr_params["backend.model_path"] == str(
         tmp_path / "models" / "asr" / "ggml-large-v3.bin"
@@ -698,6 +702,39 @@ def test_voice_frontend_profiles_bind_ai_consumers_to_resampled_mic_stream(
     assert params_by_id["fa_asr"]["expected_stream_id"] == vad_stream_id
     assert params_by_id["fa_audio_embedding"]["input_topic"] == vad_transport_topic
     assert params_by_id["fa_audio_embedding"]["expected_stream_id"] == vad_stream_id
+
+
+@pytest.mark.parametrize(
+    ("profile_path", "group_id", "expected_window_id"),
+    (
+        ("config/fluent_audio_system.sample.yaml", "ai", "sample_mic_asr"),
+        ("config/profiles/so101.yaml", "ai", "so101_mic_asr"),
+        (
+            "config/profiles/so101_mic_frontend.yaml",
+            "voice_frontend",
+            "so101_mic_frontend_mic_asr",
+        ),
+        (
+            "config/profiles/so101_voice_frontend.yaml",
+            "voice_frontend",
+            "so101_voice_frontend_mic_asr",
+        ),
+    ),
+)
+def test_asr_profiles_carry_explicit_timeline_reference_contract(
+    profile_path: str,
+    group_id: str,
+    expected_window_id: str,
+) -> None:
+    config = yaml.safe_load((PACKAGE_ROOT / profile_path).read_text(encoding="utf-8"))
+    group = next(group for group in config["groups"] if group["id"] == group_id)
+    asr = next(node for node in group["nodes"] if node["id"] == "fa_asr")
+    params = asr["parameters"]
+
+    assert params["timeline.retention_sec"] == 1800.0
+    assert params["timeline.clock"] == "media"
+    assert params["timeline.window_id"] == expected_window_id
+    assert params["timeline.window_epoch"] == 1
 
 
 @pytest.mark.parametrize(
