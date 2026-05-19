@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 import json
 import os
 import signal
 import shutil
+import socket
 import struct
 import subprocess
 import sys
@@ -22,6 +24,10 @@ YamlScalar: TypeAlias = str | int | float | bool | None
 YamlMapping: TypeAlias = dict[str, "YamlValue"]
 YamlSequence: TypeAlias = list["YamlValue"]
 YamlValue: TypeAlias = YamlScalar | YamlMapping | YamlSequence
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonMapping: TypeAlias = dict[str, "JsonValue"]
+JsonSequence: TypeAlias = list["JsonValue"]
+JsonValue: TypeAlias = JsonScalar | JsonMapping | JsonSequence
 
 _SAMPLE_RATE = 16_000
 _SAMPLE_COUNT = 8_000
@@ -192,6 +198,10 @@ def test_fluent_audio_system_composes_owner_and_mcp_adapter_configs(
         _assert_wav_clip(export_clip)
         archive_path = _assert_wav_clip(archive_clip)
         _assert_archive_metadata(archive_clip, archive_path, config)
+
+        mcp_url = f"http://127.0.0.1:{config.mcp_port}/mcp"
+        asyncio.run(_wait_for_streamable_http_ready(mcp_url, process))
+        asyncio.run(_assert_streamable_http_tools(mcp_url, config))
     except Exception as exc:
         stdout = _stop_process(process)
         raise AssertionError(f"{exc}\n\nros2 launch output:\n{stdout}") from exc
@@ -229,7 +239,7 @@ def _build_smoke_config(tmp_path: Path) -> _SmokeConfig:
         mcp_params_path=tmp_path / "fa_audio_mcp.params.yaml",
         owner_config_path=tmp_path / "combined_owner_system.yaml",
         adapter_config_path=tmp_path / "combined_mcp_adapter_system.yaml",
-        mcp_port=_port_for_suffix(suffix),
+        mcp_port=_free_tcp_port(),
     )
 
 
@@ -452,8 +462,10 @@ def _write_yaml(path: Path, value: YamlValue) -> None:
     path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
 
 
-def _port_for_suffix(suffix: str) -> int:
-    return 20_000 + (int(suffix.removeprefix("s_")[:8], 16) % 40_000)
+def _free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def _start_launch_process(ros2: str, config: _SmokeConfig) -> subprocess.Popen[str]:
@@ -695,6 +707,117 @@ def _call_service(executor, process: subprocess.Popen[str], client, request, lab
     raise RuntimeError(f"{label} service did not respond before timeout")
 
 
+async def _wait_for_streamable_http_ready(
+    url: str,
+    process: subprocess.Popen[str],
+) -> None:
+    # MCP imports stay deferred so non-ROS shells can collect the ROS-gated smoke.
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    deadline = time.monotonic() + 10.0
+    last_error: BaseException | None = None
+    while time.monotonic() < deadline:
+        _ensure_launch_running(process)
+        try:
+            async with streamable_http_client(url) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    return
+        except Exception as exc:
+            last_error = exc
+            await asyncio.sleep(0.1)
+    _ensure_launch_running(process)
+    raise RuntimeError(
+        "streamable-http MCP server did not initialize before timeout: "
+        f"{last_error}"
+    )
+
+
+async def _assert_streamable_http_tools(url: str, config: _SmokeConfig) -> None:
+    # MCP imports stay deferred so non-ROS shells can collect the ROS-gated smoke.
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    async with streamable_http_client(url) as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            tools = await session.list_tools()
+            tool_names = {tool.name for tool in tools.tools}
+            assert {
+                "transcribe_audio",
+                "archive_audio_window",
+                "export_audio_window",
+            } <= tool_names
+
+            transcribe_result = await session.call_tool(
+                "transcribe_audio",
+                {"time_range": _AUDIO_RANGE_SPEC},
+            )
+            transcribe = _tool_result_json(transcribe_result)
+            _assert_transcribe_json(transcribe, config)
+
+            archive_result = await session.call_tool(
+                "archive_audio_window",
+                {
+                    "time_range": _AUDIO_RANGE_SPEC,
+                    "reason": _ARCHIVE_REASON,
+                    "related_artifact_ids": [_ARCHIVE_ARTIFACT_ID],
+                },
+            )
+            archive = _tool_result_json(archive_result)
+            archive_clip = _assert_audio_clip_json(archive)
+            archive_path = _assert_wav_clip_json(archive_clip)
+            _assert_archive_metadata_json(archive_clip, archive_path, config)
+
+            export_result = await session.call_tool(
+                "export_audio_window",
+                {"time_range": _AUDIO_RANGE_SPEC},
+            )
+            export = _tool_result_json(export_result)
+            export_clip = _assert_audio_clip_json(export)
+            _assert_wav_clip_json(export_clip)
+
+            unsupported_scope = await session.call_tool(
+                "transcribe_audio",
+                {
+                    "time_range": _AUDIO_RANGE_SPEC,
+                    "audio_scope": "system",
+                },
+            )
+            assert unsupported_scope.isError is True
+            error_text = _tool_result_text(unsupported_scope)
+            assert "unsupported_audio_scope" in error_text
+            assert "audio_scope 'system' is not configured" in error_text
+
+
+def _tool_result_json(result) -> JsonMapping:
+    assert not result.isError
+    text = _tool_result_text(result)
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise RuntimeError("MCP result must be a JSON mapping")
+    return data
+
+
+def _tool_result_text(result) -> str:
+    from mcp import types
+
+    assert len(result.content) == 1
+    content = result.content[0]
+    assert isinstance(content, types.TextContent)
+    return content.text
+
+
 def _assert_transcribe_response(response, config: _SmokeConfig, transcribe_srv) -> None:
     assert response.success, response.message
     assert response.error_code == transcribe_srv.Response.ERROR_NONE
@@ -723,6 +846,34 @@ def _assert_transcribe_response(response, config: _SmokeConfig, transcribe_srv) 
     assert model_ref.model_revision == _MODEL_REVISION
 
 
+def _assert_transcribe_json(transcribe: JsonMapping, config: _SmokeConfig) -> None:
+    assert transcribe["segments"] == [
+        {
+            "start_unix_ns": _AUDIO_START_NS,
+            "end_unix_ns": _AUDIO_END_NS,
+            "text": _TRANSCRIPT,
+            "speaker_label": "",
+        }
+    ]
+    assert transcribe["time_range"] == _expected_time_range_json()
+    assert transcribe["requested_time_range"] == _expected_requested_time_range_json()
+    assert transcribe["audio_window_ref"] == {
+        "window_id": "combined_launch_asr_window",
+        "window_epoch": 11,
+        "source_id": _SOURCE_ID,
+        "stream_id": _ASR_STREAM_ID,
+        "time_range": _expected_time_range_json(),
+    }
+    assert transcribe["model_ref"] == {
+        "backend_name": "local_command",
+        "backend_kind": "asr",
+        "model_id": _MODEL_ID,
+        "model_path": str(config.model_path),
+        "model_version": _MODEL_VERSION,
+        "model_revision": _MODEL_REVISION,
+    }
+
+
 def _assert_audio_clip_response(response, service_cls):
     assert response.success, response.message
     assert response.error_code == service_cls.Response.ERROR_NONE
@@ -741,6 +892,24 @@ def _assert_audio_clip_response(response, service_cls):
     return clip_ref
 
 
+def _assert_audio_clip_json(result: JsonMapping) -> JsonMapping:
+    clip_ref = result["audio_clip_ref"]
+    if not isinstance(clip_ref, dict):
+        raise RuntimeError("audio_clip_ref must be a JSON mapping")
+    assert clip_ref["codec"] == "pcm_s16le"
+    assert clip_ref["container"] == "wav"
+    assert clip_ref["payload_format"] == "audio/wav"
+    assert clip_ref["sample_rate"] == _SAMPLE_RATE
+    assert clip_ref["channels"] == 1
+    assert clip_ref["duration_ns"] == _EXPECTED_DURATION_NS
+    assert clip_ref["time_range"] == _expected_time_range_json()
+    assert result["time_range"] == _expected_time_range_json()
+    assert result["requested_time_range"] == _expected_requested_time_range_json()
+    assert str(clip_ref["uri"]).startswith("file://")
+    assert clip_ref["clip_id"]
+    return clip_ref
+
+
 def _assert_time_range(time_range) -> None:
     assert time_range.start_unix_ns == _AUDIO_START_NS
     assert time_range.end_unix_ns == _AUDIO_END_NS
@@ -749,8 +918,43 @@ def _assert_time_range(time_range) -> None:
     assert time_range.uncertainty_reason == ""
 
 
+def _expected_time_range_json() -> JsonMapping:
+    return {
+        "start_unix_ns": _AUDIO_START_NS,
+        "end_unix_ns": _AUDIO_END_NS,
+        "clock": "media",
+        "uncertainty_ns": 0,
+        "uncertainty_reason": "",
+    }
+
+
+def _expected_requested_time_range_json() -> JsonMapping:
+    return {
+        "start_unix_ns": _AUDIO_START_NS,
+        "end_unix_ns": _AUDIO_END_NS,
+        "spec": _AUDIO_RANGE_SPEC,
+    }
+
+
 def _assert_wav_clip(clip_ref) -> Path:
     clip_path = _clip_path(clip_ref)
+    assert clip_path.is_file()
+    with wave.open(str(clip_path), "rb") as wav_file:
+        assert wav_file.getnchannels() == 1
+        assert wav_file.getframerate() == _SAMPLE_RATE
+        assert wav_file.getsampwidth() == 2
+        assert wav_file.getcomptype() == "NONE"
+        assert wav_file.getnframes() == _SAMPLE_COUNT
+        duration_ns = wav_file.getnframes() * 1_000_000_000 // wav_file.getframerate()
+        assert duration_ns == _EXPECTED_DURATION_NS
+        frames = wav_file.readframes(_SAMPLE_COUNT + 1)
+    expected_payload = _pcm16le_bytes(_WINDOW_SAMPLE_VALUE, _SAMPLE_COUNT)
+    assert frames == expected_payload
+    return clip_path
+
+
+def _assert_wav_clip_json(clip_ref: JsonMapping) -> Path:
+    clip_path = _clip_path_json(clip_ref)
     assert clip_path.is_file()
     with wave.open(str(clip_path), "rb") as wav_file:
         assert wav_file.getnchannels() == 1
@@ -796,10 +1000,45 @@ def _assert_archive_metadata(clip_ref, clip_path: Path, config: _SmokeConfig) ->
     assert clip_path.parent == config.archive_dir
 
 
+def _assert_archive_metadata_json(
+    clip_ref: JsonMapping,
+    clip_path: Path,
+    config: _SmokeConfig,
+) -> None:
+    metadata_path = Path(str(clip_path) + ".metadata.json")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["schema"] == "fluent_audio.archive_metadata.v1"
+    assert metadata["operation"] == "archive_audio_window"
+    assert metadata["reason"] == _ARCHIVE_REASON
+    assert metadata["related_artifact_ids"] == [_ARCHIVE_ARTIFACT_ID]
+    assert metadata["source_id"] == _SOURCE_ID
+    assert metadata["stream_id"] == _WINDOW_STREAM_ID
+    assert metadata["window_id"] == "combined_launch_audio_window"
+    assert metadata["window_epoch"] == 7
+    assert metadata["audio_scope"] == "mic"
+    assert metadata["time_range"] == _expected_time_range_json()
+    assert metadata["audio_clip_ref"]["clip_id"] == clip_ref["clip_id"]
+    assert metadata["audio_clip_ref"]["uri"] == clip_ref["uri"]
+    assert metadata["audio_clip_ref"]["codec"] == "pcm_s16le"
+    assert metadata["audio_clip_ref"]["container"] == "wav"
+    assert metadata["audio_clip_ref"]["payload_format"] == "audio/wav"
+    assert metadata["audio_clip_ref"]["sample_rate"] == _SAMPLE_RATE
+    assert metadata["audio_clip_ref"]["channels"] == 1
+    assert metadata["audio_clip_ref"]["duration_ns"] == _EXPECTED_DURATION_NS
+    assert clip_path.parent == config.archive_dir
+
+
 def _clip_path(clip_ref) -> Path:
     if not clip_ref.uri.startswith("file://"):
         raise RuntimeError("audio_clip_ref.uri must be a file URI")
     return Path(clip_ref.uri.removeprefix("file://"))
+
+
+def _clip_path_json(clip_ref: JsonMapping) -> Path:
+    uri = str(clip_ref["uri"])
+    if not uri.startswith("file://"):
+        raise RuntimeError("audio_clip_ref.uri must be a file URI")
+    return Path(uri.removeprefix("file://"))
 
 
 def _ensure_launch_running(process: subprocess.Popen[str]) -> None:
