@@ -177,8 +177,14 @@ def test_valid_fixture_expands_enabled_nodes_and_remappings(
     assert node.launch_remappings() == [("audio/frame", "robot/audio/input")]
 
     params = _load_fixture_params("fa_in.params.yaml", "fa_in")
+    assert params["output_topic"] == "audio/frame"
+    assert params["audio.device_selector.index"] == -1
     assert params["audio.stream_id"] == "audio/raw/mic"
     assert params["audio.layout"] == "interleaved"
+    assert params["audio.qos.depth"] == 10
+    assert params["audio.qos.reliable"] is False
+    assert params["diagnostics.qos.depth"] == 10
+    assert params["diagnostics.qos.reliable"] is False
 
 
 def test_required_packages_for_full_sample_config_validate_package_taxonomy(
@@ -225,6 +231,14 @@ def test_so101_profile_config_expands_default_site_bound_nodes(
     assert enabled_nodes[1].params_file == str(
         tmp_path / "fa_out" / "config" / "default.yaml"
     )
+    assert enabled_nodes[0].parameters == {
+        "output_topic": "audio/frame",
+        "audio.stream_id": "audio/raw/mic",
+    }
+    assert enabled_nodes[1].parameters == {
+        "input_topic": "audio/output/frame",
+        "input_stream_id": "audio/playback/main",
+    }
 
 
 def test_required_packages_for_so101_profile_excludes_disabled_pipelines(
@@ -988,6 +1002,14 @@ def test_sample_config_documents_tts_playback_conversion_pipeline(
         "fa_sample_format",
         "fa_resample",
     ]
+    assert enabled_nodes[0].parameters == {
+        "output_topic": "audio/frame",
+        "audio.stream_id": "audio/raw/mic",
+    }
+    assert enabled_nodes[1].parameters == {
+        "input_topic": "audio/output/frame",
+        "input_stream_id": "audio/playback/main",
+    }
     assert enabled_nodes[2].parameters == {
         "input_topic": "audio/frame",
         "output_topic": "audio/sample_format/mic",

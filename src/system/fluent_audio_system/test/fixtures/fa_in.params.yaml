@@ -1,8 +1,10 @@
 fa_in:
   ros__parameters:
     backend.name: "alsa_capture"
+    output_topic: "audio/frame"
     audio.device_selector.mode: "id"
     audio.device_selector.identifier: "hw:CARD=Loopback,DEV=0"
+    audio.device_selector.index: -1
     audio.sample_rate: 48000
     audio.channels: 1
     audio.bit_depth: 16
@@ -10,4 +12,8 @@ fa_in:
     audio.encoding: "PCM16LE"
     audio.stream_id: "audio/raw/mic"
     audio.layout: "interleaved"
+    audio.qos.depth: 10
+    audio.qos.reliable: false
     diagnostics.publish_period_ms: 1000
+    diagnostics.qos.depth: 10
+    diagnostics.qos.reliable: false

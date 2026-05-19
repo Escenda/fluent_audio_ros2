@@ -135,7 +135,7 @@ def test_site_binding_launch_applies_source_id_to_audio_ai_nodes(
     ]
 
 
-def test_sample_config_keeps_site_binding_out_of_system_config() -> None:
+def test_sample_config_keeps_device_site_binding_out_of_system_config() -> None:
     config_path = PACKAGE_ROOT / "config" / "fluent_audio_system.sample.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
@@ -146,8 +146,16 @@ def test_sample_config_keeps_site_binding_out_of_system_config() -> None:
     assert io_group["enable"] is True
     assert fa_in["enable"] is True
     assert fa_out["enable"] is True
-    assert fa_in["parameters"] == {}
-    assert fa_out["parameters"] == {}
+    assert fa_in["parameters"] == {
+        "output_topic": "audio/frame",
+        "audio.stream_id": "audio/raw/mic",
+    }
+    assert fa_out["parameters"] == {
+        "input_topic": "audio/output/frame",
+        "input_stream_id": "audio/playback/main",
+    }
+    assert "audio.device_selector.identifier" not in fa_in["parameters"]
+    assert "audio.device_id" not in fa_out["parameters"]
 
 
 def test_site_binding_launch_args_are_explicit() -> None:

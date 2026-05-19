@@ -14,7 +14,9 @@ groups:
         namespace: ""
         params_file: "${share:fa_in}/config/default.yaml"
         remappings: {}
-        parameters: {}
+        parameters:
+          output_topic: "audio/frame"
+          audio.stream_id: "audio/raw/mic"
 
       - id: fa_out
         enable: true
@@ -24,7 +26,9 @@ groups:
         namespace: ""
         params_file: "${share:fa_out}/config/default.yaml"
         remappings: {}
-        parameters: {}
+        parameters:
+          input_topic: "audio/output/frame"
+          input_stream_id: "audio/playback/main"
 
   - id: audio_format
     enable: false
