@@ -458,13 +458,91 @@ def test_timeline_rejects_overlap_without_corrupting_prior_audio() -> None:
 
     with pytest.raises(TimelineRangeError) as exc_info:
         timeline.append(
-            start_unix_ns=1_100_000_000,
+            start_unix_ns=1_198_999_999,
             samples=np.array([9.0, 10.0], dtype=np.float32),
         )
 
     assert exc_info.value.error_code == ERROR_WINDOW_NOT_FOUND
     timeline_slice = timeline.slice(parse_numeric_time_range("1000000000..1200000000"))
     np.testing.assert_array_equal(timeline_slice.samples, np.array([1.0, 2.0], dtype=np.float32))
+
+
+def test_timeline_aligns_sub_sample_timestamp_overlap() -> None:
+    timeline = RollingAsrTimeline(sample_rate=16_000, retention_sec=10.0)
+    first_start_unix_ns = 1_000_000_000
+    expected_second_start_unix_ns = 1_020_000_000
+
+    timeline.append(
+        start_unix_ns=first_start_unix_ns,
+        samples=np.ones(320, dtype=np.float32),
+    )
+    timeline.append(
+        start_unix_ns=expected_second_start_unix_ns - 352_334,
+        samples=np.full(320, 2.0, dtype=np.float32),
+    )
+    timeline_slice = timeline.slice(
+        parse_numeric_time_range(
+            f"{first_start_unix_ns}..{first_start_unix_ns + 40_000_000}"
+        )
+    )
+
+    assert timeline_slice.samples.size == 640
+    np.testing.assert_array_equal(
+        timeline_slice.samples[:320],
+        np.ones(320, dtype=np.float32),
+    )
+    np.testing.assert_array_equal(
+        timeline_slice.samples[320:],
+        np.full(320, 2.0, dtype=np.float32),
+    )
+
+
+def test_timeline_aligns_sub_sample_timestamp_gap() -> None:
+    timeline = RollingAsrTimeline(sample_rate=16_000, retention_sec=10.0)
+    first_start_unix_ns = 1_000_000_000
+    expected_second_start_unix_ns = 1_020_000_000
+
+    timeline.append(
+        start_unix_ns=first_start_unix_ns,
+        samples=np.ones(320, dtype=np.float32),
+    )
+    timeline.append(
+        start_unix_ns=expected_second_start_unix_ns + 337_014,
+        samples=np.full(320, 2.0, dtype=np.float32),
+    )
+    timeline_slice = timeline.slice(
+        parse_numeric_time_range(
+            f"{first_start_unix_ns}..{first_start_unix_ns + 40_000_000}"
+        )
+    )
+
+    assert timeline_slice.samples.size == 640
+    np.testing.assert_array_equal(
+        timeline_slice.samples[:320],
+        np.ones(320, dtype=np.float32),
+    )
+    np.testing.assert_array_equal(
+        timeline_slice.samples[320:],
+        np.full(320, 2.0, dtype=np.float32),
+    )
+
+
+def test_timeline_rejects_overlap_beyond_alignment_tolerance() -> None:
+    timeline = RollingAsrTimeline(sample_rate=16_000, retention_sec=10.0)
+    first_start_unix_ns = 1_000_000_000
+    expected_second_start_unix_ns = 1_020_000_000
+
+    timeline.append(
+        start_unix_ns=first_start_unix_ns,
+        samples=np.ones(320, dtype=np.float32),
+    )
+    with pytest.raises(TimelineRangeError) as exc_info:
+        timeline.append(
+            start_unix_ns=expected_second_start_unix_ns - 1_000_001,
+            samples=np.full(320, 2.0, dtype=np.float32),
+        )
+
+    assert exc_info.value.error_code == ERROR_WINDOW_NOT_FOUND
 
 
 def test_timeline_slices_exact_values_across_contiguous_frames() -> None:
@@ -551,7 +629,7 @@ def test_timeline_rejects_before_quantized_floor_boundary_without_corruption() -
     timeline.append(start_unix_ns=first_start_unix_ns, samples=np.array([10.0], dtype=np.float32))
     with pytest.raises(TimelineRangeError) as exc_info:
         timeline.append(
-            start_unix_ns=first_floor_end_unix_ns - 1,
+            start_unix_ns=first_floor_end_unix_ns - 1_000_001,
             samples=np.array([90.0], dtype=np.float32),
         )
 

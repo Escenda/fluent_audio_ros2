@@ -12,6 +12,7 @@ ERROR_RANGE_OUTSIDE_WINDOW = "range_outside_window"
 ERROR_RANGE_NOT_CONTINUOUS = "range_not_continuous"
 
 _NSEC_PER_SEC = 1_000_000_000
+_TIMESTAMP_ALIGNMENT_TOLERANCE_NS = 1_000_000
 _NUMERIC_RANGE_PATTERN = re.compile(r"^([0-9]+)\.\.([0-9]+)$")
 
 
@@ -96,15 +97,11 @@ class RollingAsrTimeline:
         if samples.size == 0:
             raise ValueError("samples must not be empty")
 
+        start_unix_ns = self._align_adjacent_frame_start(start_unix_ns)
         floor_duration_ns = self._sample_index_to_floor_duration_ns(samples.size)
         ceil_duration_ns = self._sample_index_to_ceil_duration_ns(samples.size)
         floor_end_unix_ns = start_unix_ns + floor_duration_ns
         end_unix_ns = start_unix_ns + ceil_duration_ns
-        if self._frames and start_unix_ns < self._frames[-1].floor_end_unix_ns:
-            raise TimelineRangeError(
-                ERROR_WINDOW_NOT_FOUND,
-                "overlapping AudioFrame rejected from ASR timeline",
-            )
 
         self._frames.append(
             TimelineFrame(
@@ -202,6 +199,31 @@ class RollingAsrTimeline:
             if frame.end_unix_ns > self._retained_start_unix_ns:
                 retained_frames.append(frame)
         self._frames = retained_frames
+
+    def _align_adjacent_frame_start(self, start_unix_ns: int) -> int:
+        if not self._frames:
+            return start_unix_ns
+
+        previous = self._frames[-1]
+        tolerance_ns = self._timestamp_alignment_tolerance_ns()
+        if start_unix_ns < previous.floor_end_unix_ns:
+            overlap_ns = previous.floor_end_unix_ns - start_unix_ns
+            if overlap_ns <= tolerance_ns:
+                return previous.floor_end_unix_ns
+            raise TimelineRangeError(
+                ERROR_WINDOW_NOT_FOUND,
+                "overlapping AudioFrame rejected from ASR timeline",
+            )
+
+        if start_unix_ns > previous.end_unix_ns:
+            gap_ns = start_unix_ns - previous.end_unix_ns
+            if gap_ns <= tolerance_ns:
+                return previous.end_unix_ns
+
+        return start_unix_ns
+
+    def _timestamp_alignment_tolerance_ns(self) -> int:
+        return _TIMESTAMP_ALIGNMENT_TOLERANCE_NS
 
     def _sample_index_to_floor_duration_ns(self, sample_index: int) -> int:
         numerator = sample_index * _NSEC_PER_SEC
