@@ -177,10 +177,12 @@ Verified diagnostics included:
 - `output_frames_total=23640`
 - `frame_count_error_samples=-360`
 
-This proves selected-backend real-device smoke in the current running container. It does not prove that a
-fresh VLAbor image rebuild persists `libsoxr0` or that Dockerfile / entrypoint policy is resolved.
+This proves selected-backend real-device smoke in the current running container.
 
 検証済み報告では、running container 内で `libsoxr0` が見えており、Docker/VLAbor container 内の
 `fa_resample` package build/test は `51 tests, 0 errors, 0 failures, 0 skipped` で通過している。
-`package.xml` の runtime dependency 宣言は実装済みであるが、package contract を反映した
-VLAbor image rebuild 後に image-persistent dependency として含まれることは未検証である。
+fresh VLAbor image check
+`docker run --rm --entrypoint bash ghcr.io/takatronix/vlabor-local:latest` では、
+`libsoxr0:amd64 0.1.3-4build2` と `/lib/x86_64-linux-gnu/libsoxr.so.0` が確認済みである。
+この証跡は current fresh VLAbor image に SoXR runtime が存在することを示すが、Dockerfile /
+entrypoint policy の修正や、親 repo / `vlabor_ros2` の変更を主張するものではない。

@@ -156,9 +156,11 @@ Verified diagnostics included:
 - `frame_count_error_samples=0`
 
 This proves selected-backend real-device smoke in the current running container. It does not prove that a
-fresh VLAbor image rebuild persists `libspeexdsp1` or that Dockerfile / entrypoint policy is resolved.
+fresh VLAbor image persists `libspeexdsp1` or that Dockerfile / entrypoint policy is resolved.
 
 検証済み報告では、running container 内で `libspeexdsp1` が見えており、Docker/VLAbor container 内の
 `fa_resample` package build/test は `51 tests, 0 errors, 0 failures, 0 skipped` で通過している。
-`package.xml` の runtime dependency 宣言は実装済みであるが、VLAbor image rebuild 後に
-image-persistent dependency として含まれることは未検証である。
+fresh VLAbor image check
+`docker run --rm --entrypoint bash ghcr.io/takatronix/vlabor-local:latest` では、
+`libspeexdsp1` は `dpkg-query` で見つからず、`/lib/x86_64-linux-gnu/libspeexdsp.so.1*` も存在しない。
+したがって、image policy は `libspeexdsp1` について未解決である。
