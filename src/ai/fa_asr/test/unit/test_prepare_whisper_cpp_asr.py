@@ -88,7 +88,7 @@ def _run_prepare(
     )
 
 
-def _source_env_block(env_file: Path, *, target: str | None = None) -> tuple[str, str, str]:
+def _source_env_block(env_file: Path, *, target: str | None = None) -> tuple[str, str, str, str]:
     environment = os.environ.copy()
     if target is None:
         environment.pop("FLUENT_AUDIO_ENV_TARGET", None)
@@ -100,10 +100,11 @@ def _source_env_block(env_file: Path, *, target: str | None = None) -> tuple[str
             "-c",
             (
                 'source "$1"; '
-                'printf "%s\\n%s\\n%s\\n" '
+                'printf "%s\\n%s\\n%s\\n%s\\n" '
                 '"$FLUENT_AUDIO_ASR_MODEL_PATH" '
                 '"$FLUENT_AUDIO_ASR_WORKER" '
-                '"$FLUENT_AUDIO_WHISPER_CPP_BINARY"'
+                '"$FLUENT_AUDIO_WHISPER_CPP_BINARY" '
+                '"$FLUENT_AUDIO_ASR_PREPARE_TRACE_FILE"'
             ),
             "bash",
             str(env_file),
@@ -174,40 +175,92 @@ def test_prepare_outputs_sourceable_host_and_vlabor_env_blocks(tmp_path: Path) -
     )
 
     assert completed.returncode == 0
-    assert completed.stderr == ""
+    assert "Trace file:" in completed.stderr
     env_file = tmp_path / "asr.env"
     env_file.write_text(completed.stdout, encoding="utf-8")
     model_path = package.package_dir / "models" / "whisper.cpp" / "ggml-base-q5_1.bin"
-    assert _source_env_block(env_file) == (
+    host_model_path, host_worker_path, host_binary_path, trace_file = _source_env_block(env_file)
+    assert (host_model_path, host_worker_path, host_binary_path) == (
         str(model_path.resolve(strict=True)),
         str(package.worker.resolve(strict=True)),
         str(binary.resolve(strict=True)),
     )
-    assert _source_env_block(env_file, target="vlabor") == (
+    assert Path(trace_file).is_file()
+    assert Path(trace_file).parent == package.package_dir / "traces" / "prepare_whisper_cpp_asr"
+    trace_text = Path(trace_file).read_text(encoding="utf-8")
+    assert "started_at=" in trace_text
+    assert "ended_at=" in trace_text
+    assert "status=success" in trace_text
+    assert "model_id=base-q5_1" in trace_text
+    assert f"model_path={model_path.resolve(strict=True)}" in trace_text
+    assert f"worker_path={package.worker.resolve(strict=True)}" in trace_text
+    assert f"binary_path={binary.resolve(strict=True)}" in trace_text
+    assert "build_requested=false" in trace_text
+    assert "stage_start=" in trace_text
+    assert "download_model" in trace_text
+    assert "stage_finish=" in trace_text
+    vlabor_values = _source_env_block(env_file, target="vlabor")
+    assert vlabor_values[:3] == (
         "/ros2_ws/src/fluent_audio_ros2/src/ai/fa_asr/models/whisper.cpp/ggml-base-q5_1.bin",
         "/ros2_ws/src/fluent_audio_ros2/src/ai/fa_asr/scripts/whisper_cpp_worker",
         "/ros2_ws/src/fluent_audio_ros2/src/ai/fa_asr/tools/whisper.cpp/build/bin/whisper-cli",
     )
+    assert vlabor_values[3] == trace_file
 
 
 def test_prepare_fails_closed_when_explicit_binary_is_missing(tmp_path: Path) -> None:
     package = _copy_prepare_package(tmp_path)
+    trace_file = tmp_path / "explicit-trace.log"
+    missing_binary = tmp_path / "missing-whisper-cli"
 
     completed = _run_prepare(
         package.preparer,
-        ("--binary", str(tmp_path / "missing-whisper-cli")),
+        ("--trace-file", str(trace_file), "--binary", str(missing_binary)),
     )
 
     assert completed.returncode == 1
     assert completed.stdout == ""
-    assert "explicit --binary does not exist or is not a file" in completed.stderr
+    assert f"Trace file: {trace_file}" in completed.stderr
+    real_reason = f"failure_reason=explicit --binary does not exist or is not a file: {missing_binary}"
+    assert f"ERROR: explicit --binary does not exist or is not a file: {missing_binary}" in completed.stderr
+    assert "explicit --binary is not executable: " not in completed.stderr
+    trace_text = trace_file.read_text(encoding="utf-8")
+    assert "status=failure" in trace_text
+    assert "model_id=small-q5_1" in trace_text
+    assert "model_path=" in trace_text
+    assert "worker_path=" in trace_text
+    assert "build_requested=false" in trace_text
+    assert trace_text.count(real_reason) == 1
+    assert "explicit --binary is not executable: " not in trace_text
+    assert "failure_reason=command exited with status 1" not in trace_text
+
+
+def test_prepare_uses_trace_file_from_environment(tmp_path: Path) -> None:
+    package = _copy_prepare_package(tmp_path)
+    binary = _write_executable(
+        package.package_dir / "tools" / "whisper.cpp" / "build" / "bin" / "whisper-cli",
+        "#!/usr/bin/env bash\nexit 0\n",
+    )
+    trace_file = tmp_path / "env-trace.log"
+
+    completed = _run_prepare(
+        package.preparer,
+        ("--model-id", "tiny-q5_1", "--binary", str(binary)),
+        env_updates={"FLUENT_AUDIO_ASR_PREPARE_TRACE_FILE": str(trace_file)},
+    )
+
+    assert completed.returncode == 0
+    env_file = tmp_path / "asr-env-override.env"
+    env_file.write_text(completed.stdout, encoding="utf-8")
+    assert _source_env_block(env_file)[3] == str(trace_file)
+    assert "status=success" in trace_file.read_text(encoding="utf-8")
 
 
 def test_prepare_builds_package_local_whisper_cpp_with_fake_tools(tmp_path: Path) -> None:
     package = _copy_prepare_package(tmp_path)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for command in ("bash", "basename", "chmod", "dirname", "mkdir"):
+    for command in ("bash", "basename", "chmod", "date", "dirname", "mkdir"):
         _link_command(bin_dir, command)
     _write_fake_git(bin_dir / "git")
     _write_fake_cmake(bin_dir / "cmake")

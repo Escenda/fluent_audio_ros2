@@ -68,3 +68,6 @@ src/ai/fa_asr/models/*
 # fa_asr local whisper.cpp source/build
 src/ai/fa_asr/tools/*
 !src/ai/fa_asr/tools/.gitkeep
+
+# fa_asr local prepare trace logs
+src/ai/fa_asr/traces/

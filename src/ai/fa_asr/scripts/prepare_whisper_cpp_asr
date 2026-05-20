@@ -16,6 +16,10 @@ TOOLS_DIR="${PACKAGE_DIR}/tools"
 WHISPER_CPP_DIR="${TOOLS_DIR}/whisper.cpp"
 WHISPER_CPP_BUILD_DIR="${WHISPER_CPP_DIR}/build"
 LOCAL_WHISPER_CPP_BINARY="${WHISPER_CPP_BUILD_DIR}/bin/whisper-cli"
+TRACE_FILE=""
+TRACE_STATUS="failure"
+TRACE_FAILURE_REASON=""
+TRACE_FINALIZED=false
 
 usage() {
   cat >&2 <<EOF
@@ -26,13 +30,18 @@ Options:
   --models-dir DIR           model directory passed to download_whisper_cpp_model
   --binary PATH_OR_COMMAND   explicit whisper-cli binary
   --build-whisper-cpp        clone/build package-local whisper.cpp when no binary is present
+  --trace-file PATH          trace log file path (default: package source traces or user cache)
   -h, --help                 show this help
 EOF
 }
 
 fail() {
-  printf 'ERROR: %s\n' "$1" >&2
-  exit "${2:-1}"
+  local reason="$1"
+  local code="${2:-1}"
+  TRACE_FAILURE_REASON="${reason}"
+  trace_write_field "failure_reason" "${reason}"
+  printf 'ERROR: %s\n' "${reason}" >&2
+  exit "${code}"
 }
 
 absolute_existing_file() {
@@ -50,10 +59,21 @@ absolute_existing_file() {
 }
 
 absolute_executable_file() {
+  local input_path="$1"
+  local label="$2"
+  if [[ ! -f "${input_path}" ]]; then
+    fail "${label} does not exist or is not a file: ${input_path}"
+  fi
+
+  local dir="${input_path%/*}"
+  local base="${input_path##*/}"
+  if [[ "${dir}" == "${input_path}" ]]; then
+    dir="."
+  fi
   local path
-  path="$(absolute_existing_file "$1" "$2")"
+  path="$(cd -- "${dir}" >/dev/null 2>&1 && pwd -P)/${base}"
   if [[ ! -x "${path}" ]]; then
-    fail "$2 is not executable: ${path}"
+    fail "${label} is not executable: ${path}"
   fi
   printf '%s\n' "${path}"
 }
@@ -87,19 +107,27 @@ require_command() {
 }
 
 build_whisper_cpp() {
+  trace_stage_start "build_requirements" "git cmake"
   require_command git
   require_command cmake
+  trace_stage_finish "build_requirements" "git cmake"
 
   mkdir -p "${TOOLS_DIR}"
   if [[ ! -d "${WHISPER_CPP_DIR}" ]]; then
+    trace_stage_start "clone_whisper_cpp" "git clone ${WHISPER_CPP_URL} ${WHISPER_CPP_DIR}"
     printf 'Cloning whisper.cpp into %s\n' "${WHISPER_CPP_DIR}" >&2
     if ! git clone --depth 1 "${WHISPER_CPP_URL}" "${WHISPER_CPP_DIR}" >&2; then
       fail "failed to clone whisper.cpp from ${WHISPER_CPP_URL}"
     fi
+    trace_stage_finish "clone_whisper_cpp" "${WHISPER_CPP_DIR}"
   elif [[ ! -f "${WHISPER_CPP_DIR}/CMakeLists.txt" ]]; then
     fail "existing whisper.cpp directory is not a CMake source tree: ${WHISPER_CPP_DIR}"
+  else
+    trace_stage_start "clone_whisper_cpp" "existing source tree"
+    trace_stage_finish "clone_whisper_cpp" "${WHISPER_CPP_DIR}"
   fi
 
+  trace_stage_start "configure_whisper_cpp" "cmake -S ${WHISPER_CPP_DIR} -B ${WHISPER_CPP_BUILD_DIR}"
   printf 'Configuring whisper.cpp build in %s\n' "${WHISPER_CPP_BUILD_DIR}" >&2
   if ! cmake \
     -S "${WHISPER_CPP_DIR}" \
@@ -109,11 +137,14 @@ build_whisper_cpp() {
     -DWHISPER_BUILD_EXAMPLES=ON >&2; then
     fail "failed to configure whisper.cpp with cmake"
   fi
+  trace_stage_finish "configure_whisper_cpp" "${WHISPER_CPP_BUILD_DIR}"
 
+  trace_stage_start "build_whisper_cli" "cmake --build ${WHISPER_CPP_BUILD_DIR} --target whisper-cli"
   printf 'Building whisper-cli\n' >&2
   if ! cmake --build "${WHISPER_CPP_BUILD_DIR}" --config Release --target whisper-cli >&2; then
     fail "failed to build whisper-cli"
   fi
+  trace_stage_finish "build_whisper_cli" "${LOCAL_WHISPER_CPP_BINARY}"
 
   absolute_executable_file "${LOCAL_WHISPER_CPP_BINARY}" "package-local whisper-cli binary"
 }
@@ -150,6 +181,61 @@ shell_value() {
   printf '%q' "$1"
 }
 
+trace_timestamp() {
+  date -u '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+trace_value() {
+  local value="$1"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "${value}"
+}
+
+trace_append_line() {
+  [[ -n "${TRACE_FILE}" ]] || return 0
+  if ! printf '%s\n' "$1" >> "${TRACE_FILE}"; then
+    printf 'ERROR: failed to write trace file: %s\n' "${TRACE_FILE}" >&2
+    exit 1
+  fi
+}
+
+trace_write_field() {
+  local key="$1"
+  local value="$2"
+  trace_append_line "${key}=$(trace_value "${value}")"
+}
+
+trace_has_failure_reason() {
+  [[ -n "${TRACE_FILE}" && -f "${TRACE_FILE}" ]] || return 1
+  local line=""
+  while IFS= read -r line; do
+    case "${line}" in
+      failure_reason=?*) return 0 ;;
+    esac
+  done < "${TRACE_FILE}"
+  return 1
+}
+
+trace_stage_start() {
+  local value
+  value="$(trace_timestamp) $1"
+  if [[ -n "${2:-}" ]]; then
+    value="${value} ${2}"
+  fi
+  trace_write_field "stage_start" "${value}"
+}
+
+trace_stage_finish() {
+  local value
+  value="$(trace_timestamp) $1"
+  if [[ -n "${2:-}" ]]; then
+    value="${value} ${2}"
+  fi
+  trace_write_field "stage_finish" "${value}"
+}
+
 print_env_blocks() {
   local model_path="$1"
   local worker_path="$2"
@@ -173,12 +259,14 @@ print_env_blocks() {
   printf '    export FLUENT_AUDIO_ASR_MODEL_PATH=%s\n' "$(shell_value "${model_path}")"
   printf '    export FLUENT_AUDIO_ASR_WORKER=%s\n' "$(shell_value "${worker_path}")"
   printf '    export FLUENT_AUDIO_WHISPER_CPP_BINARY=%s\n' "$(shell_value "${binary_path}")"
+  printf '    export FLUENT_AUDIO_ASR_PREPARE_TRACE_FILE=%s\n' "$(shell_value "${TRACE_FILE}")"
   printf '    ;;\n'
   if [[ -n "${container_model}" && -n "${container_worker}" && -n "${container_binary}" ]]; then
     printf '  vlabor)\n'
     printf '    export FLUENT_AUDIO_ASR_MODEL_PATH=%s\n' "$(shell_value "${container_model}")"
     printf '    export FLUENT_AUDIO_ASR_WORKER=%s\n' "$(shell_value "${container_worker}")"
     printf '    export FLUENT_AUDIO_WHISPER_CPP_BINARY=%s\n' "$(shell_value "${container_binary}")"
+    printf '    export FLUENT_AUDIO_ASR_PREPARE_TRACE_FILE=%s\n' "$(shell_value "${TRACE_FILE}")"
     printf '    ;;\n'
   else
     printf '  vlabor)\n'
@@ -220,11 +308,144 @@ parse_downloader_output() {
   printf -v "${worker_var}" '%s' "${worker_path}"
 }
 
+absolute_output_file() {
+  local path="$1"
+  if [[ -z "${path}" ]]; then
+    return 1
+  fi
+
+  local dir="${path%/*}"
+  local base="${path##*/}"
+  if [[ "${dir}" == "${path}" ]]; then
+    dir="."
+  fi
+  if [[ -z "${base}" || "${base}" == "." || "${base}" == ".." ]]; then
+    return 1
+  fi
+
+  mkdir -p -- "${dir}" || return 1
+  printf '%s/%s\n' "$(cd -- "${dir}" >/dev/null 2>&1 && pwd -P)" "${base}"
+}
+
+default_trace_file() {
+  local trace_dir=""
+  local source_root=""
+  if source_root="$(find_fluent_audio_root)"; then
+    trace_dir="${PACKAGE_DIR}/traces/prepare_whisper_cpp_asr"
+  else
+    if [[ -z "${HOME:-}" ]]; then
+      printf 'ERROR: HOME is required to choose the default trace directory outside source\n' >&2
+      exit 1
+    fi
+    trace_dir="${HOME}/.cache/fluent_audio/fa_asr/traces/prepare_whisper_cpp_asr"
+  fi
+
+  printf '%s/prepare_%s_%s.log\n' "${trace_dir}" "$(date -u '+%Y%m%dT%H%M%SZ')" "$$"
+}
+
+init_trace() {
+  local requested_path="$1"
+  local requested_path_is_set="$2"
+  local trace_path=""
+
+  if [[ "${requested_path_is_set}" == "true" ]]; then
+    if ! trace_path="$(absolute_output_file "${requested_path}")"; then
+      printf 'ERROR: trace file path is invalid or not writable: %s\n' "${requested_path}" >&2
+      exit 1
+    fi
+  else
+    trace_path="$(default_trace_file)"
+    if ! trace_path="$(absolute_output_file "${trace_path}")"; then
+      printf 'ERROR: failed to create default trace file path\n' >&2
+      exit 1
+    fi
+  fi
+
+  if ! : > "${trace_path}"; then
+    printf 'ERROR: failed to create trace file: %s\n' "${trace_path}" >&2
+    exit 1
+  fi
+
+  TRACE_FILE="${trace_path}"
+  printf 'Trace file: %s\n' "${TRACE_FILE}" >&2
+  trace_write_field "started_at" "$(trace_timestamp)"
+  trace_write_field "script_path" "${SCRIPT_PATH}"
+  trace_write_field "script_dir" "${SCRIPT_DIR}"
+  trace_write_field "package_dir" "${PACKAGE_DIR}"
+  trace_write_field "trace_file" "${TRACE_FILE}"
+}
+
+trace_finalize() {
+  local exit_code="$?"
+  if [[ "${TRACE_FINALIZED}" == "true" ]]; then
+    return "${exit_code}"
+  fi
+  TRACE_FINALIZED=true
+
+  if [[ -n "${TRACE_FILE}" ]]; then
+    if [[ "${TRACE_STATUS}" != "success" && -z "${TRACE_FAILURE_REASON}" ]] && ! trace_has_failure_reason; then
+      TRACE_FAILURE_REASON="command exited with status ${exit_code}"
+    fi
+    trace_write_field "ended_at" "$(trace_timestamp)"
+    trace_write_field "status" "${TRACE_STATUS}"
+    trace_write_field "exit_code" "${exit_code}"
+    trace_write_field "model_id" "${MODEL_ID:-}"
+    trace_write_field "model_path" "${MODEL_PATH:-}"
+    trace_write_field "worker_script" "${WORKER:-}"
+    trace_write_field "worker_path" "${WORKER_PATH:-}"
+    trace_write_field "binary_path" "${BINARY_PATH:-}"
+    trace_write_field "build_requested" "${BUILD_WHISPER_CPP:-false}"
+    if [[ -n "${TRACE_FAILURE_REASON}" ]] || ! trace_has_failure_reason; then
+      trace_write_field "failure_reason" "${TRACE_FAILURE_REASON}"
+    fi
+  fi
+
+  return "${exit_code}"
+}
+
 MODEL_ID="${DEFAULT_MODEL_ID}"
 MODELS_DIR=""
 EXPLICIT_BINARY=""
 BUILD_WHISPER_CPP=false
 POSITIONAL_MODEL_ID=""
+MODEL_PATH=""
+WORKER_PATH=""
+BINARY_PATH=""
+TRACE_FILE_REQUEST="${FLUENT_AUDIO_ASR_PREPARE_TRACE_FILE:-}"
+TRACE_FILE_REQUEST_SET=false
+TRACE_PREPARSE_ERROR=""
+
+if [[ -n "${TRACE_FILE_REQUEST}" ]]; then
+  TRACE_FILE_REQUEST_SET=true
+fi
+
+TRACE_SCAN_ARGS=("$@")
+TRACE_SCAN_INDEX=0
+while [[ "${TRACE_SCAN_INDEX}" -lt "${#TRACE_SCAN_ARGS[@]}" ]]; do
+  case "${TRACE_SCAN_ARGS[${TRACE_SCAN_INDEX}]}" in
+    --trace-file)
+      if [[ "$((TRACE_SCAN_INDEX + 1))" -ge "${#TRACE_SCAN_ARGS[@]}" ]]; then
+        TRACE_PREPARSE_ERROR="--trace-file requires a value"
+        break
+      fi
+      TRACE_SCAN_INDEX=$((TRACE_SCAN_INDEX + 1))
+      TRACE_FILE_REQUEST="${TRACE_SCAN_ARGS[${TRACE_SCAN_INDEX}]}"
+      TRACE_FILE_REQUEST_SET=true
+      ;;
+    --trace-file=*)
+      TRACE_FILE_REQUEST="${TRACE_SCAN_ARGS[${TRACE_SCAN_INDEX}]#--trace-file=}"
+      TRACE_FILE_REQUEST_SET=true
+      ;;
+  esac
+  TRACE_SCAN_INDEX=$((TRACE_SCAN_INDEX + 1))
+done
+
+init_trace "${TRACE_FILE_REQUEST}" "${TRACE_FILE_REQUEST_SET}"
+trap trace_finalize EXIT
+
+if [[ -n "${TRACE_PREPARSE_ERROR}" ]]; then
+  fail "${TRACE_PREPARSE_ERROR}" 2
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -247,8 +468,18 @@ while [[ $# -gt 0 ]]; do
       BUILD_WHISPER_CPP=true
       shift
       ;;
+    --trace-file)
+      [[ $# -ge 2 ]] || fail "--trace-file requires a value" 2
+      shift 2
+      ;;
+    --trace-file=*)
+      shift
+      ;;
     -h|--help)
+      trace_stage_start "usage" "--help"
       usage
+      trace_stage_finish "usage" "printed help"
+      TRACE_STATUS="success"
       exit 0
       ;;
     --*)
@@ -268,26 +499,40 @@ if [[ -n "${POSITIONAL_MODEL_ID}" ]]; then
   MODEL_ID="${POSITIONAL_MODEL_ID}"
 fi
 
+trace_write_field "model_id" "${MODEL_ID}"
+trace_write_field "build_requested" "${BUILD_WHISPER_CPP}"
+trace_stage_start "validate_preconditions" "downloader and worker executables"
 if [[ ! -x "${DOWNLOADER}" ]]; then
   fail "download_whisper_cpp_model is required and must be executable: ${DOWNLOADER}"
 fi
 if [[ ! -x "${WORKER}" ]]; then
   fail "whisper_cpp_worker is required and must be executable: ${WORKER}"
 fi
+trace_stage_finish "validate_preconditions" "downloader and worker executables"
 
 DOWNLOADER_ARGS=("${MODEL_ID}")
 if [[ -n "${MODELS_DIR}" ]]; then
   DOWNLOADER_ARGS+=("${MODELS_DIR}")
 fi
 
-DOWNLOADER_OUTPUT="$("${DOWNLOADER}" "${DOWNLOADER_ARGS[@]}")"
-MODEL_PATH=""
-WORKER_PATH=""
+trace_stage_start "download_model" "${DOWNLOADER} ${MODEL_ID}"
+if ! DOWNLOADER_OUTPUT="$("${DOWNLOADER}" "${DOWNLOADER_ARGS[@]}")"; then
+  fail "download_whisper_cpp_model failed for model_id=${MODEL_ID}"
+fi
+trace_stage_finish "download_model" "${MODEL_ID}"
+
+trace_stage_start "parse_downloader_output" "FLUENT_AUDIO_ASR_MODEL_PATH FLUENT_AUDIO_ASR_WORKER"
 parse_downloader_output "${DOWNLOADER_OUTPUT}" MODEL_PATH WORKER_PATH
+trace_stage_finish "parse_downloader_output" "model and worker paths"
+
+trace_stage_start "resolve_model_and_worker" "absolute paths"
 MODEL_PATH="$(absolute_existing_file "${MODEL_PATH}" "ASR model file")"
 WORKER_PATH="$(absolute_executable_file "${WORKER_PATH}" "ASR worker")"
+trace_write_field "model_path" "${MODEL_PATH}"
+trace_write_field "worker_path" "${WORKER_PATH}"
+trace_stage_finish "resolve_model_and_worker" "absolute paths"
 
-BINARY_PATH=""
+trace_stage_start "resolve_binary" "whisper-cli"
 if [[ -n "${EXPLICIT_BINARY}" ]]; then
   BINARY_PATH="$(resolve_command_or_path "${EXPLICIT_BINARY}" "explicit --binary")"
 elif [[ -n "${FLUENT_AUDIO_WHISPER_CPP_BINARY:-}" ]]; then
@@ -304,5 +549,10 @@ else
     fail "whisper-cli binary not found. Checked --binary, FLUENT_AUDIO_WHISPER_CPP_BINARY, PATH whisper-cli, and ${LOCAL_WHISPER_CPP_BINARY}. Re-run with --build-whisper-cpp to build the package-local binary."
   fi
 fi
+trace_write_field "binary_path" "${BINARY_PATH}"
+trace_stage_finish "resolve_binary" "${BINARY_PATH}"
 
+trace_stage_start "emit_env_block" "stdout"
 print_env_blocks "${MODEL_PATH}" "${WORKER_PATH}" "${BINARY_PATH}" "${MODEL_ID}"
+trace_stage_finish "emit_env_block" "stdout"
+TRACE_STATUS="success"
