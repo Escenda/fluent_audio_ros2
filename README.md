@@ -1,77 +1,165 @@
 # FluentAudio ROS2
 
-`fluent_vision_ros2`（設計・開発: Takashi Otsuka / @takatronix）をベースに、ROS2 上で「聴覚（Audio）」を扱うためのノード群を整理した repository です。
+ROS2 ベースのリアルタイム音声処理システムです。ロボットや音声対話アプリケーションで使う audio input、audio output、DSP、streaming、VAD/KWS/ASR/Turn Detector、MCP 連携を、責務の分かれた package / node として提供します。
+
+`fluent_vision_ros2`（設計・開発: Takashi Otsuka / @takatronix）を出発点に、vision ではなく audio に責務を絞っています。
 
 - Upstream: https://github.com/takatronix/fluent_vision_ros2
-- This fork: https://github.com/Escenda/fluent_audio_ros2
+- This repository: https://github.com/Escenda/fluent_audio_ros2
 
-## このリポジトリの位置づけ
-- upstream の設計思想（ノード分割、低遅延、YAML/launch 運用）を踏襲します
-- `src/` 以下を用途別（`io/`, `processing/`, `ai/`, `streaming/`, `apps/`, `system/`, `interfaces/`）に分割して管理します
-- source / sink、DSP、音声 AI、音声 app を分離し、backend を明示的に切り替えられる構造を目標にしています
-- 音声にフォーカスするため、vision 系パッケージ（カメラ/AI/UI/配信/SLAM など）は本リポジトリから削除しています（視覚系は upstream を参照してください）
+## 概要
 
-## 主要パッケージ（Audio）
-- `fa_in`（`src/io/sources/fa_in/`）: 明示 backend で選択した入力源（ALSA / raw PCM file / raw PCM UDP）→ `audio/frame` を Publish、Diagnostics
-- `fa_out`（`src/io/sinks/fa_out/`）: 明示 backend で選択した出力先（ALSA / raw PCM file / raw PCM UDP）へ `AudioFrame` を出力
-- `fa_record`（`src/io/utilities/fa_record/`）: `audio/frame` をWAVへ録音（`record` サービス）
-- `fa_stream`（`src/io/utilities/fa_stream/`）: `audio/frame` を外部へ配信する utility（Icecast向け `fa_stream_node.py`）
-- `fa_vad`（`src/ai/fa_vad/`）: Silero VAD（PyTorch）で`audio/vad`と source / stream identity 付き `voice/vad_state` を提供
-- `fa_kws`（`src/ai/fa_kws/`）: 外部 worker 境界の sherpa-onnx KWS、`voice/wake_word`を提供
-- `fa_asr`（`src/ai/fa_asr/`）: `local_command` / `whisper.cpp` / `parakeet_worker` / `openai_realtime` / `openai_transcriptions` backend を呼び出し、`voice/asr/result`を提供
-- `fa_turn_detector`（`src/ai/fa_turn_detector/`）: Smart Turn v3 ONNX によるターン終了推定、`voice/turn_end`を提供
-- `fa_audio_mcp`（`src/apps/agent_tools/fa_audio_mcp/`）: `archive_audio_window` / `transcribe_audio` を MCP tools として公開
-- `fa_tts`（`src/processing/generation/fa_tts/`）: pyopenjtalk(Open JTalk) によるTTS（`speak` サービス）/ `AudioFrame` 出力
-- `fa_resample`（`src/processing/format/fa_resample/`）: 16k ストリーム供給（`audio/frame`→`audio/resample16k/mic`）
-- `fa_aec_linear`（`src/processing/correction/fa_aec_linear/`）: 線形AEC（`mic/ref`→`audio/aec_linear/frame`）
-- `fa_aec_nn`（`src/processing/correction/fa_aec_nn/`）: NN残差抑圧（骨組み、`audio/aec_linear/frame`→`audio/aec/frame`）
-- `fa_denoise`（`src/processing/correction/fa_denoise/`）: ノイズ抑制（DTLN/ONNX、`audio/resample16k/mic`→`audio/denoise/frame`）
-- `fa_mix`（`src/processing/routing/fa_mix/`）: ミキサ（MVP、`input_topics`→`audio/output/frame`）
-- `fa_voice_command_router`（`src/apps/voice_command/fa_voice_command_router/`）: 音声コマンドの起動/停止/モード切替（MVP: 文字列コマンド入力）
-- `fa_interfaces`（`src/interfaces/fa_interfaces/`）: `AudioFrame` 等の msg/srv を集約
+FluentAudio ROS2 は、音声入力から音声AI、音声出力、外部 agent 連携までを ROS2 graph として構成するための repository です。
 
-## セットアップ
+単一の巨大な万能 node ではなく、format conversion、dynamics、frequency、correction、temporal、spatial、analysis、generation、routing、streaming を、それぞれ責務のはっきりした node として分割します。
 
-### 前提
-- ROS 2（Humble/Jazzy など）
+たとえば microphone input を ASR に入れる pipeline は、次のように構成できます。
+
+```text
+fa_in
+  -> fa_dc_offset_removal
+  -> fa_high_pass
+  -> fa_denoise
+  -> fa_agc
+  -> fa_sample_format
+  -> fa_resample
+  -> fa_frame_buffer
+  -> fa_vad
+  -> fa_asr
+```
+
+この分割により、どこで音が変わったのか、どの node がどの topic / service を持つのか、どこで失敗したのかを追跡できます。
+
+## パッケージ構成
+
+完全な node/package 一覧、実装状態、topic、service、client、MCP tool、公開 config parameter は [docs/ノード実装状況とAPI一覧.md](docs/ノード実装状況とAPI一覧.md) を参照してください。
+
+この一覧は source/config inventory です。full build、full test、実 ROS graph launch、実デバイス、実モデル、親 VLAbor profile integration の完了証明ではありません。
+
+現時点の棚卸しでは、leaf entry は 106 件です。内訳は runtime node package 75 件、インターフェース package 1 件、基盤 package 2 件、計画/未実装 placeholder 28 件です。
+
+### IO (`src/io/`)
+
+- **fa_in**: 明示 backend で選択した入力源から `AudioFrame` を publish する source node
+- **fa_out**: 明示 backend で選択した出力先へ `AudioFrame` を出力する sink node
+- **fa_record**: audio stream を WAV などへ保存する recording utility
+- **fa_stream**: audio stream を外部へ配信する utility
+- **fa_file_in / fa_network_in / fa_file_out / fa_network_out**: file / network I/O の planned package
+
+### Processing (`src/processing/`)
+
+- **format**: resample、sample format、bit depth、channel convert、interleave、encode/decode
+- **dynamics**: gain、normalize、compressor、limiter、expander、noise gate、AGC
+- **frequency**: high-pass、low-pass、band-pass、notch、EQ、de-esser
+- **correction/noise**: DC offset removal、AEC、denoise、declick、hum removal
+- **temporal**: trim、silence removal、delay、echo、reverb、fade、crossfade、windowing
+- **spatial/channel**: pan、downmix、upmix、stereo widening、beamforming
+- **analysis/feature**: STFT、log-mel、MFCC、CQT、loudness、pitch、onset、tempo
+- **generation**: TTS、および speech enhancement / conversion / separation などの planned package
+- **routing/mixing**: mix、bus router、patchbay、loopback、ducking、sidechain、monitor mix
+
+### Streaming (`src/streaming/`)
+
+- **fa_frame_buffer**: audio chunk / frame buffering
+- **fa_audio_window**: audio window export / archive service
+- **fa_jitter_buffer**: network jitter absorption
+- **fa_clock_drift**: clock drift correction
+- **fa_packet_loss_concealment**: packet loss concealment
+- **fa_latency_compensation**: latency compensation
+- **fa_time_alignment**: multi-source time alignment
+- **fa_chunk_overlap / fa_overlap_add**: frame overlap / overlap-add
+
+### AI (`src/ai/`)
+
+- **fa_vad**: voice activity detection
+- **fa_kws**: keyword spotting
+- **fa_asr**: speech recognition
+- **fa_turn_detector**: turn end detection
+- **fa_audio_embedding**: audio embedding
+- **fa_sed / fa_speaker**: sound event detection / speaker 系の planned package
+
+### Apps (`src/apps/`)
+
+- **fa_dialogue**: wake word、ASR、turn end を会話 context にまとめる node
+- **fa_voice_command_router**: 音声コマンドによる start / stop / mode control
+- **fa_audio_mcp**: audio window export / archive / transcription を MCP tool として公開する adapter
+- **fa_safety_policy**: safety policy application の planned package
+
+### Interfaces / System
+
+- **fa_interfaces** (`src/interfaces/fa_interfaces`): FluentAudio の msg / srv 定義
+- **fluent_audio_system** (`src/system/fluent_audio_system`): system YAML を ROS2 launch graph に展開する orchestration package
+
+## 主要機能
+
+### 音声入出力
+
+- microphone、file、network などの入力源を backend として明示
+- speaker、file、network などの出力先を backend として明示
+- 入出力 device の列挙、切り替え、playback control
+- diagnostics による状態公開
+
+### DSP pipeline
+
+- format conversion と waveform processing を分離
+- volume / dynamics、frequency、noise correction、temporal、spatial、routing を node 単位で構成
+- VAD、ASR、KWS などの前段に必要な resample、sample format、buffering を明示的に配置
+
+### 音声AI
+
+- VAD / KWS / ASR / Turn Detector を独立 node として提供
+- local model、external worker、cloud API などの backend を config で明示
+- backend、model、endpoint、credential が未設定の場合に暗黙 fallback で成功扱いしない
+
+### 音声対話・agent連携
+
+- wake word、ASR result、turn end を `TurnContext` に統合
+- audio window の export / archive / transcription を MCP tool として公開
+- 音声コマンド routing と TTS 連携を application layer として分離
+
+### リアルタイム処理
+
+- buffering、jitter、clock drift、latency、time alignment を streaming layer に分離
+- network / WebRTC / remote operation で問題になりやすい遅延、欠落、同期ずれを明示的な node として扱う
+
+## インストール
+
+### 前提条件
+
+- ROS 2 Humble / Jazzy など
 - ALSA: `libasound2-dev`
-- TTS: `pyopenjtalk`, `python3-numpy`
-- VAD/ASR/TD: `python3-numpy`, 外部 VAD worker command, `onnxruntime`（TD）, ASR backend が要求する外部 worker / command / endpoint credential（例: whisper.cpp, Parakeet worker, OpenAI API key env）
-- KWS: 外部 sherpa-onnx worker command（例: `fa_kws/scripts/sherpa_onnx_kws_worker`）
-- Agent tools: `mcp` Python SDK（`fa_audio_mcp` で使用）
-- （任意）`ffmpeg`: `fa_stream` の `fa_stream_node.py` で使用
+- audio processing backend が要求する native library
+- AI backend が要求する model、external command、runtime、credential
+- MCP adapter を使う場合は MCP Python SDK
+- `fa_stream` で外部配信する場合は `ffmpeg`
 
 ### ビルド
+
 ```bash
 colcon build --symlink-install
 source install/setup.bash
 ```
 
-## クイックスタート
+## 使用方法
 
-### 1) TTS をスピーカーへ再生
+### 個別 node 起動
+
+各 package は原則として `node_name` と `config_file` を launch 引数に取ります。
+
 ```bash
-# Terminal A
-ros2 launch fa_out fa_out.launch.py node_name:=fa_out config_file:=/path/to/fa_out.yaml
+ros2 launch fa_in fa_in.launch.py \
+  node_name:=fa_in \
+  config_file:=/path/to/fa_in.yaml
 
-# Terminal B
-ros2 launch fa_tts fa_tts.launch.py node_name:=fa_tts config_file:=/path/to/fa_tts.yaml
-
-# Terminal C
-ros2 launch fa_mix fa_mix.launch.py node_name:=fa_mix config_file:=/path/to/fa_mix.yaml
-
-# Terminal D（サービス名は namespace により変わる場合があります。`ros2 service list | grep speak` で確認）
-ros2 service call /speak fa_interfaces/srv/Speak "{text: 'こんにちは', voice_id: '', play: false, volume_db: 0.0, cache_key: ''}"
-```
-`fa_tts` は `audio/tts/frame` だけを出力します。スピーカー再生は `fa_mix` で `audio/output/frame` へ routing してから `fa_out` が行います。
-
-### 2) マイク入力 + VAD
-```bash
-ros2 launch fa_in fa_in.launch.py node_name:=fa_in config_file:=/path/to/fa_in.yaml
-ros2 launch fa_vad fa_vad.launch.py node_name:=fa_vad config_file:=/path/to/fa_vad.yaml
+ros2 launch fa_vad fa_vad.launch.py \
+  node_name:=fa_vad \
+  config_file:=/path/to/fa_vad.yaml
 ```
 
-### 3) SO101 VAD/KWS frontend
+### system YAML から起動
+
+複数 node の graph は `fluent_audio_system` から起動できます。
+
 ```bash
 ros2 launch fluent_audio_system run.py \
   config:=/path/to/so101_kws_frontend.yaml \
@@ -81,39 +169,132 @@ ros2 launch fluent_audio_system run.py \
   fa_out_sink_id:=disabled
 ```
 
-この profile は `fa_in -> fa_sample_format -> fa_resample -> fa_vad / fa_kws` を起動します。ASR / Turn Detector は package-owned SO101 profile template に backend contract を持ちますが、この KWS frontend profile では起動しません。
-ASR / Turn Detector と turn context publisher まで同時起動する検証用 profile は `so101_voice_frontend.yaml` です。この profile は `fa_dialogue` で `voice/wake_word`、`voice/asr/result`、`voice/turn_end` を合流し、`conversation/turn_context` を publish します。reasoning、TTS、safety policy、robot command proposal はこの profile に含みません。
+代表的な KWS frontend は次の流れを構成します。
 
-`fa_vad` / `fa_kws` / `fa_asr` / `fa_turn_detector` は local model、external worker、cloud API のいずれも明示 backend として扱います。VAD は `backend.command`、`backend.args`、model path、provider、workspace、QoS を明示します。KWS / ASR / Turn Detector はそれに加えて `backend.health_args` も node config または system config に明示します。ASR の cloud API backend は model、endpoint contract、credential env を明示し、未設定または存在しない場合は起動時に失敗します。
+```text
+fa_in
+  -> fa_sample_format
+  -> fa_resample
+  -> fa_vad
+  -> fa_kws
+```
 
-`voice/vad_state` は `fa_vad` が判定した `AudioFrame.source_id` / `stream_id` を保持します。`fa_kws` / `fa_asr` / `fa_turn_detector` は topic 名だけで VAD state を信頼せず、自分が処理する audio stream と identity が一致しない VAD state を reject します。
+ASR、Turn Detector、dialogue context まで含めた検証用 profile は `so101_voice_frontend.yaml` を参照してください。
 
-## インターフェース（抜粋）
-- Topics:
-  - `audio/frame`（`fa_interfaces/msg/AudioFrame`）
-  - `audio/vad`（`std_msgs/msg/Bool`）
-  - `voice/vad_state`（`fa_interfaces/msg/VadState`: VAD probability / start / end / source_id / stream_id）
-  - `voice/wake_word`（`fa_interfaces/msg/WakeWordResult`）
-  - `voice/asr/result`（`fa_interfaces/msg/AsrResult`）
-  - `voice/turn_end`（`fa_interfaces/msg/TurnEnd`）
-  - `conversation/turn_context`（`fa_interfaces/msg/TurnContext`）
-  - `audio/output/frame`（`fa_interfaces/msg/AudioFrame`）
-- Services:
-  - `list_devices`, `switch_device`（`fa_in`）
-  - `record`（`fa_record`）
-  - `speak`（`fa_tts`）
+### TTS を出力 pipeline に流す
+
+```bash
+ros2 launch fa_tts fa_tts.launch.py \
+  node_name:=fa_tts \
+  config_file:=/path/to/fa_tts.yaml
+
+ros2 launch fa_mix fa_mix.launch.py \
+  node_name:=fa_mix \
+  config_file:=/path/to/fa_mix.yaml
+
+ros2 launch fa_out fa_out.launch.py \
+  node_name:=fa_out \
+  config_file:=/path/to/fa_out.yaml
+```
+
+`fa_tts` は `audio/tts/frame` を出力します。speaker device への再生は、routing / mix 後の `AudioFrame` を `fa_out` が受け取って行います。
+
+## トピック構成
+
+ここでは代表的な topic / service だけを示します。完全な公開 API は [docs/ノード実装状況とAPI一覧.md](docs/ノード実装状況とAPI一覧.md) を参照してください。
+
+### Audio stream
+
+- `audio/frame` または node config の `input_topic` / `output_topic`
+- `audio/resample16k/mic`
+- `audio/output/frame`
+- `audio/tts/frame`
+
+### Voice AI
+
+- `audio/vad`
+- `audio/vad/probability`
+- `voice/vad_state`
+- `voice/wake_word`
+- `voice/asr/result`
+- `voice/turn_end`
+- `conversation/turn_context`
+
+### Services
+
+- `list_devices`
+- `switch_device`
+- `record`
+- `speak`
+- `transcribe_audio`
+- `export_audio_window`
+- `archive_audio_window`
+- `fa_out/playback_control`
+
+## 設定
+
+### Node config
+
+各 node は package 配下の `config/default.yaml` を基準に、topic、QoS、backend、model、workspace、timeout などを明示します。
+
+backend を使う node では、必要な command、model path、endpoint、credential env を config で明示します。必須値が欠けている場合は、暗黙 fallback ではなく起動時または処理時に明確な error として扱います。
+
+### System config
+
+`fluent_audio_system` は system YAML を読み込み、enabled group / node を ROS2 launch action に展開します。
+
+関連資料:
+
+- `src/system/fluent_audio_system/config/fluent_audio_system.sample.yaml`
+- `src/system/fluent_audio_system/config/profiles/`
+- `src/system/fluent_audio_system/docs/仕様書.md`
+
+## 開発・デバッグ
+
+### ノード状態確認
+
+```bash
+ros2 node list
+ros2 topic list
+ros2 service list
+```
+
+### Topic 確認
+
+```bash
+ros2 topic echo /voice/vad_state
+ros2 topic echo /voice/wake_word
+ros2 topic echo /voice/asr/result
+```
+
+### API 棚卸し確認
+
+```bash
+find src -name package.xml | sort
+```
+
+node/package の現状確認には [docs/ノード実装状況とAPI一覧.md](docs/ノード実装状況とAPI一覧.md) を使います。
 
 ## ドキュメント
-- `docs/仕様書.md`: repository 全体の責務境界
-- `docs/アルゴリズム詳細説明書.md`: package 横断の処理分類と backend 境界
-- `docs/テスト設計.md`: package 横断のテスト方針
-- `docs/fa_audio_system.md`: 全体像・データフロー
-- `docs/fa_audio_design.md`: 設計メモ
+
+- [docs/ノード実装状況とAPI一覧.md](docs/ノード実装状況とAPI一覧.md): node/package の実装状況と公開API一覧
+- [docs/仕様書.md](docs/仕様書.md): repository 全体の責務境界
+- [docs/アルゴリズム詳細説明書.md](docs/アルゴリズム詳細説明書.md): package 横断の処理分類と backend 境界
+- [docs/テスト設計.md](docs/テスト設計.md): package 横断のテスト方針
+- [docs/fa_audio_system.md](docs/fa_audio_system.md): 全体像・データフロー
+- [docs/fa_audio_design.md](docs/fa_audio_design.md): 設計メモ
 - 各 package 配下の `README.md` と `docs/`
 
 ## ライセンス
-このリポジトリには MIT / Apache-2.0 など複数ライセンスのパッケージが含まれます。各パッケージの `package.xml` の `<license>` を参照してください。
 
-## クレジット
-- Original project: Takashi Otsuka (@takatronix) / FluentVision ROS2
-- This fork: Escenda + contributors
+この repository には MIT / Apache-2.0 など複数ライセンスの package が含まれます。各 package の `package.xml` の `<license>` を参照してください。
+
+## 作者
+
+Escenda + contributors
+
+Original project: Takashi Otsuka (@takatronix) / FluentVision ROS2
+
+## 貢献
+
+Issue や pull request では、対象 node、入力 topic、出力 topic、使用 backend、再現手順、検証結果を明示してください。暗黙 fallback や未検証の完了宣言は避け、壊れた状態を検出できる情報を添えてください。
