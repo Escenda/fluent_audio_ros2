@@ -64,3 +64,7 @@ benchmarks/**/eval/
 # fa_asr local model checkpoints
 src/ai/fa_asr/models/*
 !src/ai/fa_asr/models/.gitkeep
+
+# fa_asr local whisper.cpp source/build
+src/ai/fa_asr/tools/*
+!src/ai/fa_asr/tools/.gitkeep

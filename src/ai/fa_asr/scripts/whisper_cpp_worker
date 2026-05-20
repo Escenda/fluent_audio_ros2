@@ -71,6 +71,7 @@ def _run_health(args: argparse.Namespace) -> None:
     _require_language(args.language)
     _run_process(
         [binary_path, "--help"],
+        env=_subprocess_env_for_binary(binary_path),
         timeout_sec=HEALTH_TIMEOUT_SEC,
         failure_label=f"whisper-cli health failed for model {model_path}",
     )
@@ -109,6 +110,7 @@ def _run_transcribe(args: argparse.Namespace) -> None:
         ]
         _run_process(
             command,
+            env=_subprocess_env_for_binary(binary_path),
             timeout_sec=TRANSCRIBE_TIMEOUT_SEC,
             failure_label="whisper-cli transcribe failed",
         )
@@ -154,6 +156,32 @@ def _resolve_executable(value: str) -> str:
     return str(Path(resolved_name).resolve(strict=True))
 
 
+def _subprocess_env_for_binary(binary_path: str) -> dict[str, str]:
+    environment = dict(os.environ)
+    library_dirs = _package_local_library_dirs(Path(binary_path))
+    if not library_dirs:
+        return environment
+
+    existing_library_path = environment.get("LD_LIBRARY_PATH", "")
+    ld_library_paths = [str(path) for path in library_dirs]
+    if existing_library_path:
+        ld_library_paths.append(existing_library_path)
+    environment["LD_LIBRARY_PATH"] = os.pathsep.join(ld_library_paths)
+    return environment
+
+
+def _package_local_library_dirs(binary_path: Path) -> tuple[Path, ...]:
+    build_dir = binary_path.parent.parent
+    if binary_path.parent.name != "bin":
+        return ()
+
+    candidates = (
+        build_dir / "src",
+        build_dir / "ggml" / "src",
+    )
+    return tuple(path for path in candidates if path.is_dir())
+
+
 def _require_language(value: str) -> str:
     language = value.strip()
     if not language:
@@ -197,12 +225,19 @@ def _write_pcm16_mono_wav(path: Path, pcm16_payload: bytes, *, sample_rate: int)
         wav_file.writeframes(pcm16_payload)
 
 
-def _run_process(command: list[str], *, timeout_sec: float, failure_label: str) -> None:
+def _run_process(
+    command: list[str],
+    *,
+    env: dict[str, str],
+    timeout_sec: float,
+    failure_label: str,
+) -> None:
     try:
         completed = subprocess.run(
             command,
             capture_output=True,
             text=True,
+            env=env,
             timeout=timeout_sec,
             check=False,
         )

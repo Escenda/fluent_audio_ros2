@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_MODEL_ID="small-q5_1"
+WHISPER_CPP_URL="https://github.com/ggml-org/whisper.cpp.git"
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+case "${SCRIPT_PATH}" in
+  */*) SCRIPT_DIR="$(cd -- "${SCRIPT_PATH%/*}" >/dev/null 2>&1 && pwd -P)" ;;
+  *) SCRIPT_DIR="$(pwd -P)" ;;
+esac
+PACKAGE_DIR="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd -P)"
+DOWNLOADER="${SCRIPT_DIR}/download_whisper_cpp_model"
+WORKER="${SCRIPT_DIR}/whisper_cpp_worker"
+TOOLS_DIR="${PACKAGE_DIR}/tools"
+WHISPER_CPP_DIR="${TOOLS_DIR}/whisper.cpp"
+WHISPER_CPP_BUILD_DIR="${WHISPER_CPP_DIR}/build"
+LOCAL_WHISPER_CPP_BINARY="${WHISPER_CPP_BUILD_DIR}/bin/whisper-cli"
+
+usage() {
+  cat >&2 <<EOF
+Usage: $(basename -- "$0") [options] [model_id]
+
+Options:
+  --model-id MODEL_ID        whisper.cpp model id to download/use (default: ${DEFAULT_MODEL_ID})
+  --models-dir DIR           model directory passed to download_whisper_cpp_model
+  --binary PATH_OR_COMMAND   explicit whisper-cli binary
+  --build-whisper-cpp        clone/build package-local whisper.cpp when no binary is present
+  -h, --help                 show this help
+EOF
+}
+
+fail() {
+  printf 'ERROR: %s\n' "$1" >&2
+  exit "${2:-1}"
+}
+
+absolute_existing_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -f "${path}" ]]; then
+    fail "${label} does not exist or is not a file: ${path}"
+  fi
+  local dir="${path%/*}"
+  local base="${path##*/}"
+  if [[ "${dir}" == "${path}" ]]; then
+    dir="."
+  fi
+  printf '%s/%s\n' "$(cd -- "${dir}" >/dev/null 2>&1 && pwd -P)" "${base}"
+}
+
+absolute_executable_file() {
+  local path
+  path="$(absolute_existing_file "$1" "$2")"
+  if [[ ! -x "${path}" ]]; then
+    fail "$2 is not executable: ${path}"
+  fi
+  printf '%s\n' "${path}"
+}
+
+resolve_command_or_path() {
+  local value="$1"
+  local label="$2"
+  if [[ -z "${value}" ]]; then
+    fail "${label} is empty"
+  fi
+  case "${value}" in
+    */*)
+      absolute_executable_file "${value}" "${label}"
+      ;;
+    *)
+      local resolved
+      resolved="$(command -v -- "${value}" 2>/dev/null || true)"
+      if [[ -z "${resolved}" || ! -f "${resolved}" || ! -x "${resolved}" ]]; then
+        fail "${label} command was not found or is not executable: ${value}"
+      fi
+      absolute_executable_file "${resolved}" "${label}"
+      ;;
+  esac
+}
+
+require_command() {
+  local name="$1"
+  if ! command -v -- "${name}" >/dev/null 2>&1; then
+    fail "${name} is required to build whisper.cpp, but it was not found in PATH"
+  fi
+}
+
+build_whisper_cpp() {
+  require_command git
+  require_command cmake
+
+  mkdir -p "${TOOLS_DIR}"
+  if [[ ! -d "${WHISPER_CPP_DIR}" ]]; then
+    printf 'Cloning whisper.cpp into %s\n' "${WHISPER_CPP_DIR}" >&2
+    if ! git clone --depth 1 "${WHISPER_CPP_URL}" "${WHISPER_CPP_DIR}" >&2; then
+      fail "failed to clone whisper.cpp from ${WHISPER_CPP_URL}"
+    fi
+  elif [[ ! -f "${WHISPER_CPP_DIR}/CMakeLists.txt" ]]; then
+    fail "existing whisper.cpp directory is not a CMake source tree: ${WHISPER_CPP_DIR}"
+  fi
+
+  printf 'Configuring whisper.cpp build in %s\n' "${WHISPER_CPP_BUILD_DIR}" >&2
+  if ! cmake \
+    -S "${WHISPER_CPP_DIR}" \
+    -B "${WHISPER_CPP_BUILD_DIR}" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DWHISPER_BUILD_TESTS=OFF \
+    -DWHISPER_BUILD_EXAMPLES=ON >&2; then
+    fail "failed to configure whisper.cpp with cmake"
+  fi
+
+  printf 'Building whisper-cli\n' >&2
+  if ! cmake --build "${WHISPER_CPP_BUILD_DIR}" --config Release --target whisper-cli >&2; then
+    fail "failed to build whisper-cli"
+  fi
+
+  absolute_executable_file "${LOCAL_WHISPER_CPP_BINARY}" "package-local whisper-cli binary"
+}
+
+find_fluent_audio_root() {
+  local current="${PACKAGE_DIR}"
+  while [[ "${current}" != "/" ]]; do
+    if [[ -f "${current}/PRODUCT_OWNER_ROLE.md" && -d "${current}/src/ai/fa_asr" ]]; then
+      printf '%s\n' "${current}"
+      return 0
+    fi
+    current="$(cd -- "${current}/.." >/dev/null 2>&1 && pwd -P)"
+  done
+  return 1
+}
+
+container_path_for() {
+  local source_root="$1"
+  local host_path="$2"
+  case "${host_path}" in
+    "${source_root}")
+      printf '%s\n' "/ros2_ws/src/fluent_audio_ros2"
+      ;;
+    "${source_root}"/*)
+      printf '%s/%s\n' "/ros2_ws/src/fluent_audio_ros2" "${host_path#"${source_root}/"}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+shell_value() {
+  printf '%q' "$1"
+}
+
+print_env_blocks() {
+  local model_path="$1"
+  local worker_path="$2"
+  local binary_path="$3"
+  local model_id="$4"
+  local source_root=""
+  local container_model=""
+  local container_worker=""
+  local container_binary=""
+
+  if source_root="$(find_fluent_audio_root)"; then
+    container_model="$(container_path_for "${source_root}" "${model_path}" || true)"
+    container_worker="$(container_path_for "${source_root}" "${worker_path}" || true)"
+    container_binary="$(container_path_for "${source_root}" "${binary_path}" || true)"
+  fi
+
+  printf '# Generated by prepare_whisper_cpp_asr for model_id=%s\n' "${model_id}"
+  printf '# Source normally for host paths. Source with FLUENT_AUDIO_ENV_TARGET=vlabor for container paths.\n'
+  printf 'case "${FLUENT_AUDIO_ENV_TARGET:-host}" in\n'
+  printf '  host)\n'
+  printf '    export FLUENT_AUDIO_ASR_MODEL_PATH=%s\n' "$(shell_value "${model_path}")"
+  printf '    export FLUENT_AUDIO_ASR_WORKER=%s\n' "$(shell_value "${worker_path}")"
+  printf '    export FLUENT_AUDIO_WHISPER_CPP_BINARY=%s\n' "$(shell_value "${binary_path}")"
+  printf '    ;;\n'
+  if [[ -n "${container_model}" && -n "${container_worker}" && -n "${container_binary}" ]]; then
+    printf '  vlabor)\n'
+    printf '    export FLUENT_AUDIO_ASR_MODEL_PATH=%s\n' "$(shell_value "${container_model}")"
+    printf '    export FLUENT_AUDIO_ASR_WORKER=%s\n' "$(shell_value "${container_worker}")"
+    printf '    export FLUENT_AUDIO_WHISPER_CPP_BINARY=%s\n' "$(shell_value "${container_binary}")"
+    printf '    ;;\n'
+  else
+    printf '  vlabor)\n'
+    printf '    printf %%s\\\\n %s >&2\n' "$(shell_value "VLAbor container paths are unavailable because model, worker, or whisper-cli is outside ${source_root:-the fluent_audio_ros2 source tree}.")"
+    printf '    return 1 2>/dev/null || exit 1\n'
+    printf '    ;;\n'
+  fi
+  printf '  *)\n'
+  printf '    printf %%s\\\\n "unsupported FLUENT_AUDIO_ENV_TARGET: ${FLUENT_AUDIO_ENV_TARGET}" >&2\n'
+  printf '    return 2 2>/dev/null || exit 2\n'
+  printf '    ;;\n'
+  printf 'esac\n'
+}
+
+parse_downloader_output() {
+  local output="$1"
+  local model_var="$2"
+  local worker_var="$3"
+  local model_path=""
+  local worker_path=""
+  local key=""
+  local value=""
+
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      FLUENT_AUDIO_ASR_MODEL_PATH) model_path="${value}" ;;
+      FLUENT_AUDIO_ASR_WORKER) worker_path="${value}" ;;
+    esac
+  done <<< "${output}"
+
+  if [[ -z "${model_path}" ]]; then
+    fail "download_whisper_cpp_model did not report FLUENT_AUDIO_ASR_MODEL_PATH"
+  fi
+  if [[ -z "${worker_path}" ]]; then
+    fail "download_whisper_cpp_model did not report FLUENT_AUDIO_ASR_WORKER"
+  fi
+
+  printf -v "${model_var}" '%s' "${model_path}"
+  printf -v "${worker_var}" '%s' "${worker_path}"
+}
+
+MODEL_ID="${DEFAULT_MODEL_ID}"
+MODELS_DIR=""
+EXPLICIT_BINARY=""
+BUILD_WHISPER_CPP=false
+POSITIONAL_MODEL_ID=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model-id)
+      [[ $# -ge 2 ]] || fail "--model-id requires a value" 2
+      MODEL_ID="$2"
+      shift 2
+      ;;
+    --models-dir)
+      [[ $# -ge 2 ]] || fail "--models-dir requires a value" 2
+      MODELS_DIR="$2"
+      shift 2
+      ;;
+    --binary)
+      [[ $# -ge 2 ]] || fail "--binary requires a value" 2
+      EXPLICIT_BINARY="$2"
+      shift 2
+      ;;
+    --build-whisper-cpp)
+      BUILD_WHISPER_CPP=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --*)
+      fail "unknown option: $1" 2
+      ;;
+    *)
+      if [[ -n "${POSITIONAL_MODEL_ID}" ]]; then
+        fail "unexpected positional argument: $1" 2
+      fi
+      POSITIONAL_MODEL_ID="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -n "${POSITIONAL_MODEL_ID}" ]]; then
+  MODEL_ID="${POSITIONAL_MODEL_ID}"
+fi
+
+if [[ ! -x "${DOWNLOADER}" ]]; then
+  fail "download_whisper_cpp_model is required and must be executable: ${DOWNLOADER}"
+fi
+if [[ ! -x "${WORKER}" ]]; then
+  fail "whisper_cpp_worker is required and must be executable: ${WORKER}"
+fi
+
+DOWNLOADER_ARGS=("${MODEL_ID}")
+if [[ -n "${MODELS_DIR}" ]]; then
+  DOWNLOADER_ARGS+=("${MODELS_DIR}")
+fi
+
+DOWNLOADER_OUTPUT="$("${DOWNLOADER}" "${DOWNLOADER_ARGS[@]}")"
+MODEL_PATH=""
+WORKER_PATH=""
+parse_downloader_output "${DOWNLOADER_OUTPUT}" MODEL_PATH WORKER_PATH
+MODEL_PATH="$(absolute_existing_file "${MODEL_PATH}" "ASR model file")"
+WORKER_PATH="$(absolute_executable_file "${WORKER_PATH}" "ASR worker")"
+
+BINARY_PATH=""
+if [[ -n "${EXPLICIT_BINARY}" ]]; then
+  BINARY_PATH="$(resolve_command_or_path "${EXPLICIT_BINARY}" "explicit --binary")"
+elif [[ -n "${FLUENT_AUDIO_WHISPER_CPP_BINARY:-}" ]]; then
+  BINARY_PATH="$(resolve_command_or_path "${FLUENT_AUDIO_WHISPER_CPP_BINARY}" "FLUENT_AUDIO_WHISPER_CPP_BINARY")"
+else
+  PATH_BINARY="$(command -v -- whisper-cli 2>/dev/null || true)"
+  if [[ -n "${PATH_BINARY}" && -f "${PATH_BINARY}" && -x "${PATH_BINARY}" ]]; then
+    BINARY_PATH="$(absolute_executable_file "${PATH_BINARY}" "PATH whisper-cli")"
+  elif [[ -x "${LOCAL_WHISPER_CPP_BINARY}" ]]; then
+    BINARY_PATH="$(absolute_executable_file "${LOCAL_WHISPER_CPP_BINARY}" "package-local whisper-cli binary")"
+  elif [[ "${BUILD_WHISPER_CPP}" == "true" ]]; then
+    BINARY_PATH="$(build_whisper_cpp)"
+  else
+    fail "whisper-cli binary not found. Checked --binary, FLUENT_AUDIO_WHISPER_CPP_BINARY, PATH whisper-cli, and ${LOCAL_WHISPER_CPP_BINARY}. Re-run with --build-whisper-cpp to build the package-local binary."
+  fi
+fi
+
+print_env_blocks "${MODEL_PATH}" "${WORKER_PATH}" "${BINARY_PATH}" "${MODEL_ID}"

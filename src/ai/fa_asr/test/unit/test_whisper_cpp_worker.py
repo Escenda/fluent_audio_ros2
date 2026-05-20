@@ -16,6 +16,7 @@ WORKER = PACKAGE_ROOT / "scripts" / "whisper_cpp_worker"
 @dataclass(frozen=True)
 class FakeWhisperRecord:
     argv: tuple[str, ...]
+    ld_library_path: str
     language: str
     sample_rate: int
     channels: int
@@ -35,6 +36,7 @@ def _write_fake_model(path: Path) -> Path:
 
 
 def _write_fake_whisper_cli(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         """#!/usr/bin/env python3
 import json
@@ -74,6 +76,7 @@ with wave.open(str(wav_path), "rb") as wav_file:
     samples = [sample for (sample,) in struct.iter_unpack("<h", frame_bytes)]
     record = {
         "argv": sys.argv[1:],
+        "ld_library_path": os.environ.get("LD_LIBRARY_PATH", ""),
         "language": language,
         "sample_rate": wav_file.getframerate(),
         "channels": wav_file.getnchannels(),
@@ -103,12 +106,15 @@ def _run_worker(
     record_path: Path,
     transcript: str = "認識しました",
     fail_cli: bool = False,
+    env_updates: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["FA_ASR_FAKE_WHISPER_RECORD"] = str(record_path)
     env["FA_ASR_FAKE_WHISPER_TRANSCRIPT"] = transcript
     if fail_cli:
         env["FA_ASR_FAKE_WHISPER_FAIL"] = "1"
+    if env_updates is not None:
+        env.update(env_updates)
     return subprocess.run(
         (str(WORKER),) + args,
         capture_output=True,
@@ -123,6 +129,7 @@ def _read_record(path: Path) -> FakeWhisperRecord:
     document = json.loads(path.read_text(encoding="utf-8"))
     return FakeWhisperRecord(
         argv=tuple(document["argv"]),
+        ld_library_path=document["ld_library_path"],
         language=document["language"],
         sample_rate=document["sample_rate"],
         channels=document["channels"],
@@ -193,6 +200,49 @@ def test_transcribe_converts_raw_float32le_mono_to_expected_wav(
     assert record.samples == (-32768, -16384, 0, 16384, 32767)
     assert record.argv[0:2] == ("-m", str(model_path.resolve(strict=True)))
     assert "-otxt" in record.argv
+
+
+def test_transcribe_prepends_package_local_whisper_cpp_library_dirs(
+    tmp_path: Path,
+) -> None:
+    model_path = _write_fake_model(tmp_path / "ggml-base.en.bin")
+    build_dir = tmp_path / "fa_asr" / "tools" / "whisper.cpp" / "build"
+    build_src_dir = build_dir / "src"
+    build_ggml_src_dir = build_dir / "ggml" / "src"
+    build_src_dir.mkdir(parents=True)
+    build_ggml_src_dir.mkdir(parents=True)
+    binary_path = _write_fake_whisper_cli(build_dir / "bin" / "whisper-cli")
+    audio_path = _write_float32le(tmp_path / "input.f32", (0.25,))
+    record_path = tmp_path / "record.json"
+    existing_library_path = str(tmp_path / "existing_lib")
+
+    completed = _run_worker(
+        (
+            "transcribe",
+            "--audio",
+            str(audio_path),
+            "--model",
+            str(model_path),
+            "--sample-rate",
+            "16000",
+            "--language",
+            "ja",
+            "--binary",
+            str(binary_path),
+        ),
+        record_path=record_path,
+        env_updates={"LD_LIBRARY_PATH": existing_library_path},
+    )
+
+    assert completed.returncode == 0
+    record = _read_record(record_path)
+    assert record.ld_library_path == os.pathsep.join(
+        (
+            str(build_src_dir.resolve(strict=True)),
+            str(build_ggml_src_dir.resolve(strict=True)),
+            existing_library_path,
+        )
+    )
 
 
 def test_transcribe_writes_explicit_output_file_when_requested(tmp_path: Path) -> None:
