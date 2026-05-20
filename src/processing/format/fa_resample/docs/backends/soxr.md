@@ -8,9 +8,12 @@
 
 - backend name: `soxr`
 - runtime library: `libsoxr.so.0`
+- package contract: `package.xml` declares `libsoxr0` as `exec_depend`
 - processing path: SoXR streaming API
 - intended use: high-quality resampling, recording, evaluation, golden reference
 - input/output data type: interleaved float32
+
+The C++ backend loads `libsoxr.so.0` at runtime. It does not include SoXR headers or link against a SoXR dev package at build time.
 
 ## Quality
 
@@ -122,4 +125,16 @@ Automated tests must cover:
 - impulse peak offset measurement
 - diagnostics delay / frame count metrics
 
+The quality comparison test records backend metrics in GTest XML for SoXR prefixes such as
+`passband_soxr_vhq_reference`, `passband_soxr_mq`, `passband_soxr_hq`, `alias_soxr_vhq_reference`,
+`alias_soxr_mq`, and `alias_soxr_hq`.
+
+The XML separates test-only quality metrics from backend delay / processing / frame metrics:
+
+- quality: `rms_error` / `peak_error` / `snr_db` / `compared_samples`
+- backend metrics: `algorithmic_delay_input_samples` / `algorithmic_delay_output_samples` / `algorithmic_delay_ms`
+- backend metrics: `processing_time_mean_ms` / `processing_time_max_ms`
+- backend metrics: `input_frames_total` / `output_frames_total` / `frame_count_error_samples`
+
 検証済み報告では、VLAbor image に SoXR runtime が存在し、Docker/VLAbor container 内の `fa_resample` package build/test が通過している。
+`package.xml` の runtime dependency 宣言は実装済みであるが、package contract を反映した image rebuild 後の検証は未完了である。

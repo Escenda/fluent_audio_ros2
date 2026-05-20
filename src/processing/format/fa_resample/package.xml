@@ -11,6 +11,8 @@
   <depend>rclcpp</depend>
   <depend>diagnostic_msgs</depend>
   <depend>fa_interfaces</depend>
+  <exec_depend>libspeexdsp1</exec_depend>
+  <exec_depend>libsoxr0</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 

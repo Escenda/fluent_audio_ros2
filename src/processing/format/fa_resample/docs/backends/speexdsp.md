@@ -8,9 +8,12 @@
 
 - backend name: `speexdsp`
 - runtime library: `libspeexdsp.so.1`
+- package contract: `package.xml` declares `libspeexdsp1` as `exec_depend`
 - processing path: `speex_resampler_process_interleaved_float`
 - intended use: realtime voice frontend candidate
 - input/output data type: interleaved float32
+
+The C++ backend loads `libspeexdsp.so.1` at runtime. It does not include SpeexDSP headers or link against a SpeexDSP dev package at build time.
 
 ## Quality
 
@@ -107,4 +110,13 @@ Algorithmic delay is taken from SpeexDSP latency APIs and exposed through diagno
 
 Automated tests cover selection, quality validation, no fallback to internal backend, simple smoke processing when runtime library is available, and optional quality metric comparison against SoXR `VHQ`.
 
-検証済み報告では、base running container に SpeexDSP runtime は無く、smoke / metric validation のため `libspeexdsp1` が一時 install された。image-persistent dependency としての SpeexDSP は未検証である。
+When `libspeexdsp.so.1` is available, the quality comparison test records `speex_q6_passband_*`
+GTest XML properties for both test-only quality metrics and backend metrics:
+
+- `rms_error` / `peak_error` / `snr_db` / `compared_samples`
+- `algorithmic_delay_input_samples` / `algorithmic_delay_output_samples` / `algorithmic_delay_ms`
+- `processing_time_mean_ms` / `processing_time_max_ms`
+- `input_frames_total` / `output_frames_total` / `frame_count_error_samples`
+
+検証済み報告では、base running container に SpeexDSP runtime は無く、smoke / metric validation のため `libspeexdsp1` が一時 install された。
+`package.xml` の runtime dependency 宣言は実装済みであるが、image-persistent dependency としての SpeexDSP は未検証である。

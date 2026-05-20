@@ -299,6 +299,44 @@ void recordQualityMetrics(const std::string & prefix, const QualityMetrics & met
     static_cast<int>(metrics.compared_samples));
 }
 
+void recordBackendMetrics(const std::string & prefix, const BackendOutput & output)
+{
+  const fa_resample::backends::BackendMetrics & metrics = output.backend_metrics;
+  testing::Test::RecordProperty(
+    prefix + "_algorithmic_delay_input_samples",
+    metricValueString(metrics.algorithmic_delay_input_samples));
+  testing::Test::RecordProperty(
+    prefix + "_algorithmic_delay_output_samples",
+    metricValueString(metrics.algorithmic_delay_output_samples));
+  testing::Test::RecordProperty(
+    prefix + "_algorithmic_delay_ms",
+    metricValueString(metrics.algorithmic_delay_ms));
+  testing::Test::RecordProperty(
+    prefix + "_processing_time_mean_ms",
+    metricValueString(fa_resample::backends::processingTimeMeanMs(metrics)));
+  testing::Test::RecordProperty(
+    prefix + "_processing_time_max_ms",
+    metricValueString(fa_resample::backends::processingTimeMaxMs(metrics)));
+  testing::Test::RecordProperty(
+    prefix + "_input_frames_total",
+    std::to_string(metrics.input_frames_total));
+  testing::Test::RecordProperty(
+    prefix + "_output_frames_total",
+    std::to_string(metrics.output_frames_total));
+  testing::Test::RecordProperty(
+    prefix + "_frame_count_error_samples",
+    std::to_string(metrics.frame_count_error_samples));
+}
+
+void recordQualityAndBackendMetrics(
+  const std::string & prefix,
+  const QualityMetrics & quality_metrics,
+  const BackendOutput & output)
+{
+  recordQualityMetrics(prefix, quality_metrics);
+  recordBackendMetrics(prefix, output);
+}
+
 }  // namespace
 
 TEST(ResamplerQualityMetrics, ComputesPassbandMetricsAgainstRequiredSoxrVhqReference)
@@ -340,9 +378,10 @@ TEST(ResamplerQualityMetrics, ComputesPassbandMetricsAgainstRequiredSoxrVhqRefer
   EXPECT_LT(mq_metrics.peak_error, 0.04);
   EXPECT_LT(hq_metrics.peak_error, 0.04);
 
-  recordQualityMetrics("passband_internal_linear", internal_metrics);
-  recordQualityMetrics("passband_soxr_mq", mq_metrics);
-  recordQualityMetrics("passband_soxr_hq", hq_metrics);
+  recordBackendMetrics("passband_soxr_vhq_reference", reference);
+  recordQualityAndBackendMetrics("passband_internal_linear", internal_metrics, internal);
+  recordQualityAndBackendMetrics("passband_soxr_mq", mq_metrics, soxr_mq);
+  recordQualityAndBackendMetrics("passband_soxr_hq", hq_metrics, soxr_hq);
   testing::Test::RecordProperty(
     "reference_impulse_peak_offset_samples",
     static_cast<int>(reference.impulse_peak_offset_samples));
@@ -384,9 +423,10 @@ TEST(ResamplerQualityMetrics, SoxrIsCloserToVhqThanInternalLinearForOutOfBandAli
   EXPECT_GT(mq_metrics.snr_db, internal_metrics.snr_db + 3.0);
   EXPECT_GT(hq_metrics.snr_db, internal_metrics.snr_db + 3.0);
 
-  recordQualityMetrics("alias_internal_linear", internal_metrics);
-  recordQualityMetrics("alias_soxr_mq", mq_metrics);
-  recordQualityMetrics("alias_soxr_hq", hq_metrics);
+  recordBackendMetrics("alias_soxr_vhq_reference", reference);
+  recordQualityAndBackendMetrics("alias_internal_linear", internal_metrics, internal);
+  recordQualityAndBackendMetrics("alias_soxr_mq", mq_metrics, soxr_mq);
+  recordQualityAndBackendMetrics("alias_soxr_hq", hq_metrics, soxr_hq);
 }
 
 TEST(SpeexDspResamplerQualityMetrics, ComputesMetricsAgainstSoxrVhqWhenRuntimeLibraryIsAvailable)
@@ -418,5 +458,6 @@ TEST(SpeexDspResamplerQualityMetrics, ComputesMetricsAgainstSoxrVhqWhenRuntimeLi
   expectFiniteMetrics(speex_metrics, speex.label);
   EXPECT_GT(speex_metrics.snr_db, 15.0);
   EXPECT_LT(speex_metrics.peak_error, 0.12);
-  recordQualityMetrics("speex_q6_passband", speex_metrics);
+  recordBackendMetrics("speex_reference_soxr_vhq", reference);
+  recordQualityAndBackendMetrics("speex_q6_passband", speex_metrics, speex);
 }
