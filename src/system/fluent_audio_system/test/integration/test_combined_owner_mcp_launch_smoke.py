@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import hashlib
+import math
 from pathlib import Path
 import json
 import os
@@ -57,6 +58,12 @@ _WINDOW_STREAM_ID = "audio/archive_pcm16/mic"
 _ARCHIVE_REASON = "combined launch smoke"
 _ARCHIVE_ARTIFACT_ID = "fluent_audio_system_launch"
 _PROFILE_MCP_PORT = 9110
+_REAL_ASR_SMOKE_ENV = "FLUENT_AUDIO_REAL_ASR_SMOKE"
+_REAL_ASR_WORKER_ENV = "FLUENT_AUDIO_ASR_WORKER"
+_REAL_ASR_MODEL_PATH_ENV = "FLUENT_AUDIO_ASR_MODEL_PATH"
+_REAL_ASR_AUDIO_F32_PATH_ENV = "FLUENT_AUDIO_REAL_ASR_AUDIO_F32_PATH"
+_REAL_ASR_SAMPLE_RATE_ENV = "FLUENT_AUDIO_REAL_ASR_SAMPLE_RATE"
+_REAL_ASR_EXPECTED_TEXT_ENV = "FLUENT_AUDIO_REAL_ASR_EXPECTED_TEXT"
 _PROFILE_CONFIG_ARG = (
     "${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml,"
     "${share:fluent_audio_system}/config/profiles/so101_agent_audio_tools.yaml"
@@ -238,6 +245,14 @@ class _ProfileSmokeConfig:
     @property
     def time_range_spec(self) -> str:
         return f"{self.start_unix_ns}..{self.end_unix_ns}"
+
+
+@dataclass(frozen=True)
+class _RealAsrSmokeInput:
+    worker_command: str
+    model_path: Path
+    audio_bytes: bytes
+    expected_text: str | None
 
 
 def test_fluent_audio_system_composes_owner_and_mcp_adapter_configs(
@@ -456,6 +471,102 @@ def test_so101_profile_pair_runs_owner_services_and_mcp_tools(
             os.environ["ROS_DOMAIN_ID"] = previous_domain_id
 
 
+def test_so101_profile_pair_runs_real_asr_worker_and_model_when_enabled(
+    tmp_path: Path,
+) -> None:
+    if os.environ.get(_REAL_ASR_SMOKE_ENV) != "1":
+        pytest.skip(f"{_REAL_ASR_SMOKE_ENV}=1 is required for real ASR smoke")
+
+    real_asr = _load_real_asr_smoke_input()
+    ros2 = shutil.which("ros2")
+    if ros2 is None:
+        raise AssertionError("ros2 executable is required when real ASR smoke is enabled")
+    if not _is_tcp_port_free(_PROFILE_MCP_PORT):
+        raise AssertionError(
+            f"streamable HTTP MCP profile port {_PROFILE_MCP_PORT} is already in use"
+        )
+
+    config = _build_real_asr_profile_smoke_config(tmp_path, real_asr)
+    _write_profile_non_asr_runtime_files(config)
+    domain_id = _isolated_ros_domain_id(config.suffix)
+    previous_domain_id = os.environ.get("ROS_DOMAIN_ID")
+    os.environ["ROS_DOMAIN_ID"] = domain_id
+    try:
+        # ROS imports are deferred so non-ROS developer shells can collect this opt-in test.
+        import rclpy
+        from rclpy.context import Context
+        from rclpy.executors import SingleThreadedExecutor
+        from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+        from fa_interfaces.msg import AudioFrame
+        from fa_interfaces.srv import ArchiveAudioWindow, ExportAudioWindow, TranscribeAudio
+
+        context = Context()
+        rclpy.init(context=context)
+        node = rclpy.create_node(config.client_node_name, context=context)
+        executor = SingleThreadedExecutor(context=context)
+        executor.add_node(node)
+        process = _start_profile_launch_process(
+            ros2,
+            config,
+            domain_id=domain_id,
+        )
+        try:
+            _wait_for_mcp_node(node, executor, process, config, timeout_sec=130.0)
+            _wait_for_owner_services(
+                node,
+                executor,
+                process,
+                config,
+                TranscribeAudio,
+                ExportAudioWindow,
+                ArchiveAudioWindow,
+                timeout_sec=130.0,
+            )
+            _publish_profile_high_pass_frames(
+                node,
+                executor,
+                process,
+                config,
+                AudioFrame,
+                QoSProfile,
+                ReliabilityPolicy,
+                audio_data=real_asr.audio_bytes,
+                timeout_sec=130.0,
+            )
+
+            transcribe = _call_profile_transcribe(
+                node,
+                executor,
+                process,
+                config,
+                TranscribeAudio,
+                timeout_sec=130.0,
+            )
+
+            _assert_real_asr_profile_transcribe_response(
+                transcribe,
+                config,
+                real_asr,
+                TranscribeAudio,
+            )
+        except Exception as exc:
+            stdout = _stop_process(process)
+            raise AssertionError(f"{exc}\n\nros2 launch output:\n{stdout}") from exc
+        finally:
+            if process.poll() is None:
+                _stop_process(process)
+            executor.shutdown()
+            node.destroy_node()
+            if rclpy.ok(context=context):
+                rclpy.shutdown(context=context)
+    finally:
+        if previous_domain_id is None:
+            os.environ.pop("ROS_DOMAIN_ID", None)
+        else:
+            os.environ["ROS_DOMAIN_ID"] = previous_domain_id
+
+
 def _build_smoke_config(tmp_path: Path) -> _SmokeConfig:
     suffix = "s_" + uuid.uuid4().hex
     base = f"/fluent_audio_system_e2e/{suffix}"
@@ -517,6 +628,41 @@ def _build_profile_smoke_config(tmp_path: Path) -> _ProfileSmokeConfig:
     )
 
 
+def _build_real_asr_profile_smoke_config(
+    tmp_path: Path,
+    real_asr: _RealAsrSmokeInput,
+) -> _ProfileSmokeConfig:
+    suffix = "rp_" + uuid.uuid4().hex
+    source_index = int(suffix[-8:], 16) % 10_000
+    start_unix_ns = 50_000_000_000 + source_index * _NSEC_PER_SEC
+    return _ProfileSmokeConfig(
+        suffix=suffix,
+        client_node_name=f"so101_real_asr_profile_smoke_client_{suffix}",
+        high_pass_topic="audio/high_pass/frame",
+        transcribe_service="transcribe_audio",
+        export_service="export_audio_window",
+        archive_service="archive_audio_window",
+        asr_node_name="fa_asr",
+        audio_window_node_name="fa_audio_window_mic",
+        mcp_node_name="fa_audio_mcp_server",
+        asr_model_path=real_asr.model_path,
+        asr_worker_path=Path(real_asr.worker_command),
+        vad_model_dir=tmp_path / "fake_silero_model",
+        vad_worker_path=tmp_path / "fake_vad_worker.py",
+        kws_worker_path=tmp_path / "fake_kws_worker.py",
+        kws_encoder_path=tmp_path / "kws_encoder.onnx",
+        kws_decoder_path=tmp_path / "kws_decoder.onnx",
+        kws_joiner_path=tmp_path / "kws_joiner.onnx",
+        kws_tokens_path=tmp_path / "kws_tokens.txt",
+        kws_keywords_path=tmp_path / "kws_keywords.txt",
+        turn_model_path=tmp_path / "fake_smart_turn.onnx",
+        turn_worker_path=tmp_path / "fake_turn_worker.py",
+        start_unix_ns=start_unix_ns,
+        sample_count=len(real_asr.audio_bytes) // 4,
+        mcp_port=_PROFILE_MCP_PORT,
+    )
+
+
 def _write_runtime_files(config: _SmokeConfig) -> None:
     # A non-empty fa_in_source_id is propagated to source-bound owner nodes by launch.
     # The smoke frames use that same explicit disabled binding to test effective launch behavior.
@@ -531,10 +677,17 @@ def _write_runtime_files(config: _SmokeConfig) -> None:
 
 
 def _write_profile_runtime_files(config: _ProfileSmokeConfig) -> None:
+    _write_profile_fake_asr_runtime_files(config)
+    _write_profile_non_asr_runtime_files(config)
+
+
+def _write_profile_fake_asr_runtime_files(config: _ProfileSmokeConfig) -> None:
     config.asr_model_path.write_text(_PROFILE_TRANSCRIPT + "\n", encoding="utf-8")
     config.asr_worker_path.write_text(_PROFILE_FAKE_ASR_WORKER, encoding="utf-8")
     config.asr_worker_path.chmod(0o755)
 
+
+def _write_profile_non_asr_runtime_files(config: _ProfileSmokeConfig) -> None:
     config.vad_model_dir.mkdir(parents=True, exist_ok=True)
     (config.vad_model_dir / "hubconf.py").write_text("# fake silero hub\n", encoding="utf-8")
     (config.vad_model_dir / "probability.txt").write_text("0.75\n", encoding="utf-8")
@@ -823,6 +976,15 @@ def _start_profile_launch_process(
     *,
     domain_id: str,
 ) -> subprocess.Popen[str]:
+    env = _profile_launch_environment(config, domain_id=domain_id)
+    return _start_profile_launch_process_with_environment(ros2, env)
+
+
+def _profile_launch_environment(
+    config: _ProfileSmokeConfig,
+    *,
+    domain_id: str,
+) -> dict[str, str]:
     env = os.environ.copy()
     env.update(
         {
@@ -845,6 +1007,13 @@ def _start_profile_launch_process(
             "FA_KWS_FAKE_MODE": "none",
         }
     )
+    return env
+
+
+def _start_profile_launch_process_with_environment(
+    ros2: str,
+    env: dict[str, str],
+) -> subprocess.Popen[str]:
     return subprocess.Popen(
         [
             ros2,
@@ -870,8 +1039,10 @@ def _wait_for_mcp_node(
     executor,
     process: subprocess.Popen[str],
     config: _SmokeConfig,
+    *,
+    timeout_sec: float = 12.0,
 ) -> None:
-    deadline = time.monotonic() + 12.0
+    deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         _ensure_launch_running(process)
         executor.spin_once(timeout_sec=0.05)
@@ -892,6 +1063,8 @@ def _wait_for_owner_services(
     transcribe_srv,
     export_srv,
     archive_srv,
+    *,
+    timeout_sec: float = 12.0,
 ) -> None:
     clients = [
         node.create_client(transcribe_srv, config.transcribe_service),
@@ -899,7 +1072,7 @@ def _wait_for_owner_services(
         node.create_client(archive_srv, config.archive_service),
     ]
     try:
-        deadline = time.monotonic() + 12.0
+        deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
             _ensure_launch_running(process)
             executor.spin_once(timeout_sec=0.05)
@@ -974,6 +1147,9 @@ def _publish_profile_high_pass_frames(
     audio_frame_cls,
     qos_profile_cls,
     reliability_policy_cls,
+    *,
+    audio_data: bytes | None = None,
+    timeout_sec: float = 12.0,
 ) -> None:
     high_pass_pub = node.create_publisher(
         audio_frame_cls,
@@ -981,7 +1157,15 @@ def _publish_profile_high_pass_frames(
         _audio_qos(qos_profile_cls, reliability_policy_cls),
     )
     try:
-        _wait_for_profile_high_pass_subscriptions(high_pass_pub, executor, process)
+        _wait_for_profile_high_pass_subscriptions(
+            high_pass_pub,
+            executor,
+            process,
+            timeout_sec=timeout_sec,
+        )
+        frame_data = audio_data
+        if frame_data is None:
+            frame_data = _float32le_bytes(_ASR_SAMPLE_VALUE, config.sample_count)
         high_pass_pub.publish(
             _audio_frame(
                 audio_frame_cls,
@@ -990,7 +1174,7 @@ def _publish_profile_high_pass_frames(
                 encoding="FLOAT32LE",
                 bit_depth=32,
                 start_unix_ns=config.start_unix_ns,
-                data=_float32le_bytes(_ASR_SAMPLE_VALUE, config.sample_count),
+                data=frame_data,
             )
         )
         end_time = time.monotonic() + 0.8
@@ -1020,8 +1204,10 @@ def _wait_for_profile_high_pass_subscriptions(
     high_pass_pub,
     executor,
     process: subprocess.Popen[str],
+    *,
+    timeout_sec: float = 12.0,
 ) -> None:
-    deadline = time.monotonic() + 12.0
+    deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         _ensure_launch_running(process)
         executor.spin_once(timeout_sec=0.05)
@@ -1157,13 +1343,22 @@ def _call_profile_transcribe(
     process: subprocess.Popen[str],
     config: _ProfileSmokeConfig,
     transcribe_srv,
+    *,
+    timeout_sec: float = 8.0,
 ):
     client = node.create_client(transcribe_srv, config.transcribe_service)
     try:
         request = transcribe_srv.Request()
         request.time_range_spec = config.time_range_spec
         request.audio_scope = ""
-        return _call_service(executor, process, client, request, "TranscribeAudio")
+        return _call_service(
+            executor,
+            process,
+            client,
+            request,
+            "TranscribeAudio",
+            timeout_sec=timeout_sec,
+        )
     finally:
         node.destroy_client(client)
 
@@ -1210,11 +1405,19 @@ def _call_profile_archive(
         node.destroy_client(client)
 
 
-def _call_service(executor, process: subprocess.Popen[str], client, request, label: str):
+def _call_service(
+    executor,
+    process: subprocess.Popen[str],
+    client,
+    request,
+    label: str,
+    *,
+    timeout_sec: float = 8.0,
+):
     if not client.wait_for_service(timeout_sec=5.0):
         raise RuntimeError(f"{label} service was unavailable")
     future = client.call_async(request)
-    deadline = time.monotonic() + 8.0
+    deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         _ensure_launch_running(process)
         executor.spin_once(timeout_sec=0.05)
@@ -1550,6 +1753,43 @@ def _assert_profile_transcribe_response(
     assert model_ref.backend_kind == "asr"
     assert model_ref.model_id == ""
     assert model_ref.model_path == str(config.asr_model_path)
+    assert model_ref.model_version == ""
+    assert model_ref.model_revision == ""
+
+
+def _assert_real_asr_profile_transcribe_response(
+    response,
+    config: _ProfileSmokeConfig,
+    real_asr: _RealAsrSmokeInput,
+    transcribe_srv,
+) -> None:
+    assert response.success, response.message
+    assert response.error_code == transcribe_srv.Response.ERROR_NONE
+    assert response.message == ""
+    assert len(response.segments) == 1
+    segment = response.segments[0]
+    assert segment.start_unix_ns == config.start_unix_ns
+    assert segment.end_unix_ns == config.end_unix_ns
+    transcript = segment.text.strip()
+    if real_asr.expected_text:
+        assert real_asr.expected_text in transcript
+    else:
+        assert transcript
+    assert segment.speaker_label == ""
+    _assert_profile_time_range(response.time_range, config)
+
+    window_ref = response.audio_window_ref
+    assert window_ref.window_id == "so101_voice_frontend_mic_asr"
+    assert window_ref.window_epoch == 1
+    assert window_ref.source_id == _SOURCE_ID
+    assert window_ref.stream_id == _ASR_STREAM_ID
+    _assert_profile_time_range(window_ref.time_range, config)
+
+    model_ref = response.model_ref
+    assert model_ref.backend_name == "whisper.cpp"
+    assert model_ref.backend_kind == "asr"
+    assert model_ref.model_path == str(real_asr.model_path)
+    assert model_ref.model_id == ""
     assert model_ref.model_version == ""
     assert model_ref.model_revision == ""
 
@@ -2026,6 +2266,85 @@ def _ensure_launch_running(process: subprocess.Popen[str]) -> None:
     if return_code is None:
         return
     raise RuntimeError(f"ros2 launch exited before smoke completed: {return_code}")
+
+
+def _load_real_asr_smoke_input() -> _RealAsrSmokeInput:
+    worker_path = _required_executable_file_env(_REAL_ASR_WORKER_ENV)
+    model_path = _required_file_env(_REAL_ASR_MODEL_PATH_ENV)
+    audio_path = _required_file_env(_REAL_ASR_AUDIO_F32_PATH_ENV)
+    _validate_real_asr_sample_rate()
+    audio_bytes = audio_path.read_bytes()
+    if not audio_bytes:
+        raise ValueError(f"{_REAL_ASR_AUDIO_F32_PATH_ENV} must point to a non-empty file")
+    if len(audio_bytes) % 4 != 0:
+        raise ValueError(
+            f"{_REAL_ASR_AUDIO_F32_PATH_ENV} must be raw float32le; "
+            f"byte length must be divisible by 4: {audio_path}"
+        )
+    samples = tuple(sample for (sample,) in struct.iter_unpack("<f", audio_bytes))
+    if not all(math.isfinite(sample) for sample in samples):
+        raise ValueError(
+            f"{_REAL_ASR_AUDIO_F32_PATH_ENV} contains non-finite float32 samples"
+        )
+    if any(sample < -1.0 or sample > 1.0 for sample in samples):
+        raise ValueError(
+            f"{_REAL_ASR_AUDIO_F32_PATH_ENV} must contain normalized float32 samples "
+            "within [-1.0, 1.0]"
+        )
+    return _RealAsrSmokeInput(
+        worker_command=str(worker_path),
+        model_path=model_path,
+        audio_bytes=audio_bytes,
+        expected_text=_real_asr_expected_text(),
+    )
+
+
+def _required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise AssertionError(f"{name} is required when {_REAL_ASR_SMOKE_ENV}=1")
+    return value
+
+
+def _required_file_env(name: str) -> Path:
+    value = _required_env(name)
+    path = Path(value).expanduser()
+    try:
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise AssertionError(f"{name} must point to an existing file: {value}") from exc
+    if not resolved.is_file():
+        raise AssertionError(f"{name} must point to a file: {resolved}")
+    if not os.access(resolved, os.R_OK):
+        raise AssertionError(f"{name} must point to a readable file: {resolved}")
+    return resolved
+
+
+def _required_executable_file_env(name: str) -> Path:
+    resolved = _required_file_env(name)
+    if not os.access(resolved, os.X_OK):
+        raise AssertionError(f"{name} must point to an executable file: {resolved}")
+    return resolved
+
+
+def _validate_real_asr_sample_rate() -> None:
+    value = os.environ.get(_REAL_ASR_SAMPLE_RATE_ENV, "").strip()
+    if not value:
+        return
+    if value != str(_SAMPLE_RATE):
+        raise ValueError(
+            f"{_REAL_ASR_SAMPLE_RATE_ENV} must be {_SAMPLE_RATE} when set; got {value!r}"
+        )
+
+
+def _real_asr_expected_text() -> str | None:
+    value = os.environ.get(_REAL_ASR_EXPECTED_TEXT_ENV)
+    if value is None:
+        return None
+    expected_text = value.strip()
+    if not expected_text:
+        raise ValueError(f"{_REAL_ASR_EXPECTED_TEXT_ENV} must not be empty when set")
+    return expected_text
 
 
 def _stop_process(process: subprocess.Popen[str]) -> str:
