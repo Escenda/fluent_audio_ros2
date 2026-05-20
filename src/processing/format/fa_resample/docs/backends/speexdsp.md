@@ -110,6 +110,12 @@ Algorithmic delay is taken from SpeexDSP latency APIs and exposed through diagno
 
 Automated tests cover selection, quality validation, no fallback to internal backend, simple smoke processing when runtime library is available, and optional quality metric comparison against SoXR `VHQ`.
 
+`test/cpp/test_resample_graph.cpp` includes a SpeexDSP ROS graph smoke with `backend.name=speexdsp` and
+`backend.quality=6`. The smoke starts `FaResampleNode`, publishes and subscribes `AudioFrame`, and checks
+`/diagnostics` for `backend.name`, `backend.quality`, `algorithmic_delay_ms`, `processing_time_mean_ms`,
+`input_frames_total`, `output_frames_total`, `expected_output_frames`, and `frame_count_error_samples`.
+This verifies backend selection on the ROS graph and does not replace real device smoke validation.
+
 When `libspeexdsp.so.1` is available, the quality comparison test records `speex_q6_passband_*`
 GTest XML properties for both test-only quality metrics and backend metrics:
 
@@ -118,5 +124,7 @@ GTest XML properties for both test-only quality metrics and backend metrics:
 - `processing_time_mean_ms` / `processing_time_max_ms`
 - `input_frames_total` / `output_frames_total` / `frame_count_error_samples`
 
-検証済み報告では、base running container に SpeexDSP runtime は無く、smoke / metric validation のため `libspeexdsp1` が一時 install された。
-`package.xml` の runtime dependency 宣言は実装済みであるが、image-persistent dependency としての SpeexDSP は未検証である。
+検証済み報告では、running container 内で `libspeexdsp1` が見えており、Docker/VLAbor container 内の
+`fa_resample` package build/test は `46 tests, 0 errors, 0 failures, 0 skipped` で通過している。
+`package.xml` の runtime dependency 宣言は実装済みであるが、VLAbor image rebuild 後に
+image-persistent dependency として含まれることは未検証である。

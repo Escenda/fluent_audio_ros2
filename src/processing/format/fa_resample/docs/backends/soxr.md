@@ -125,6 +125,16 @@ Automated tests must cover:
 - impulse peak offset measurement
 - diagnostics delay / frame count metrics
 
+`test/cpp/test_resample_graph.cpp` includes a SoXR ROS graph smoke with `backend.name=soxr` and
+`backend.quality=MQ`. The smoke starts `FaResampleNode`, publishes and subscribes `AudioFrame`, and checks
+`/diagnostics` for `backend.name`, `backend.quality`, `algorithmic_delay_ms`, `processing_time_mean_ms`,
+`input_frames_total`, `output_frames_total`, `expected_output_frames`, and `frame_count_error_samples`.
+This verifies backend selection on the ROS graph and does not replace real device smoke validation.
+
+The SoXR graph smoke once failed with `FLOAT32LE encoding failed` when it used a high-amplitude ramp.
+The production input contract remains finite normalized `FLOAT32LE`; only the graph smoke input was changed
+to a low-amplitude multi-tone signal.
+
 The quality comparison test records backend metrics in GTest XML for SoXR prefixes such as
 `passband_soxr_vhq_reference`, `passband_soxr_mq`, `passband_soxr_hq`, `alias_soxr_vhq_reference`,
 `alias_soxr_mq`, and `alias_soxr_hq`.
@@ -136,5 +146,7 @@ The XML separates test-only quality metrics from backend delay / processing / fr
 - backend metrics: `processing_time_mean_ms` / `processing_time_max_ms`
 - backend metrics: `input_frames_total` / `output_frames_total` / `frame_count_error_samples`
 
-検証済み報告では、VLAbor image に SoXR runtime が存在し、Docker/VLAbor container 内の `fa_resample` package build/test が通過している。
-`package.xml` の runtime dependency 宣言は実装済みであるが、package contract を反映した image rebuild 後の検証は未完了である。
+検証済み報告では、running container 内で `libsoxr0` が見えており、Docker/VLAbor container 内の
+`fa_resample` package build/test は `46 tests, 0 errors, 0 failures, 0 skipped` で通過している。
+`package.xml` の runtime dependency 宣言は実装済みであるが、package contract を反映した
+VLAbor image rebuild 後に image-persistent dependency として含まれることは未検証である。
