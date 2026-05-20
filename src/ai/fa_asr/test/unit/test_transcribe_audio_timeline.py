@@ -473,14 +473,77 @@ def test_timeline_slices_exact_values_across_contiguous_frames() -> None:
     )
 
 
-def test_timeline_rejects_non_sample_boundary_request() -> None:
+def test_timeline_quantizes_non_sample_boundary_request_to_covering_sample_span() -> None:
     timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
     timeline.append(start_unix_ns=1_000_000_000, samples=np.array([1.0, 2.0], dtype=np.float32))
 
-    with pytest.raises(TimelineRangeError) as exc_info:
-        timeline.slice(parse_numeric_time_range("1050000000..1200000000"))
+    timeline_slice = timeline.slice(parse_numeric_time_range("1050000000..1150000000"))
 
-    assert exc_info.value.error_code == ERROR_TIME_RANGE_UNRESOLVED
+    assert timeline_slice.time_range.start_unix_ns == 1_000_000_000
+    assert timeline_slice.time_range.end_unix_ns == 1_200_000_000
+    np.testing.assert_array_equal(timeline_slice.samples, np.array([1.0, 2.0], dtype=np.float32))
+
+
+def test_timeline_slices_non_exact_sample_rate_with_integer_coverage_range() -> None:
+    timeline = RollingAsrTimeline(sample_rate=48_000, retention_sec=10.0)
+    samples = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float32)
+
+    timeline.append(start_unix_ns=1_000_000_000, samples=samples)
+    timeline_slice = timeline.slice(parse_numeric_time_range("1000020834..1000062499"))
+
+    assert timeline.latest_end_unix_ns == 1_000_083_334
+    assert timeline_slice.time_range.start_unix_ns == 1_000_020_833
+    assert timeline_slice.time_range.end_unix_ns == 1_000_062_500
+    assert timeline_slice.time_range.start_unix_ns <= 1_000_020_834
+    assert timeline_slice.time_range.end_unix_ns >= 1_000_062_499
+    np.testing.assert_array_equal(
+        timeline_slice.samples,
+        np.array([20.0, 30.0], dtype=np.float32),
+    )
+
+
+def test_timeline_accepts_quantized_floor_contiguous_append_at_48khz() -> None:
+    timeline = RollingAsrTimeline(sample_rate=48_000, retention_sec=10.0)
+    first_start_unix_ns = 1_000_000_000
+    second_start_unix_ns = 1_000_020_833
+    requested_end_unix_ns = 1_000_041_666
+
+    timeline.append(start_unix_ns=first_start_unix_ns, samples=np.array([10.0], dtype=np.float32))
+    timeline.append(
+        start_unix_ns=second_start_unix_ns,
+        samples=np.array([20.0, 30.0], dtype=np.float32),
+    )
+    timeline_slice = timeline.slice(
+        parse_numeric_time_range(f"{first_start_unix_ns}..{requested_end_unix_ns}")
+    )
+
+    assert timeline_slice.time_range.start_unix_ns == first_start_unix_ns
+    assert timeline_slice.time_range.end_unix_ns == 1_000_041_667
+    assert timeline_slice.time_range.start_unix_ns <= first_start_unix_ns
+    assert timeline_slice.time_range.end_unix_ns >= requested_end_unix_ns
+    np.testing.assert_array_equal(
+        timeline_slice.samples,
+        np.array([10.0, 20.0], dtype=np.float32),
+    )
+
+
+def test_timeline_rejects_before_quantized_floor_boundary_without_corruption() -> None:
+    timeline = RollingAsrTimeline(sample_rate=48_000, retention_sec=10.0)
+    first_start_unix_ns = 1_000_000_000
+    first_floor_end_unix_ns = 1_000_020_833
+
+    timeline.append(start_unix_ns=first_start_unix_ns, samples=np.array([10.0], dtype=np.float32))
+    with pytest.raises(TimelineRangeError) as exc_info:
+        timeline.append(
+            start_unix_ns=first_floor_end_unix_ns - 1,
+            samples=np.array([90.0], dtype=np.float32),
+        )
+
+    assert exc_info.value.error_code == ERROR_WINDOW_NOT_FOUND
+    timeline_slice = timeline.slice(
+        parse_numeric_time_range(f"{first_start_unix_ns}..{first_floor_end_unix_ns}")
+    )
+    np.testing.assert_array_equal(timeline_slice.samples, np.array([10.0], dtype=np.float32))
 
 
 def test_on_audio_buffers_valid_frame_without_turn_context_and_service_transcribes(
@@ -524,6 +587,39 @@ def test_on_audio_buffers_valid_frame_without_turn_context_and_service_transcrib
     assert len(backend.requests) == 1
     assert backend.requests[0].samples.dtype == np.float32
     assert backend.requests[0].samples.ndim == 1
+    np.testing.assert_array_equal(
+        backend.requests[0].samples,
+        np.array([0.1, 0.2, 0.3], dtype=np.float32),
+    )
+
+
+def test_transcribe_audio_quantizes_non_sample_boundary_request_to_selected_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingBackend("hello")
+    node = _node(module, backend=backend)
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    result = node.handle_transcribe_audio(
+        _FakeTranscribeAudioRequest(time_range_spec="1050000000..1250000000"),
+        _response(),
+    )
+
+    assert result.success is True
+    assert result.error_code == _FakeTranscribeAudioResponse.ERROR_NONE
+    assert result.time_range.start_unix_ns == 1_000_000_000
+    assert result.time_range.end_unix_ns == 1_300_000_000
+    assert result.audio_window_ref.time_range.start_unix_ns == 1_000_000_000
+    assert result.audio_window_ref.time_range.end_unix_ns == 1_300_000_000
+    assert result.segments[0].start_unix_ns == 1_000_000_000
+    assert result.segments[0].end_unix_ns == 1_300_000_000
+    assert len(backend.requests) == 1
     np.testing.assert_array_equal(
         backend.requests[0].samples,
         np.array([0.1, 0.2, 0.3], dtype=np.float32),
@@ -576,12 +672,36 @@ def test_transcribe_audio_gap_returns_range_not_continuous_and_does_not_call_bac
     node.on_audio(_FakeAudioFrame(samples=np.array([0.5, 0.6], dtype=np.float32), sec=1, nanosec=400_000_000))
 
     result = node.handle_transcribe_audio(
-        _FakeTranscribeAudioRequest(time_range_spec="1000000000..1500000000"),
+        _FakeTranscribeAudioRequest(time_range_spec="1050000000..1450000000"),
         _response(),
     )
 
     assert result.success is False
     assert result.error_code == _FakeTranscribeAudioResponse.ERROR_RANGE_NOT_CONTINUOUS
+    assert backend.requests == []
+
+
+def test_transcribe_audio_outside_retained_window_does_not_call_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingBackend("hello")
+    node = _node(module, backend=backend)
+    node._timeline = RollingAsrTimeline(sample_rate=10, retention_sec=0.2)
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    result = node.handle_transcribe_audio(
+        _FakeTranscribeAudioRequest(time_range_spec="1000000000..1100000000"),
+        _response(),
+    )
+
+    assert result.success is False
+    assert result.error_code == _FakeTranscribeAudioResponse.ERROR_RANGE_OUTSIDE_WINDOW
     assert backend.requests == []
 
 

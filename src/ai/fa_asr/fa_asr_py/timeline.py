@@ -31,6 +31,7 @@ class TimelineSlice:
 @dataclass(frozen=True)
 class TimelineFrame:
     start_unix_ns: int
+    floor_end_unix_ns: int
     end_unix_ns: int
     samples: np.ndarray
 
@@ -95,9 +96,11 @@ class RollingAsrTimeline:
         if samples.size == 0:
             raise ValueError("samples must not be empty")
 
-        duration_ns = self._sample_count_to_duration_ns(samples.size)
-        end_unix_ns = start_unix_ns + duration_ns
-        if self._frames and start_unix_ns < self._frames[-1].end_unix_ns:
+        floor_duration_ns = self._sample_index_to_floor_duration_ns(samples.size)
+        ceil_duration_ns = self._sample_index_to_ceil_duration_ns(samples.size)
+        floor_end_unix_ns = start_unix_ns + floor_duration_ns
+        end_unix_ns = start_unix_ns + ceil_duration_ns
+        if self._frames and start_unix_ns < self._frames[-1].floor_end_unix_ns:
             raise TimelineRangeError(
                 ERROR_WINDOW_NOT_FOUND,
                 "overlapping AudioFrame rejected from ASR timeline",
@@ -106,6 +109,7 @@ class RollingAsrTimeline:
         self._frames.append(
             TimelineFrame(
                 start_unix_ns=start_unix_ns,
+                floor_end_unix_ns=floor_end_unix_ns,
                 end_unix_ns=end_unix_ns,
                 samples=samples.copy(),
             )
@@ -135,6 +139,8 @@ class RollingAsrTimeline:
             )
 
         pieces: list[np.ndarray] = []
+        actual_start_unix_ns: int | None = None
+        actual_end_unix_ns: int | None = None
         cursor_unix_ns = time_range.start_unix_ns
         for frame in self._frames:
             if frame.end_unix_ns <= cursor_unix_ns:
@@ -145,19 +151,44 @@ class RollingAsrTimeline:
                     "requested ASR timeline range crosses an audio gap",
                 )
             piece_end_unix_ns = min(time_range.end_unix_ns, frame.end_unix_ns)
-            pieces.append(
-                self._slice_frame(
-                    frame,
-                    start_unix_ns=cursor_unix_ns,
-                    end_unix_ns=piece_end_unix_ns,
+            frame_start_index = self._floor_sample_index(cursor_unix_ns - frame.start_unix_ns)
+            frame_end_index = self._ceil_sample_index(piece_end_unix_ns - frame.start_unix_ns)
+            frame_start_index = min(frame_start_index, frame.samples.size)
+            frame_end_index = min(frame_end_index, frame.samples.size)
+
+            if frame_start_index < frame_end_index:
+                pieces.append(frame.samples[frame_start_index:frame_end_index])
+                piece_actual_start_unix_ns = (
+                    frame.start_unix_ns
+                    + self._sample_index_to_floor_duration_ns(frame_start_index)
                 )
-            )
+                piece_actual_end_unix_ns = (
+                    frame.start_unix_ns
+                    + self._sample_index_to_ceil_duration_ns(frame_end_index)
+                )
+                if actual_start_unix_ns is None:
+                    actual_start_unix_ns = piece_actual_start_unix_ns
+                actual_end_unix_ns = piece_actual_end_unix_ns
+
             cursor_unix_ns = piece_end_unix_ns
             if cursor_unix_ns == time_range.end_unix_ns:
+                if actual_start_unix_ns is None or actual_end_unix_ns is None:
+                    raise TimelineRangeError(
+                        ERROR_RANGE_NOT_CONTINUOUS,
+                        "requested ASR timeline range contains no selectable samples",
+                    )
+                if actual_start_unix_ns < self._retained_start_unix_ns:
+                    raise TimelineRangeError(
+                        ERROR_RANGE_OUTSIDE_WINDOW,
+                        "requested start quantizes before the retained ASR timeline window",
+                    )
                 return TimelineSlice(
                     samples=np.concatenate(pieces).astype(np.float32, copy=False),
                     sample_rate=self._sample_rate,
-                    time_range=time_range,
+                    time_range=NumericTimeRange(
+                        start_unix_ns=actual_start_unix_ns,
+                        end_unix_ns=actual_end_unix_ns,
+                    ),
                 )
 
         raise TimelineRangeError(
@@ -172,38 +203,36 @@ class RollingAsrTimeline:
                 retained_frames.append(frame)
         self._frames = retained_frames
 
-    def _sample_count_to_duration_ns(self, sample_count: int) -> int:
-        numerator = sample_count * _NSEC_PER_SEC
-        duration_ns, remainder = divmod(numerator, self._sample_rate)
-        if remainder != 0:
-            raise TimelineRangeError(
-                ERROR_TIME_RANGE_UNRESOLVED,
-                "sample count cannot be represented exactly in unix nanoseconds",
-            )
+    def _sample_index_to_floor_duration_ns(self, sample_index: int) -> int:
+        numerator = sample_index * _NSEC_PER_SEC
+        duration_ns, _remainder = divmod(numerator, self._sample_rate)
         return duration_ns
 
-    def _slice_frame(
-        self,
-        frame: TimelineFrame,
-        *,
-        start_unix_ns: int,
-        end_unix_ns: int,
-    ) -> np.ndarray:
-        start_index = self._exact_sample_index(
-            start_unix_ns - frame.start_unix_ns,
-            "requested start does not map to an exact ASR sample boundary",
-        )
-        end_index = self._exact_sample_index(
-            end_unix_ns - frame.start_unix_ns,
-            "requested end does not map to an exact ASR sample boundary",
-        )
-        return frame.samples[start_index:end_index]
+    def _sample_index_to_ceil_duration_ns(self, sample_index: int) -> int:
+        numerator = sample_index * _NSEC_PER_SEC
+        duration_ns, remainder = divmod(numerator, self._sample_rate)
+        if remainder != 0:
+            duration_ns += 1
+        return duration_ns
 
-    def _exact_sample_index(self, delta_ns: int, message: str) -> int:
+    def _floor_sample_index(self, delta_ns: int) -> int:
         if delta_ns < 0:
-            raise TimelineRangeError(ERROR_WINDOW_NOT_FOUND, message)
+            raise TimelineRangeError(
+                ERROR_RANGE_NOT_CONTINUOUS,
+                "requested time is before ASR frame coverage",
+            )
+        numerator = delta_ns * self._sample_rate
+        sample_index, _remainder = divmod(numerator, _NSEC_PER_SEC)
+        return sample_index
+
+    def _ceil_sample_index(self, delta_ns: int) -> int:
+        if delta_ns < 0:
+            raise TimelineRangeError(
+                ERROR_RANGE_NOT_CONTINUOUS,
+                "requested time is before ASR frame coverage",
+            )
         numerator = delta_ns * self._sample_rate
         sample_index, remainder = divmod(numerator, _NSEC_PER_SEC)
         if remainder != 0:
-            raise TimelineRangeError(ERROR_TIME_RANGE_UNRESOLVED, message)
+            sample_index += 1
         return sample_index
