@@ -139,6 +139,7 @@ def build_mcp_server(
             container=container,
             payload_format=payload_format,
             now_unix_ns=ros_client.now_unix_ns(),
+            marker_resolver=config.time_marker_resolver,
         )
         response = ros_client.export_audio_window(values)
         return format_export_audio_result(response, values.time_range)
@@ -163,6 +164,7 @@ def build_mcp_server(
             container=container,
             payload_format=payload_format,
             now_unix_ns=ros_client.now_unix_ns(),
+            marker_resolver=config.time_marker_resolver,
         )
         response = ros_client.archive_audio_window(values)
         return format_archive_audio_result(response, values.time_range)
@@ -177,6 +179,7 @@ def build_mcp_server(
             audio_scope=audio_scope,
             scope_resolver=transcribe_scope_resolver,
             now_unix_ns=ros_client.now_unix_ns(),
+            marker_resolver=config.time_marker_resolver,
         )
         response = ros_client.transcribe_audio(values)
         return format_transcribe_audio_result(response, values.time_range)

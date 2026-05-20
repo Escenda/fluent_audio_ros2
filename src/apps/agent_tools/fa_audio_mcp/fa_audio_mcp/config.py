@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from os import environ
+import re
 
 from fa_audio_mcp.errors import AudioToolError
 from fa_audio_mcp.scopes import AudioScopeConfig, AudioScopeKey
+from fa_audio_mcp.time_range import TimeMarkerResolver, normalize_time_marker_key
+
+
+_NON_NEGATIVE_INTEGER_RE = re.compile(r"^(0|[1-9][0-9]*)$")
 
 
 @dataclass(frozen=True)
@@ -19,6 +24,9 @@ class ServerConfig:
     export_scope_config: AudioScopeConfig
     archive_scope_config: AudioScopeConfig
     transcribe_scope_config: AudioScopeConfig
+    time_marker_resolver: TimeMarkerResolver = field(
+        default_factory=TimeMarkerResolver.empty,
+    )
 
 
 def load_server_config() -> ServerConfig:
@@ -76,6 +84,7 @@ def load_server_config() -> ServerConfig:
                 None,
             ),
         ),
+        time_marker_resolver=_read_time_marker_resolver("FLUENT_AUDIO_TIME_MARKERS"),
     )
 
 
@@ -135,3 +144,48 @@ def _read_positive_int(name: str, default: str) -> int:
     if value <= 0:
         raise AudioToolError("invalid_config", f"{name} must be greater than 0")
     return value
+
+
+def _read_time_marker_resolver(name: str) -> TimeMarkerResolver:
+    raw_value = environ.get(name)
+    if raw_value is None:
+        return TimeMarkerResolver.empty()
+
+    value = raw_value.strip()
+    if value == "":
+        raise AudioToolError(
+            "invalid_config",
+            f"{name} must be unset or contain marker assignments",
+        )
+
+    marker_endpoints_ns: dict[str, int] = {}
+    for raw_assignment in value.split(";"):
+        assignment = raw_assignment.strip()
+        if assignment == "":
+            raise AudioToolError(
+                "invalid_config",
+                f"{name} contains an empty marker assignment",
+            )
+        if assignment.count("=") != 1:
+            raise AudioToolError(
+                "invalid_config",
+                f"{name} entries must use '<marker>.<boundary>=<unix_ns>'",
+            )
+
+        raw_key, raw_timestamp = assignment.split("=")
+        marker_key = normalize_time_marker_key(raw_key)
+        if marker_key in marker_endpoints_ns:
+            raise AudioToolError(
+                "invalid_config",
+                f"{name} contains duplicate marker key '{marker_key}'",
+            )
+
+        timestamp_text = raw_timestamp.strip()
+        if _NON_NEGATIVE_INTEGER_RE.fullmatch(timestamp_text) is None:
+            raise AudioToolError(
+                "invalid_config",
+                f"{name} timestamps must be non-negative integer ns",
+            )
+        marker_endpoints_ns[marker_key] = int(timestamp_text)
+
+    return TimeMarkerResolver(marker_endpoints_ns)

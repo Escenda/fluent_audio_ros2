@@ -1,7 +1,7 @@
 import pytest
 
 from fa_audio_mcp.errors import AudioToolError
-from fa_audio_mcp.time_range import parse_numeric_time_range, resolve_time_range
+from fa_audio_mcp.time_range import TimeMarkerResolver, parse_numeric_time_range, resolve_time_range
 
 
 def test_numeric_time_range_accepts_valid_range() -> None:
@@ -73,5 +73,67 @@ def test_resolve_time_range_requires_clock_for_now_relative_specs() -> None:
 def test_resolve_time_range_rejects_invalid_now_relative_specs(value: str) -> None:
     with pytest.raises(AudioToolError) as exc_info:
         resolve_time_range(value, now_unix_ns=100000000000)
+
+    assert exc_info.value.error_code == "invalid_time_range"
+
+
+def test_resolve_time_range_resolves_marker_range_with_offset() -> None:
+    resolver = TimeMarkerResolver(
+        {
+            "action_12.start": 1_700_000_000_000_000_000,
+            "action_12.end": 1_700_000_005_000_000_000,
+        }
+    )
+
+    time_range = resolve_time_range(
+        "action_12.start..action_12.end+2s",
+        marker_resolver=resolver,
+    )
+
+    assert time_range.start_unix_ns == 1_700_000_000_000_000_000
+    assert time_range.end_unix_ns == 1_700_000_007_000_000_000
+    assert time_range.spec == "1700000000000000000..1700000007000000000"
+    assert time_range.requested_spec == "action_12.start..action_12.end+2s"
+
+
+def test_resolve_time_range_resolves_hyphen_marker_and_ms_offset() -> None:
+    resolver = TimeMarkerResolver(
+        {
+            "action-12.start": 2_000_000_000,
+            "action-12.end": 5_000_000_000,
+        }
+    )
+
+    time_range = resolve_time_range(
+        "action-12.start+250ms..action-12.end-500ms",
+        marker_resolver=resolver,
+    )
+
+    assert time_range.start_unix_ns == 2_250_000_000
+    assert time_range.end_unix_ns == 4_500_000_000
+    assert time_range.requested_spec == "action-12.start+250ms..action-12.end-500ms"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "action_12.start..action_12.end",
+        "action_12.start..missing.end",
+        "action_12.middle..action_12.end",
+        "action_12.start-2ms..action_12.end",
+        "action_12.end..action_12.start",
+    ],
+)
+def test_resolve_time_range_rejects_invalid_marker_specs(value: str) -> None:
+    resolver = TimeMarkerResolver(
+        {
+            "action_12.start": 1_000_000,
+            "action_12.end": 2_000_000,
+        }
+    )
+    marker_resolver = None if value == "action_12.start..action_12.end" else resolver
+
+    with pytest.raises(AudioToolError) as exc_info:
+        resolve_time_range(value, marker_resolver=marker_resolver)
 
     assert exc_info.value.error_code == "invalid_time_range"

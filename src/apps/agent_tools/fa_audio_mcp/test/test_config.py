@@ -24,6 +24,7 @@ _ENV_NAMES = (
     "FLUENT_AUDIO_TRANSCRIBE_SCOPE_SYSTEM",
     "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIXED",
     "FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE",
+    "FLUENT_AUDIO_TIME_MARKERS",
 )
 
 
@@ -147,6 +148,52 @@ def test_config_rejects_invalid_default_scope_key(
 ) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv(env_name, "camera")
+
+    with pytest.raises(AudioToolError) as exc_info:
+        load_server_config()
+
+    assert exc_info.value.error_code == "invalid_config"
+
+
+def test_config_loads_time_marker_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv(
+        "FLUENT_AUDIO_TIME_MARKERS",
+        "action_12.start=1700000000000000000;action_12.end=1700000005000000000",
+    )
+
+    config = load_server_config()
+
+    assert (
+        config.time_marker_resolver.resolve_endpoint("action_12.start")
+        == 1_700_000_000_000_000_000
+    )
+    assert (
+        config.time_marker_resolver.resolve_endpoint("action_12.end+2s")
+        == 1_700_000_007_000_000_000
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        " ",
+        "action_12.start=",
+        "action_12.start=-1",
+        "action_12.start=1.5",
+        "action_12.middle=1",
+        "action_12.start=1;action_12.start=2",
+        "action_12.start=1;",
+        "action_12.start",
+    ],
+)
+def test_config_rejects_invalid_time_markers(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("FLUENT_AUDIO_TIME_MARKERS", value)
 
     with pytest.raises(AudioToolError) as exc_info:
         load_server_config()

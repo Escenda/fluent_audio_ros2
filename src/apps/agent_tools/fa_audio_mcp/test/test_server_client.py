@@ -16,7 +16,7 @@ from fa_audio_mcp.requests import (
     TranscribeAudioRequestValues,
 )
 from fa_audio_mcp.scopes import AudioScopeConfig
-from fa_audio_mcp.time_range import NumericTimeRange
+from fa_audio_mcp.time_range import NumericTimeRange, TimeMarkerResolver
 
 ToolFunction = Callable[..., dict[str, JsonValue]]
 
@@ -579,3 +579,68 @@ def test_transcribe_mcp_tool_resolves_now_relative_range_before_ros_service(
             "speaker_label": "",
         }
     ]
+
+
+def test_transcribe_mcp_tool_resolves_marker_range_before_ros_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = _import_server(monkeypatch)
+    config = ServerConfig(
+        transport="stdio",
+        host="0.0.0.0",
+        port=9110,
+        export_service_name="export_audio_window",
+        archive_service_name="archive_audio_window",
+        transcribe_service_name="transcribe_audio",
+        service_timeout_sec=3.5,
+        export_scope_config=AudioScopeConfig(mic="mic"),
+        archive_scope_config=AudioScopeConfig(mic="mic"),
+        transcribe_scope_config=AudioScopeConfig(
+            mic="audio/high_pass/mic",
+            default_scope_key="mic",
+        ),
+        time_marker_resolver=TimeMarkerResolver(
+            {
+                "action_12.start": 10_000_000_000,
+                "action_12.end": 18_000_000_000,
+            }
+        ),
+    )
+    transcribe_client = _FakeClient(
+        available=True,
+        response=_FakeTranscribeResponse(
+            start_unix_ns=10_000_000_000,
+            end_unix_ns=20_000_000_000,
+        ),
+    )
+    ros_client = server.RosAudioTimelineClient(
+        _FakeNode(
+            _FakeClient(available=True, response=_FakeResponse()),
+            transcribe_client,
+            now_unix_ns=20_000_000_000,
+        ),
+        config,
+    )
+    mcp = server.build_mcp_server(
+        config,
+        ros_client,
+        server.AudioScopeResolver(AudioScopeConfig(mic="mic", default_scope_key="mic")),
+        server.AudioScopeResolver(AudioScopeConfig(mic="mic", default_scope_key="mic")),
+        server.AudioScopeResolver(
+            AudioScopeConfig(
+                mic="audio/high_pass/mic",
+                default_scope_key="mic",
+            )
+        ),
+    )
+
+    result = mcp.tools["transcribe_audio"](
+        time_range="action_12.start..action_12.end+2s"
+    )
+
+    assert transcribe_client.request.time_range_spec == "10000000000..20000000000"
+    assert result["requested_time_range"] == {
+        "start_unix_ns": 10_000_000_000,
+        "end_unix_ns": 20_000_000_000,
+        "spec": "action_12.start..action_12.end+2s",
+    }

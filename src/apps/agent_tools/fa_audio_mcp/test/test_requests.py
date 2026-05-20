@@ -7,6 +7,7 @@ from fa_audio_mcp.requests import (
     build_transcribe_audio_request_values,
 )
 from fa_audio_mcp.scopes import AudioScopeConfig, AudioScopeResolver
+from fa_audio_mcp.time_range import TimeMarkerResolver
 
 
 def test_archive_request_validation_requires_reason() -> None:
@@ -179,3 +180,74 @@ def test_transcribe_request_resolves_now_relative_range_at_input_boundary() -> N
     assert values.time_range.end_unix_ns == 1700000010000000000
     assert values.time_range.requested_spec == "now-10s..now"
     assert values.time_range_spec == "1700000000000000000..1700000010000000000"
+
+
+def test_transcribe_request_resolves_marker_range_at_input_boundary() -> None:
+    scope_resolver = AudioScopeResolver(
+        AudioScopeConfig(
+            mic="audio/high_pass/mic",
+            default_scope_key="mic",
+        )
+    )
+    marker_resolver = TimeMarkerResolver(
+        {
+            "action_12.start": 1_700_000_000_000_000_000,
+            "action_12.end": 1_700_000_005_000_000_000,
+        }
+    )
+
+    values = build_transcribe_audio_request_values(
+        time_range="action_12.start..action_12.end+2s",
+        audio_scope=None,
+        scope_resolver=scope_resolver,
+        marker_resolver=marker_resolver,
+    )
+
+    assert values.time_range_spec == "1700000000000000000..1700000007000000000"
+    assert values.time_range.requested_spec == "action_12.start..action_12.end+2s"
+
+
+def test_archive_request_resolves_marker_range_at_input_boundary() -> None:
+    scope_resolver = AudioScopeResolver(
+        AudioScopeConfig(mic="mic", default_scope_key="mic")
+    )
+    marker_resolver = TimeMarkerResolver(
+        {
+            "action_12.start": 1_700_000_000_000_000_000,
+            "action_12.end": 1_700_000_005_000_000_000,
+        }
+    )
+
+    values = build_archive_audio_request_values(
+        time_range="action_12.start..action_12.end+2s",
+        audio_scope=None,
+        reason="incident evidence",
+        related_artifact_ids=[],
+        scope_resolver=scope_resolver,
+        marker_resolver=marker_resolver,
+    )
+
+    assert values.time_range_spec == "1700000000000000000..1700000007000000000"
+    assert values.time_range.requested_spec == "action_12.start..action_12.end+2s"
+
+
+def test_export_request_resolves_marker_range_at_input_boundary() -> None:
+    scope_resolver = AudioScopeResolver(
+        AudioScopeConfig(mic="mic", default_scope_key="mic")
+    )
+    marker_resolver = TimeMarkerResolver(
+        {
+            "action_12.start": 1_700_000_000_000_000_000,
+            "action_12.end": 1_700_000_005_000_000_000,
+        }
+    )
+
+    values = build_export_audio_request_values(
+        time_range="action_12.start..action_12.end+2s",
+        audio_scope=None,
+        scope_resolver=scope_resolver,
+        marker_resolver=marker_resolver,
+    )
+
+    assert values.time_range_spec == "1700000000000000000..1700000007000000000"
+    assert values.time_range.requested_spec == "action_12.start..action_12.end+2s"
