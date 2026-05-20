@@ -8,7 +8,7 @@ from fa_asr_py.backends._command_process import (
     _CommandProcessRunner,
     _load_model_path_command_config,
 )
-from fa_asr_py.backends.base import AsrRequest
+from fa_asr_py.backends.base import AsrRequest, AsrTranscript
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class WhisperCppAsrBackend:
     def __init__(self, config: WhisperCppAsrConfig) -> None:
         self._runner = _CommandProcessRunner(config.process)
 
-    def transcribe(self, request: AsrRequest) -> str:
+    def transcribe(self, request: AsrRequest) -> AsrTranscript:
         return self._runner.transcribe(request)
 
 
@@ -37,6 +37,7 @@ def load_whisper_cpp_config(
     output_text_path: str,
     workspace_dir: Path,
     cleanup_audio_files: bool,
+    result_format: str,
     health_args: tuple[str, ...] = (),
 ) -> WhisperCppAsrConfig:
     return WhisperCppAsrConfig(
@@ -51,5 +52,6 @@ def load_whisper_cpp_config(
             output_text_path=output_text_path,
             workspace_dir=workspace_dir,
             cleanup_audio_files=cleanup_audio_files,
+            result_format=result_format,
         )
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import string
@@ -10,7 +11,16 @@ from pathlib import Path
 
 import numpy as np
 
-from fa_asr_py.backends.base import AsrRequest
+from fa_asr_py.backends.base import (
+    RESULT_FORMAT_PLAIN_TEXT,
+    RESULT_FORMAT_SEGMENTS_JSON_V1,
+    AsrRequest,
+    AsrTranscript,
+    AsrTranscriptSegment,
+    build_asr_transcript,
+    plain_text_to_asr_transcript,
+    validate_result_format,
+)
 
 
 _PAYLOAD_ENCODING = "float32le_raw"
@@ -42,6 +52,7 @@ class CommandProcessConfig:
     workspace_dir: Path
     cleanup_audio_files: bool
     payload_encoding: str
+    result_format: str
     environment: tuple[CommandProcessEnvironmentVariable, ...] = ()
 
 
@@ -52,7 +63,7 @@ class _CommandProcessRunner:
         if self._config.health_args:
             self._run_health_check()
 
-    def transcribe(self, request: AsrRequest) -> str:
+    def transcribe(self, request: AsrRequest) -> AsrTranscript:
         self._validate_request(request)
         audio_path = self._config.workspace_dir / f"{time.time_ns()}_{request.user_turn_id}.f32"
         output_path = self._build_output_text_path(audio_path, request)
@@ -80,10 +91,11 @@ class _CommandProcessRunner:
                     f"ASR backend command failed: code={completed.returncode} stderr={stderr}"
                 )
 
-            transcript = self._read_transcript(completed.stdout, output_path)
-            if not transcript:
-                raise RuntimeError("ASR backend returned an empty transcript")
-            return transcript
+            backend_output = self._read_transcript(completed.stdout, output_path)
+            return self._parse_backend_output(
+                backend_output,
+                sample_count=int(request.samples.size),
+            )
         finally:
             if self._config.cleanup_audio_files and audio_path.exists():
                 audio_path.unlink()
@@ -159,6 +171,67 @@ class _CommandProcessRunner:
             return output_path.read_text(encoding="utf-8").strip()
         return stdout_text.strip()
 
+    def _parse_backend_output(self, output_text: str, *, sample_count: int) -> AsrTranscript:
+        if self._config.result_format == RESULT_FORMAT_PLAIN_TEXT:
+            return plain_text_to_asr_transcript(output_text, sample_count=sample_count)
+        if self._config.result_format == RESULT_FORMAT_SEGMENTS_JSON_V1:
+            return self._parse_segments_json_v1(output_text, sample_count=sample_count)
+        raise RuntimeError(f"unsupported backend.result_format: {self._config.result_format}")
+
+    @staticmethod
+    def _parse_segments_json_v1(output_text: str, *, sample_count: int) -> AsrTranscript:
+        try:
+            document = json.loads(output_text)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("ASR backend returned malformed segments_json_v1 JSON") from exc
+        if type(document) is not dict:
+            raise RuntimeError("ASR backend segments_json_v1 output must be a JSON mapping")
+        if set(document.keys()) != {"result_format", "segments"}:
+            raise RuntimeError(
+                "ASR backend segments_json_v1 output must contain only result_format and segments"
+            )
+        if document["result_format"] != RESULT_FORMAT_SEGMENTS_JSON_V1:
+            raise RuntimeError(
+                "ASR backend segments_json_v1 result_format must be segments_json_v1"
+            )
+
+        segments_value = document["segments"]
+        if type(segments_value) is not list:
+            raise RuntimeError("ASR backend segments_json_v1 segments must be a list")
+        if not segments_value:
+            raise RuntimeError("ASR backend segments_json_v1 segments must not be empty")
+
+        segments: list[AsrTranscriptSegment] = []
+        for index, segment_value in enumerate(segments_value):
+            if type(segment_value) is not dict:
+                raise RuntimeError(
+                    f"ASR backend segments_json_v1 segment {index} must be a mapping"
+                )
+            segment_keys = set(segment_value.keys())
+            required_keys = {"start_sample", "end_sample", "text"}
+            allowed_keys = required_keys.union({"speaker_label"})
+            if not required_keys.issubset(segment_keys):
+                raise RuntimeError(
+                    f"ASR backend segments_json_v1 segment {index} is missing required fields"
+                )
+            if not segment_keys.issubset(allowed_keys):
+                raise RuntimeError(
+                    f"ASR backend segments_json_v1 segment {index} contains unsupported fields"
+                )
+            speaker_label = (
+                segment_value["speaker_label"] if "speaker_label" in segment_value else None
+            )
+            segments.append(
+                AsrTranscriptSegment(
+                    start_sample=segment_value["start_sample"],
+                    end_sample=segment_value["end_sample"],
+                    text=segment_value["text"],
+                    speaker_label=speaker_label,
+                )
+            )
+
+        return build_asr_transcript(tuple(segments), sample_count=sample_count)
+
     @staticmethod
     def _validate_request(request: AsrRequest) -> None:
         if int(request.sample_rate) <= 0:
@@ -203,6 +276,7 @@ def _load_model_path_command_config(
     output_text_path: str,
     workspace_dir: Path,
     cleanup_audio_files: bool,
+    result_format: str,
     health_args: tuple[str, ...] = (),
 ) -> CommandProcessConfig:
     if not model_path_value:
@@ -227,6 +301,7 @@ def _load_model_path_command_config(
         output_text_path=output_text_path,
         workspace_dir=workspace_dir,
         cleanup_audio_files=cleanup_audio_files,
+        result_format=result_format,
     )
 
 
@@ -242,6 +317,7 @@ def _load_model_id_command_config(
     output_text_path: str,
     workspace_dir: Path,
     cleanup_audio_files: bool,
+    result_format: str,
 ) -> CommandProcessConfig:
     model_value = model.strip()
     if not model_value:
@@ -258,6 +334,7 @@ def _load_model_id_command_config(
         output_text_path=output_text_path,
         workspace_dir=workspace_dir,
         cleanup_audio_files=cleanup_audio_files,
+        result_format=result_format,
     )
 
 
@@ -274,8 +351,10 @@ def _load_command_config(
     output_text_path: str,
     workspace_dir: Path,
     cleanup_audio_files: bool,
+    result_format: str,
 ) -> CommandProcessConfig:
     executable = _resolve_executable(command)
+    validated_result_format = validate_result_format(result_format)
 
     arg_fields = _validate_backend_args(args)
     _validate_backend_health_args(health_args, required=require_health_args)
@@ -313,6 +392,7 @@ def _load_command_config(
         workspace_dir=workspace_dir,
         cleanup_audio_files=cleanup_audio_files,
         payload_encoding=_PAYLOAD_ENCODING,
+        result_format=validated_result_format,
     )
 
 

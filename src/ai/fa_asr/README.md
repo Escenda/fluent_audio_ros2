@@ -29,13 +29,14 @@ result.qos.reliable: true
 ## バックエンド契約
 
 `backend.name` は必須です。対応する backend は `local_command`, `whisper.cpp`, `parakeet_worker`, `openai_realtime`, `openai_transcriptions` です。
-default config は backend を暗黙選択しません。利用環境ごとの launch/config で `backend.name` と必須パラメータを明示してください。
+`backend.result_format` も backend 設定時に必須です。default config は `backend.name` / `backend.result_format` を空にし、backend selection と output contract を暗黙選択しません。利用環境ごとの launch/config で `backend.name`、`backend.result_format`、必須パラメータを明示してください。
 
 - `local_command` / `whisper.cpp`: `backend.command` と `backend.model_path` が必須です。
 - `parakeet_worker`: `backend.command` と `backend.model` が必須です。Python version / venv / SDK が異なる処理は外部 worker / process / container 側へ置きます。
 - `openai_realtime` / `openai_transcriptions`: `backend.command`、`backend.model`、対応する `backend.openai_*.api_key_env` が必須です。OpenAI SDK/API client は外部 worker / process / container 側へ置きます。
 - `backend.args` は default config では空です。backend ごとの worker/CLI contract として `{audio}`、`{model}`、`{sample_rate}` を含む配列を明示してください。
 - `backend.health_args` は `parakeet_worker` / `openai_realtime` / `openai_transcriptions` では必須です。`local_command` / `whisper.cpp` では package 単体の backend contract としては任意ですが、package-owned SO101 profile template では startup health check を明示するために設定します。
+- `backend.result_format` は `plain_text` または `segments_json_v1` です。`plain_text` は transcript text を selected ASR request samples 全体の 1 segment にします。`segments_json_v1` は `result_format` と `segments` だけを持つ strict JSON で、segment offset は selected ASR request samples からの相対 sample index です。invalid JSON/schema/range、overlap、空 text は fail closed であり、`fa_asr` は推測補正、型 coercion、resample、downmix、PCM/int16 変換を行いません。
 
 例: whisper.cpp を raw float32le worker 経由で使う場合
 
@@ -44,6 +45,7 @@ backend.name: "whisper.cpp"
 backend.command: "/opt/fluent_audio/bin/whisper_cpp_worker"
 backend.model_path: "/models/ggml-large-v3.bin"
 backend.language: "ja"
+backend.result_format: "plain_text"
 backend.args: ["--model", "{model}", "--language", "{language}", "--audio-f32", "{audio}", "--sample-rate", "{sample_rate}"]
 backend.health_args: ["health", "--model", "{model}", "--language", "{language}"]
 ```

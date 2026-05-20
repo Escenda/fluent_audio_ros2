@@ -286,6 +286,7 @@ groups:
             - "{model}"
             - "--language"
             - "{language}"
+          backend.result_format: "plain_text"
           backend.timeout_sec: 120.0
           workspace_dir: "/tmp/fluent_audio/fa_asr/so101_voice_frontend"
           cleanup_audio_files: true

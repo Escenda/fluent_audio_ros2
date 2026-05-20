@@ -39,6 +39,7 @@ class AsrBackendSettings:
     output_text_path: str
     workspace_dir: Path
     cleanup_audio_files: bool
+    result_format: str
 
 
 def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
@@ -58,6 +59,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 output_text_path=settings.output_text_path.strip(),
                 workspace_dir=settings.workspace_dir,
                 cleanup_audio_files=settings.cleanup_audio_files,
+                result_format=settings.result_format.strip(),
             )
         )
     if backend_name == WhisperCppAsrBackend.name:
@@ -73,6 +75,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 output_text_path=settings.output_text_path.strip(),
                 workspace_dir=settings.workspace_dir,
                 cleanup_audio_files=settings.cleanup_audio_files,
+                result_format=settings.result_format.strip(),
             )
         )
     if backend_name == ParakeetWorkerAsrBackend.name:
@@ -88,6 +91,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 output_text_path=settings.output_text_path.strip(),
                 workspace_dir=settings.workspace_dir,
                 cleanup_audio_files=settings.cleanup_audio_files,
+                result_format=settings.result_format.strip(),
             )
         )
     if backend_name == OpenAiRealtimeAsrBackend.name:
@@ -104,6 +108,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 output_text_path=settings.output_text_path.strip(),
                 workspace_dir=settings.workspace_dir,
                 cleanup_audio_files=settings.cleanup_audio_files,
+                result_format=settings.result_format.strip(),
             )
         )
     if backend_name == OpenAiTranscriptionsAsrBackend.name:
@@ -120,6 +125,7 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 output_text_path=settings.output_text_path.strip(),
                 workspace_dir=settings.workspace_dir,
                 cleanup_audio_files=settings.cleanup_audio_files,
+                result_format=settings.result_format.strip(),
             )
         )
     raise RuntimeError(f"unsupported ASR backend.name: {backend_name}")

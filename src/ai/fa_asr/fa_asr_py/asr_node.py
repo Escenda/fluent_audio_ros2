@@ -29,7 +29,13 @@ from fa_interfaces.msg import (
     VadState,
 )
 from fa_interfaces.srv import TranscribeAudio
-from fa_asr_py.backends.base import AsrBackend, AsrRequest
+from fa_asr_py.backends.base import (
+    AsrBackend,
+    AsrRequest,
+    AsrTranscript,
+    asr_transcript_text,
+    build_asr_transcript,
+)
 from fa_asr_py.backends.factory import AsrBackendSettings, build_asr_backend
 from fa_asr_py.timeline import (
     ERROR_TIME_RANGE_UNRESOLVED,
@@ -39,6 +45,9 @@ from fa_asr_py.timeline import (
     TimelineSlice,
     parse_numeric_time_range,
 )
+
+
+_NSEC_PER_SEC = 1_000_000_000
 
 
 @dataclass(frozen=True)
@@ -221,6 +230,7 @@ class FaAsrNode(Node):
         self.declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)
         self.declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)
         self.declare_parameter("backend.output_text_path", Parameter.Type.STRING)
+        self.declare_parameter("backend.result_format", Parameter.Type.STRING)
         self.declare_parameter("audio.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("vad.qos.depth", Parameter.Type.INTEGER)
@@ -273,6 +283,7 @@ class FaAsrNode(Node):
                 output_text_path=self._string_parameter("backend.output_text_path"),
                 workspace_dir=self.workspace_dir,
                 cleanup_audio_files=self.cleanup_audio_files,
+                result_format=self._string_parameter("backend.result_format"),
             )
         )
 
@@ -496,7 +507,8 @@ class FaAsrNode(Node):
                         samples=timeline_slice.samples,
                         sample_rate=timeline_slice.sample_rate,
                     )
-                ).strip()
+                )
+            self._fill_transcribe_success(response, timeline_slice, transcript)
         except TimeoutError:
             return self._transcribe_error(
                 response,
@@ -508,17 +520,9 @@ class FaAsrNode(Node):
             return self._transcribe_error(
                 response,
                 TranscribeAudio.Response.ERROR_TRANSCRIBE_FAILED,
-                "ASR backend failed",
+                f"ASR backend failed: {exc}",
             )
 
-        if not transcript:
-            return self._transcribe_error(
-                response,
-                TranscribeAudio.Response.ERROR_TRANSCRIBE_FAILED,
-                "ASR backend returned an empty transcript",
-            )
-
-        self._fill_transcribe_success(response, timeline_slice, transcript)
         return response
 
     def _transcribe_error(
@@ -540,8 +544,12 @@ class FaAsrNode(Node):
         self,
         response: TranscribeAudio.Response,
         timeline_slice: TimelineSlice,
-        transcript: str,
+        transcript: AsrTranscript,
     ) -> None:
+        validated_transcript = build_asr_transcript(
+            transcript.segments,
+            sample_count=int(timeline_slice.samples.size),
+        )
         time_range_msg = self._resolved_time_range_msg(timeline_slice.time_range)
         response.success = True
         response.error_code = TranscribeAudio.Response.ERROR_NONE
@@ -562,14 +570,52 @@ class FaAsrNode(Node):
             model_version=self.backend_model_version,
             model_revision=self.backend_model_revision,
         )
-        response.segments = [
-            TranscriptSegment(
-                start_unix_ns=timeline_slice.time_range.start_unix_ns,
-                end_unix_ns=timeline_slice.time_range.end_unix_ns,
-                text=transcript,
-                speaker_label="",
+        response.segments = self._transcript_segment_msgs(
+            timeline_slice,
+            validated_transcript,
+        )
+
+    def _transcript_segment_msgs(
+        self,
+        timeline_slice: TimelineSlice,
+        transcript: AsrTranscript,
+    ) -> list[TranscriptSegment]:
+        messages: list[TranscriptSegment] = []
+        for segment in transcript.segments:
+            messages.append(
+                TranscriptSegment(
+                    start_unix_ns=self._relative_sample_start_unix_ns(
+                        timeline_slice,
+                        segment.start_sample,
+                    ),
+                    end_unix_ns=self._relative_sample_end_unix_ns(
+                        timeline_slice,
+                        segment.end_sample,
+                    ),
+                    text=segment.text,
+                    speaker_label=segment.speaker_label if segment.speaker_label else "",
+                )
             )
-        ]
+        return messages
+
+    @staticmethod
+    def _relative_sample_start_unix_ns(
+        timeline_slice: TimelineSlice,
+        sample_index: int,
+    ) -> int:
+        duration_ns = sample_index * _NSEC_PER_SEC // timeline_slice.sample_rate
+        return timeline_slice.time_range.start_unix_ns + duration_ns
+
+    @staticmethod
+    def _relative_sample_end_unix_ns(
+        timeline_slice: TimelineSlice,
+        sample_index: int,
+    ) -> int:
+        numerator = sample_index * _NSEC_PER_SEC
+        duration_ns, remainder = divmod(numerator, timeline_slice.sample_rate)
+        if remainder != 0:
+            duration_ns += 1
+        return timeline_slice.time_range.start_unix_ns + duration_ns
 
     def _resolved_time_range_msg(self, time_range: NumericTimeRange) -> ResolvedTimeRange:
         return ResolvedTimeRange(
@@ -650,12 +696,16 @@ class FaAsrNode(Node):
                         sample_rate=job.sample_rate,
                     )
                 )
+            validated_transcript = build_asr_transcript(
+                transcript.segments,
+                sample_count=int(job.samples.size),
+            )
             self._publish_result(
                 job.session_id,
                 job.user_turn_id,
                 AsrResult.STATUS_FINAL,
                 job.reason,
-                transcript,
+                asr_transcript_text(validated_transcript),
             )
         except TimeoutError:
             self._publish_result(

@@ -17,10 +17,13 @@ OpenAI Realtime ASR を外部 worker / process / container として呼び出す
 - `backend.language`
 - `backend.args`: `{audio}`、`{model}`、`{sample_rate}` を含む
 - `backend.health_args`: startup health check。`{model}` を含む
+- `backend.result_format`: `plain_text` または `segments_json_v1`
 
 ## Boundary
 
-OpenAI API 呼び出し、network endpoint、Realtime session、WebSocket/WebRTC 接続は worker 側の責務です。`fa_asr` は key 値を API client として使わず、configured env の値を `OPENAI_API_KEY` として worker process environment に注入します。key 値は argv、stdout、stderr、ROS topic、ログへ渡しません。その後、validated raw float32le `.f32` path、model id、sample rate を argv で渡し、transcript text を受け取ります。
+OpenAI API 呼び出し、network endpoint、Realtime session、WebSocket/WebRTC 接続は worker 側の責務です。`fa_asr` は key 値を API client として使わず、configured env の値を `OPENAI_API_KEY` として worker process environment に注入します。key 値は argv、stdout、stderr、ROS topic、ログへ渡しません。その後、validated raw float32le `.f32` path、model id、sample rate を argv で渡し、`backend.result_format` に従う worker output を受け取ります。
+
+`plain_text` は transcript text、`segments_json_v1` は top-level が `result_format` と `segments` だけの strict JSON です。`segments_json_v1` の segment offset は selected ASR request samples からの相対 sample index であり、integer `start_sample` / `end_sample`、非空 `text`、任意の非空 `speaker_label` だけを許可します。invalid JSON/schema/range、overlap、空 text は fail closed です。`fa_asr` は backend output を推測、補正、型 coercion、resample、downmix、PCM/int16 変換して成功扱いにしません。
 
 ## Failure Conditions
 
@@ -32,6 +35,7 @@ OpenAI API 呼び出し、network endpoint、Realtime session、WebSocket/WebRTC
 - health check non-zero exit / timeout
 - worker non-zero exit
 - timeout
-- empty transcript
+- invalid result format output
+- empty transcript / empty segment text
 
 OpenAI backend が失敗しても local backend へ fallback しません。

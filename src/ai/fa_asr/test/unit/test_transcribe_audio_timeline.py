@@ -7,7 +7,12 @@ from types import ModuleType
 import numpy as np
 import pytest
 
-from fa_asr_py.backends.base import AsrRequest
+from fa_asr_py.backends.base import (
+    AsrRequest,
+    AsrTranscript,
+    AsrTranscriptSegment,
+    plain_text_to_asr_transcript,
+)
 from fa_asr_py.timeline import (
     ERROR_RANGE_NOT_CONTINUOUS,
     ERROR_RANGE_OUTSIDE_WINDOW,
@@ -238,19 +243,30 @@ class _FakeTranscribeAudio:
 class _RecordingBackend:
     name = "recording_backend"
 
-    def __init__(self, transcript: str = "transcript") -> None:
+    def __init__(
+        self,
+        transcript: str = "transcript",
+        *,
+        segments: tuple[AsrTranscriptSegment, ...] | None = None,
+    ) -> None:
         self.transcript = transcript
+        self.segments = segments
         self.requests: list[AsrRequest] = []
 
-    def transcribe(self, request: AsrRequest) -> str:
+    def transcribe(self, request: AsrRequest) -> AsrTranscript:
         self.requests.append(request)
-        return self.transcript
+        if self.segments is not None:
+            return AsrTranscript(segments=self.segments)
+        return plain_text_to_asr_transcript(
+            self.transcript,
+            sample_count=int(request.samples.size),
+        )
 
 
 class _TimeoutBackend:
     name = "timeout_backend"
 
-    def transcribe(self, request: AsrRequest) -> str:
+    def transcribe(self, request: AsrRequest) -> AsrTranscript:
         del request
         raise TimeoutError("backend timed out")
 
@@ -258,7 +274,7 @@ class _TimeoutBackend:
 class _ErrorBackend:
     name = "error_backend"
 
-    def transcribe(self, request: AsrRequest) -> str:
+    def transcribe(self, request: AsrRequest) -> AsrTranscript:
         del request
         raise RuntimeError("backend failed")
 
@@ -624,6 +640,83 @@ def test_transcribe_audio_quantizes_non_sample_boundary_request_to_selected_rang
         backend.requests[0].samples,
         np.array([0.1, 0.2, 0.3], dtype=np.float32),
     )
+
+
+def test_transcribe_audio_maps_two_backend_segments_to_absolute_timestamps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingBackend(
+        segments=(
+            AsrTranscriptSegment(
+                start_sample=0,
+                end_sample=1,
+                text="hello",
+                speaker_label="speaker-a",
+            ),
+            AsrTranscriptSegment(
+                start_sample=1,
+                end_sample=3,
+                text="world",
+            ),
+        )
+    )
+    node = _node(module, backend=backend)
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2, 0.3], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    result = node.handle_transcribe_audio(
+        _FakeTranscribeAudioRequest(time_range_spec="1000000000..1300000000"),
+        _response(),
+    )
+
+    assert result.success is True
+    assert result.error_code == _FakeTranscribeAudioResponse.ERROR_NONE
+    assert len(result.segments) == 2
+    assert result.segments[0].start_unix_ns == 1_000_000_000
+    assert result.segments[0].end_unix_ns == 1_100_000_000
+    assert result.segments[0].text == "hello"
+    assert result.segments[0].speaker_label == "speaker-a"
+    assert result.segments[1].start_unix_ns == 1_100_000_000
+    assert result.segments[1].end_unix_ns == 1_300_000_000
+    assert result.segments[1].text == "world"
+    assert result.segments[1].speaker_label == ""
+
+
+def test_backend_invalid_segment_range_fails_service_without_bad_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingBackend(
+        segments=(
+            AsrTranscriptSegment(
+                start_sample=0,
+                end_sample=4,
+                text="too far",
+            ),
+        )
+    )
+    node = _node(module, backend=backend)
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2, 0.3], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    result = node.handle_transcribe_audio(
+        _FakeTranscribeAudioRequest(time_range_spec="1000000000..1300000000"),
+        _response(),
+    )
+
+    assert result.success is False
+    assert result.error_code == _FakeTranscribeAudioResponse.ERROR_TRANSCRIBE_FAILED
+    assert result.segments == []
+    assert "end_sample exceeds request sample count" in result.message
 
 
 def test_invalid_audio_frame_contract_is_not_admitted_to_timeline(

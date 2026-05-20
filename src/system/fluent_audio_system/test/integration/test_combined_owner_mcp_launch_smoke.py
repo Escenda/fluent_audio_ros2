@@ -780,6 +780,7 @@ def _write_asr_params(config: _SmokeConfig) -> None:
                         "{language}",
                     ],
                     "backend.output_text_path": "",
+                    "backend.result_format": "plain_text",
                     "audio.qos.depth": 20,
                     "audio.qos.reliable": True,
                     "vad.qos.depth": 20,

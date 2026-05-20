@@ -614,6 +614,7 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
     assert asr_params["timeline.window_id"] == "so101_voice_frontend_mic_asr"
     assert asr_params["timeline.window_epoch"] == audio_window_params["window.epoch"]
     assert asr_params["backend.name"] == "whisper.cpp"
+    assert asr_params["backend.result_format"] == "plain_text"
     assert asr_params["backend.model_path"] == str(
         tmp_path / "models" / "asr" / "ggml-large-v3.bin"
     )
@@ -854,6 +855,7 @@ def test_asr_profiles_carry_whisper_worker_contract_in_system_config(
     params = asr["parameters"]
 
     assert params["backend.name"] == "whisper.cpp"
+    assert params["backend.result_format"] == "plain_text"
     assert params["backend.command"] == "${env:FLUENT_AUDIO_ASR_WORKER}"
     assert params["backend.model_path"] == "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
     assert params["vad_topic"] == "voice/vad_state"

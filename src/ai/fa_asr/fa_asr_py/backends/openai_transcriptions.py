@@ -9,7 +9,7 @@ from fa_asr_py.backends._command_process import (
     _CommandProcessRunner,
     _load_model_id_command_config,
 )
-from fa_asr_py.backends.base import AsrRequest
+from fa_asr_py.backends.base import AsrRequest, AsrTranscript
 from fa_asr_py.backends.openai_credentials import (
     OpenAiCredentialConfig,
     load_openai_credential_config,
@@ -28,7 +28,7 @@ class OpenAiTranscriptionsAsrBackend:
     def __init__(self, config: OpenAiTranscriptionsAsrConfig) -> None:
         self._runner = _CommandProcessRunner(config.process)
 
-    def transcribe(self, request: AsrRequest) -> str:
+    def transcribe(self, request: AsrRequest) -> AsrTranscript:
         return self._runner.transcribe(request)
 
 
@@ -45,6 +45,7 @@ def load_openai_transcriptions_config(
     output_text_path: str,
     workspace_dir: Path,
     cleanup_audio_files: bool,
+    result_format: str,
 ) -> OpenAiTranscriptionsAsrConfig:
     process = _load_model_id_command_config(
         command=command,
@@ -57,6 +58,7 @@ def load_openai_transcriptions_config(
         output_text_path=output_text_path,
         workspace_dir=workspace_dir,
         cleanup_audio_files=cleanup_audio_files,
+        result_format=result_format,
     )
     credentials = load_openai_credential_config(
         parameter_name="backend.openai_transcriptions.api_key_env",

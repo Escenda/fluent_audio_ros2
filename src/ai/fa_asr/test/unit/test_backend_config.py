@@ -9,7 +9,12 @@ import numpy as np
 import pytest
 import yaml
 
-from fa_asr_py.backends.base import AsrRequest
+from fa_asr_py.backends.base import (
+    AsrRequest,
+    AsrTranscript,
+    AsrTranscriptSegment,
+    asr_transcript_text,
+)
 from fa_asr_py.backends.factory import AsrBackendSettings, build_asr_backend
 from fa_asr_py.backends.local_command import LocalCommandAsrBackend, load_local_command_config
 from fa_asr_py.backends.openai_realtime import (
@@ -270,16 +275,29 @@ class _FakeParameterUninitializedException(Exception):
 class _FailingAsrBackend:
     name = "failing"
 
-    def transcribe(self, request: AsrRequest) -> str:
+    def transcribe(self, request: AsrRequest) -> AsrTranscript:
         raise _BackendCrash("asr backend crashed")
 
 
 class _TimeoutAsrBackend:
     name = "timeout"
 
-    def transcribe(self, request: AsrRequest) -> str:
+    def transcribe(self, request: AsrRequest) -> AsrTranscript:
         del request
         raise TimeoutError("asr backend timed out")
+
+
+class _SegmentAsrBackend:
+    name = "segments"
+
+    def transcribe(self, request: AsrRequest) -> AsrTranscript:
+        del request
+        return AsrTranscript(
+            segments=(
+                AsrTranscriptSegment(start_sample=0, end_sample=1, text="hello"),
+                AsrTranscriptSegment(start_sample=1, end_sample=2, text="world"),
+            )
+        )
 
 
 def _install_asr_node_import_fakes(
@@ -380,6 +398,7 @@ def _settings(
         output_text_path="",
         workspace_dir=tmp_path / "work",
         cleanup_audio_files=True,
+        result_format="plain_text",
     )
 
 
@@ -397,6 +416,7 @@ def test_local_command_requires_existing_model_path(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -411,6 +431,7 @@ def test_default_config_requires_explicit_backend_name() -> None:
     assert params["backend.openai_transcriptions.api_key_env"] == ""
     assert params["backend.args"] == []
     assert params["backend.health_args"] == []
+    assert params["backend.result_format"] == ""
     assert params["expected_source_id"] == ""
     assert params["expected_stream_id"] == ""
     assert params["audio.qos.depth"] == 20
@@ -829,6 +850,48 @@ def test_asr_node_maps_backend_timeout_to_error_result(
         sys.modules.pop("fa_asr_py.asr_node", None)
 
 
+def test_asr_node_publishes_text_derived_from_backend_segments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shutdown_calls: list[bool] = []
+    _install_asr_node_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        node = module.FaAsrNode.__new__(module.FaAsrNode)
+        node._logger = _FakeLogger()
+        node.backend = _SegmentAsrBackend()
+        node._backend_lock = threading.Lock()
+        published: list[tuple[str, int, int, str, str]] = []
+
+        def publish_result(
+            session_id: str,
+            user_turn_id: int,
+            status: int,
+            reason: str,
+            text: str,
+        ) -> None:
+            published.append((session_id, user_turn_id, status, reason, text))
+
+        node._publish_result = publish_result
+        job = module.TranscriptionJob(
+            session_id="session-1",
+            user_turn_id=9,
+            samples=np.zeros(2, dtype=np.float32),
+            sample_rate=16000,
+            reason="vad_end",
+        )
+
+        node._run_transcription(job)
+
+        assert published == [("session-1", 9, _FakeAsrResult.STATUS_FINAL, "vad_end", "hello world")]
+        assert shutdown_calls == []
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
 def test_asr_node_main_uses_multithreaded_executor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -883,6 +946,7 @@ def test_openai_realtime_requires_model_id(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -902,6 +966,7 @@ def test_openai_transcriptions_requires_model_id(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -921,6 +986,7 @@ def test_openai_realtime_requires_api_key_env_name(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -943,6 +1009,7 @@ def test_openai_transcriptions_requires_api_key_env_name(tmp_path: Path) -> None
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -972,6 +1039,7 @@ def test_openai_realtime_requires_api_key_env_value(
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1001,6 +1069,7 @@ def test_openai_transcriptions_requires_api_key_env_value(
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1024,10 +1093,11 @@ def test_openai_realtime_maps_configured_api_key_env_to_worker_env(
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
     )
 
-    assert (
+    assert asr_transcript_text(
         backend.transcribe(
             AsrRequest(
                 session_id="session",
@@ -1036,8 +1106,7 @@ def test_openai_realtime_maps_configured_api_key_env_to_worker_env(
                 sample_rate=16000,
             )
         )
-        == "openai-env-ok"
-    )
+    ) == "openai-env-ok"
 
 
 def test_openai_transcriptions_maps_configured_api_key_env_to_worker_env(
@@ -1060,10 +1129,11 @@ def test_openai_transcriptions_maps_configured_api_key_env_to_worker_env(
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
     )
 
-    assert (
+    assert asr_transcript_text(
         backend.transcribe(
             AsrRequest(
                 session_id="session",
@@ -1072,8 +1142,7 @@ def test_openai_transcriptions_maps_configured_api_key_env_to_worker_env(
                 sample_rate=16000,
             )
         )
-        == "openai-env-ok"
-    )
+    ) == "openai-env-ok"
 
 
 def test_parakeet_worker_requires_model_id(tmp_path: Path) -> None:
@@ -1092,6 +1161,7 @@ def test_parakeet_worker_requires_model_id(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1110,6 +1180,7 @@ def test_model_id_worker_backends_require_health_args(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
     with pytest.raises(RuntimeError, match="backend.health_args must not be empty"):
@@ -1125,6 +1196,7 @@ def test_model_id_worker_backends_require_health_args(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
     with pytest.raises(RuntimeError, match="backend.health_args must not be empty"):
@@ -1140,6 +1212,7 @@ def test_model_id_worker_backends_require_health_args(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1161,6 +1234,7 @@ def test_backend_health_args_require_model_placeholder(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1183,6 +1257,7 @@ def test_backend_health_check_fails_startup_before_transcription(tmp_path: Path)
                 output_text_path="",
                 workspace_dir=tmp_path / "work",
                 cleanup_audio_files=True,
+                result_format="plain_text",
             )
         )
 
@@ -1314,6 +1389,7 @@ def test_whisper_cpp_uses_model_path_contract(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1333,12 +1409,54 @@ def test_command_and_model_paths_are_resolved_and_executable(tmp_path: Path) -> 
         output_text_path="",
         workspace_dir=tmp_path / "work",
         cleanup_audio_files=True,
+        result_format="plain_text",
     )
 
     assert config.process.executable == str(command.resolve(strict=True))
     assert os.access(config.process.executable, os.X_OK)
     assert config.process.model == str(model_path.resolve(strict=True))
     assert config.process.payload_encoding == "float32le_raw"
+    assert config.process.result_format == "plain_text"
+
+
+def test_command_backend_requires_explicit_result_format(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="backend.result_format is required"):
+        load_local_command_config(
+            command=str(command),
+            model_path_value=str(model_path),
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+            result_format="",
+        )
+
+
+def test_command_backend_rejects_unsupported_result_format(tmp_path: Path) -> None:
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="unsupported backend.result_format: xml"):
+        load_local_command_config(
+            command=str(command),
+            model_path_value=str(model_path),
+            language="ja",
+            args=("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+            timeout_sec=10.0,
+            working_directory_value="",
+            output_text_path="",
+            workspace_dir=tmp_path / "work",
+            cleanup_audio_files=True,
+            result_format="xml",
+        )
 
 
 def test_command_backend_rejects_non_executable_command(tmp_path: Path) -> None:
@@ -1360,6 +1478,7 @@ def test_command_backend_rejects_non_executable_command(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1388,6 +1507,7 @@ def test_backend_args_reject_unknown_or_malformed_placeholders(tmp_path: Path) -
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
     with pytest.raises(RuntimeError, match="malformed format string"):
@@ -1401,6 +1521,7 @@ def test_backend_args_reject_unknown_or_malformed_placeholders(tmp_path: Path) -
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1420,6 +1541,7 @@ def test_backend_args_require_audio_placeholder(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1442,6 +1564,7 @@ def test_backend_args_require_sample_rate_placeholder(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1470,6 +1593,7 @@ def test_output_placeholder_requires_output_text_path(tmp_path: Path) -> None:
             output_text_path="",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
@@ -1501,6 +1625,7 @@ def test_output_text_path_rejects_unknown_placeholder(tmp_path: Path) -> None:
             output_text_path="transcript_{unknown}.txt",
             workspace_dir=tmp_path / "work",
             cleanup_audio_files=True,
+            result_format="plain_text",
         )
 
 
