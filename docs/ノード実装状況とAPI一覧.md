@@ -29,95 +29,95 @@
 | AI | `fa_speaker` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
 | AI | `fa_turn_detector` | 実装済み | あり(9 files) | Sub 3; Pub 1 |
 | AI | `fa_vad` | 実装済み | あり(8 files) | Sub 1; Pub 3 |
-| Apps / Agent Tools | `fa_audio_mcp` | 支援/インターフェース | あり(12 files) | Client 3; MCP export_audio_window, archive_audio_window, transcribe_audio |
-| Apps / Dialogue | `fa_dialogue` | 実装済み | あり(7 files) | Sub 3; Pub 1 |
-| Apps / Safety | `fa_safety_policy` | 計画/未実装 | あり(4 files) | 未実装。外部runtime APIなし。 |
-| Apps / Voice Command | `fa_voice_command_router` | 実装済み | あり(6 files) | Sub 1; Pub 2; Srv 3; Client 1 |
+| Apps<br>Agent Tools | `fa_audio_mcp` | 支援/インターフェース | あり(12 files) | Client 3; MCP export_audio_window, archive_audio_window, transcribe_audio |
+| Apps<br>Dialogue | `fa_dialogue` | 実装済み | あり(7 files) | Sub 3; Pub 1 |
+| Apps<br>Safety | `fa_safety_policy` | 計画/未実装 | あり(4 files) | 未実装。外部runtime APIなし。 |
+| Apps<br>Voice Command | `fa_voice_command_router` | 実装済み | あり(6 files) | Sub 1; Pub 2; Srv 3; Client 1 |
 | Interfaces | `fa_interfaces` | 支援/インターフェース | あり(5 files) | msg 22 / srv 8 を生成。 |
-| IO / sinks | `fa_file_out` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| IO / sinks | `fa_network_out` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| IO / sinks | `fa_out` | 実装済み | あり(9 files) | Sub 1; Pub 1; Srv 1 |
-| IO / sources | `fa_file_in` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| IO / sources | `fa_in` | 実装済み | あり(9 files) | Pub 2; Srv 2 |
-| IO / sources | `fa_network_in` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| IO / utilities | `fa_record` | 実装済み | あり(6 files) | Sub 1; Srv 1 |
-| IO / utilities | `fa_stream` | 実装済み | あり(6 files) | Sub 1 |
-| Processing: analysis/feature | `fa_cqt` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_log_mel` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_loudness` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_mfcc` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_onset` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_pitch` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_stft` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_tempo` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
-| Processing: correction/noise | `fa_aec_linear` | 実装済み | あり(7 files) | Sub 2; Pub 2 |
-| Processing: correction/noise | `fa_aec_nn` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
-| Processing: correction/noise | `fa_dc_offset_removal` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: correction/noise | `fa_debreath` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: correction/noise | `fa_declick` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: correction/noise | `fa_declip` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: correction/noise | `fa_denoise` | 実装済み | あり(8 files) | Sub 1; Pub 2 |
-| Processing: correction/noise | `fa_dereverb` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: correction/noise | `fa_hum` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: correction/noise | `fa_wind` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: dynamics | `fa_agc` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_compressor` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_expander` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_gain` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_limiter` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_noise_gate` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_normalize` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_bit_depth` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_channel_convert` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_decode` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_encode` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_format` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: format | `fa_interleave` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_resample` | 実装済み | あり(9 files) | Sub 2; Pub 3 |
-| Processing: format | `fa_sample_format` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_band_pass` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_deesser` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_eq` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_filter` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: frequency | `fa_high_pass` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_low_pass` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_notch` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_spectral_subtraction` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: frequency | `fa_wiener` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_music_source_separation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_neural_codec` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_neural_vocoder` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_speech_enhancement` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_speech_separation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_speech_translation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_super_resolution` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_tts` | 実装済み | あり(5 files) | Pub 1; Srv 1 |
-| Processing: generation | `fa_voice_conversion` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: routing/mixing | `fa_bus_router` | 実装済み | あり(3 files) | Sub 1; Pub 2 |
-| Processing: routing/mixing | `fa_ducking` | 実装済み | あり(5 files) | Sub 2; Pub 2 |
-| Processing: routing/mixing | `fa_loopback` | 実装済み | あり(3 files) | Sub 1; Pub 2 |
-| Processing: routing/mixing | `fa_mix` | 実装済み | あり(8 files) | Sub 1; Pub 2 |
-| Processing: routing/mixing | `fa_monitor_mix` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
-| Processing: routing/mixing | `fa_patchbay` | 実装済み | あり(3 files) | Sub 1; Pub 2 |
-| Processing: routing/mixing | `fa_sidechain` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: spatial/channel | `fa_ambisonics` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: spatial/channel | `fa_beamforming` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
-| Processing: spatial/channel | `fa_binaural` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: spatial/channel | `fa_downmix` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
-| Processing: spatial/channel | `fa_pan` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: spatial/channel | `fa_source_separation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: spatial/channel | `fa_stereo_widening` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
-| Processing: spatial/channel | `fa_upmix` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_crossfade` | 実装済み | あり(5 files) | Sub 2; Pub 2 |
-| Processing: temporal | `fa_delay` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_echo` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_fade` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_pitch_shift` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: temporal | `fa_reverb` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_silence_removal` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_time_stretch` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: temporal | `fa_trim` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_window` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| IO<br>Sinks | `fa_file_out` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| IO<br>Sinks | `fa_network_out` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| IO<br>Sinks | `fa_out` | 実装済み | あり(9 files) | Sub 1; Pub 1; Srv 1 |
+| IO<br>Sources | `fa_file_in` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| IO<br>Sources | `fa_in` | 実装済み | あり(9 files) | Pub 2; Srv 2 |
+| IO<br>Sources | `fa_network_in` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| IO<br>Utilities | `fa_record` | 実装済み | あり(6 files) | Sub 1; Srv 1 |
+| IO<br>Utilities | `fa_stream` | 実装済み | あり(6 files) | Sub 1 |
+| Processing<br>Analysis and Feature | `fa_cqt` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing<br>Analysis and Feature | `fa_log_mel` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing<br>Analysis and Feature | `fa_loudness` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing<br>Analysis and Feature | `fa_mfcc` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing<br>Analysis and Feature | `fa_onset` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing<br>Analysis and Feature | `fa_pitch` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing<br>Analysis and Feature | `fa_stft` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing<br>Analysis and Feature | `fa_tempo` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing<br>Correction and Noise | `fa_aec_linear` | 実装済み | あり(7 files) | Sub 2; Pub 2 |
+| Processing<br>Correction and Noise | `fa_aec_nn` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Processing<br>Correction and Noise | `fa_dc_offset_removal` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Correction and Noise | `fa_debreath` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Correction and Noise | `fa_declick` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Correction and Noise | `fa_declip` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Correction and Noise | `fa_denoise` | 実装済み | あり(8 files) | Sub 1; Pub 2 |
+| Processing<br>Correction and Noise | `fa_dereverb` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Correction and Noise | `fa_hum` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Correction and Noise | `fa_wind` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Dynamics | `fa_agc` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Dynamics | `fa_compressor` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Dynamics | `fa_expander` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Dynamics | `fa_gain` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Dynamics | `fa_limiter` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Dynamics | `fa_noise_gate` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Dynamics | `fa_normalize` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Format | `fa_bit_depth` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Processing<br>Format | `fa_channel_convert` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Format | `fa_decode` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Format | `fa_encode` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Format | `fa_format` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Format | `fa_interleave` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Format | `fa_resample` | 実装済み | あり(9 files) | Sub 2; Pub 3 |
+| Processing<br>Format | `fa_sample_format` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Frequency | `fa_band_pass` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Frequency | `fa_deesser` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Frequency | `fa_eq` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Frequency | `fa_filter` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Frequency | `fa_high_pass` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Frequency | `fa_low_pass` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Frequency | `fa_notch` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing<br>Frequency | `fa_spectral_subtraction` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Frequency | `fa_wiener` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Generation | `fa_music_source_separation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Generation | `fa_neural_codec` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Generation | `fa_neural_vocoder` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Generation | `fa_speech_enhancement` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Generation | `fa_speech_separation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Generation | `fa_speech_translation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Generation | `fa_super_resolution` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Generation | `fa_tts` | 実装済み | あり(5 files) | Pub 1; Srv 1 |
+| Processing<br>Generation | `fa_voice_conversion` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Routing and Mixing | `fa_bus_router` | 実装済み | あり(3 files) | Sub 1; Pub 2 |
+| Processing<br>Routing and Mixing | `fa_ducking` | 実装済み | あり(5 files) | Sub 2; Pub 2 |
+| Processing<br>Routing and Mixing | `fa_loopback` | 実装済み | あり(3 files) | Sub 1; Pub 2 |
+| Processing<br>Routing and Mixing | `fa_mix` | 実装済み | あり(8 files) | Sub 1; Pub 2 |
+| Processing<br>Routing and Mixing | `fa_monitor_mix` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
+| Processing<br>Routing and Mixing | `fa_patchbay` | 実装済み | あり(3 files) | Sub 1; Pub 2 |
+| Processing<br>Routing and Mixing | `fa_sidechain` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Spatial and Channel | `fa_ambisonics` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Spatial and Channel | `fa_beamforming` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
+| Processing<br>Spatial and Channel | `fa_binaural` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Spatial and Channel | `fa_downmix` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
+| Processing<br>Spatial and Channel | `fa_pan` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Spatial and Channel | `fa_source_separation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Spatial and Channel | `fa_stereo_widening` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
+| Processing<br>Spatial and Channel | `fa_upmix` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
+| Processing<br>Temporal | `fa_crossfade` | 実装済み | あり(5 files) | Sub 2; Pub 2 |
+| Processing<br>Temporal | `fa_delay` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Temporal | `fa_echo` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Processing<br>Temporal | `fa_fade` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Temporal | `fa_pitch_shift` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Temporal | `fa_reverb` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Temporal | `fa_silence_removal` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Temporal | `fa_time_stretch` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing<br>Temporal | `fa_trim` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing<br>Temporal | `fa_window` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
 | Streaming | `fa_audio_window` | 実装済み | あり(3 files) | Sub 1; Srv 2 |
 | Streaming | `fa_chunk_overlap` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
 | Streaming | `fa_clock_drift` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
