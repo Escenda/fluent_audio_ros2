@@ -60,3 +60,7 @@ benchmarks/**/runs/
 benchmarks/**/archives/
 benchmarks/**/models/
 benchmarks/**/eval/
+
+# fa_asr local model checkpoints
+src/ai/fa_asr/models/*
+!src/ai/fa_asr/models/.gitkeep

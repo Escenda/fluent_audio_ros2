@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import math
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import wave
+from pathlib import Path
+
+EXPECTED_SAMPLE_RATE = 16000
+INT16_MAX = 32767
+INT16_MIN = -32768
+HEALTH_TIMEOUT_SEC = 10.0
+TRANSCRIBE_TIMEOUT_SEC = 120.0
+
+
+class WorkerError(RuntimeError):
+    pass
+
+
+def main() -> int:
+    parser = _build_parser()
+    args = parser.parse_args()
+    try:
+        if args.command == "health":
+            _run_health(args)
+            print("ok")
+            return 0
+        if args.command == "transcribe":
+            _run_transcribe(args)
+            return 0
+        raise WorkerError(f"unsupported command: {args.command}")
+    except WorkerError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    health = subparsers.add_parser("health")
+    health.add_argument("--model", required=True)
+    health.add_argument("--language", required=True)
+    health.add_argument(
+        "--binary",
+        default=os.environ.get("FLUENT_AUDIO_WHISPER_CPP_BINARY", "whisper-cli"),
+    )
+
+    transcribe = subparsers.add_parser("transcribe")
+    transcribe.add_argument("--audio", required=True)
+    transcribe.add_argument("--model", required=True)
+    transcribe.add_argument("--sample-rate", required=True, type=int)
+    transcribe.add_argument("--language", required=True)
+    transcribe.add_argument("--output", default="")
+    transcribe.add_argument(
+        "--binary",
+        default=os.environ.get("FLUENT_AUDIO_WHISPER_CPP_BINARY", "whisper-cli"),
+    )
+    return parser
+
+
+def _run_health(args: argparse.Namespace) -> None:
+    model_path = _require_file(args.model, "model")
+    binary_path = _resolve_executable(args.binary)
+    _require_language(args.language)
+    _run_process(
+        [binary_path, "--help"],
+        timeout_sec=HEALTH_TIMEOUT_SEC,
+        failure_label=f"whisper-cli health failed for model {model_path}",
+    )
+
+
+def _run_transcribe(args: argparse.Namespace) -> None:
+    audio_path = _require_file(args.audio, "audio")
+    model_path = _require_file(args.model, "model")
+    binary_path = _resolve_executable(args.binary)
+    language = _require_language(args.language)
+    sample_rate = int(args.sample_rate)
+    if sample_rate != EXPECTED_SAMPLE_RATE:
+        raise WorkerError(
+            f"sample_rate must be {EXPECTED_SAMPLE_RATE}; got {sample_rate}. "
+            "Resampling must happen before fa_asr."
+        )
+
+    raw_audio = audio_path.read_bytes()
+    pcm16_payload = _float32le_mono_to_pcm16(raw_audio)
+    with tempfile.TemporaryDirectory(prefix="fa_asr_whisper_cpp_") as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        wav_path = tmpdir_path / "input.wav"
+        output_base = tmpdir_path / "transcript"
+        _write_pcm16_mono_wav(wav_path, pcm16_payload, sample_rate=sample_rate)
+        command = [
+            binary_path,
+            "-m",
+            str(model_path),
+            "-f",
+            str(wav_path),
+            "-l",
+            language,
+            "-otxt",
+            "-of",
+            str(output_base),
+        ]
+        _run_process(
+            command,
+            timeout_sec=TRANSCRIBE_TIMEOUT_SEC,
+            failure_label="whisper-cli transcribe failed",
+        )
+        transcript_path = output_base.with_suffix(".txt")
+        if not transcript_path.is_file():
+            raise WorkerError(f"whisper-cli did not create transcript file: {transcript_path}")
+        transcript = transcript_path.read_text(encoding="utf-8").strip()
+        if not transcript:
+            raise WorkerError("whisper-cli returned an empty transcript")
+        _emit_transcript(transcript, args.output)
+
+
+def _require_file(value: str, label: str) -> Path:
+    path = Path(value).expanduser()
+    try:
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise WorkerError(f"{label} file does not exist: {path}") from exc
+    if not resolved.is_file():
+        raise WorkerError(f"{label} path is not a file: {resolved}")
+    if not os.access(resolved, os.R_OK):
+        raise WorkerError(f"{label} file is not readable: {resolved}")
+    return resolved
+
+
+def _resolve_executable(value: str) -> str:
+    if not value.strip():
+        raise WorkerError("whisper-cli binary is required")
+    command_path = Path(value).expanduser()
+    if "/" in value or command_path.is_absolute():
+        try:
+            resolved = command_path.resolve(strict=True)
+        except FileNotFoundError as exc:
+            raise WorkerError(f"whisper-cli binary does not exist: {command_path}") from exc
+        if not resolved.is_file():
+            raise WorkerError(f"whisper-cli binary is not a file: {resolved}")
+        if not os.access(resolved, os.X_OK):
+            raise WorkerError(f"whisper-cli binary is not executable: {resolved}")
+        return str(resolved)
+    resolved_name = shutil.which(value)
+    if not resolved_name:
+        raise WorkerError(f"whisper-cli binary not found in PATH: {value}")
+    return str(Path(resolved_name).resolve(strict=True))
+
+
+def _require_language(value: str) -> str:
+    language = value.strip()
+    if not language:
+        raise WorkerError("language is required")
+    return language
+
+
+def _float32le_mono_to_pcm16(raw_audio: bytes) -> bytes:
+    if not raw_audio:
+        raise WorkerError("audio file is empty")
+    if len(raw_audio) % 4 != 0:
+        raise WorkerError("audio must be raw float32le mono; byte length is not divisible by 4")
+
+    pcm16 = bytearray()
+    for index, (sample,) in enumerate(struct.iter_unpack("<f", raw_audio)):
+        if not math.isfinite(sample):
+            raise WorkerError(f"audio sample {index} is not finite")
+        if sample < -1.0 or sample > 1.0:
+            raise WorkerError(f"audio sample {index} is outside normalized [-1.0, 1.0] range")
+        pcm16.extend(struct.pack("<h", _float_sample_to_pcm16(sample)))
+    if not pcm16:
+        raise WorkerError("audio contains no float32le samples")
+    return bytes(pcm16)
+
+
+def _float_sample_to_pcm16(sample: float) -> int:
+    if sample <= -1.0:
+        return INT16_MIN
+    if sample >= 1.0:
+        return INT16_MAX
+    return int(round(sample * INT16_MAX))
+
+
+def _write_pcm16_mono_wav(path: Path, pcm16_payload: bytes, *, sample_rate: int) -> None:
+    # fa_asr passes raw normalized float32le mono. whisper-cli accepts WAV, so this worker
+    # is the explicit backend boundary that converts samples to 16-bit PCM WAV.
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm16_payload)
+
+
+def _run_process(command: list[str], *, timeout_sec: float, failure_label: str) -> None:
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise WorkerError(f"{failure_label}: timed out") from exc
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip()
+        raise WorkerError(f"{failure_label}: code={completed.returncode} stderr={stderr}")
+
+
+def _emit_transcript(transcript: str, output_value: str) -> None:
+    if output_value:
+        output_path = Path(output_value).expanduser()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(transcript + "\n", encoding="utf-8")
+        return
+    print(transcript)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

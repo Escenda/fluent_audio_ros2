@@ -14,7 +14,9 @@ find_package(fa_interfaces REQUIRED)
 ament_python_install_package(fa_asr_py PACKAGE_DIR fa_asr_py)
 
 install(PROGRAMS
+  scripts/download_whisper_cpp_model
   scripts/fa_asr_node
+  scripts/whisper_cpp_worker
   DESTINATION lib/${PROJECT_NAME}
 )
 
