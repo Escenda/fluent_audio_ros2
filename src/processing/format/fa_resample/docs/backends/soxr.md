@@ -129,7 +129,7 @@ Automated tests must cover:
 `backend.quality=MQ`. The smoke starts `FaResampleNode`, publishes and subscribes `AudioFrame`, and checks
 `/diagnostics` for `backend.name`, `backend.quality`, `algorithmic_delay_ms`, `processing_time_mean_ms`,
 `input_frames_total`, `output_frames_total`, `expected_output_frames`, and `frame_count_error_samples`.
-This verifies backend selection on the ROS graph and does not replace real device smoke validation.
+This verifies backend selection on the ROS graph. Real-device smoke evidence is tracked separately below.
 
 The SoXR graph smoke once failed with `FLOAT32LE encoding failed` when it used a high-amplitude ramp.
 The production input contract remains finite normalized `FLOAT32LE`; only the graph smoke input was changed
@@ -146,7 +146,41 @@ The XML separates test-only quality metrics from backend delay / processing / fr
 - backend metrics: `processing_time_mean_ms` / `processing_time_max_ms`
 - backend metrics: `input_frames_total` / `output_frames_total` / `frame_count_error_samples`
 
+`lib/fa_resample/fa_resample_metrics_report.py` is installed as a stdlib-only metrics reporter. It reads
+`fa_resample_backend_test.gtest.xml` or a directory of `fa_resample` GTest XML files, renders the quality and
+backend metrics above, and fails incomplete metric groups instead of silently omitting missing evidence.
+
+## Real-device Smoke
+
+SoXR/MQ has been verified in the current running VLAbor container with PowerConf S3 through a
+`fluent_audio_system` temp config:
+
+```text
+fa_in -> fa_sample_format -> fa_resample
+```
+
+Verified output:
+
+- output topic: `/fa_real_soxr/audio/resample16k`
+- output stream: `audio/real_soxr/preprocessed/mono16k`
+- source: `hw:CARD=S3,DEV=0`
+- sample rate: `16000`
+- encoding: `FLOAT32LE`
+
+Verified diagnostics included:
+
+- `backend.name=soxr`
+- `backend.quality=MQ`
+- `algorithmic_delay_ms=22.500000`
+- `processing_time_mean_ms=0.056465`
+- `input_frames_total=72000`
+- `output_frames_total=23640`
+- `frame_count_error_samples=-360`
+
+This proves selected-backend real-device smoke in the current running container. It does not prove that a
+fresh VLAbor image rebuild persists `libsoxr0` or that Dockerfile / entrypoint policy is resolved.
+
 検証済み報告では、running container 内で `libsoxr0` が見えており、Docker/VLAbor container 内の
-`fa_resample` package build/test は `46 tests, 0 errors, 0 failures, 0 skipped` で通過している。
+`fa_resample` package build/test は `51 tests, 0 errors, 0 failures, 0 skipped` で通過している。
 `package.xml` の runtime dependency 宣言は実装済みであるが、package contract を反映した
 VLAbor image rebuild 後に image-persistent dependency として含まれることは未検証である。
