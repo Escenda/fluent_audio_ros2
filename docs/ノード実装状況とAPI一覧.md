@@ -15,7 +15,7 @@
 | 状態 | 意味 |
 | --- | --- |
 | 実装済み | `package.xml`、実行ファイルまたはnode source、launch/config の public contract が存在する runtime node package。runtime validation 完了は意味しない。 |
-| 支援/インターフェース | message/service生成、MCP adapter、system launch composition など、audio stream node ではないが public API surface を持つpackage。 |
+| 基盤 | message/service生成、MCP adapter、system launch composition など、audio stream node ではないが public API surface を持つpackage。 |
 | 計画/未実装 | README-only planned directory。外部runtime API、package、node、launch、config は未実装。 |
 
 ## 全体サマリーテーブル
@@ -29,11 +29,11 @@
 | AI | `fa_speaker` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
 | AI | `fa_turn_detector` | 実装済み | あり(9 files) | Sub 3; Pub 1 |
 | AI | `fa_vad` | 実装済み | あり(8 files) | Sub 1; Pub 3 |
-| Apps<br>Agent Tools | `fa_audio_mcp` | 支援/インターフェース | あり(12 files) | Client 3; MCP export_audio_window, archive_audio_window, transcribe_audio |
+| Apps<br>Agent Tools | `fa_audio_mcp` | 基盤 | あり(12 files) | Client 3; MCP export_audio_window, archive_audio_window, transcribe_audio |
 | Apps<br>Dialogue | `fa_dialogue` | 実装済み | あり(7 files) | Sub 3; Pub 1 |
 | Apps<br>Safety | `fa_safety_policy` | 計画/未実装 | あり(4 files) | 未実装。外部runtime APIなし。 |
 | Apps<br>Voice Command | `fa_voice_command_router` | 実装済み | あり(6 files) | Sub 1; Pub 2; Srv 3; Client 1 |
-| Interfaces | `fa_interfaces` | 支援/インターフェース | あり(5 files) | msg 22 / srv 8 を生成。 |
+| Interfaces | `fa_interfaces` | 基盤 | あり(5 files) | msg 22 / srv 8 を生成。 |
 | IO<br>Sinks | `fa_file_out` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
 | IO<br>Sinks | `fa_network_out` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
 | IO<br>Sinks | `fa_out` | 実装済み | あり(9 files) | Sub 1; Pub 1; Srv 1 |
@@ -127,7 +127,7 @@
 | Streaming | `fa_overlap_add` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
 | Streaming | `fa_packet_loss_concealment` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
 | Streaming | `fa_time_alignment` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
-| System | `fluent_audio_system` | 支援/インターフェース | あり(21 files) | system YAMLをlaunch graphへ展開。CLI `list_required_packages`。 |
+| System | `fluent_audio_system` | 基盤 | あり(21 files) | system YAMLをlaunch graphへ展開。CLI `list_required_packages`。 |
 
 ## AI
 
@@ -225,7 +225,7 @@
 ## Apps / Agent Tools / Dialogue / Voice Command
 
 ### `fa_audio_mcp`
-- 状態: 支援/インターフェース。
+- 状態: 基盤。
 - 根拠path: `src/apps/agent_tools/fa_audio_mcp/package.xml`, `src/apps/agent_tools/fa_audio_mcp/setup.py`, `src/apps/agent_tools/fa_audio_mcp/config/default.yaml`, `src/apps/agent_tools/fa_audio_mcp/fa_audio_mcp/config.py`, `src/apps/agent_tools/fa_audio_mcp/fa_audio_mcp/server.py`, `src/apps/agent_tools/fa_audio_mcp/test`。
 - 実行ファイル/ROS node: exec `fa_audio_mcp_server`; node `fa_audio_mcp_server`。
 - Launch: なし。
@@ -273,7 +273,7 @@
 ## Interfaces
 
 ### `fa_interfaces`
-- 状態: 支援/インターフェース。
+- 状態: 基盤。
 - 根拠path: `src/interfaces/fa_interfaces/package.xml`, `src/interfaces/fa_interfaces/CMakeLists.txt`, `src/interfaces/fa_interfaces/test`。
 - 実行ファイル/ROS node: なし。インターフェース生成package。
 - Messages: `AsrResult.msg`, `AudioClipRef.msg`, `AudioEmbeddingFrame.msg`, `AudioFrame.msg`, `AudioModelRef.msg`, `AudioWindowRef.msg`, `CqtFrame.msg`, `EncodedAudioChunk.msg`, `LogMelFrame.msg`, `LoudnessFrame.msg`, `MfccFrame.msg`, `OnsetFrame.msg`, `PitchFrame.msg`, `PlaybackDone.msg`, `ResolvedTimeRange.msg`, `StftFrame.msg`, `TempoFrame.msg`, `TranscriptSegment.msg`, `TurnContext.msg`, `TurnEnd.msg`, `VadState.msg`, `WakeWordResult.msg`。
@@ -1482,7 +1482,7 @@
 ## System/Profiles
 
 ### `fluent_audio_system`
-- 状態: 支援/インターフェース。
+- 状態: 基盤。
 - 根拠path: `src/system/fluent_audio_system/package.xml`, `src/system/fluent_audio_system/setup.py`, `src/system/fluent_audio_system/launch/fluent_audio_system.launch.py`, `src/system/fluent_audio_system/launch/run.py`, `src/system/fluent_audio_system/test`。
 - 実行ファイル/ROS node: exec `list_required_packages`。
 - Launch: `launch/run.py` が public wrapper、`launch/fluent_audio_system.launch.py` が system YAML expansion 本体。
