@@ -205,7 +205,11 @@ def test_prepare_outputs_sourceable_host_and_vlabor_env_blocks(tmp_path: Path) -
         "/ros2_ws/src/fluent_audio_ros2/src/ai/fa_asr/scripts/whisper_cpp_worker",
         "/ros2_ws/src/fluent_audio_ros2/src/ai/fa_asr/tools/whisper.cpp/build/bin/whisper-cli",
     )
-    assert vlabor_values[3] == trace_file
+    expected_container_trace = (
+        "/ros2_ws/src/fluent_audio_ros2/"
+        f"{Path(trace_file).relative_to(package.root_dir).as_posix()}"
+    )
+    assert vlabor_values[3] == expected_container_trace
 
 
 def test_prepare_fails_closed_when_explicit_binary_is_missing(tmp_path: Path) -> None:
