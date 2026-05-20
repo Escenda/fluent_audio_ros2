@@ -13,12 +13,20 @@ find_package(rclcpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(fa_interfaces REQUIRED)
 
-add_library(fa_resample_internal_linear_resampler STATIC
+add_library(fa_resample_backends STATIC
+  src/backends/resampler_backend.cpp
+  src/backends/backend_factory.cpp
   src/backends/internal_linear_resampler.cpp
+  src/backends/speexdsp_resampler.cpp
+  src/backends/soxr_resampler.cpp
 )
 
-target_include_directories(fa_resample_internal_linear_resampler PUBLIC
+target_include_directories(fa_resample_backends PUBLIC
   include
+)
+
+target_link_libraries(fa_resample_backends
+  ${CMAKE_DL_LIBS}
 )
 
 add_library(fa_resample_node_core
@@ -36,7 +44,7 @@ ament_target_dependencies(fa_resample_node_core
 )
 
 target_link_libraries(fa_resample_node_core
-  fa_resample_internal_linear_resampler
+  fa_resample_backends
 )
 
 add_executable(fa_resample_node
@@ -68,13 +76,14 @@ if(BUILD_TESTING)
 
   ament_add_gtest(${PROJECT_NAME}_backend_test
     test/cpp/test_internal_linear_resampler_backend.cpp
+    test/cpp/test_resampler_quality_metrics.cpp
   )
   if(TARGET ${PROJECT_NAME}_backend_test)
     target_include_directories(${PROJECT_NAME}_backend_test PRIVATE
       include
     )
     target_link_libraries(${PROJECT_NAME}_backend_test
-      fa_resample_internal_linear_resampler
+      fa_resample_backends
     )
   endif()
 
@@ -87,7 +96,7 @@ if(BUILD_TESTING)
     )
     target_link_libraries(${PROJECT_NAME}_graph_test
       fa_resample_node_core
-      fa_resample_internal_linear_resampler
+      fa_resample_backends
     )
     ament_target_dependencies(${PROJECT_NAME}_graph_test
       rclcpp

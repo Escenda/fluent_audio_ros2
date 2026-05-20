@@ -137,6 +137,9 @@ def test_sample_format_to_resample_launch_graph_publishes_16khz_float32(
             "fa_resample_integration": {
                 "ros__parameters": {
                     "target_sample_rate": 16000,
+                    "backend": {
+                        "name": "internal_linear_resampler",
+                    },
                     "input": {
                         "encoding": "FLOAT32LE",
                         "bit_depth": 32,

@@ -1,146 +1,24 @@
 #include "fa_resample/backends/internal_linear_resampler.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
-#include <cstring>
 #include <stdexcept>
 #include <utility>
 
 namespace fa_resample::backends
 {
 
-const char * frameContractStatusName(const FrameContractStatus status)
-{
-  switch (status) {
-    case FrameContractStatus::kOk:
-      return "ok";
-    case FrameContractStatus::kInvalidSampleRate:
-      return "invalid_sample_rate";
-    case FrameContractStatus::kInvalidChannels:
-      return "invalid_channels";
-    case FrameContractStatus::kUnsupportedEncoding:
-      return "unsupported_encoding";
-    case FrameContractStatus::kUnsupportedBitDepth:
-      return "unsupported_bit_depth";
-    case FrameContractStatus::kUnsupportedLayout:
-      return "unsupported_layout";
-    case FrameContractStatus::kEmptyData:
-      return "empty_data";
-    case FrameContractStatus::kUnalignedData:
-      return "unaligned_data";
-  }
-  throw std::logic_error("unhandled resample frame contract status");
-}
-
-const char * processStatusMessage(const ProcessStatus status)
-{
-  switch (status) {
-    case ProcessStatus::kOk:
-      return "ok";
-    case ProcessStatus::kInvalidFrameContract:
-      return "invalid FLOAT32LE frame contract";
-    case ProcessStatus::kInvalidInputSamples:
-      return "input samples must be finite normalized [-1.0, 1.0]";
-    case ProcessStatus::kResampleFailed:
-      return "linear resampling failed";
-    case ProcessStatus::kEncodeFailed:
-      return "FLOAT32LE encoding failed";
-  }
-  throw std::logic_error("unhandled resample backend process status");
-}
-
-FrameContractStatus validateFloat32InterleavedContract(const FrameContract & contract)
-{
-  if (contract.sample_rate == 0) {
-    return FrameContractStatus::kInvalidSampleRate;
-  }
-  if (contract.channels == 0) {
-    return FrameContractStatus::kInvalidChannels;
-  }
-  if (contract.encoding != kEncodingFloat32Le) {
-    return FrameContractStatus::kUnsupportedEncoding;
-  }
-  if (contract.bit_depth != 32) {
-    return FrameContractStatus::kUnsupportedBitDepth;
-  }
-  if (contract.layout != kInterleavedLayout) {
-    return FrameContractStatus::kUnsupportedLayout;
-  }
-  if (contract.data_size == 0) {
-    return FrameContractStatus::kEmptyData;
-  }
-
-  const size_t bytes_per_frame = static_cast<size_t>(contract.channels) * sizeof(float);
-  if (bytes_per_frame == 0 || (contract.data_size % bytes_per_frame) != 0) {
-    return FrameContractStatus::kUnalignedData;
-  }
-  return FrameContractStatus::kOk;
-}
-
 namespace
 {
-bool isFiniteNormalizedSample(const float value)
+uint64_t elapsedNs(const std::chrono::steady_clock::time_point & start)
 {
-  return std::isfinite(static_cast<double>(value)) && value >= -1.0F && value <= 1.0F;
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  return static_cast<uint64_t>(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
 }
+
 }  // namespace
-
-bool containsOnlyFiniteNormalizedSamples(const std::vector<float> & samples)
-{
-  if (samples.empty()) {
-    return false;
-  }
-  for (const float value : samples) {
-    if (!isFiniteNormalizedSample(value)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-std::vector<float> decodeFloat32Le(const std::vector<uint8_t> & bytes)
-{
-  if (bytes.empty() || (bytes.size() % sizeof(float)) != 0) {
-    return {};
-  }
-
-  std::vector<float> samples(bytes.size() / sizeof(float));
-  for (size_t byte_index = 0, sample_index = 0; byte_index < bytes.size();
-    byte_index += sizeof(float), ++sample_index)
-  {
-    const uint32_t raw =
-      static_cast<uint32_t>(bytes.at(byte_index)) |
-      (static_cast<uint32_t>(bytes.at(byte_index + 1)) << 8U) |
-      (static_cast<uint32_t>(bytes.at(byte_index + 2)) << 16U) |
-      (static_cast<uint32_t>(bytes.at(byte_index + 3)) << 24U);
-    std::memcpy(&samples.at(sample_index), &raw, sizeof(float));
-  }
-  return samples;
-}
-
-void appendFloat32Le(const float sample, std::vector<uint8_t> & out_bytes)
-{
-  uint32_t raw = 0;
-  std::memcpy(&raw, &sample, sizeof(float));
-  out_bytes.push_back(static_cast<uint8_t>(raw & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((raw >> 8U) & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((raw >> 16U) & 0xFFU));
-  out_bytes.push_back(static_cast<uint8_t>((raw >> 24U) & 0xFFU));
-}
-
-std::vector<uint8_t> encodeFloat32Le(const std::vector<float> & samples)
-{
-  if (!containsOnlyFiniteNormalizedSamples(samples)) {
-    return {};
-  }
-
-  std::vector<uint8_t> out_bytes;
-  out_bytes.reserve(samples.size() * sizeof(float));
-  for (const float sample : samples) {
-    appendFloat32Le(sample, out_bytes);
-  }
-  return out_bytes;
-}
 
 std::vector<float> resampleLinear(
   const std::vector<float> & interleaved,
@@ -210,39 +88,140 @@ InternalLinearResamplerBackend::InternalLinearResamplerBackend(
   }
 }
 
+std::string InternalLinearResamplerBackend::name() const
+{
+  return kName;
+}
+
+std::string InternalLinearResamplerBackend::quality() const
+{
+  return kQuality;
+}
+
 int InternalLinearResamplerBackend::targetSampleRate() const
 {
   return config_.target_sample_rate;
 }
 
-ProcessResult InternalLinearResamplerBackend::process(
-  const std::vector<uint8_t> & input,
-  const FrameContract & contract,
-  std::vector<uint8_t> & output) const
+BackendMetrics InternalLinearResamplerBackend::metrics() const
 {
-  const FrameContractStatus frame_contract_status = validateFloat32InterleavedContract(contract);
+  std::lock_guard<std::mutex> lock(mutex_);
+  return metrics_;
+}
+
+ProcessResult InternalLinearResamplerBackend::process(
+  const ProcessRequest & request,
+  std::vector<uint8_t> & output)
+{
+  const FrameContractStatus frame_contract_status = validateFloat32InterleavedContract(request.contract);
   if (frame_contract_status != FrameContractStatus::kOk) {
     return ProcessResult{ProcessStatus::kInvalidFrameContract, frame_contract_status, 0};
   }
+  if (request.stream_id.empty()) {
+    return ProcessResult{
+      ProcessStatus::kInvalidFrameContract,
+      FrameContractStatus::kInvalidStreamIdentity,
+      0};
+  }
 
-  const std::vector<float> in_f32 = decodeFloat32Le(input);
+  const std::vector<float> in_f32 = decodeFloat32Le(request.input);
   if (!containsOnlyFiniteNormalizedSamples(in_f32)) {
     return ProcessResult{ProcessStatus::kInvalidInputSamples, FrameContractStatus::kOk, 0};
   }
 
-  const uint32_t in_frames = static_cast<uint32_t>(
-    input.size() / (static_cast<size_t>(contract.channels) * sizeof(float)));
-  uint32_t out_frames = 0;
-  const std::vector<float> out_f32 = resampleLinear(
-    in_f32,
-    contract.sample_rate,
-    static_cast<uint32_t>(config_.target_sample_rate),
-    contract.channels,
-    in_frames,
-    out_frames);
+  const uint32_t in_frames = frameCountFromContract(request.contract);
+  if (in_frames == 0) {
+    return ProcessResult{ProcessStatus::kInvalidFrameContract, FrameContractStatus::kUnalignedData, 0};
+  }
 
-  if (out_f32.empty() || out_frames == 0) {
-    return ProcessResult{ProcessStatus::kResampleFailed, FrameContractStatus::kOk, 0};
+  const auto started_at = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(mutex_);
+  const StreamContract next_contract = makeStreamContract(
+    request.stream_id,
+    request.contract,
+    config_.target_sample_rate,
+    kName,
+    kQuality);
+
+  auto stream_it = streams_.find(request.stream_id);
+  if (stream_it == streams_.end()) {
+    StreamState state;
+    state.contract = next_contract;
+    state.buffer_start_frame_index = 0;
+    stream_it = streams_.emplace(request.stream_id, std::move(state)).first;
+  } else if (!streamContractMatches(stream_it->second.contract, next_contract)) {
+    return ProcessResult{ProcessStatus::kStreamContractViolation, FrameContractStatus::kOk, 0};
+  }
+
+  ProcessResult result = processValidatedFrame(stream_it->second, in_f32, in_frames, output);
+  recordProcessingTime(metrics_, elapsedNs(started_at));
+  return result;
+}
+
+ProcessResult InternalLinearResamplerBackend::processValidatedFrame(
+  StreamState & state,
+  const std::vector<float> & samples,
+  const uint32_t input_frames,
+  std::vector<uint8_t> & output)
+{
+  const uint32_t channels = state.contract.frame.channels;
+  const uint32_t input_rate = state.contract.frame.sample_rate;
+  const uint32_t output_rate = static_cast<uint32_t>(config_.target_sample_rate);
+
+  if (samples.size() != static_cast<size_t>(input_frames) * channels) {
+    return ProcessResult{ProcessStatus::kInvalidFrameContract, FrameContractStatus::kUnalignedData, 0};
+  }
+
+  if (state.buffer.empty()) {
+    state.buffer = samples;
+    state.buffer_start_frame_index = state.input_frames_total;
+  } else {
+    std::vector<float> next_buffer;
+    next_buffer.reserve(channels + samples.size());
+    const size_t previous_tail_offset = state.buffer.size() - channels;
+    next_buffer.insert(
+      next_buffer.end(),
+      state.buffer.begin() + static_cast<std::vector<float>::difference_type>(previous_tail_offset),
+      state.buffer.end());
+    next_buffer.insert(next_buffer.end(), samples.begin(), samples.end());
+    state.buffer = std::move(next_buffer);
+    state.buffer_start_frame_index = state.input_frames_total - 1;
+  }
+  state.input_frames_total += input_frames;
+
+  const uint64_t last_available_frame = state.input_frames_total - 1;
+  const double input_per_output = static_cast<double>(input_rate) / static_cast<double>(output_rate);
+  std::vector<float> out_f32;
+  const auto sample_at = [&state](const uint64_t frame_index, const uint32_t channel) {
+      const uint64_t relative_frame = frame_index - state.buffer_start_frame_index;
+      return state.buffer.at(
+        static_cast<size_t>(relative_frame) * state.contract.frame.channels + channel);
+    };
+
+  while (true) {
+    const double src_pos = static_cast<double>(state.next_output_frame_index) * input_per_output;
+    if (src_pos > static_cast<double>(last_available_frame)) {
+      break;
+    }
+
+    uint64_t idx0 = static_cast<uint64_t>(std::floor(src_pos));
+    const double frac = src_pos - static_cast<double>(idx0);
+    if (idx0 < state.buffer_start_frame_index) {
+      idx0 = state.buffer_start_frame_index;
+    }
+    const uint64_t idx1 = std::min<uint64_t>(idx0 + 1, last_available_frame);
+
+    for (uint32_t ch = 0; ch < channels; ++ch) {
+      const float s0 = sample_at(idx0, ch);
+      const float s1 = sample_at(idx1, ch);
+      out_f32.push_back(static_cast<float>(
+        (1.0 - frac) * static_cast<double>(s0) + frac * static_cast<double>(s1)));
+    }
+    state.next_output_frame_index += 1;
+  }
+
+  if (out_f32.empty() || !containsOnlyFiniteNormalizedSamples(out_f32)) {
+    return ProcessResult{ProcessStatus::kBackendProcessFailed, FrameContractStatus::kOk, 0};
   }
 
   const std::vector<uint8_t> out_bytes = encodeFloat32Le(out_f32);
@@ -250,8 +229,17 @@ ProcessResult InternalLinearResamplerBackend::process(
     return ProcessResult{ProcessStatus::kEncodeFailed, FrameContractStatus::kOk, 0};
   }
 
-  output = std::move(out_bytes);
-  return ProcessResult{ProcessStatus::kOk, FrameContractStatus::kOk, out_frames};
+  const uint32_t output_frames = static_cast<uint32_t>(out_f32.size() / channels);
+  state.output_frames_total += output_frames;
+  updateFrameCountMetrics(
+    metrics_,
+    state.input_frames_total,
+    state.output_frames_total,
+    input_rate,
+    output_rate);
+
+  output = out_bytes;
+  return ProcessResult{ProcessStatus::kOk, FrameContractStatus::kOk, output_frames};
 }
 
 }  // namespace fa_resample::backends

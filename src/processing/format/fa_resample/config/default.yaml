@@ -1,6 +1,8 @@
 fa_resample:
   ros__parameters:
     target_sample_rate: 16000
+    backend:
+      name: "internal_linear_resampler"
     input:
       encoding: "FLOAT32LE"
       bit_depth: 32

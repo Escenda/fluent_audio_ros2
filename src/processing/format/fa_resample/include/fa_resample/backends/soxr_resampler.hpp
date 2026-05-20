@@ -2,27 +2,34 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
+#include "fa_resample/backends/backend_factory.hpp"
 #include "fa_resample/backends/resampler_backend.hpp"
 
 namespace fa_resample::backends
 {
 
-struct InternalLinearResamplerConfig
+struct SoxrResamplerConfig
 {
   int target_sample_rate{-1};
+  SoxrQuality quality{SoxrQuality::kMq};
+  std::string library_path{"libsoxr.so.0"};
 };
 
-class InternalLinearResamplerBackend final : public ResamplerBackend
+class SoxrResamplerBackend final : public ResamplerBackend
 {
 public:
-  static constexpr const char * kName = "internal_linear_resampler";
-  static constexpr const char * kQuality = "debug_reference";
+  static constexpr const char * kName = "soxr";
 
-  explicit InternalLinearResamplerBackend(const InternalLinearResamplerConfig & config);
+  explicit SoxrResamplerBackend(const SoxrResamplerConfig & config);
+  ~SoxrResamplerBackend() override;
+
+  SoxrResamplerBackend(const SoxrResamplerBackend &) = delete;
+  SoxrResamplerBackend & operator=(const SoxrResamplerBackend &) = delete;
 
   [[nodiscard]] std::string name() const override;
   [[nodiscard]] std::string quality() const override;
@@ -33,34 +40,21 @@ public:
     std::vector<uint8_t> & output) override;
 
 private:
-  struct StreamState
-  {
-    StreamContract contract;
-    uint64_t input_frames_total{0};
-    uint64_t output_frames_total{0};
-    uint64_t next_output_frame_index{0};
-    uint64_t buffer_start_frame_index{0};
-    std::vector<float> buffer;
-  };
+  struct Library;
+  struct StreamState;
 
+  StreamState makeStreamState(const ProcessRequest & request) const;
   ProcessResult processValidatedFrame(
     StreamState & state,
     const std::vector<float> & samples,
     uint32_t input_frames,
     std::vector<uint8_t> & output);
 
-  InternalLinearResamplerConfig config_;
+  SoxrResamplerConfig config_;
+  std::unique_ptr<Library> library_;
   mutable std::mutex mutex_;
-  std::map<std::string, StreamState> streams_;
+  std::map<std::string, std::unique_ptr<StreamState>> streams_;
   BackendMetrics metrics_;
 };
-
-std::vector<float> resampleLinear(
-  const std::vector<float> & interleaved,
-  uint32_t in_rate,
-  uint32_t out_rate,
-  uint32_t channels,
-  uint32_t in_frames,
-  uint32_t & out_frames);
 
 }  // namespace fa_resample::backends

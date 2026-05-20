@@ -1,6 +1,8 @@
 #include "fa_resample/fa_resample_node.hpp"
 
+#include "fa_resample/backends/backend_factory.hpp"
 #include "fa_resample/backends/internal_linear_resampler.hpp"
+#include "fa_resample/backends/resampler_backend.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -13,6 +15,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
+#include "rcl_interfaces/msg/parameter_descriptor.hpp"
 
 namespace fa_resample
 {
@@ -94,6 +97,13 @@ FaResampleNode::~FaResampleNode() = default;
 void FaResampleNode::loadParameters()
 {
   this->declare_parameter<int>("target_sample_rate");
+  this->declare_parameter<std::string>("backend.name");
+  rcl_interfaces::msg::ParameterDescriptor backend_quality_descriptor;
+  backend_quality_descriptor.dynamic_typing = true;
+  this->declare_parameter(
+    "backend.quality",
+    rclcpp::ParameterValue{},
+    backend_quality_descriptor);
   this->declare_parameter<std::string>("input.encoding");
   this->declare_parameter<int>("input.bit_depth");
   this->declare_parameter<std::string>("input.layout");
@@ -120,6 +130,41 @@ void FaResampleNode::loadParameters()
   this->declare_parameter<bool>("diagnostics.qos.reliable");
 
   config_.target_sample_rate = readRequiredInt(*this, "target_sample_rate");
+  config_.backend_name = readRequiredString(*this, "backend.name");
+
+  const backends::BackendKind backend_kind = backends::parseBackendKind(config_.backend_name);
+  rclcpp::Parameter backend_quality;
+  this->get_parameter("backend.quality", backend_quality);
+  if (backend_kind == backends::BackendKind::kSpeexDsp) {
+    if (!isRequiredParameterSet(backend_quality) ||
+        backend_quality.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER) {
+      throw std::runtime_error("backend.quality for speexdsp must be an integer in 0..10");
+    }
+    const int64_t quality = backend_quality.as_int();
+    if (quality < std::numeric_limits<int>::min() || quality > std::numeric_limits<int>::max()) {
+      throw std::runtime_error("backend.quality for speexdsp is outside supported integer range");
+    }
+    config_.backend_speex_quality = backends::validateSpeexDspQuality(static_cast<int>(quality));
+    config_.backend_quality_label = std::to_string(config_.backend_speex_quality);
+  } else if (backend_kind == backends::BackendKind::kSoxr) {
+    if (!isRequiredParameterSet(backend_quality) ||
+        backend_quality.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+      throw std::runtime_error("backend.quality for soxr must be one of QQ, LQ, MQ, HQ, VHQ");
+    }
+    config_.backend_soxr_quality = backend_quality.as_string();
+    config_.backend_quality_label = backends::soxrQualityName(
+      backends::parseSoxrQuality(config_.backend_soxr_quality));
+  } else {
+    config_.backend_quality_label = backends::InternalLinearResamplerBackend::kQuality;
+    if (isRequiredParameterSet(backend_quality)) {
+      if (backend_quality.get_type() != rclcpp::ParameterType::PARAMETER_STRING ||
+          backend_quality.as_string() != backends::InternalLinearResamplerBackend::kQuality) {
+        throw std::runtime_error(
+          "backend.quality for internal_linear_resampler must be unset or debug_reference");
+      }
+    }
+  }
+
   config_.input_encoding = readRequiredString(*this, "input.encoding");
   config_.input_bit_depth = readRequiredInt(*this, "input.bit_depth");
   config_.input_layout = readRequiredString(*this, "input.layout");
@@ -241,8 +286,11 @@ void FaResampleNode::loadParameters()
   }
 
   RCLCPP_INFO(this->get_logger(),
-    "Resample config: target_sr=%dHz input=%s/%d/%s output=%s/%d qos_depth=%d reliable=%s "
+    "Resample config: backend=%s quality=%s target_sr=%dHz input=%s/%d/%s output=%s/%d "
+    "qos_depth=%d reliable=%s "
     "mic=%s (%s/%s -> %s/%s) ref=%s (%s/%s -> %s/%s) diag=%dms",
+    config_.backend_name.c_str(),
+    config_.backend_quality_label.c_str(),
     config_.target_sample_rate,
     config_.input_encoding.c_str(), config_.input_bit_depth, config_.input_layout.c_str(),
     config_.output_encoding.c_str(), config_.output_bit_depth,
@@ -258,8 +306,21 @@ void FaResampleNode::loadParameters()
 
 void FaResampleNode::configureBackend()
 {
-  backend_ = std::make_unique<backends::InternalLinearResamplerBackend>(
-    backends::InternalLinearResamplerConfig{config_.target_sample_rate});
+  const backends::BackendKind backend_kind = backends::parseBackendKind(config_.backend_name);
+  backends::BackendSelection selection;
+  selection.kind = backend_kind;
+  selection.name = config_.backend_name;
+  selection.target_sample_rate = config_.target_sample_rate;
+  selection.speex_quality = config_.backend_speex_quality;
+  if (backend_kind == backends::BackendKind::kSoxr) {
+    selection.soxr_quality = backends::parseSoxrQuality(config_.backend_soxr_quality);
+    selection.quality_label = backends::soxrQualityName(selection.soxr_quality);
+  } else if (backend_kind == backends::BackendKind::kSpeexDsp) {
+    selection.quality_label = std::to_string(selection.speex_quality);
+  } else {
+    selection.quality_label = backends::InternalLinearResamplerBackend::kQuality;
+  }
+  backend_ = backends::createResamplerBackend(selection);
 }
 
 void FaResampleNode::setupInterfaces()
@@ -369,7 +430,9 @@ bool FaResampleNode::processAndPublish(
     in.layout,
     in.data.size()};
   std::vector<uint8_t> out_bytes;
-  const backends::ProcessResult result = backend_->process(in.data, frame_contract, out_bytes);
+  const backends::ProcessResult result = backend_->process(
+    backends::ProcessRequest{in.stream_id, in.data, frame_contract},
+    out_bytes);
   if (result.status != backends::ProcessStatus::kOk) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
@@ -379,6 +442,9 @@ bool FaResampleNode::processAndPublish(
       backends::frameContractStatusName(result.frame_contract_status));
     drop_counter.fetch_add(1);
     return false;
+  }
+  if (result.output_frames == 0) {
+    return true;
   }
 
   fa_interfaces::msg::AudioFrame out;
@@ -416,10 +482,27 @@ void FaResampleNode::publishDiagnostics()
       status.values.push_back(kv);
     };
 
-  status.values.reserve(16);
+  const backends::BackendMetrics metrics = backend_->metrics();
+
+  status.values.reserve(28);
+  push_kv("backend.name", backend_->name());
+  push_kv("backend.quality", backend_->quality());
   push_kv("target_sample_rate", std::to_string(backend_->targetSampleRate()));
   push_kv("output.encoding", config_.output_encoding);
   push_kv("output.bit_depth", std::to_string(config_.output_bit_depth));
+  push_kv(
+    "algorithmic_delay_input_samples",
+    std::to_string(metrics.algorithmic_delay_input_samples));
+  push_kv(
+    "algorithmic_delay_output_samples",
+    std::to_string(metrics.algorithmic_delay_output_samples));
+  push_kv("algorithmic_delay_ms", std::to_string(metrics.algorithmic_delay_ms));
+  push_kv("processing_time_mean_ms", std::to_string(backends::processingTimeMeanMs(metrics)));
+  push_kv("processing_time_max_ms", std::to_string(backends::processingTimeMaxMs(metrics)));
+  push_kv("input_frames_total", std::to_string(metrics.input_frames_total));
+  push_kv("output_frames_total", std::to_string(metrics.output_frames_total));
+  push_kv("expected_output_frames", std::to_string(metrics.expected_output_frames));
+  push_kv("frame_count_error_samples", std::to_string(metrics.frame_count_error_samples));
   push_kv("mic.input_stream_id", config_.mic_input_stream_id);
   push_kv("mic.output_stream_id", config_.mic_output_stream_id);
   push_kv("ref.input_stream_id", config_.ref_input_stream_id);

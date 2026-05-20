@@ -4,6 +4,7 @@
 #include <chrono>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -47,6 +48,54 @@ fa_interfaces::msg::AudioFrame makeFloat32Frame(const rclcpp::Node & node)
   return frame;
 }
 
+std::vector<rclcpp::Parameter> validResampleParameters()
+{
+  return {
+    rclcpp::Parameter("target_sample_rate", 16000),
+    rclcpp::Parameter("backend.name", "internal_linear_resampler"),
+    rclcpp::Parameter("input.encoding", "FLOAT32LE"),
+    rclcpp::Parameter("input.bit_depth", 32),
+    rclcpp::Parameter("input.layout", "interleaved"),
+    rclcpp::Parameter("output.encoding", "FLOAT32LE"),
+    rclcpp::Parameter("output.bit_depth", 32),
+    rclcpp::Parameter("mic.enabled", true),
+    rclcpp::Parameter("mic.input_topic", "/fa_resample_test/input"),
+    rclcpp::Parameter("mic.output_topic", "/fa_resample_test/output"),
+    rclcpp::Parameter("mic.input_stream_id", "audio/test/float32"),
+    rclcpp::Parameter("mic.output.stream_id", "audio/test/mono16k"),
+    rclcpp::Parameter("ref.enabled", false),
+    rclcpp::Parameter("ref.input_topic", "/fa_resample_test/ref_in"),
+    rclcpp::Parameter("ref.output_topic", "/fa_resample_test/ref_out"),
+    rclcpp::Parameter("ref.input_stream_id", "audio/test/ref_float32"),
+    rclcpp::Parameter("ref.output.stream_id", "audio/test/ref16k"),
+    rclcpp::Parameter("qos.depth", 10),
+    rclcpp::Parameter("qos.reliable", false),
+    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
+    rclcpp::Parameter("diagnostics.qos.depth", 10),
+    rclcpp::Parameter("diagnostics.qos.reliable", true),
+  };
+}
+
+void replaceParameter(
+  std::vector<rclcpp::Parameter> & parameters,
+  const rclcpp::Parameter & replacement)
+{
+  for (auto & parameter : parameters) {
+    if (parameter.get_name() == replacement.get_name()) {
+      parameter = replacement;
+      return;
+    }
+  }
+  parameters.push_back(replacement);
+}
+
+rclcpp::NodeOptions graphNodeOptionsWith(std::vector<rclcpp::Parameter> parameters)
+{
+  rclcpp::NodeOptions options = quietGraphNodeOptions();
+  options.parameter_overrides(parameters);
+  return options;
+}
+
 class RclcppFixture : public ::testing::Test
 {
 protected:
@@ -69,32 +118,61 @@ protected:
 
 }  // namespace
 
+TEST_F(RclcppFixture, ExplicitInternalLinearBackendStarts)
+{
+  auto resample_node = std::make_shared<fa_resample::FaResampleNode>(
+    graphNodeOptionsWith(validResampleParameters()));
+
+  EXPECT_EQ(resample_node->get_name(), std::string("fa_resample"));
+}
+
+TEST_F(RclcppFixture, UnknownBackendNameFailsStartup)
+{
+  std::vector<rclcpp::Parameter> parameters = validResampleParameters();
+  replaceParameter(parameters, rclcpp::Parameter("backend.name", "unknown_backend"));
+
+  EXPECT_THROW(
+    {
+      auto resample_node = std::make_shared<fa_resample::FaResampleNode>(
+        graphNodeOptionsWith(parameters));
+      (void)resample_node;
+    },
+    std::runtime_error);
+}
+
+TEST_F(RclcppFixture, SpeexDspQualityOutsideZeroToTenFailsStartup)
+{
+  std::vector<rclcpp::Parameter> parameters = validResampleParameters();
+  replaceParameter(parameters, rclcpp::Parameter("backend.name", "speexdsp"));
+  replaceParameter(parameters, rclcpp::Parameter("backend.quality", 11));
+
+  EXPECT_THROW(
+    {
+      auto resample_node = std::make_shared<fa_resample::FaResampleNode>(
+        graphNodeOptionsWith(parameters));
+      (void)resample_node;
+    },
+    std::runtime_error);
+}
+
+TEST_F(RclcppFixture, SoxrQualityOutsideAllowedSetFailsStartup)
+{
+  std::vector<rclcpp::Parameter> parameters = validResampleParameters();
+  replaceParameter(parameters, rclcpp::Parameter("backend.name", "soxr"));
+  replaceParameter(parameters, rclcpp::Parameter("backend.quality", "BEST"));
+
+  EXPECT_THROW(
+    {
+      auto resample_node = std::make_shared<fa_resample::FaResampleNode>(
+        graphNodeOptionsWith(parameters));
+      (void)resample_node;
+    },
+    std::runtime_error);
+}
+
 TEST_F(RclcppFixture, PublishesResampledFloat32Frame)
 {
-  rclcpp::NodeOptions options = quietGraphNodeOptions();
-  options.parameter_overrides({
-    rclcpp::Parameter("target_sample_rate", 16000),
-    rclcpp::Parameter("input.encoding", "FLOAT32LE"),
-    rclcpp::Parameter("input.bit_depth", 32),
-    rclcpp::Parameter("input.layout", "interleaved"),
-    rclcpp::Parameter("output.encoding", "FLOAT32LE"),
-    rclcpp::Parameter("output.bit_depth", 32),
-    rclcpp::Parameter("mic.enabled", true),
-    rclcpp::Parameter("mic.input_topic", "/fa_resample_test/input"),
-    rclcpp::Parameter("mic.output_topic", "/fa_resample_test/output"),
-    rclcpp::Parameter("mic.input_stream_id", "audio/test/float32"),
-    rclcpp::Parameter("mic.output.stream_id", "audio/test/mono16k"),
-    rclcpp::Parameter("ref.enabled", false),
-    rclcpp::Parameter("ref.input_topic", "/fa_resample_test/ref_in"),
-    rclcpp::Parameter("ref.output_topic", "/fa_resample_test/ref_out"),
-    rclcpp::Parameter("ref.input_stream_id", "audio/test/ref_float32"),
-    rclcpp::Parameter("ref.output.stream_id", "audio/test/ref16k"),
-    rclcpp::Parameter("qos.depth", 10),
-    rclcpp::Parameter("qos.reliable", false),
-    rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
-    rclcpp::Parameter("diagnostics.qos.depth", 10),
-    rclcpp::Parameter("diagnostics.qos.reliable", true),
-  });
+  rclcpp::NodeOptions options = graphNodeOptionsWith(validResampleParameters());
 
   auto resample_node = std::make_shared<fa_resample::FaResampleNode>(options);
   auto test_node = std::make_shared<rclcpp::Node>("fa_resample_graph_test", quietGraphNodeOptions());

@@ -15,12 +15,17 @@ namespace fa_resample
 
 namespace backends
 {
-class InternalLinearResamplerBackend;
+class ResamplerBackend;
 }  // namespace backends
 
 struct ResampleConfig
 {
   int target_sample_rate = -1;
+  std::string backend_name;
+  int backend_speex_quality = -1;
+  std::string backend_soxr_quality;
+  std::string backend_quality_label;
+
   std::string input_encoding;
   int input_bit_depth = -1;
   std::string input_layout;
@@ -71,7 +76,7 @@ private:
     std::atomic<uint64_t> & drop_counter);
 
   ResampleConfig config_;
-  std::unique_ptr<backends::InternalLinearResamplerBackend> backend_{};
+  std::unique_ptr<backends::ResamplerBackend> backend_{};
 
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr mic_sub_;
   rclcpp::Subscription<fa_interfaces::msg::AudioFrame>::SharedPtr ref_sub_;
