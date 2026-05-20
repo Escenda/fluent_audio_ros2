@@ -20,114 +20,114 @@
 
 ## 全体サマリーテーブル
 
-| 分類 | ノード/パッケージ | パス | 状態 | package.xml | 実行ファイル/Node | launch/config | テスト | 外部API概要 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| AI | `fa_asr` | `src/ai/fa_asr` | 実装済み | あり | exec `fa_asr_node`; node `fa_asr` | launch `fa_asr.launch.py`; config `config/default.yaml` | あり(9 files) | Sub 3; Pub 1; Srv 1 |
-| AI | `fa_audio_embedding` | `src/ai/fa_audio_embedding` | 実装済み | あり | exec `fa_audio_embedding_node`; node `fa_audio_embedding` | launch `fa_audio_embedding.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 1 |
-| AI | `fa_kws` | `src/ai/fa_kws` | 実装済み | あり | exec `fa_kws_node`, `fa_kws_wav_tool`, `sherpa_onnx_kws_worker`; node `fa_kws` | launch `fa_kws.launch.py`; config `config/default.yaml` | あり(12 files) | Sub 2; Pub 1 |
-| AI | `fa_sed` | `src/ai/fa_sed` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| AI | `fa_speaker` | `src/ai/fa_speaker` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| AI | `fa_turn_detector` | `src/ai/fa_turn_detector` | 実装済み | あり | exec `fa_turn_detector_node`, `smart_turn_onnx_worker`; node `fa_turn_detector` | launch `fa_turn_detector.launch.py`; config `config/default.yaml` | あり(9 files) | Sub 3; Pub 1 |
-| AI | `fa_vad` | `src/ai/fa_vad` | 実装済み | あり | exec `fa_vad_node`, `silero_vad_worker`; node `fa_vad` | launch `fa_vad.launch.py`; config `config/default.yaml` | あり(8 files) | Sub 1; Pub 3 |
-| Apps / Agent Tools | `fa_audio_mcp` | `src/apps/agent_tools/fa_audio_mcp` | 支援/インターフェース | あり | exec `fa_audio_mcp_server`; node `fa_audio_mcp_server` | config `config/default.yaml` | あり(12 files) | Client 3; MCP export_audio_window, archive_audio_window, transcribe_audio |
-| Apps / Dialogue | `fa_dialogue` | `src/apps/dialogue/fa_dialogue` | 実装済み | あり | exec `fa_dialogue_node`; node `fa_dialogue` | launch `fa_dialogue.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 3; Pub 1 |
-| Apps / Safety | `fa_safety_policy` | `src/apps/safety/fa_safety_policy` | 計画/未実装 | なし | なし | なし | あり(4 files) | 未実装。外部runtime APIなし。 |
-| Apps / Voice Command | `fa_voice_command_router` | `src/apps/voice_command/fa_voice_command_router` | 実装済み | あり | exec `fa_voice_command_router_node`; node `fa_voice_command_router` | launch `fa_voice_command_router.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2; Srv 3; Client 1 |
-| Interfaces | `fa_interfaces` | `src/interfaces/fa_interfaces` | 支援/インターフェース | あり | なし | なし | あり(5 files) | msg 22 / srv 8 を生成。 |
-| IO / sinks | `fa_file_out` | `src/io/sinks/fa_file_out` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| IO / sinks | `fa_network_out` | `src/io/sinks/fa_network_out` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| IO / sinks | `fa_out` | `src/io/sinks/fa_out` | 実装済み | あり | exec `fa_out_node`; node `fa_out` | launch `fa_out.launch.py`; config `config/default.yaml` | あり(9 files) | Sub 1; Pub 1; Srv 1 |
-| IO / sources | `fa_file_in` | `src/io/sources/fa_file_in` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| IO / sources | `fa_in` | `src/io/sources/fa_in` | 実装済み | あり | exec `fa_in_node`; node `fa_in` | launch `fa_in.launch.py`; config `config/default.yaml` | あり(9 files) | Pub 2; Srv 2 |
-| IO / sources | `fa_network_in` | `src/io/sources/fa_network_in` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| IO / utilities | `fa_record` | `src/io/utilities/fa_record` | 実装済み | あり | exec `fa_record_node`; node `fa_record` | launch `fa_record.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Srv 1 |
-| IO / utilities | `fa_stream` | `src/io/utilities/fa_stream` | 実装済み | あり | exec `fa_stream_node.py`; node `fa_stream` | launch `fa_stream.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1 |
-| Processing: analysis/feature | `fa_cqt` | `src/processing/analysis/fa_cqt` | 実装済み | あり | exec `fa_cqt_node`; node `fa_cqt` | launch `fa_cqt.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_log_mel` | `src/processing/analysis/fa_log_mel` | 実装済み | あり | exec `fa_log_mel_node`; node `fa_log_mel` | launch `fa_log_mel.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_loudness` | `src/processing/analysis/fa_loudness` | 実装済み | あり | exec `fa_loudness_node`; node `fa_loudness` | launch `fa_loudness.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_mfcc` | `src/processing/analysis/fa_mfcc` | 実装済み | あり | exec `fa_mfcc_node`; node `fa_mfcc` | launch `fa_mfcc.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_onset` | `src/processing/analysis/fa_onset` | 実装済み | あり | exec `fa_onset_node`; node `fa_onset` | launch `fa_onset.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_pitch` | `src/processing/analysis/fa_pitch` | 実装済み | あり | exec `fa_pitch_node`; node `fa_pitch` | launch `fa_pitch.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_stft` | `src/processing/analysis/fa_stft` | 実装済み | あり | exec `fa_stft_node`; node `fa_stft` | launch `fa_stft.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 1 |
-| Processing: analysis/feature | `fa_tempo` | `src/processing/analysis/fa_tempo` | 実装済み | あり | exec `fa_tempo_node`; node `fa_tempo` | launch `fa_tempo.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 1 |
-| Processing: correction/noise | `fa_aec_linear` | `src/processing/correction/fa_aec_linear` | 実装済み | あり | exec `fa_aec_linear_node`; node `fa_aec_linear` | launch `fa_aec_linear.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 2; Pub 2 |
-| Processing: correction/noise | `fa_aec_nn` | `src/processing/correction/fa_aec_nn` | 実装済み | あり | exec `fa_aec_nn_node`; node `fa_aec_nn` | launch `fa_aec_nn.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2 |
-| Processing: correction/noise | `fa_dc_offset_removal` | `src/processing/correction/fa_dc_offset_removal` | 実装済み | あり | exec `fa_dc_offset_removal_node`; node `fa_dc_offset_removal` | launch `fa_dc_offset_removal.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: correction/noise | `fa_debreath` | `src/processing/correction/fa_debreath` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: correction/noise | `fa_declick` | `src/processing/correction/fa_declick` | 実装済み | あり | exec `fa_declick_node`; node `fa_declick` | launch `fa_declick.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: correction/noise | `fa_declip` | `src/processing/correction/fa_declip` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: correction/noise | `fa_denoise` | `src/processing/correction/fa_denoise` | 実装済み | あり | exec `fa_denoise_node`; node `fa_denoise` | launch `fa_denoise.launch.py`; config `config/default.yaml` | あり(8 files) | Sub 1; Pub 2 |
-| Processing: correction/noise | `fa_dereverb` | `src/processing/correction/fa_dereverb` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: correction/noise | `fa_hum` | `src/processing/correction/fa_hum` | 実装済み | あり | exec `fa_hum_node`; node `fa_hum` | launch `fa_hum.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: correction/noise | `fa_wind` | `src/processing/correction/fa_wind` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: dynamics | `fa_agc` | `src/processing/dynamics/fa_agc` | 実装済み | あり | exec `fa_agc_node`; node `fa_agc` | launch `fa_agc.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_compressor` | `src/processing/dynamics/fa_compressor` | 実装済み | あり | exec `fa_compressor_node`; node `fa_compressor` | launch `fa_compressor.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_expander` | `src/processing/dynamics/fa_expander` | 実装済み | あり | exec `fa_expander_node`; node `fa_expander` | launch `fa_expander.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_gain` | `src/processing/dynamics/fa_gain` | 実装済み | あり | exec `fa_gain_node`; node `fa_gain` | launch `fa_gain.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_limiter` | `src/processing/dynamics/fa_limiter` | 実装済み | あり | exec `fa_limiter_node`; node `fa_limiter` | launch `fa_limiter.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_noise_gate` | `src/processing/dynamics/fa_noise_gate` | 実装済み | あり | exec `fa_noise_gate_node`; node `fa_noise_gate` | launch `fa_noise_gate.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: dynamics | `fa_normalize` | `src/processing/dynamics/fa_normalize` | 実装済み | あり | exec `fa_normalize_node`; node `fa_normalize` | launch `fa_normalize.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_bit_depth` | `src/processing/format/fa_bit_depth` | 実装済み | あり | exec `fa_bit_depth_node`; node `fa_bit_depth` | launch `fa_bit_depth.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_channel_convert` | `src/processing/format/fa_channel_convert` | 実装済み | あり | exec `fa_channel_convert_node`; node `fa_channel_convert` | launch `fa_channel_convert.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_decode` | `src/processing/format/fa_decode` | 実装済み | あり | exec `fa_decode_node`; node `fa_decode` | launch `fa_decode.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_encode` | `src/processing/format/fa_encode` | 実装済み | あり | exec `fa_encode_node`; node `fa_encode` | launch `fa_encode.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_format` | `src/processing/format/fa_format` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: format | `fa_interleave` | `src/processing/format/fa_interleave` | 実装済み | あり | exec `fa_interleave_node`; node `fa_interleave` | launch `fa_interleave.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: format | `fa_resample` | `src/processing/format/fa_resample` | 実装済み | あり | exec `fa_resample_node`; node `fa_resample` | launch `fa_resample.launch.py`; config `config/default.yaml` | あり(9 files) | Sub 2; Pub 3 |
-| Processing: format | `fa_sample_format` | `src/processing/format/fa_sample_format` | 実装済み | あり | exec `fa_sample_format_node`; node `fa_sample_format` | launch `fa_sample_format.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_band_pass` | `src/processing/frequency/fa_band_pass` | 実装済み | あり | exec `fa_band_pass_node`; node `fa_band_pass` | launch `fa_band_pass.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_deesser` | `src/processing/frequency/fa_deesser` | 実装済み | あり | exec `fa_deesser_node`; node `fa_deesser` | launch `fa_deesser.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_eq` | `src/processing/frequency/fa_eq` | 実装済み | あり | exec `fa_eq_node`; node `fa_eq` | launch `fa_eq.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_filter` | `src/processing/frequency/fa_filter` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: frequency | `fa_high_pass` | `src/processing/frequency/fa_high_pass` | 実装済み | あり | exec `fa_high_pass_node`; node `fa_high_pass` | launch `fa_high_pass.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_low_pass` | `src/processing/frequency/fa_low_pass` | 実装済み | あり | exec `fa_low_pass_node`; node `fa_low_pass` | launch `fa_low_pass.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_notch` | `src/processing/frequency/fa_notch` | 実装済み | あり | exec `fa_notch_node`; node `fa_notch` | launch `fa_notch.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Processing: frequency | `fa_spectral_subtraction` | `src/processing/frequency/fa_spectral_subtraction` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: frequency | `fa_wiener` | `src/processing/frequency/fa_wiener` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_music_source_separation` | `src/processing/generation/fa_music_source_separation` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_neural_codec` | `src/processing/generation/fa_neural_codec` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_neural_vocoder` | `src/processing/generation/fa_neural_vocoder` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_speech_enhancement` | `src/processing/generation/fa_speech_enhancement` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_speech_separation` | `src/processing/generation/fa_speech_separation` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_speech_translation` | `src/processing/generation/fa_speech_translation` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_super_resolution` | `src/processing/generation/fa_super_resolution` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: generation | `fa_tts` | `src/processing/generation/fa_tts` | 実装済み | あり | exec `fa_tts_node`; node `fa_tts` | launch `fa_tts.launch.py`; config `config/default.yaml` | あり(5 files) | Pub 1; Srv 1 |
-| Processing: generation | `fa_voice_conversion` | `src/processing/generation/fa_voice_conversion` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: routing/mixing | `fa_bus_router` | `src/processing/routing/fa_bus_router` | 実装済み | あり | exec `fa_bus_router_node`; node `fa_bus_router` | launch `fa_bus_router.launch.py`; config `config/default.yaml` | あり(3 files) | Sub 1; Pub 2 |
-| Processing: routing/mixing | `fa_ducking` | `src/processing/routing/fa_ducking` | 実装済み | あり | exec `fa_ducking_node`; node `fa_ducking` | launch `fa_ducking.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 2; Pub 2 |
-| Processing: routing/mixing | `fa_loopback` | `src/processing/routing/fa_loopback` | 実装済み | あり | exec `fa_loopback_node`; node `fa_loopback` | launch `fa_loopback.launch.py`; config `config/default.yaml` | あり(3 files) | Sub 1; Pub 2 |
-| Processing: routing/mixing | `fa_mix` | `src/processing/routing/fa_mix` | 実装済み | あり | exec `fa_mix_node`; node `fa_mix` | launch `fa_mix.launch.py`; config `config/default.yaml` | あり(8 files) | Sub 1; Pub 2 |
-| Processing: routing/mixing | `fa_monitor_mix` | `src/processing/routing/fa_monitor_mix` | 実装済み | あり | exec `fa_monitor_mix_node`; node `fa_monitor_mix` | launch `fa_monitor_mix.launch.py`; config `config/default.yaml` | あり(4 files) | Sub 1; Pub 2 |
-| Processing: routing/mixing | `fa_patchbay` | `src/processing/routing/fa_patchbay` | 実装済み | あり | exec `fa_patchbay_node`; node `fa_patchbay` | launch `fa_patchbay.launch.py`; config `config/default.yaml` | あり(3 files) | Sub 1; Pub 2 |
-| Processing: routing/mixing | `fa_sidechain` | `src/processing/routing/fa_sidechain` | 実装済み | あり | exec `fa_sidechain_node`; node `fa_sidechain` | launch `fa_sidechain.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: spatial/channel | `fa_ambisonics` | `src/processing/spatial/fa_ambisonics` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: spatial/channel | `fa_beamforming` | `src/processing/spatial/fa_beamforming` | 実装済み | あり | exec `fa_beamforming_node`; node `fa_beamforming` | launch `fa_beamforming.launch.py`; config `config/default.yaml` | あり(4 files) | Sub 1; Pub 2 |
-| Processing: spatial/channel | `fa_binaural` | `src/processing/spatial/fa_binaural` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: spatial/channel | `fa_downmix` | `src/processing/spatial/fa_downmix` | 実装済み | あり | exec `fa_downmix_node`; node `fa_downmix` | launch `fa_downmix.launch.py`; config `config/default.yaml` | あり(4 files) | Sub 1; Pub 2 |
-| Processing: spatial/channel | `fa_pan` | `src/processing/spatial/fa_pan` | 実装済み | あり | exec `fa_pan_node`; node `fa_pan` | launch `fa_pan.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: spatial/channel | `fa_source_separation` | `src/processing/spatial/fa_source_separation` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: spatial/channel | `fa_stereo_widening` | `src/processing/spatial/fa_stereo_widening` | 実装済み | あり | exec `fa_stereo_widening_node`; node `fa_stereo_widening` | launch `fa_stereo_widening.launch.py`; config `config/default.yaml` | あり(4 files) | Sub 1; Pub 2 |
-| Processing: spatial/channel | `fa_upmix` | `src/processing/spatial/fa_upmix` | 実装済み | あり | exec `fa_upmix_node`; node `fa_upmix` | launch `fa_upmix.launch.py`; config `config/default.yaml` | あり(4 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_crossfade` | `src/processing/temporal/fa_crossfade` | 実装済み | あり | exec `fa_crossfade_node`; node `fa_crossfade` | launch `fa_crossfade.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 2; Pub 2 |
-| Processing: temporal | `fa_delay` | `src/processing/temporal/fa_delay` | 実装済み | あり | exec `fa_delay_node`; node `fa_delay` | launch `fa_delay.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_echo` | `src/processing/temporal/fa_echo` | 実装済み | あり | exec `fa_echo_node`; node `fa_echo` | launch `fa_echo.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_fade` | `src/processing/temporal/fa_fade` | 実装済み | あり | exec `fa_fade_node`; node `fa_fade` | launch `fa_fade.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_pitch_shift` | `src/processing/temporal/fa_pitch_shift` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: temporal | `fa_reverb` | `src/processing/temporal/fa_reverb` | 実装済み | あり | exec `fa_reverb_node`; node `fa_reverb` | launch `fa_reverb.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_silence_removal` | `src/processing/temporal/fa_silence_removal` | 実装済み | あり | exec `fa_silence_removal_node`; node `fa_silence_removal` | launch `fa_silence_removal.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_time_stretch` | `src/processing/temporal/fa_time_stretch` | 計画/未実装 | なし | なし | なし | あり(3 files) | 未実装。外部runtime APIなし。 |
-| Processing: temporal | `fa_trim` | `src/processing/temporal/fa_trim` | 実装済み | あり | exec `fa_trim_node`; node `fa_trim` | launch `fa_trim.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Processing: temporal | `fa_window` | `src/processing/temporal/fa_window` | 実装済み | あり | exec `fa_window_node`; node `fa_window` | launch `fa_window.launch.py`; config `config/default.yaml` | あり(5 files) | Sub 1; Pub 2 |
-| Streaming | `fa_audio_window` | `src/streaming/fa_audio_window` | 実装済み | あり | exec `fa_audio_window_node`; node `fa_audio_window` | launch `fa_audio_window.launch.py`; config `config/default.yaml` | あり(3 files) | Sub 1; Srv 2 |
-| Streaming | `fa_chunk_overlap` | `src/streaming/fa_chunk_overlap` | 実装済み | あり | exec `fa_chunk_overlap_node`; node `fa_chunk_overlap` | launch `fa_chunk_overlap.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2 |
-| Streaming | `fa_clock_drift` | `src/streaming/fa_clock_drift` | 実装済み | あり | exec `fa_clock_drift_node`; node `fa_clock_drift` | launch `fa_clock_drift.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2 |
-| Streaming | `fa_frame_buffer` | `src/streaming/fa_frame_buffer` | 実装済み | あり | exec `fa_frame_buffer_node`; node `fa_frame_buffer` | launch `fa_frame_buffer.launch.py`; config `config/default.yaml` | あり(7 files) | Sub 1; Pub 2 |
-| Streaming | `fa_jitter_buffer` | `src/streaming/fa_jitter_buffer` | 実装済み | あり | exec `fa_jitter_buffer_node`; node `fa_jitter_buffer_node` | launch `fa_jitter_buffer.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2 |
-| Streaming | `fa_latency_compensation` | `src/streaming/fa_latency_compensation` | 実装済み | あり | exec `fa_latency_compensation_node`; node `fa_latency_compensation` | launch `fa_latency_compensation.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2 |
-| Streaming | `fa_overlap_add` | `src/streaming/fa_overlap_add` | 実装済み | あり | exec `fa_overlap_add_node`; node `fa_overlap_add_node` | launch `fa_overlap_add.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2 |
-| Streaming | `fa_packet_loss_concealment` | `src/streaming/fa_packet_loss_concealment` | 実装済み | あり | exec `fa_packet_loss_concealment_node`; node `fa_packet_loss_concealment_node` | launch `fa_packet_loss_concealment.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2 |
-| Streaming | `fa_time_alignment` | `src/streaming/fa_time_alignment` | 実装済み | あり | exec `fa_time_alignment_node`; node `fa_time_alignment` | launch `fa_time_alignment.launch.py`; config `config/default.yaml` | あり(6 files) | Sub 1; Pub 2 |
-| System | `fluent_audio_system` | `src/system/fluent_audio_system` | 支援/インターフェース | あり | exec `list_required_packages` | launch `fluent_audio_system.launch.py`, `run.py`; config 7 files | あり(21 files) | system YAMLをlaunch graphへ展開。CLI `list_required_packages`。 |
+| 分類 | ノード/パッケージ | パス | 状態 | テスト | 外部API概要 |
+| --- | --- | --- | --- | --- | --- |
+| AI | `fa_asr` | `src/ai/fa_asr` | 実装済み | あり(9 files) | Sub 3; Pub 1; Srv 1 |
+| AI | `fa_audio_embedding` | `src/ai/fa_audio_embedding` | 実装済み | あり(7 files) | Sub 1; Pub 1 |
+| AI | `fa_kws` | `src/ai/fa_kws` | 実装済み | あり(12 files) | Sub 2; Pub 1 |
+| AI | `fa_sed` | `src/ai/fa_sed` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| AI | `fa_speaker` | `src/ai/fa_speaker` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| AI | `fa_turn_detector` | `src/ai/fa_turn_detector` | 実装済み | あり(9 files) | Sub 3; Pub 1 |
+| AI | `fa_vad` | `src/ai/fa_vad` | 実装済み | あり(8 files) | Sub 1; Pub 3 |
+| Apps / Agent Tools | `fa_audio_mcp` | `src/apps/agent_tools/fa_audio_mcp` | 支援/インターフェース | あり(12 files) | Client 3; MCP export_audio_window, archive_audio_window, transcribe_audio |
+| Apps / Dialogue | `fa_dialogue` | `src/apps/dialogue/fa_dialogue` | 実装済み | あり(7 files) | Sub 3; Pub 1 |
+| Apps / Safety | `fa_safety_policy` | `src/apps/safety/fa_safety_policy` | 計画/未実装 | あり(4 files) | 未実装。外部runtime APIなし。 |
+| Apps / Voice Command | `fa_voice_command_router` | `src/apps/voice_command/fa_voice_command_router` | 実装済み | あり(6 files) | Sub 1; Pub 2; Srv 3; Client 1 |
+| Interfaces | `fa_interfaces` | `src/interfaces/fa_interfaces` | 支援/インターフェース | あり(5 files) | msg 22 / srv 8 を生成。 |
+| IO / sinks | `fa_file_out` | `src/io/sinks/fa_file_out` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| IO / sinks | `fa_network_out` | `src/io/sinks/fa_network_out` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| IO / sinks | `fa_out` | `src/io/sinks/fa_out` | 実装済み | あり(9 files) | Sub 1; Pub 1; Srv 1 |
+| IO / sources | `fa_file_in` | `src/io/sources/fa_file_in` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| IO / sources | `fa_in` | `src/io/sources/fa_in` | 実装済み | あり(9 files) | Pub 2; Srv 2 |
+| IO / sources | `fa_network_in` | `src/io/sources/fa_network_in` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| IO / utilities | `fa_record` | `src/io/utilities/fa_record` | 実装済み | あり(6 files) | Sub 1; Srv 1 |
+| IO / utilities | `fa_stream` | `src/io/utilities/fa_stream` | 実装済み | あり(6 files) | Sub 1 |
+| Processing: analysis/feature | `fa_cqt` | `src/processing/analysis/fa_cqt` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing: analysis/feature | `fa_log_mel` | `src/processing/analysis/fa_log_mel` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing: analysis/feature | `fa_loudness` | `src/processing/analysis/fa_loudness` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing: analysis/feature | `fa_mfcc` | `src/processing/analysis/fa_mfcc` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing: analysis/feature | `fa_onset` | `src/processing/analysis/fa_onset` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing: analysis/feature | `fa_pitch` | `src/processing/analysis/fa_pitch` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing: analysis/feature | `fa_stft` | `src/processing/analysis/fa_stft` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing: analysis/feature | `fa_tempo` | `src/processing/analysis/fa_tempo` | 実装済み | あり(5 files) | Sub 1; Pub 1 |
+| Processing: correction/noise | `fa_aec_linear` | `src/processing/correction/fa_aec_linear` | 実装済み | あり(7 files) | Sub 2; Pub 2 |
+| Processing: correction/noise | `fa_aec_nn` | `src/processing/correction/fa_aec_nn` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Processing: correction/noise | `fa_dc_offset_removal` | `src/processing/correction/fa_dc_offset_removal` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: correction/noise | `fa_debreath` | `src/processing/correction/fa_debreath` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: correction/noise | `fa_declick` | `src/processing/correction/fa_declick` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: correction/noise | `fa_declip` | `src/processing/correction/fa_declip` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: correction/noise | `fa_denoise` | `src/processing/correction/fa_denoise` | 実装済み | あり(8 files) | Sub 1; Pub 2 |
+| Processing: correction/noise | `fa_dereverb` | `src/processing/correction/fa_dereverb` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: correction/noise | `fa_hum` | `src/processing/correction/fa_hum` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: correction/noise | `fa_wind` | `src/processing/correction/fa_wind` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: dynamics | `fa_agc` | `src/processing/dynamics/fa_agc` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: dynamics | `fa_compressor` | `src/processing/dynamics/fa_compressor` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: dynamics | `fa_expander` | `src/processing/dynamics/fa_expander` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: dynamics | `fa_gain` | `src/processing/dynamics/fa_gain` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: dynamics | `fa_limiter` | `src/processing/dynamics/fa_limiter` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: dynamics | `fa_noise_gate` | `src/processing/dynamics/fa_noise_gate` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: dynamics | `fa_normalize` | `src/processing/dynamics/fa_normalize` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: format | `fa_bit_depth` | `src/processing/format/fa_bit_depth` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Processing: format | `fa_channel_convert` | `src/processing/format/fa_channel_convert` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: format | `fa_decode` | `src/processing/format/fa_decode` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: format | `fa_encode` | `src/processing/format/fa_encode` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: format | `fa_format` | `src/processing/format/fa_format` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: format | `fa_interleave` | `src/processing/format/fa_interleave` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: format | `fa_resample` | `src/processing/format/fa_resample` | 実装済み | あり(9 files) | Sub 2; Pub 3 |
+| Processing: format | `fa_sample_format` | `src/processing/format/fa_sample_format` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: frequency | `fa_band_pass` | `src/processing/frequency/fa_band_pass` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: frequency | `fa_deesser` | `src/processing/frequency/fa_deesser` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: frequency | `fa_eq` | `src/processing/frequency/fa_eq` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: frequency | `fa_filter` | `src/processing/frequency/fa_filter` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: frequency | `fa_high_pass` | `src/processing/frequency/fa_high_pass` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: frequency | `fa_low_pass` | `src/processing/frequency/fa_low_pass` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: frequency | `fa_notch` | `src/processing/frequency/fa_notch` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Processing: frequency | `fa_spectral_subtraction` | `src/processing/frequency/fa_spectral_subtraction` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: frequency | `fa_wiener` | `src/processing/frequency/fa_wiener` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: generation | `fa_music_source_separation` | `src/processing/generation/fa_music_source_separation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: generation | `fa_neural_codec` | `src/processing/generation/fa_neural_codec` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: generation | `fa_neural_vocoder` | `src/processing/generation/fa_neural_vocoder` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: generation | `fa_speech_enhancement` | `src/processing/generation/fa_speech_enhancement` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: generation | `fa_speech_separation` | `src/processing/generation/fa_speech_separation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: generation | `fa_speech_translation` | `src/processing/generation/fa_speech_translation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: generation | `fa_super_resolution` | `src/processing/generation/fa_super_resolution` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: generation | `fa_tts` | `src/processing/generation/fa_tts` | 実装済み | あり(5 files) | Pub 1; Srv 1 |
+| Processing: generation | `fa_voice_conversion` | `src/processing/generation/fa_voice_conversion` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: routing/mixing | `fa_bus_router` | `src/processing/routing/fa_bus_router` | 実装済み | あり(3 files) | Sub 1; Pub 2 |
+| Processing: routing/mixing | `fa_ducking` | `src/processing/routing/fa_ducking` | 実装済み | あり(5 files) | Sub 2; Pub 2 |
+| Processing: routing/mixing | `fa_loopback` | `src/processing/routing/fa_loopback` | 実装済み | あり(3 files) | Sub 1; Pub 2 |
+| Processing: routing/mixing | `fa_mix` | `src/processing/routing/fa_mix` | 実装済み | あり(8 files) | Sub 1; Pub 2 |
+| Processing: routing/mixing | `fa_monitor_mix` | `src/processing/routing/fa_monitor_mix` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
+| Processing: routing/mixing | `fa_patchbay` | `src/processing/routing/fa_patchbay` | 実装済み | あり(3 files) | Sub 1; Pub 2 |
+| Processing: routing/mixing | `fa_sidechain` | `src/processing/routing/fa_sidechain` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: spatial/channel | `fa_ambisonics` | `src/processing/spatial/fa_ambisonics` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: spatial/channel | `fa_beamforming` | `src/processing/spatial/fa_beamforming` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
+| Processing: spatial/channel | `fa_binaural` | `src/processing/spatial/fa_binaural` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: spatial/channel | `fa_downmix` | `src/processing/spatial/fa_downmix` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
+| Processing: spatial/channel | `fa_pan` | `src/processing/spatial/fa_pan` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: spatial/channel | `fa_source_separation` | `src/processing/spatial/fa_source_separation` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: spatial/channel | `fa_stereo_widening` | `src/processing/spatial/fa_stereo_widening` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
+| Processing: spatial/channel | `fa_upmix` | `src/processing/spatial/fa_upmix` | 実装済み | あり(4 files) | Sub 1; Pub 2 |
+| Processing: temporal | `fa_crossfade` | `src/processing/temporal/fa_crossfade` | 実装済み | あり(5 files) | Sub 2; Pub 2 |
+| Processing: temporal | `fa_delay` | `src/processing/temporal/fa_delay` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: temporal | `fa_echo` | `src/processing/temporal/fa_echo` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Processing: temporal | `fa_fade` | `src/processing/temporal/fa_fade` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: temporal | `fa_pitch_shift` | `src/processing/temporal/fa_pitch_shift` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: temporal | `fa_reverb` | `src/processing/temporal/fa_reverb` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: temporal | `fa_silence_removal` | `src/processing/temporal/fa_silence_removal` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: temporal | `fa_time_stretch` | `src/processing/temporal/fa_time_stretch` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
+| Processing: temporal | `fa_trim` | `src/processing/temporal/fa_trim` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Processing: temporal | `fa_window` | `src/processing/temporal/fa_window` | 実装済み | あり(5 files) | Sub 1; Pub 2 |
+| Streaming | `fa_audio_window` | `src/streaming/fa_audio_window` | 実装済み | あり(3 files) | Sub 1; Srv 2 |
+| Streaming | `fa_chunk_overlap` | `src/streaming/fa_chunk_overlap` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Streaming | `fa_clock_drift` | `src/streaming/fa_clock_drift` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Streaming | `fa_frame_buffer` | `src/streaming/fa_frame_buffer` | 実装済み | あり(7 files) | Sub 1; Pub 2 |
+| Streaming | `fa_jitter_buffer` | `src/streaming/fa_jitter_buffer` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Streaming | `fa_latency_compensation` | `src/streaming/fa_latency_compensation` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Streaming | `fa_overlap_add` | `src/streaming/fa_overlap_add` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Streaming | `fa_packet_loss_concealment` | `src/streaming/fa_packet_loss_concealment` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| Streaming | `fa_time_alignment` | `src/streaming/fa_time_alignment` | 実装済み | あり(6 files) | Sub 1; Pub 2 |
+| System | `fluent_audio_system` | `src/system/fluent_audio_system` | 支援/インターフェース | あり(21 files) | system YAMLをlaunch graphへ展開。CLI `list_required_packages`。 |
 
 ## AI
 
