@@ -48,6 +48,10 @@ fa_asr:
     # - parakeet_worker: external worker/process/container, requires backend.model
     # - nemo_rnnt_streaming: external JSONL streaming worker/process/container,
     #   requires backend.command and a local backend.model_path .nemo file
+    # - nemo_offline_transcribe: external non-streaming local NeMo worker for
+    #   full-context .nemo transcribe, requires backend.command, local
+    #   backend.model_path .nemo, backend.language, backend.sample_rate_hz,
+    #   backend.channels=1, and backend.result_format
     # - openai_realtime: external OpenAI Realtime worker/process, requires backend.model
     #   and backend.openai_realtime.api_key_env
     # - openai_transcriptions: external OpenAI Transcriptions worker/process, requires

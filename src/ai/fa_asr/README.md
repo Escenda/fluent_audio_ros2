@@ -33,12 +33,14 @@ observability.qos.reliable: true
 
 ## バックエンド契約
 
-`backend.name` は必須です。対応する backend は `local_command`, `whisper.cpp`, `parakeet_worker`, `nemo_rnnt_streaming`, `openai_realtime`, `openai_transcriptions` です。
+`backend.name` は必須です。対応する backend は `local_command`, `whisper.cpp`, `parakeet_worker`, `nemo_offline_transcribe`, `nemo_rnnt_streaming`, `openai_realtime`, `openai_transcriptions` です。
+`nemo_offline_transcribe` は local `.nemo` を NeMo offline / full-context `transcribe(...)` API で呼ぶ non-streaming command / worker backend であり、working tree 上では backend / worker / tests / profile work が作成済みです。ただし file-source full ROS graph と accuracy 評価は未検証です。
 non-streaming command 系 backend では `backend.result_format` も backend 設定時に必須です。`nemo_rnnt_streaming` は JSONL streaming protocol を使い、`backend.result_format` / `backend.args` / `backend.health_args` は使いません。default config は `backend.name` / command backend 用 `backend.result_format` を空にし、backend selection と output contract を暗黙選択しません。利用環境ごとの launch/config で `backend.name` と backend ごとの必須パラメータを明示してください。
 
 - `local_command` / `whisper.cpp`: `backend.command` と `backend.model_path` が必須です。
 - `parakeet_worker`: `backend.command`、`backend.model`、`backend.result_format`、`backend.args`、`backend.health_args` が必須です。Python version / venv / SDK が異なる処理は外部 worker / process / container 側へ置きます。streaming session、encoder cache、NeMo import、NIM/Riva endpoint、NGC artifact handling は持ちません。
 - `nemo_rnnt_streaming`: `backend.command` と local `.nemo` file の `backend.model_path` が必須です。JSONL streaming worker と cache-aware NeMo RNNT model を使い、`backend.result_format` / `backend.args` / `backend.health_args` は使いません。
+- `nemo_offline_transcribe`: `backend.command`、local `.nemo` file の `backend.model_path`、`backend.language`、`backend.sample_rate_hz`、`backend.channels`、`backend.result_format` が必須です。NIM / Riva / gRPC は使わず、`fa_asr` node 本体は hidden resample / downmix を行いません。worker は validated raw `float32le` を NeMo model API へ渡すための WAV bridge を backend 境界内で明示的に持ちます。
 - `openai_realtime` / `openai_transcriptions`: `backend.command`、`backend.model`、対応する `backend.openai_*.api_key_env` が必須です。OpenAI SDK/API client は外部 worker / process / container 側へ置きます。
 - `backend.args` は non-streaming command backend の worker/CLI contract です。該当 backend では `{audio}`、`{model}`、`{sample_rate}` を含む配列を明示してください。
 - `backend.health_args` は non-streaming command backend の startup health check contract です。`parakeet_worker` / `openai_realtime` / `openai_transcriptions` では必須です。`local_command` / `whisper.cpp` では package 単体の backend contract としては任意ですが、package-owned SO101 profile template では startup health check を明示するために設定します。
@@ -57,3 +59,16 @@ backend.health_args: ["health", "--model", "{model}", "--language", "{language}"
 ```
 
 OpenAI 系 backend は OpenAI 直結実装ではなく、外部 worker command を呼ぶ backend slot です。API key の値、network、SDK は worker 側の責務です。`fa_asr` は `api_key_env` の指定と、その環境変数が空でないことだけを検証し、未設定なら起動失敗します。
+
+## NeMo local `.nemo` の現 runtime evidence
+
+`fluent-audio-runtime` container で Torch `2.11.0+cu130`、CUDA available の状態を確認し、local Parakeet 1.1B multilingual `.nemo` を `ASRModel.restore_from(...)` で `EncDecRNNTBPEModel` として restore できることを確認しています。
+対象 file は `models/nemo_rnnt_streaming/parakeet-rnnt-riva-1-1b-unified-ml-cs-universal_vtrainable_v1.0/Parakeet-RNNT-XXL-1.1b_merged_universal_spe8.5k_1.0.nemo`、size `4011233560`、SHA256 `52332e96ef68ff8cfefd1d8d7b8c5d7b5333faa3cfac87ed4cc7b5ec3d5821c0` です。
+
+NeMo offline API として `ASRModel.restore_from(...); model.transcribe(audio=[...], batch_size=1, return_hypotheses=False, num_workers=0, verbose=False)` を使い、`/tmp/fluent_audio_asr_fixture/ja-pronunciation-practice5.ogg` から次の non-empty Japanese output が返りました。
+
+```text
+天 気 練 習 残 業 安 ん な り 電 波 宣 兵 電 米 宣 本 専 用 本 屋 三 円 単 位
+```
+
+これは offline / full-context local NeMo transcribe の viability を示す証跡です。accuracy、`nemo_rnnt_streaming` backend 成功、full ROS graph 成功は証明しません。`nemo_rnnt_streaming` は引き続き finite attention context 不成立により fail closed / 未検証として扱います。

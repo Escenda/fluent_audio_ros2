@@ -486,6 +486,23 @@ class FaAsrNode(Node):
                     ),
                 )
             )
+        if backend_name == "nemo_offline_transcribe":
+            return build_asr_backend(
+                AsrBackendSettings(
+                    name=backend_name,
+                    workspace_dir=self.workspace_dir,
+                    cleanup_audio_files=self.cleanup_audio_files,
+                    command=self._string_parameter("backend.command"),
+                    model_path=self._string_parameter("backend.model_path"),
+                    language=self._string_parameter("backend.language"),
+                    timeout_sec=self._double_parameter("backend.timeout_sec"),
+                    working_directory=self._string_parameter("backend.working_directory"),
+                    output_text_path=self._string_parameter("backend.output_text_path"),
+                    result_format=self._string_parameter("backend.result_format"),
+                    sample_rate_hz=self._integer_parameter("backend.sample_rate_hz"),
+                    channels=self._integer_parameter("backend.channels"),
+                )
+            )
         if backend_name == "openai_realtime":
             return build_asr_backend(
                 AsrBackendSettings(

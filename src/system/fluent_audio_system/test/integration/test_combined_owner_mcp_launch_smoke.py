@@ -57,6 +57,8 @@ _SOURCE_ID = _DISABLED_SITE_BINDING
 _PROFILE_SOURCE_ID = "mic"
 _ASR_STREAM_ID = "audio/high_pass/mic"
 _WINDOW_STREAM_ID = "audio/archive_pcm16/mic"
+_PROFILE_ASR_RESULT_TOPIC = "voice/asr/result"
+_PROFILE_VAD_STATE_TOPIC = "voice/vad_state"
 _PROFILE_ASR_LANGUAGE = "en"
 _ARCHIVE_REASON = "combined launch smoke"
 _ARCHIVE_ARTIFACT_ID = "fluent_audio_system_launch"
@@ -76,12 +78,119 @@ _FAKE_ASR_WORKER = """#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
+import base64
+import json
 import math
 from pathlib import Path
 import struct
+import sys
 
 
-def main() -> int:
+def _load_model_transcript(model: str, language: str) -> str:
+    model_path = Path(model)
+    if not model_path.is_file():
+        raise RuntimeError(f"missing model: {model_path}")
+    if not model_path.name.endswith(".nemo") and not model_path.name.endswith(".txt"):
+        raise RuntimeError(f"unsupported fake model suffix: {model_path}")
+    if not language:
+        raise RuntimeError("language is required")
+    return model_path.read_text(encoding="utf-8").strip()
+
+
+def _emit(message: dict[str, str | int | bool]) -> None:
+    print(json.dumps(message, separators=(",", ":")), flush=True)
+
+
+def _validate_float32le_payload(data: bytes, sample_count: int) -> None:
+    if sample_count <= 0:
+        raise RuntimeError("sample_count must be positive")
+    if len(data) != sample_count * 4:
+        raise RuntimeError("expected sample_count float32le samples")
+    samples = [sample for (sample,) in struct.iter_unpack("<f", data)]
+    if not all(math.isfinite(sample) for sample in samples):
+        raise RuntimeError("expected finite float32le audio")
+
+
+def _jsonl_main() -> int:
+    session_samples: dict[str, int] = {}
+    session_transcripts: dict[str, str] = {}
+    for line in sys.stdin:
+        message = json.loads(line)
+        message_type = message["type"]
+        if message_type == "health":
+            transcript = _load_model_transcript(message["model_path"], message["language"])
+            if not transcript:
+                raise RuntimeError("empty transcript")
+            _emit(
+                {
+                    "type": "health_ok",
+                    "model_class": "rnnt",
+                    "cache_aware_streaming": True,
+                    "sample_rate_hz": message["sample_rate_hz"],
+                    "channels": message["channels"],
+                    "audio_encoding": message["audio_encoding"],
+                    "streaming": True,
+                    "final_results_only": not message["emit_partial"],
+                    "supports_partials": True,
+                    "language": message["language"],
+                    "chunk_size_samples": message["chunk_size_samples"],
+                    "max_partial_interval_ms": message["max_partial_interval_ms"],
+                }
+            )
+            continue
+        if message_type == "start":
+            transcript = _load_model_transcript(message["model_path"], message["language"])
+            session_id = message["session_id"]
+            session_samples[session_id] = 0
+            session_transcripts[session_id] = transcript
+            _emit({"type": "stream_started", "session_id": session_id})
+            continue
+        if message_type == "audio":
+            session_id = message["session_id"]
+            sample_count = message["sample_count"]
+            data = base64.b64decode(message["data"])
+            _validate_float32le_payload(data, sample_count)
+            session_samples[session_id] += sample_count
+            if session_transcripts[session_id]:
+                _emit(
+                    {
+                        "type": "partial",
+                        "session_id": session_id,
+                        "text": session_transcripts[session_id],
+                        "sample_count": session_samples[session_id],
+                    }
+                )
+            _emit(
+                {
+                    "type": "audio_accepted",
+                    "session_id": session_id,
+                    "sample_count": sample_count,
+                }
+            )
+            continue
+        if message_type == "drain":
+            _emit({"type": "drained", "session_id": message["session_id"]})
+            continue
+        if message_type == "finish":
+            session_id = message["session_id"]
+            _emit(
+                {
+                    "type": "final",
+                    "session_id": session_id,
+                    "text": session_transcripts[session_id],
+                    "sample_count": session_samples[session_id],
+                }
+            )
+            _emit({"type": "finished", "session_id": session_id})
+            continue
+        if message_type == "cancel":
+            _emit({"type": "cancelled", "session_id": message["session_id"]})
+            continue
+        raise RuntimeError(f"unsupported message type: {message_type}")
+    return 0
+
+
+def _command_main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", nargs="?", choices=("transcribe", "health"))
     parser.add_argument("--health", action="store_true")
@@ -92,11 +201,7 @@ def main() -> int:
     parser.add_argument("--expected-sample", type=float)
     args = parser.parse_args()
 
-    model_path = Path(args.model)
-    if not model_path.is_file():
-        raise RuntimeError(f"missing model: {model_path}")
-    if not args.language:
-        raise RuntimeError("language is required")
+    transcript = _load_model_transcript(args.model, args.language)
     if args.health or args.command == "health":
         return 0
     if args.audio is None:
@@ -124,8 +229,14 @@ def main() -> int:
     if not all(abs(sample - args.expected_sample) <= 1.0e-7 for sample in samples):
         raise RuntimeError("unexpected float32le sample values")
 
-    print(model_path.read_text(encoding="utf-8").strip())
+    print(transcript)
     return 0
+
+
+def main() -> int:
+    if len(sys.argv) == 1:
+        return _jsonl_main()
+    return _command_main()
 
 
 if __name__ == "__main__":
@@ -164,6 +275,8 @@ class _ProfileSmokeConfig:
     suffix: str
     client_node_name: str
     high_pass_topic: str
+    turn_context_topic: str
+    asr_event_topic: str
     transcribe_service: str
     export_service: str
     archive_service: str
@@ -334,7 +447,7 @@ def test_so101_profile_pair_runs_owner_services_and_mcp_tools(
         from rclpy.executors import SingleThreadedExecutor
         from rclpy.qos import QoSProfile, ReliabilityPolicy
 
-        from fa_interfaces.msg import AudioFrame
+        from fa_interfaces.msg import AsrEvent, AsrResult, AudioFrame, TurnContext, VadState
         from fa_interfaces.srv import ArchiveAudioWindow, ExportAudioWindow, TranscribeAudio
 
         context = Context()
@@ -342,6 +455,27 @@ def test_so101_profile_pair_runs_owner_services_and_mcp_tools(
         node = rclpy.create_node(config.client_node_name, context=context)
         executor = SingleThreadedExecutor(context=context)
         executor.add_node(node)
+        asr_results: list[AsrResult] = []
+        asr_events: list[AsrEvent] = []
+        vad_states: list[VadState] = []
+        asr_result_sub = node.create_subscription(
+            AsrResult,
+            _PROFILE_ASR_RESULT_TOPIC,
+            asr_results.append,
+            10,
+        )
+        asr_event_sub = node.create_subscription(
+            AsrEvent,
+            config.asr_event_topic,
+            asr_events.append,
+            10,
+        )
+        vad_state_sub = node.create_subscription(
+            VadState,
+            _PROFILE_VAD_STATE_TOPIC,
+            vad_states.append,
+            10,
+        )
         process = _start_profile_launch_process(ros2, config, domain_id=domain_id)
         try:
             _wait_for_mcp_node(node, executor, process, config)
@@ -354,6 +488,17 @@ def test_so101_profile_pair_runs_owner_services_and_mcp_tools(
                 ExportAudioWindow,
                 ArchiveAudioWindow,
             )
+            _publish_profile_turn_context(
+                node,
+                executor,
+                process,
+                config,
+                TurnContext,
+                AsrEvent,
+                asr_events,
+                QoSProfile,
+                ReliabilityPolicy,
+            )
             _publish_profile_high_pass_frames(
                 node,
                 executor,
@@ -363,13 +508,18 @@ def test_so101_profile_pair_runs_owner_services_and_mcp_tools(
                 QoSProfile,
                 ReliabilityPolicy,
             )
-
-            transcribe = _call_profile_transcribe(
+            _set_profile_vad_probability(config, 0.0)
+            final_asr_result = _publish_profile_silence_until_final_asr_result(
                 node,
                 executor,
                 process,
                 config,
-                TranscribeAudio,
+                AudioFrame,
+                QoSProfile,
+                ReliabilityPolicy,
+                asr_results,
+                AsrResult,
+                vad_states,
             )
             export = _call_profile_export(
                 node,
@@ -386,7 +536,7 @@ def test_so101_profile_pair_runs_owner_services_and_mcp_tools(
                 ArchiveAudioWindow,
             )
 
-            _assert_profile_transcribe_response(transcribe, config, TranscribeAudio)
+            _assert_profile_streaming_asr_result(final_asr_result, AsrResult)
             export_clip = _assert_profile_audio_clip_response(
                 export,
                 config,
@@ -412,6 +562,9 @@ def test_so101_profile_pair_runs_owner_services_and_mcp_tools(
             if process.poll() is None:
                 _stop_process(process)
             executor.shutdown()
+            node.destroy_subscription(asr_result_sub)
+            node.destroy_subscription(asr_event_sub)
+            node.destroy_subscription(vad_state_sub)
             node.destroy_node()
             if rclpy.ok(context=context):
                 rclpy.shutdown(context=context)
@@ -553,11 +706,13 @@ def _build_profile_smoke_config(tmp_path: Path) -> _ProfileSmokeConfig:
     suffix = "p_" + uuid.uuid4().hex
     source_index = int(suffix[-8:], 16) % 10_000
     start_unix_ns = 40_000_000_000 + source_index * _NSEC_PER_SEC
-    fake_asr_model_path = tmp_path / "fake_profile_asr_model.txt"
+    fake_asr_model_path = tmp_path / "fake_profile_asr_model.nemo"
     return _ProfileSmokeConfig(
         suffix=suffix,
         client_node_name=f"so101_profile_smoke_client_{suffix}",
         high_pass_topic="audio/high_pass/frame",
+        turn_context_topic="conversation/turn_context",
+        asr_event_topic="voice/asr/event",
         transcribe_service="transcribe_audio",
         export_service="export_audio_window",
         archive_service="archive_audio_window",
@@ -595,6 +750,8 @@ def _build_real_asr_profile_smoke_config(
         suffix=suffix,
         client_node_name=f"so101_real_asr_profile_smoke_client_{suffix}",
         high_pass_topic="audio/high_pass/frame",
+        turn_context_topic="conversation/turn_context",
+        asr_event_topic="voice/asr/event",
         transcribe_service="transcribe_audio",
         export_service="export_audio_window",
         archive_service="archive_audio_window",
@@ -604,7 +761,7 @@ def _build_real_asr_profile_smoke_config(
         asr_worker_path=real_asr.worker_path,
         asr_model=real_asr.model,
         asr_language=real_asr.language,
-        fake_asr_model_path=tmp_path / "unused_fake_profile_asr_model.txt",
+        fake_asr_model_path=tmp_path / "unused_fake_profile_asr_model.nemo",
         vad_model_dir=tmp_path / "fake_silero_model",
         vad_worker_path=tmp_path / "fake_vad_worker.py",
         kws_worker_path=tmp_path / "fake_kws_worker.py",
@@ -670,6 +827,13 @@ def _write_profile_non_asr_runtime_files(config: _ProfileSmokeConfig) -> None:
     _copy_executable_fixture(
         ai_root / "fa_turn_detector" / "test" / "fixtures" / "fake_turn_worker.py",
         config.turn_worker_path,
+    )
+
+
+def _set_profile_vad_probability(config: _ProfileSmokeConfig, probability: float) -> None:
+    (config.vad_model_dir / "probability.txt").write_text(
+        f"{probability:.8f}\n",
+        encoding="utf-8",
     )
 
 
@@ -1126,6 +1290,8 @@ def _publish_profile_high_pass_frames(
     reliability_policy_cls,
     *,
     audio_data: bytes | None = None,
+    start_unix_ns: int | None = None,
+    frame_period_sec: float = 0.0,
     timeout_sec: float = 12.0,
 ) -> None:
     high_pass_pub = node.create_publisher(
@@ -1144,14 +1310,18 @@ def _publish_profile_high_pass_frames(
         frame_data = audio_data
         if frame_data is None:
             frame_data = _float32le_bytes(_ASR_SAMPLE_VALUE, config.sample_count)
+        frame_start_unix_ns = config.start_unix_ns
+        if start_unix_ns is not None:
+            frame_start_unix_ns = start_unix_ns
         _publish_float32le_profile_audio_frames(
             high_pass_pub,
             audio_frame_cls,
             frame_data=frame_data,
-            start_unix_ns=config.start_unix_ns,
+            start_unix_ns=frame_start_unix_ns,
             frame_sample_count=_PROFILE_AUDIO_FRAME_SAMPLE_COUNT,
             executor=executor,
             process=process,
+            frame_period_sec=frame_period_sec,
         )
         end_time = time.monotonic() + 0.8
         while time.monotonic() < end_time:
@@ -1159,6 +1329,134 @@ def _publish_profile_high_pass_frames(
             executor.spin_once(timeout_sec=0.05)
     finally:
         node.destroy_publisher(high_pass_pub)
+
+
+def _publish_profile_silence_until_final_asr_result(
+    node,
+    executor,
+    process: subprocess.Popen[str],
+    config: _ProfileSmokeConfig,
+    audio_frame_cls,
+    qos_profile_cls,
+    reliability_policy_cls,
+    asr_results,
+    asr_result_cls,
+    vad_states,
+    *,
+    timeout_sec: float = 14.0,
+    frame_period_sec: float = 0.04,
+):
+    high_pass_pub = node.create_publisher(
+        audio_frame_cls,
+        config.high_pass_topic,
+        _audio_qos(qos_profile_cls, reliability_policy_cls),
+    )
+    try:
+        _wait_for_profile_high_pass_subscriptions(
+            high_pass_pub,
+            executor,
+            process,
+            expected_subscription_count=_SO101_HIGH_PASS_DIRECT_CONSUMERS,
+            timeout_sec=timeout_sec,
+        )
+        frame_data = _float32le_bytes(0.0, _PROFILE_AUDIO_FRAME_SAMPLE_COUNT)
+        frame_index = 0
+        vad_end_seen = False
+        deadline = time.monotonic() + timeout_sec
+        next_publish_at = time.monotonic()
+        while time.monotonic() < deadline:
+            _ensure_launch_running(process)
+            final = _profile_final_asr_result_or_raise(asr_results, asr_result_cls)
+            if final is not None:
+                return final
+            vad_end_seen = vad_end_seen or _profile_vad_end_seen(vad_states)
+
+            now = time.monotonic()
+            if not vad_end_seen and now >= next_publish_at:
+                high_pass_pub.publish(
+                    _audio_frame(
+                        audio_frame_cls,
+                        source_id=_PROFILE_SOURCE_ID,
+                        stream_id=_ASR_STREAM_ID,
+                        encoding="FLOAT32LE",
+                        bit_depth=32,
+                        start_unix_ns=(
+                            config.end_unix_ns
+                            + frame_index
+                            * _PROFILE_AUDIO_FRAME_SAMPLE_COUNT
+                            * _NSEC_PER_SEC
+                            // _SAMPLE_RATE
+                        ),
+                        data=frame_data,
+                    )
+                )
+                frame_index += 1
+                next_publish_at = now + frame_period_sec
+            executor.spin_once(timeout_sec=0.01)
+        end_status = "seen" if vad_end_seen else "not_seen"
+        raise RuntimeError(
+            "streaming ASR final result did not arrive after profile silence "
+            f"frames: vad_end={end_status} silence_frames={frame_index}"
+        )
+    finally:
+        node.destroy_publisher(high_pass_pub)
+
+
+def _publish_profile_turn_context(
+    node,
+    executor,
+    process: subprocess.Popen[str],
+    config: _ProfileSmokeConfig,
+    turn_context_cls,
+    asr_event_cls,
+    asr_events,
+    qos_profile_cls,
+    reliability_policy_cls,
+    *,
+    timeout_sec: float = 8.0,
+) -> None:
+    context_pub = node.create_publisher(
+        turn_context_cls,
+        config.turn_context_topic,
+        _audio_qos(qos_profile_cls, reliability_policy_cls),
+    )
+    try:
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            _ensure_launch_running(process)
+            executor.spin_once(timeout_sec=0.05)
+            if context_pub.get_subscription_count() >= 1:
+                break
+        else:
+            raise RuntimeError("profile turn context publisher did not discover subscribers")
+
+        session_id = f"profile-smoke-{config.suffix}"
+        user_turn_id = 1
+        msg = turn_context_cls()
+        stamp_sec, stamp_nanosec = divmod(config.start_unix_ns, _NSEC_PER_SEC)
+        msg.timestamp.sec = stamp_sec
+        msg.timestamp.nanosec = stamp_nanosec
+        msg.session_id = session_id
+        msg.user_turn_id = user_turn_id
+        msg.active = True
+
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            _ensure_launch_running(process)
+            context_pub.publish(msg)
+            executor.spin_once(timeout_sec=0.05)
+            for event in asr_events:
+                if (
+                    event.event == asr_event_cls.EVENT_STARTUP_IDLE
+                    and event.reason == "turn_context_active_waiting"
+                    and event.context_active
+                    and event.session_id == session_id
+                    and event.user_turn_id == user_turn_id
+                ):
+                    return
+        raise RuntimeError("profile ASR did not acknowledge active turn context")
+    finally:
+        node.destroy_publisher(context_pub)
 
 
 def _publish_float32le_profile_audio_frames(
@@ -1170,6 +1468,7 @@ def _publish_float32le_profile_audio_frames(
     frame_sample_count: int,
     executor,
     process: subprocess.Popen[str],
+    frame_period_sec: float = 0.0,
 ) -> None:
     if frame_sample_count <= 0:
         raise ValueError("frame_sample_count must be greater than zero")
@@ -1197,7 +1496,31 @@ def _publish_float32le_profile_audio_frames(
         )
         sample_offset += len(chunk) // bytes_per_sample
         _ensure_launch_running(process)
-        executor.spin_once(timeout_sec=0.001)
+        if frame_period_sec <= 0.0:
+            executor.spin_once(timeout_sec=0.02)
+            continue
+        next_publish_at = time.monotonic() + frame_period_sec
+        while time.monotonic() < next_publish_at:
+            _ensure_launch_running(process)
+            executor.spin_once(timeout_sec=0.01)
+
+
+def _profile_final_asr_result_or_raise(asr_results, asr_result_cls):
+    for result in asr_results:
+        if result.status == asr_result_cls.STATUS_ERROR:
+            raise RuntimeError(f"streaming ASR failed: {result.reason}")
+        if result.status == asr_result_cls.STATUS_FINAL:
+            return result
+    return None
+
+
+def _profile_vad_end_seen(vad_states) -> bool:
+    return any(
+        state.source_id == _PROFILE_SOURCE_ID
+        and state.stream_id == _ASR_STREAM_ID
+        and state.end
+        for state in vad_states
+    )
 
 
 def _wait_for_publisher_subscriptions(
@@ -1449,6 +1772,24 @@ def _call_service(
     raise RuntimeError(f"{label} service did not respond before timeout")
 
 
+def _wait_for_profile_final_asr_result(
+    executor,
+    process: subprocess.Popen[str],
+    asr_results,
+    asr_result_cls,
+    *,
+    timeout_sec: float = 10.0,
+):
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        _ensure_launch_running(process)
+        executor.spin_once(timeout_sec=0.05)
+        result = _profile_final_asr_result_or_raise(asr_results, asr_result_cls)
+        if result is not None:
+            return result
+    raise RuntimeError("streaming ASR final result did not arrive")
+
+
 async def _wait_for_streamable_http_ready(
     url: str,
     process: subprocess.Popen[str],
@@ -1669,13 +2010,6 @@ async def _assert_profile_streamable_http_tools(
                 "export_audio_window",
             } <= tool_names
 
-            transcribe_result = await session.call_tool(
-                "transcribe_audio",
-                {"time_range": config.time_range_spec},
-            )
-            transcribe = _tool_result_json(transcribe_result)
-            _assert_profile_transcribe_json(transcribe, config)
-
             archive_result = await session.call_tool(
                 "archive_audio_window",
                 {
@@ -1775,6 +2109,14 @@ def _assert_profile_transcribe_response(
     assert model_ref.model_path == config.asr_model
     assert model_ref.model_version == ""
     assert model_ref.model_revision == ""
+
+
+def _assert_profile_streaming_asr_result(result, asr_result_cls) -> None:
+    assert result.status == asr_result_cls.STATUS_FINAL
+    assert result.reason == "stream_final"
+    assert result.text == _PROFILE_TRANSCRIPT
+    assert result.session_id
+    assert result.user_turn_id >= 1
 
 
 def _assert_real_asr_profile_transcribe_response(
