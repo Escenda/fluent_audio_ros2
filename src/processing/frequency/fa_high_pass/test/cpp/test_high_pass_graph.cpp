@@ -174,8 +174,11 @@ TEST_F(RclcppFixture, PublishesFirstOrderHighPassFloat32Frame)
   publisher->publish(makeFloat32Frame(*test_node, 17, {0.0F, 1.0F, 1.0F}));
   waitForReceivedCount(executor, received, 1U);
 
-  publisher->publish(makeFloat32Frame(*test_node, 18, {1.0F, 1.0F}));
+  publisher->publish(makeFloat32Frame(*test_node, 17, {1.0F, 1.0F}));
   waitForReceivedCount(executor, received, 2U);
+
+  publisher->publish(makeFloat32Frame(*test_node, 18, {1.0F, 1.0F}));
+  waitForReceivedCount(executor, received, 3U);
 
   publisher->publish(makeFloat32Frame(*test_node, 17, {1.0F, 1.0F}));
   executor.spin_some(100ms);
@@ -185,7 +188,7 @@ TEST_F(RclcppFixture, PublishesFirstOrderHighPassFloat32Frame)
   subscriber.reset();
   publisher.reset();
 
-  ASSERT_EQ(received.size(), 2U);
+  ASSERT_EQ(received.size(), 3U);
   const double alpha = firstOrderHighPassAlpha(1000.0, 100.0);
 
   EXPECT_EQ(received[0].source_id, "test-mic");
@@ -201,13 +204,18 @@ TEST_F(RclcppFixture, PublishesFirstOrderHighPassFloat32Frame)
   EXPECT_NEAR(readFloat32Le(received[0].data, 1), static_cast<float>(alpha), 1.0e-6F);
   EXPECT_NEAR(readFloat32Le(received[0].data, 2), static_cast<float>(alpha * alpha), 1.0e-6F);
 
-  EXPECT_EQ(received[1].epoch, 18U);
+  EXPECT_EQ(received[1].epoch, 17U);
   ASSERT_EQ(received[1].data.size(), 2U * sizeof(float));
   EXPECT_NEAR(readFloat32Le(received[1].data, 0), static_cast<float>(alpha * alpha * alpha), 1.0e-6F);
   EXPECT_NEAR(
     readFloat32Le(received[1].data, 1),
     static_cast<float>(alpha * alpha * alpha * alpha),
     1.0e-6F);
+
+  EXPECT_EQ(received[2].epoch, 18U);
+  ASSERT_EQ(received[2].data.size(), 2U * sizeof(float));
+  EXPECT_FLOAT_EQ(readFloat32Le(received[2].data, 0), 0.0F);
+  EXPECT_FLOAT_EQ(readFloat32Le(received[2].data, 1), 0.0F);
 }
 
 TEST_F(RclcppFixture, ResetsFilterStateOnForwardEpochGap)

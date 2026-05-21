@@ -315,10 +315,10 @@ bool FaHighPassNode::validateFrame(const fa_interfaces::msg::AudioFrame & msg)
       active_source_id_.c_str());
     return false;
   }
-  if (last_epoch_.has_value() && msg.epoch <= *last_epoch_) {
+  if (last_epoch_.has_value() && msg.epoch < *last_epoch_) {
     RCLCPP_WARN_THROTTLE(
       this->get_logger(), *this->get_clock(), 3000,
-      "Dropping non-monotonic AudioFrame epoch %u after epoch %u",
+      "Dropping stale AudioFrame epoch %u after epoch %u",
       msg.epoch,
       *last_epoch_);
     return false;
@@ -377,16 +377,16 @@ bool FaHighPassNode::applyHighPass(
 {
   const bool should_bind_source = active_source_id_.empty();
   const bool should_reset_state =
-    last_epoch_.has_value() && in.epoch != (*last_epoch_ + 1U);
+    last_epoch_.has_value() && in.epoch > *last_epoch_;
   std::unique_ptr<backends::InternalHighPassBackend> reset_backend{};
   backends::InternalHighPassBackend * processing_backend = backend_.get();
 
   if (should_reset_state) {
     reset_backend = createBackend();
     processing_backend = reset_backend.get();
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(), *this->get_clock(), 3000,
-      "AudioFrame epoch jumped from %u to %u; processing with fresh high-pass state",
+    RCLCPP_INFO(
+      this->get_logger(),
+      "AudioFrame epoch advanced from %u to %u; resetting high-pass filter state",
       *last_epoch_,
       in.epoch);
   }
