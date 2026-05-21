@@ -15,6 +15,7 @@ ament_python_install_package(fa_vad_py PACKAGE_DIR fa_vad_py)
 
 install(PROGRAMS
   scripts/fa_vad_node
+  scripts/prepare_silero_vad
   scripts/silero_vad_worker
   DESTINATION lib/${PROJECT_NAME}
 )

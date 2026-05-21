@@ -2,15 +2,17 @@ import importlib
 from pathlib import Path
 import sys
 from types import ModuleType
+import warnings
 
 import numpy as np
 import pytest
+import torch
 import yaml
 
 from fa_vad_py.backends.base import Float32MonoWindow
 from fa_vad_py.backends.factory import VadBackendSettings, build_vad_backend
 from fa_vad_py.backends.silero import SileroVAD
-from fa_vad_py.backends.silero_worker import parse_args
+from fa_vad_py.backends.silero_worker import WorkerConfig, parse_args, read_audio_window
 from fa_vad_py.contracts import (
     audio_frame_to_float_samples,
     validate_node_config,
@@ -799,3 +801,26 @@ def test_silero_worker_rejects_unsupported_sample_rate(
 
     with pytest.raises(RuntimeError, match="sample-rate must be 8000 or 16000"):
         parse_args()
+
+
+def test_silero_worker_audio_window_is_writable_for_torch(tmp_path: Path) -> None:
+    model_dir = tmp_path / "model"
+    _write_silero_repo(model_dir)
+    audio_path = tmp_path / "audio.f32"
+    _write_raw_float32(audio_path, sample_count=768)
+    config = WorkerConfig(
+        audio_path=audio_path,
+        model_path=model_dir,
+        provider="cpu",
+        sample_rate=16000,
+        window_samples=512,
+    )
+
+    samples = read_audio_window(config)
+
+    assert samples.flags.writeable
+    assert samples.base is None
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        torch.from_numpy(samples)
+    assert not captured

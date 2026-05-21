@@ -94,7 +94,7 @@ def read_audio_window(config: WorkerConfig) -> np.ndarray:
             "audio window too short: "
             f"need {config.window_samples} samples, got {samples.size}"
         )
-    return samples[-config.window_samples:]
+    return samples[-config.window_samples:].copy()
 
 
 def main() -> int:
