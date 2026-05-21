@@ -5,11 +5,14 @@
 ## 入出力
 
 - Sub: `audio/frame` (`fa_interfaces/msg/AudioFrame`)
-- Sub: `voice/vad_state` (`fa_interfaces/msg/VadState`)
 - Sub: `conversation/turn_context` (`fa_interfaces/msg/TurnContext`)
+- Sub: `control.speech_control.topic=voice/vad_state` (`fa_interfaces/msg/VadState`)
 - Pub: `voice/asr/result` (`fa_interfaces/msg/AsrResult`)
+- Pub: `voice/asr/state` (`fa_interfaces/msg/AsrState`)
+- Pub: `voice/asr/event` (`fa_interfaces/msg/AsrEvent`)
+- Srv: `transcribe_audio` (`fa_interfaces/srv/TranscribeAudio`)
 
-`expected_source_id` / `expected_stream_id` は必須です。受信した `AudioFrame.source_id` と `VadState.source_id` は `expected_source_id`、`AudioFrame.stream_id` と `VadState.stream_id` は `expected_stream_id` と一致する必要があります。別 source / stream の audio frame や VAD end は ASR buffer に混ぜず reject します。
+`expected_source_id` / `expected_stream_id` は必須です。受信した `AudioFrame.source_id` と control message の `source_id` は `expected_source_id`、`AudioFrame.stream_id` と control message の `stream_id` は `expected_stream_id` と一致する必要があります。別 source / stream の audio frame や control close は ASR buffer に混ぜず reject します。現行既定の control は `control.speech_control.*` で、`VadState` の `is_speech` / `start` / `end` を ASR window 開閉に使います。
 
 ## QoS
 
@@ -18,12 +21,14 @@ QoS は edge ごとに明示します。depth は正の整数、reliable は boo
 ```yaml
 audio.qos.depth: 20
 audio.qos.reliable: false
-vad.qos.depth: 50
-vad.qos.reliable: false
+control.speech_control.qos.depth: 50
+control.speech_control.qos.reliable: false
 turn_context.qos.depth: 10
 turn_context.qos.reliable: true
 result.qos.depth: 10
 result.qos.reliable: true
+observability.qos.depth: 50
+observability.qos.reliable: true
 ```
 
 ## バックエンド契約

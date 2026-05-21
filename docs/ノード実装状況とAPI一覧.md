@@ -22,7 +22,7 @@
 
 | 分類 | ノード/パッケージ | 状態 | テスト | 外部API概要 |
 | --- | --- | --- | --- | --- |
-| AI | `fa_asr` | 実装済み | あり(9 files) | Sub 3; Pub 1; Srv 1 |
+| AI | `fa_asr` | 実装済み | あり(9 files) | Sub 3; Pub 3; Srv 1 |
 | AI | `fa_audio_embedding` | 実装済み | あり(7 files) | Sub 1; Pub 1 |
 | AI | `fa_kws` | 実装済み | あり(12 files) | Sub 2; Pub 1 |
 | AI | `fa_sed` | 計画/未実装 | あり(3 files) | 未実装。外部runtime APIなし。 |
@@ -136,17 +136,20 @@
 - 根拠path: `src/ai/fa_asr/package.xml`, `src/ai/fa_asr/CMakeLists.txt`, `src/ai/fa_asr/config/default.yaml`, `src/ai/fa_asr/launch/fa_asr.launch.py`, `src/ai/fa_asr/fa_asr_py/asr_node.py`, `src/ai/fa_asr/test`。
 - 実行ファイル/ROS node: exec `fa_asr_node`; node `fa_asr`。
 - Launch: package launch は通常 `node_name` と `config_file` を引数に取り、`parameters=[config_file]` で node を起動する。
-- Subscriptions: `audio_topic` default `audio/frame` / `fa_interfaces/msg/AudioFrame`; `vad_topic` default `voice/vad_state` / `fa_interfaces/msg/VadState`; `turn_context_topic` default `conversation/turn_context` / `fa_interfaces/msg/TurnContext`
-- Publishers: `asr_result_topic` default `voice/asr/result` / `fa_interfaces/msg/AsrResult`
+- Subscriptions: `audio_topic` default `audio/frame` / `fa_interfaces/msg/AudioFrame`; `turn_context_topic` default `conversation/turn_context` / `fa_interfaces/msg/TurnContext`; `control.speech_control.topic` default `voice/vad_state` / `fa_interfaces/msg/VadState`
+- Publishers: `asr_result_topic` default `voice/asr/result` / `fa_interfaces/msg/AsrResult`; `asr_state_topic` default `voice/asr/state` / `fa_interfaces/msg/AsrState`; `asr_event_topic` default `voice/asr/event` / `fa_interfaces/msg/AsrEvent`
 - Services: `transcribe_service_name` default `transcribe_audio` / `fa_interfaces/srv/TranscribeAudio`
 - Clients / MCP tools: なし。
 - Public config parameters:
-  - topic/service: `audio_topic`=`audio/frame`; `vad_topic`=`voice/vad_state`; `turn_context_topic`=`conversation/turn_context`; `asr_result_topic`=`voice/asr/result`; `transcribe_service_name`=`transcribe_audio`
+  - topic/service: `audio_topic`=`audio/frame`; `turn_context_topic`=`conversation/turn_context`; `asr_result_topic`=`voice/asr/result`; `asr_state_topic`=`voice/asr/state`; `asr_event_topic`=`voice/asr/event`; `transcribe_service_name`=`transcribe_audio`
   - identity/scope: `expected_source_id`=`""`; `expected_stream_id`=`""`
-  - backend/model/external: `backend.name`=`""`; `backend.kind`=`asr`; `backend.model`=`""`; `backend.command`=`""`; `backend.model_path`=`""`; `backend.model_version`=`""`; `backend.model_revision`=`""`; `backend.openai_realtime.api_key_env`=`""`; `backend.openai_transcriptions.api_key_env`=`""`; `backend.language`=`ja`; `backend.timeout_sec`=`120.0`; `backend.working_directory`=`""`; `backend.args`=`[]`; `backend.health_args`=`[]`; `backend.output_text_path`=`""`; `backend.result_format`=`""`
+  - control: `control.default_enabled`=`false`; `control.inputs`=`["speech_control"]`; `control.speech_control.action`=`topic`; `control.speech_control.topic`=`voice/vad_state`; `control.speech_control.msg_type`=`fa_interfaces/msg/VadState`; `control.speech_control.source_id`=`""`; `control.speech_control.stream_id`=`""`; `control.speech_control.active_field`=`is_speech`; `control.speech_control.start_field`=`start`; `control.speech_control.end_field`=`end`; `control.speech_control.open_on`=`start_or_active_rising`; `control.speech_control.close_on`=`end_or_active_falling`; `control.speech_control.submit_on_close`=`true`; `control.speech_control.pre_roll_ms`=`0.0`; `control.speech_control.post_roll_ms`=`0.0`
+  - backend/model/external: `backend.name`=`""`; `backend.kind`=`asr`; `backend.model`=`""`; `backend.command`=`""`; `backend.model_path`=`""`; `backend.model_version`=`""`; `backend.model_revision`=`""`; `backend.openai_realtime.api_key_env`=`""`; `backend.openai_transcriptions.api_key_env`=`""`; `backend.language`=`ja`; `backend.timeout_sec`=`120.0`; `backend.working_directory`=`""`; `backend.args`=`[]`; `backend.health_args`=`[]`; `backend.output_text_path`=`""`; `backend.result_format`=`""`; `backend.sample_rate_hz`=`16000`; `backend.channels`=`1`; `backend.chunk_size_samples`=`1600`; `backend.chunk_ms`=`0`; `backend.emit_partial`=`true`; `backend.max_partial_interval_ms`=`300`
   - format: `target_sample_rate`=`16000`
-  - QoS: `audio.qos.depth`=`20`; `audio.qos.reliable`=`false`; `vad.qos.depth`=`50`; `vad.qos.reliable`=`false`; `turn_context.qos.depth`=`10`; `turn_context.qos.reliable`=`true`; `result.qos.depth`=`10`; `result.qos.reliable`=`true`
-  - other public: `finalize_on_context_inactive`=`true`
+  - timeline: `timeline.retention_sec`=`1800.0`; `timeline.timestamp_alignment_tolerance_ms`=`1.0`; `timeline.clock`=`media`; `timeline.window_id`=`fa_asr_rolling_asr_window`; `timeline.window_epoch`=`0`
+  - trace/observability: `trace.enabled`=`false`; `trace.path`=`""`; `observability.qos.depth`=`50`; `observability.qos.reliable`=`true`
+  - QoS: `audio.qos.depth`=`20`; `audio.qos.reliable`=`false`; `control.speech_control.qos.depth`=`50`; `control.speech_control.qos.reliable`=`false`; `turn_context.qos.depth`=`10`; `turn_context.qos.reliable`=`true`; `result.qos.depth`=`10`; `result.qos.reliable`=`true`
+  - other public: `min_audio_sec`=`0.3`; `silence_timeout_sec`=`10.0`; `finalize_on_context_inactive`=`true`; `workspace_dir`=`/tmp/fa_asr`; `cleanup_audio_files`=`true`
 
 ### `fa_audio_embedding`
 - 状態: 実装済み。
