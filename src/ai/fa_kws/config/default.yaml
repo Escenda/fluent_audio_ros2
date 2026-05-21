@@ -2,7 +2,6 @@ fa_kws:
   ros__parameters:
     audio_topic: "audio/frame"
     expected_stream_id: "audio/raw/mic"
-    vad_topic: "voice/vad_state"
     output_topic: "voice/wake_word"
     # Required. Must match AudioFrame.source_id from the configured fa_in/source pipeline.
     expected_source_id: ""
@@ -10,13 +9,21 @@ fa_kws:
     backend.name: ""
 
     target_sample_rate: 16000
-    vad.probability_gate: 0.35
-    vad.max_age_ms: 1000
+    control.default_enabled: false
+    control.inputs: ["speech_control"]
+    control.speech_control.action: "topic"
+    control.speech_control.topic: "voice/vad_state"
+    control.speech_control.msg_type: "fa_interfaces/msg/VadState"
+    control.speech_control.source_id: ""
+    control.speech_control.stream_id: ""
+    control.speech_control.probability_field: "probability"
+    control.speech_control.probability_gate: 0.35
+    control.speech_control.max_age_ms: 1000
+    control.speech_control.qos.depth: 20
+    control.speech_control.qos.reliable: false
     cooldown_ms: 1500
     audio.qos.depth: 10
     audio.qos.reliable: false
-    vad.qos.depth: 20
-    vad.qos.reliable: false
     output.qos.depth: 10
     output.qos.reliable: false
 
@@ -33,12 +40,14 @@ fa_kws:
     backend.execution_provider: ""
     # Required external worker command. The ROS2 node never links sherpa-onnx directly.
     backend.command: ""
-    # Required inference args. Must include {audio}, model files, provider, sample_rate,
-    # and numeric KWS config placeholders.
-    backend.args: []
-    # Required startup health-check args. Must include model files, provider, sample_rate,
-    # and numeric KWS config placeholders; must not include {audio}.
-    backend.health_args: []
+    # Required inference args. Profiles must provide this as a non-empty string-array.
+    # Empty YAML arrays are intentionally not declared here because ROS parameters cannot
+    # infer their element type and report them as "not set" before backend validation.
+    # Required placeholders: {audio}, {encoder}, {decoder}, {joiner}, {tokens}, {keywords},
+    # {provider}, {sample_rate}, {num_threads}, {max_active_paths},
+    # {num_trailing_blanks}, {keywords_score}, {keywords_threshold}.
+    # Required startup health-check args. Profiles must provide this as a non-empty
+    # string-array with the same placeholders except {audio}, which is forbidden.
     backend.timeout_sec: 5.0
     backend.workspace_dir: "/tmp/fluent_audio_fa_kws"
     backend.cleanup_audio_files: true

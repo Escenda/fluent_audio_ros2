@@ -15,8 +15,8 @@ def test_default_config_requires_explicit_backend_and_kws_inputs() -> None:
     assert params["backend.name"] == ""
     assert params["backend.execution_provider"] == ""
     assert params["backend.command"] == ""
-    assert params["backend.args"] == []
-    assert params["backend.health_args"] == []
+    assert "backend.args" not in params
+    assert "backend.health_args" not in params
     assert params["backend.timeout_sec"] > 0
     assert params["backend.workspace_dir"]
     assert params["backend.cleanup_audio_files"] is True
@@ -29,12 +29,25 @@ def test_default_config_requires_explicit_backend_and_kws_inputs() -> None:
     assert params["expected_stream_id"] == "audio/raw/mic"
     assert params["audio_topic"] != params["expected_stream_id"]
     assert params["expected_source_id"] == ""
-    assert params["vad.probability_gate"] == 0.35
-    assert params["vad.max_age_ms"] > 0
+    assert "vad_topic" not in params
+    assert "vad.probability_gate" not in params
+    assert "vad.max_age_ms" not in params
+    assert "vad.qos.depth" not in params
+    assert "vad.qos.reliable" not in params
+    assert params["control.default_enabled"] is False
+    assert params["control.inputs"] == ["speech_control"]
+    assert params["control.speech_control.action"] == "topic"
+    assert params["control.speech_control.topic"] == "voice/vad_state"
+    assert params["control.speech_control.msg_type"] == "fa_interfaces/msg/VadState"
+    assert params["control.speech_control.source_id"] == ""
+    assert params["control.speech_control.stream_id"] == ""
+    assert params["control.speech_control.probability_field"] == "probability"
+    assert params["control.speech_control.probability_gate"] == 0.35
+    assert params["control.speech_control.max_age_ms"] > 0
+    assert params["control.speech_control.qos.depth"] > 0
+    assert params["control.speech_control.qos.reliable"] is False
     assert params["audio.qos.depth"] > 0
     assert params["audio.qos.reliable"] is False
-    assert params["vad.qos.depth"] > 0
-    assert params["vad.qos.reliable"] is False
     assert params["output.qos.depth"] > 0
     assert params["output.qos.reliable"] is False
     assert "dump_audio.enable" not in params

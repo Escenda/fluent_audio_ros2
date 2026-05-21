@@ -1,0 +1,606 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODEL_ID="sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+MODEL_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2"
+ORIGINAL_ENCODER="encoder-epoch-12-avg-2-chunk-16-left-64.onnx"
+ORIGINAL_DECODER="decoder-epoch-12-avg-2-chunk-16-left-64.onnx"
+ORIGINAL_JOINER="joiner-epoch-12-avg-2-chunk-16-left-64.onnx"
+ORIGINAL_TOKENS="tokens.txt"
+KEYWORDS_CONTENT="▁HE Y ▁AS P A"
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+case "${SCRIPT_PATH}" in
+  */*) SCRIPT_DIR="$(cd -- "${SCRIPT_PATH%/*}" >/dev/null 2>&1 && pwd -P)" ;;
+  *) SCRIPT_DIR="$(pwd -P)" ;;
+esac
+PACKAGE_DIR="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd -P)"
+DEFAULT_MODEL_DIR="${PACKAGE_DIR}/models/sherpa-onnx-kws"
+WORKER="${SCRIPT_DIR}/sherpa_onnx_kws_worker"
+TRACE_FILE=""
+TRACE_STATUS="failure"
+TRACE_FAILURE_REASON=""
+TRACE_FINALIZED=false
+
+usage() {
+  cat >&2 <<EOF
+Usage: $(basename -- "$0") [options]
+
+Options:
+  --model-dir DIR       normalized sherpa-onnx KWS model directory
+                        (default: ${DEFAULT_MODEL_DIR})
+  --download-url URL    model archive URL
+                        (default: ${MODEL_URL})
+  --provider PROVIDER   KWS execution provider to emit: cpu, cuda, or coreml
+                        (default: cpu)
+  --trace-file PATH     trace log file path (default: package source traces or user cache)
+  -h, --help            show this help
+EOF
+}
+
+fail() {
+  local reason="$1"
+  local code="${2:-1}"
+  TRACE_FAILURE_REASON="${reason}"
+  trace_write_field "failure_reason" "${reason}"
+  printf 'ERROR: %s\n' "${reason}" >&2
+  exit "${code}"
+}
+
+absolute_executable_file() {
+  local input_path="$1"
+  local label="$2"
+  if [[ ! -f "${input_path}" ]]; then
+    fail "${label} does not exist or is not a file: ${input_path}"
+  fi
+
+  local dir="${input_path%/*}"
+  local base="${input_path##*/}"
+  if [[ "${dir}" == "${input_path}" ]]; then
+    dir="."
+  fi
+  local path
+  path="$(cd -- "${dir}" >/dev/null 2>&1 && pwd -P)/${base}"
+  if [[ ! -x "${path}" ]]; then
+    fail "${label} is not executable: ${path}"
+  fi
+  printf '%s\n' "${path}"
+}
+
+absolute_target_dir() {
+  local path="$1"
+  if [[ -z "${path}" ]]; then
+    return 1
+  fi
+
+  local dir="${path%/*}"
+  local base="${path##*/}"
+  if [[ "${dir}" == "${path}" ]]; then
+    dir="."
+  fi
+  if [[ -z "${base}" || "${base}" == "." || "${base}" == ".." ]]; then
+    return 1
+  fi
+
+  mkdir -p -- "${dir}" || return 1
+  printf '%s/%s\n' "$(cd -- "${dir}" >/dev/null 2>&1 && pwd -P)" "${base}"
+}
+
+absolute_output_file() {
+  local path="$1"
+  if [[ -z "${path}" ]]; then
+    return 1
+  fi
+
+  local dir="${path%/*}"
+  local base="${path##*/}"
+  if [[ "${dir}" == "${path}" ]]; then
+    dir="."
+  fi
+  if [[ -z "${base}" || "${base}" == "." || "${base}" == ".." ]]; then
+    return 1
+  fi
+
+  mkdir -p -- "${dir}" || return 1
+  printf '%s/%s\n' "$(cd -- "${dir}" >/dev/null 2>&1 && pwd -P)" "${base}"
+}
+
+require_command() {
+  local name="$1"
+  if ! command -v -- "${name}" >/dev/null 2>&1; then
+    fail "${name} is required to prepare sherpa-onnx KWS model artifacts, but it was not found in PATH"
+  fi
+}
+
+validate_provider() {
+  local provider="$1"
+  if [[ -z "${provider}" ]]; then
+    fail "--provider must not be empty" 2
+  fi
+  case "${provider}" in
+    cpu|cuda|coreml) printf '%s\n' "${provider}" ;;
+    *) fail "unsupported --provider for sherpa-onnx KWS: ${provider}; supported providers: cpu, cuda, coreml" 2 ;;
+  esac
+}
+
+validate_non_empty_file() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -f "${path}" ]]; then
+    fail "${label} does not exist or is not a file: ${path}"
+  fi
+  if [[ ! -s "${path}" ]]; then
+    fail "${label} is empty: ${path}"
+  fi
+}
+
+validate_original_model_dir() {
+  local extracted_model_dir="$1"
+  validate_non_empty_file "${extracted_model_dir}/${ORIGINAL_ENCODER}" "original encoder"
+  validate_non_empty_file "${extracted_model_dir}/${ORIGINAL_DECODER}" "original decoder"
+  validate_non_empty_file "${extracted_model_dir}/${ORIGINAL_JOINER}" "original joiner"
+  validate_non_empty_file "${extracted_model_dir}/${ORIGINAL_TOKENS}" "original tokens"
+}
+
+validate_normalized_model_dir() {
+  local model_dir="$1"
+  validate_non_empty_file "${model_dir}/encoder.onnx" "KWS encoder"
+  validate_non_empty_file "${model_dir}/decoder.onnx" "KWS decoder"
+  validate_non_empty_file "${model_dir}/joiner.onnx" "KWS joiner"
+  validate_non_empty_file "${model_dir}/tokens.txt" "KWS tokens"
+  validate_non_empty_file "${model_dir}/keywords.txt" "KWS keywords"
+
+  if ! printf '%s\n' "${KEYWORDS_CONTENT}" | cmp -s - "${model_dir}/keywords.txt"; then
+    fail "KWS keywords file must contain the default ASPA keyword contract exactly: ${model_dir}/keywords.txt"
+  fi
+}
+
+normalized_model_is_complete() {
+  local model_dir="$1"
+  [[ -s "${model_dir}/encoder.onnx" &&
+     -s "${model_dir}/decoder.onnx" &&
+     -s "${model_dir}/joiner.onnx" &&
+     -s "${model_dir}/tokens.txt" &&
+     -s "${model_dir}/keywords.txt" ]]
+}
+
+download_archive() {
+  local url="$1"
+  local archive_path="$2"
+  trace_stage_start "download_model" "${url}"
+  printf 'Downloading sherpa-onnx KWS model archive into %s\n' "${archive_path}" >&2
+  if ! curl -fL --retry 3 -o "${archive_path}" "${url}" >&2; then
+    fail "failed to download sherpa-onnx KWS model archive from ${url}"
+  fi
+  trace_stage_finish "download_model" "${archive_path}"
+}
+
+extract_archive() {
+  local archive_path="$1"
+  local extract_dir="$2"
+  trace_stage_start "extract_model" "${archive_path}"
+  if ! tar -xjf "${archive_path}" -C "${extract_dir}" >&2; then
+    fail "failed to extract sherpa-onnx KWS model archive: ${archive_path}"
+  fi
+  trace_stage_finish "extract_model" "${extract_dir}"
+}
+
+install_normalized_model() {
+  local extracted_model_dir="$1"
+  local model_dir="$2"
+  local staging_dir="${model_dir}.staging.$$"
+
+  validate_original_model_dir "${extracted_model_dir}"
+  rm -rf -- "${staging_dir}"
+  mkdir -p -- "${staging_dir}"
+  cp -- "${extracted_model_dir}/${ORIGINAL_ENCODER}" "${staging_dir}/encoder.onnx"
+  cp -- "${extracted_model_dir}/${ORIGINAL_DECODER}" "${staging_dir}/decoder.onnx"
+  cp -- "${extracted_model_dir}/${ORIGINAL_JOINER}" "${staging_dir}/joiner.onnx"
+  cp -- "${extracted_model_dir}/${ORIGINAL_TOKENS}" "${staging_dir}/tokens.txt"
+  printf '%s\n' "${KEYWORDS_CONTENT}" > "${staging_dir}/keywords.txt"
+  validate_normalized_model_dir "${staging_dir}"
+
+  mkdir -p -- "${model_dir}"
+  mv -- "${staging_dir}/encoder.onnx" "${model_dir}/encoder.onnx"
+  mv -- "${staging_dir}/decoder.onnx" "${model_dir}/decoder.onnx"
+  mv -- "${staging_dir}/joiner.onnx" "${model_dir}/joiner.onnx"
+  mv -- "${staging_dir}/tokens.txt" "${model_dir}/tokens.txt"
+  mv -- "${staging_dir}/keywords.txt" "${model_dir}/keywords.txt"
+  rmdir -- "${staging_dir}"
+}
+
+prepare_model_dir() {
+  local model_dir="$1"
+  local url="$2"
+
+  if [[ -e "${model_dir}" && ! -d "${model_dir}" ]]; then
+    fail "KWS model path exists but is not a directory: ${model_dir}"
+  fi
+  if normalized_model_is_complete "${model_dir}"; then
+    trace_stage_start "validate_normalized_model" "existing normalized files"
+    validate_normalized_model_dir "${model_dir}"
+    trace_stage_finish "validate_normalized_model" "${model_dir}"
+    return 0
+  fi
+
+  trace_stage_start "download_requirements" "curl tar"
+  require_command curl
+  require_command tar
+  trace_stage_finish "download_requirements" "curl tar"
+
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  local archive_path="${temp_dir}/${MODEL_ID}.tar.bz2"
+  download_archive "${url}" "${archive_path}"
+  extract_archive "${archive_path}" "${temp_dir}"
+
+  local extracted_model_dir="${temp_dir}/${MODEL_ID}"
+  if [[ ! -d "${extracted_model_dir}" ]]; then
+    fail "sherpa-onnx KWS archive did not contain required model directory: ${MODEL_ID}"
+  fi
+
+  trace_stage_start "normalize_model" "${model_dir}"
+  install_normalized_model "${extracted_model_dir}" "${model_dir}"
+  trace_stage_finish "normalize_model" "${model_dir}"
+  rm -rf -- "${temp_dir}"
+
+  trace_stage_start "validate_normalized_model" "normalized files"
+  validate_normalized_model_dir "${model_dir}"
+  trace_stage_finish "validate_normalized_model" "${model_dir}"
+}
+
+find_fluent_audio_root() {
+  local current="${PACKAGE_DIR}"
+  while [[ "${current}" != "/" ]]; do
+    if [[ -f "${current}/PRODUCT_OWNER_ROLE.md" && -d "${current}/src/ai/fa_kws" ]]; then
+      printf '%s\n' "${current}"
+      return 0
+    fi
+    current="$(cd -- "${current}/.." >/dev/null 2>&1 && pwd -P)"
+  done
+  return 1
+}
+
+container_path_for() {
+  local source_root="$1"
+  local host_path="$2"
+  case "${host_path}" in
+    "${source_root}")
+      printf '%s\n' "/ros2_ws/src/fluent_audio_ros2"
+      ;;
+    "${source_root}"/*)
+      printf '%s/%s\n' "/ros2_ws/src/fluent_audio_ros2" "${host_path#"${source_root}/"}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+shell_value() {
+  printf '%q' "$1"
+}
+
+trace_timestamp() {
+  date -u '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+trace_value() {
+  local value="$1"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "${value}"
+}
+
+trace_append_line() {
+  [[ -n "${TRACE_FILE}" ]] || return 0
+  if ! printf '%s\n' "$1" >> "${TRACE_FILE}"; then
+    printf 'ERROR: failed to write trace file: %s\n' "${TRACE_FILE}" >&2
+    exit 1
+  fi
+}
+
+trace_write_field() {
+  local key="$1"
+  local value="$2"
+  trace_append_line "${key}=$(trace_value "${value}")"
+}
+
+trace_has_failure_reason() {
+  [[ -n "${TRACE_FILE}" && -f "${TRACE_FILE}" ]] || return 1
+  local line=""
+  while IFS= read -r line; do
+    case "${line}" in
+      failure_reason=?*) return 0 ;;
+    esac
+  done < "${TRACE_FILE}"
+  return 1
+}
+
+trace_stage_start() {
+  local value
+  value="$(trace_timestamp) $1"
+  if [[ -n "${2:-}" ]]; then
+    value="${value} ${2}"
+  fi
+  trace_write_field "stage_start" "${value}"
+}
+
+trace_stage_finish() {
+  local value
+  value="$(trace_timestamp) $1"
+  if [[ -n "${2:-}" ]]; then
+    value="${value} ${2}"
+  fi
+  trace_write_field "stage_finish" "${value}"
+}
+
+print_env_blocks() {
+  local model_dir="$1"
+  local provider="$2"
+  local worker_path="$3"
+  local encoder_path="${model_dir}/encoder.onnx"
+  local decoder_path="${model_dir}/decoder.onnx"
+  local joiner_path="${model_dir}/joiner.onnx"
+  local tokens_path="${model_dir}/tokens.txt"
+  local keywords_path="${model_dir}/keywords.txt"
+  local source_root=""
+  local container_worker=""
+  local container_trace=""
+  local container_encoder=""
+  local container_decoder=""
+  local container_joiner=""
+  local container_tokens=""
+  local container_keywords=""
+  local vlabor_trace="${TRACE_FILE}"
+
+  if source_root="$(find_fluent_audio_root)"; then
+    container_worker="$(container_path_for "${source_root}" "${worker_path}" || true)"
+    container_trace="$(container_path_for "${source_root}" "${TRACE_FILE}" || true)"
+    container_encoder="$(container_path_for "${source_root}" "${encoder_path}" || true)"
+    container_decoder="$(container_path_for "${source_root}" "${decoder_path}" || true)"
+    container_joiner="$(container_path_for "${source_root}" "${joiner_path}" || true)"
+    container_tokens="$(container_path_for "${source_root}" "${tokens_path}" || true)"
+    container_keywords="$(container_path_for "${source_root}" "${keywords_path}" || true)"
+    if [[ -n "${container_trace}" ]]; then
+      vlabor_trace="${container_trace}"
+    fi
+  fi
+
+  printf '# Generated by prepare_sherpa_onnx_kws for model_id=%s provider=%s\n' "${MODEL_ID}" "${provider}"
+  printf '# Running this script alone only prints shell code; it does not update the current shell.\n'
+  printf '# To apply to the current host shell:\n'
+  printf '#   source <(src/ai/fa_kws/scripts/prepare_sherpa_onnx_kws ...)\n'
+  printf '# To emit VLAbor container env values while sourcing:\n'
+  printf '#   FLUENT_AUDIO_ENV_TARGET=vlabor source <(src/ai/fa_kws/scripts/prepare_sherpa_onnx_kws ...)\n'
+  printf 'case "${FLUENT_AUDIO_ENV_TARGET:-host}" in\n'
+  printf '  host)\n'
+  printf '    export FLUENT_AUDIO_KWS_PROVIDER=%s\n' "$(shell_value "${provider}")"
+  printf '    export FLUENT_AUDIO_KWS_WORKER=%s\n' "$(shell_value "${worker_path}")"
+  printf '    export FLUENT_AUDIO_KWS_ENCODER=%s\n' "$(shell_value "${encoder_path}")"
+  printf '    export FLUENT_AUDIO_KWS_DECODER=%s\n' "$(shell_value "${decoder_path}")"
+  printf '    export FLUENT_AUDIO_KWS_JOINER=%s\n' "$(shell_value "${joiner_path}")"
+  printf '    export FLUENT_AUDIO_KWS_TOKENS=%s\n' "$(shell_value "${tokens_path}")"
+  printf '    export FLUENT_AUDIO_KWS_KEYWORDS=%s\n' "$(shell_value "${keywords_path}")"
+  printf '    export FLUENT_AUDIO_KWS_PREPARE_TRACE_FILE=%s\n' "$(shell_value "${TRACE_FILE}")"
+  printf '    ;;\n'
+  if [[ -n "${container_worker}" &&
+        -n "${container_encoder}" &&
+        -n "${container_decoder}" &&
+        -n "${container_joiner}" &&
+        -n "${container_tokens}" &&
+        -n "${container_keywords}" ]]; then
+    printf '  vlabor)\n'
+    printf '    export FLUENT_AUDIO_KWS_PROVIDER=%s\n' "$(shell_value "${provider}")"
+    printf '    export FLUENT_AUDIO_KWS_WORKER=%s\n' "$(shell_value "${container_worker}")"
+    printf '    export FLUENT_AUDIO_KWS_ENCODER=%s\n' "$(shell_value "${container_encoder}")"
+    printf '    export FLUENT_AUDIO_KWS_DECODER=%s\n' "$(shell_value "${container_decoder}")"
+    printf '    export FLUENT_AUDIO_KWS_JOINER=%s\n' "$(shell_value "${container_joiner}")"
+    printf '    export FLUENT_AUDIO_KWS_TOKENS=%s\n' "$(shell_value "${container_tokens}")"
+    printf '    export FLUENT_AUDIO_KWS_KEYWORDS=%s\n' "$(shell_value "${container_keywords}")"
+    printf '    export FLUENT_AUDIO_KWS_PREPARE_TRACE_FILE=%s\n' "$(shell_value "${vlabor_trace}")"
+    printf '    ;;\n'
+  else
+    printf '  vlabor)\n'
+    printf '    printf %%s\\\\n %s >&2\n' "$(shell_value "VLAbor container paths are unavailable because KWS model files or worker are outside ${source_root:-the fluent_audio_ros2 source tree}.")"
+    printf '    return 1 2>/dev/null || exit 1\n'
+    printf '    ;;\n'
+  fi
+  printf '  *)\n'
+  printf '    printf %%s\\\\n "unsupported FLUENT_AUDIO_ENV_TARGET: ${FLUENT_AUDIO_ENV_TARGET}" >&2\n'
+  printf '    return 2 2>/dev/null || exit 2\n'
+  printf '    ;;\n'
+  printf 'esac\n'
+}
+
+default_trace_file() {
+  local trace_dir=""
+  local source_root=""
+  if source_root="$(find_fluent_audio_root)"; then
+    trace_dir="${PACKAGE_DIR}/traces/prepare_sherpa_onnx_kws"
+  else
+    if [[ -z "${HOME:-}" ]]; then
+      printf 'ERROR: HOME is required to choose the default trace directory outside source\n' >&2
+      exit 1
+    fi
+    trace_dir="${HOME}/.cache/fluent_audio/fa_kws/traces/prepare_sherpa_onnx_kws"
+  fi
+
+  printf '%s/prepare_%s_%s.log\n' "${trace_dir}" "$(date -u '+%Y%m%dT%H%M%SZ')" "$$"
+}
+
+init_trace() {
+  local requested_path="$1"
+  local requested_path_is_set="$2"
+  local trace_path=""
+
+  if [[ "${requested_path_is_set}" == "true" ]]; then
+    if ! trace_path="$(absolute_output_file "${requested_path}")"; then
+      printf 'ERROR: trace file path is invalid or not writable: %s\n' "${requested_path}" >&2
+      exit 1
+    fi
+  else
+    trace_path="$(default_trace_file)"
+    if ! trace_path="$(absolute_output_file "${trace_path}")"; then
+      printf 'ERROR: failed to create default trace file path\n' >&2
+      exit 1
+    fi
+  fi
+
+  if ! : > "${trace_path}"; then
+    printf 'ERROR: failed to create trace file: %s\n' "${trace_path}" >&2
+    exit 1
+  fi
+
+  TRACE_FILE="${trace_path}"
+  printf 'Trace file: %s\n' "${TRACE_FILE}" >&2
+  trace_write_field "started_at" "$(trace_timestamp)"
+  trace_write_field "script_path" "${SCRIPT_PATH}"
+  trace_write_field "script_dir" "${SCRIPT_DIR}"
+  trace_write_field "package_dir" "${PACKAGE_DIR}"
+  trace_write_field "trace_file" "${TRACE_FILE}"
+}
+
+trace_finalize() {
+  local exit_code="$?"
+  if [[ "${TRACE_FINALIZED}" == "true" ]]; then
+    return "${exit_code}"
+  fi
+  TRACE_FINALIZED=true
+
+  if [[ -n "${TRACE_FILE}" ]]; then
+    if [[ "${TRACE_STATUS}" != "success" && -z "${TRACE_FAILURE_REASON}" ]] && ! trace_has_failure_reason; then
+      TRACE_FAILURE_REASON="command exited with status ${exit_code}"
+    fi
+    trace_write_field "ended_at" "$(trace_timestamp)"
+    trace_write_field "status" "${TRACE_STATUS}"
+    trace_write_field "exit_code" "${exit_code}"
+    trace_write_field "model_id" "${MODEL_ID}"
+    trace_write_field "download_url" "${DOWNLOAD_URL:-}"
+    trace_write_field "model_dir" "${MODEL_DIR:-}"
+    trace_write_field "provider" "${PROVIDER:-}"
+    trace_write_field "worker_script" "${WORKER:-}"
+    trace_write_field "worker_path" "${WORKER_PATH:-}"
+    if [[ -n "${TRACE_FAILURE_REASON}" ]] || ! trace_has_failure_reason; then
+      trace_write_field "failure_reason" "${TRACE_FAILURE_REASON}"
+    fi
+  fi
+
+  return "${exit_code}"
+}
+
+MODEL_DIR="${DEFAULT_MODEL_DIR}"
+DOWNLOAD_URL="${MODEL_URL}"
+PROVIDER="cpu"
+WORKER_PATH=""
+TRACE_FILE_REQUEST="${FLUENT_AUDIO_KWS_PREPARE_TRACE_FILE:-}"
+TRACE_FILE_REQUEST_SET=false
+TRACE_PREPARSE_ERROR=""
+
+if [[ -n "${TRACE_FILE_REQUEST}" ]]; then
+  TRACE_FILE_REQUEST_SET=true
+fi
+
+TRACE_SCAN_ARGS=("$@")
+TRACE_SCAN_INDEX=0
+while [[ "${TRACE_SCAN_INDEX}" -lt "${#TRACE_SCAN_ARGS[@]}" ]]; do
+  case "${TRACE_SCAN_ARGS[${TRACE_SCAN_INDEX}]}" in
+    --trace-file)
+      if [[ "$((TRACE_SCAN_INDEX + 1))" -ge "${#TRACE_SCAN_ARGS[@]}" ]]; then
+        TRACE_PREPARSE_ERROR="--trace-file requires a value"
+        break
+      fi
+      TRACE_SCAN_INDEX=$((TRACE_SCAN_INDEX + 1))
+      TRACE_FILE_REQUEST="${TRACE_SCAN_ARGS[${TRACE_SCAN_INDEX}]}"
+      TRACE_FILE_REQUEST_SET=true
+      ;;
+    --trace-file=*)
+      TRACE_FILE_REQUEST="${TRACE_SCAN_ARGS[${TRACE_SCAN_INDEX}]#--trace-file=}"
+      TRACE_FILE_REQUEST_SET=true
+      ;;
+  esac
+  TRACE_SCAN_INDEX=$((TRACE_SCAN_INDEX + 1))
+done
+
+init_trace "${TRACE_FILE_REQUEST}" "${TRACE_FILE_REQUEST_SET}"
+trap trace_finalize EXIT
+
+if [[ -n "${TRACE_PREPARSE_ERROR}" ]]; then
+  fail "${TRACE_PREPARSE_ERROR}" 2
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model-dir)
+      [[ $# -ge 2 ]] || fail "--model-dir requires a value" 2
+      MODEL_DIR="$2"
+      shift 2
+      ;;
+    --model-dir=*)
+      MODEL_DIR="${1#--model-dir=}"
+      shift
+      ;;
+    --download-url)
+      [[ $# -ge 2 ]] || fail "--download-url requires a value" 2
+      DOWNLOAD_URL="$2"
+      shift 2
+      ;;
+    --download-url=*)
+      DOWNLOAD_URL="${1#--download-url=}"
+      shift
+      ;;
+    --provider)
+      [[ $# -ge 2 ]] || fail "--provider requires a value" 2
+      PROVIDER="$2"
+      shift 2
+      ;;
+    --provider=*)
+      PROVIDER="${1#--provider=}"
+      shift
+      ;;
+    --trace-file)
+      [[ $# -ge 2 ]] || fail "--trace-file requires a value" 2
+      shift 2
+      ;;
+    --trace-file=*)
+      shift
+      ;;
+    -h|--help)
+      trace_stage_start "usage" "--help"
+      usage
+      trace_stage_finish "usage" "printed help"
+      TRACE_STATUS="success"
+      exit 0
+      ;;
+    --*)
+      fail "unknown option: $1" 2
+      ;;
+    *)
+      fail "unexpected positional argument: $1" 2
+      ;;
+  esac
+done
+
+trace_write_field "download_url" "${DOWNLOAD_URL}"
+trace_write_field "requested_model_dir" "${MODEL_DIR}"
+trace_stage_start "validate_preconditions" "worker executable and provider"
+WORKER_PATH="$(absolute_executable_file "${WORKER}" "sherpa-onnx KWS worker")"
+PROVIDER="$(validate_provider "${PROVIDER}")"
+trace_write_field "provider" "${PROVIDER}"
+trace_write_field "worker_path" "${WORKER_PATH}"
+trace_stage_finish "validate_preconditions" "worker executable and provider"
+
+trace_stage_start "resolve_model_dir" "absolute target directory"
+if ! MODEL_DIR="$(absolute_target_dir "${MODEL_DIR}")"; then
+  fail "--model-dir is invalid or its parent directory is not writable: ${MODEL_DIR}" 2
+fi
+trace_write_field "model_dir" "${MODEL_DIR}"
+trace_stage_finish "resolve_model_dir" "${MODEL_DIR}"
+
+prepare_model_dir "${MODEL_DIR}" "${DOWNLOAD_URL}"
+
+trace_stage_start "emit_env_block" "stdout"
+print_env_blocks "${MODEL_DIR}" "${PROVIDER}" "${WORKER_PATH}"
+trace_stage_finish "emit_env_block" "stdout"
+TRACE_STATUS="success"
