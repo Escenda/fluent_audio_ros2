@@ -320,6 +320,12 @@ class FaAsrNode(Node):
         self.declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)
         self.declare_parameter("backend.output_text_path", Parameter.Type.STRING)
         self.declare_parameter("backend.result_format", Parameter.Type.STRING)
+        self.declare_parameter("backend.sample_rate_hz", Parameter.Type.INTEGER)
+        self.declare_parameter("backend.channels", Parameter.Type.INTEGER)
+        self.declare_parameter("backend.chunk_size_samples", Parameter.Type.INTEGER)
+        self.declare_parameter("backend.chunk_ms", Parameter.Type.INTEGER)
+        self.declare_parameter("backend.emit_partial", Parameter.Type.BOOL)
+        self.declare_parameter("backend.max_partial_interval_ms", Parameter.Type.INTEGER)
         self.declare_parameter("audio.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)
@@ -455,6 +461,29 @@ class FaAsrNode(Node):
                     working_directory=self._string_parameter("backend.working_directory"),
                     output_text_path=self._string_parameter("backend.output_text_path"),
                     result_format=self._string_parameter("backend.result_format"),
+                )
+            )
+        if backend_name == "nemo_rnnt_streaming":
+            return build_asr_backend(
+                AsrBackendSettings(
+                    name=backend_name,
+                    workspace_dir=self.workspace_dir,
+                    cleanup_audio_files=self.cleanup_audio_files,
+                    command=self._string_parameter("backend.command"),
+                    model_path=self._string_parameter("backend.model_path"),
+                    language=self._string_parameter("backend.language"),
+                    timeout_sec=self._double_parameter("backend.timeout_sec"),
+                    working_directory=self._string_parameter("backend.working_directory"),
+                    sample_rate_hz=self._integer_parameter("backend.sample_rate_hz"),
+                    channels=self._integer_parameter("backend.channels"),
+                    chunk_size_samples=self._integer_parameter(
+                        "backend.chunk_size_samples"
+                    ),
+                    chunk_ms=self._integer_parameter("backend.chunk_ms"),
+                    emit_partial=self._bool_parameter("backend.emit_partial"),
+                    max_partial_interval_ms=self._integer_parameter(
+                        "backend.max_partial_interval_ms"
+                    ),
                 )
             )
         if backend_name == "openai_realtime":

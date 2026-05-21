@@ -1,0 +1,615 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import base64
+import binascii
+import importlib
+import importlib.util
+import json
+import math
+import os
+import struct
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TypeAlias
+
+
+JsonValue: TypeAlias = (
+    str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+)
+JsonMapping: TypeAlias = dict[str, JsonValue]
+
+SUPPORTED_AUDIO_ENCODING = "FLOAT32LE"
+WIRE_AUDIO_ENCODING = "base64_float32le"
+SUPPORTED_CHANNELS = 1
+
+
+class WorkerError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class WorkerConfig:
+    model_path: Path
+    language: str
+    sample_rate_hz: int
+    channels: int
+    audio_encoding: str
+    emit_partial: bool
+    chunk_size_samples: int
+    max_partial_interval_ms: int
+
+
+@dataclass(frozen=True)
+class ModelCapability:
+    model_class: str
+    sample_rate_hz: int
+    languages: tuple[str, ...]
+    rnnt: bool
+    cache_aware_streaming: bool
+    chunk_size_samples: int
+    max_partial_interval_ms: int
+    supports_partials: bool
+
+
+@dataclass(frozen=True)
+class AudioChunk:
+    session_id: str
+    sample_count: int
+    payload: bytes
+
+
+class StreamingRuntime:
+    def __init__(self, config: WorkerConfig, runner: "NemoStreamingModelRunner") -> None:
+        self._config = config
+        self._runner = runner
+        self._active_session_id = ""
+        self._accepted_sample_count = 0
+
+    def start(self, message: JsonMapping) -> tuple[JsonMapping, ...]:
+        if self._active_session_id:
+            raise WorkerError("start requires an idle worker session")
+        _validate_stream_contract(message, self._config)
+        session_id = _required_string(message, "session_id")
+        self._runner.start_stream(session_id=session_id)
+        self._active_session_id = session_id
+        self._accepted_sample_count = 0
+        return ({"type": "stream_started", "session_id": session_id},)
+
+    def accept_audio(self, message: JsonMapping) -> tuple[JsonMapping, ...]:
+        self._ensure_streaming()
+        chunk = _parse_audio_chunk(message)
+        self._require_active_session(chunk.session_id, "audio")
+        samples = _decode_float32le_samples(chunk.payload, sample_count=chunk.sample_count)
+        self._accepted_sample_count += chunk.sample_count
+        responses: list[JsonMapping] = []
+        partial_text = self._runner.accept_audio(samples=samples)
+        if self._config.emit_partial and partial_text:
+            responses.append(
+                {
+                    "type": "partial",
+                    "session_id": chunk.session_id,
+                    "text": partial_text,
+                    "sample_count": self._accepted_sample_count,
+                }
+            )
+        responses.append(
+            {
+                "type": "audio_accepted",
+                "session_id": chunk.session_id,
+                "sample_count": chunk.sample_count,
+            }
+        )
+        return tuple(responses)
+
+    def drain(self, message: JsonMapping) -> tuple[JsonMapping, ...]:
+        self._ensure_streaming()
+        session_id = _required_string(message, "session_id")
+        self._require_active_session(session_id, "drain")
+        responses: list[JsonMapping] = []
+        partial_text = self._runner.poll_partial()
+        if self._config.emit_partial and partial_text:
+            responses.append(
+                {
+                    "type": "partial",
+                    "session_id": session_id,
+                    "text": partial_text,
+                    "sample_count": self._accepted_sample_count,
+                }
+            )
+        responses.append({"type": "drained", "session_id": session_id})
+        return tuple(responses)
+
+    def finish(self, message: JsonMapping) -> tuple[JsonMapping, ...]:
+        self._ensure_streaming()
+        session_id = _required_string(message, "session_id")
+        self._require_active_session(session_id, "finish")
+        if self._accepted_sample_count <= 0:
+            raise WorkerError("finish requires at least one accepted audio message")
+        final_text = self._runner.finish_stream()
+        self._active_session_id = ""
+        return (
+            {
+                "type": "final",
+                "session_id": session_id,
+                "text": final_text,
+                "sample_count": self._accepted_sample_count,
+            },
+            {"type": "finished", "session_id": session_id},
+        )
+
+    def cancel(self, message: JsonMapping) -> tuple[JsonMapping, ...]:
+        self._ensure_streaming()
+        session_id = _required_string(message, "session_id")
+        self._require_active_session(session_id, "cancel")
+        self._runner.reset_stream(reason="cancel")
+        self._active_session_id = ""
+        self._accepted_sample_count = 0
+        return ({"type": "cancelled", "session_id": session_id},)
+
+    def _ensure_streaming(self) -> None:
+        if not self._active_session_id:
+            raise WorkerError("stream command requires an active worker session")
+
+    def _require_active_session(self, session_id: str, command_name: str) -> None:
+        if session_id != self._active_session_id:
+            raise WorkerError(f"{command_name} session_id does not match active stream")
+
+
+class NemoStreamingModelRunner:
+    def __init__(self, model) -> None:
+        self._model = model
+
+    def start_stream(self, *, session_id: str) -> None:
+        if hasattr(self._model, "start_stream"):
+            self._model.start_stream(session_id)
+
+    def accept_audio(self, *, samples: tuple[float, ...]) -> str:
+        if hasattr(self._model, "accept_audio"):
+            return _require_text_result(self._model.accept_audio(samples))
+        if hasattr(self._model, "transcribe_streaming_chunk"):
+            return _require_text_result(self._model.transcribe_streaming_chunk(samples))
+        raise WorkerError("model does not expose accept_audio/transcribe_streaming_chunk")
+
+    def poll_partial(self) -> str:
+        if hasattr(self._model, "poll_partial"):
+            return _optional_text_result(self._model.poll_partial())
+        return ""
+
+    def finish_stream(self) -> str:
+        if hasattr(self._model, "finish_stream"):
+            return _require_text_result(self._model.finish_stream())
+        if hasattr(self._model, "finalize_stream"):
+            return _require_text_result(self._model.finalize_stream())
+        raise WorkerError("model does not expose finish_stream/finalize_stream")
+
+    def reset_stream(self, *, reason: str) -> None:
+        if hasattr(self._model, "reset_stream"):
+            self._model.reset_stream(reason)
+            return
+        if hasattr(self._model, "reset"):
+            self._model.reset()
+            return
+        raise WorkerError("model does not expose reset_stream/reset")
+
+
+def main() -> int:
+    runtime: StreamingRuntime | None = None
+    try:
+        for line in sys.stdin:
+            message = _load_json_line(line)
+            message_type = _required_string(message, "type")
+            if message_type == "health":
+                config = _config_from_message(message)
+                model = load_nemo_model(config.model_path)
+                capability = inspect_model_capability(model)
+                validate_model_capability(capability, config)
+                runtime = StreamingRuntime(config, NemoStreamingModelRunner(model))
+                _emit(
+                    {
+                        "type": "health_ok",
+                        "model_class": capability.model_class,
+                        "cache_aware_streaming": capability.cache_aware_streaming,
+                        "sample_rate_hz": capability.sample_rate_hz,
+                        "channels": config.channels,
+                        "audio_encoding": config.audio_encoding,
+                        "streaming": True,
+                        "final_results_only": not config.emit_partial,
+                        "supports_partials": capability.supports_partials,
+                        "language": config.language,
+                        "chunk_size_samples": capability.chunk_size_samples,
+                        "max_partial_interval_ms": capability.max_partial_interval_ms,
+                    }
+                )
+                continue
+            if message_type == "start":
+                if runtime is None:
+                    config = _config_from_message(message)
+                    model = load_nemo_model(config.model_path)
+                    capability = inspect_model_capability(model)
+                    validate_model_capability(capability, config)
+                    runtime = StreamingRuntime(config, NemoStreamingModelRunner(model))
+                _emit_many(runtime.start(message))
+                continue
+            if runtime is None:
+                raise WorkerError(f"{message_type} requires a prior health or start message")
+            if message_type == "audio":
+                _emit_many(runtime.accept_audio(message))
+                continue
+            if message_type == "drain":
+                _emit_many(runtime.drain(message))
+                continue
+            if message_type == "finish":
+                _emit_many(runtime.finish(message))
+                continue
+            if message_type == "cancel":
+                _emit_many(runtime.cancel(message))
+                continue
+            raise WorkerError(f"unknown message type: {message_type}")
+        return 0
+    except WorkerError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+
+def load_nemo_model(model_path: Path):
+    for module_name in (
+        "nemo",
+        "nemo.collections",
+        "nemo.collections.asr",
+        "nemo.collections.asr.models",
+    ):
+        if importlib.util.find_spec(module_name) is None:
+            raise WorkerError("NeMo ASR module is unavailable in this worker environment")
+    models_module = importlib.import_module("nemo.collections.asr.models")
+    if not hasattr(models_module, "ASRModel"):
+        raise WorkerError("NeMo ASRModel is unavailable")
+    asr_model_class = models_module.ASRModel
+    if not hasattr(asr_model_class, "restore_from"):
+        raise WorkerError("NeMo ASRModel.restore_from is unavailable")
+    return asr_model_class.restore_from(str(model_path))
+
+
+def inspect_model_capability(model) -> ModelCapability:
+    cfg = _required_attr(model, "cfg")
+    model_class = _extract_model_class(model, cfg)
+    preprocessor = _required_config_section(cfg, "preprocessor")
+    decoder = _required_config_section(cfg, "decoder")
+    joint = _required_config_section(cfg, "joint")
+    encoder = _required_config_section(cfg, "encoder")
+    sample_rate_hz = _required_config_int(preprocessor, "sample_rate")
+    languages = _extract_languages(cfg)
+    rnnt = _is_rnnt_model_class(model_class) and _config_section_mentions(decoder, "rnnt")
+    cache_aware_streaming = _encoder_supports_cache_aware_streaming(encoder)
+    chunk_size_samples = _required_config_int(encoder, "chunk_size")
+    max_partial_interval_ms = _optional_config_int(
+        encoder, "max_partial_interval_ms", default_value=300
+    )
+    _required_config_section(joint, "jointnet")
+    return ModelCapability(
+        model_class=model_class,
+        sample_rate_hz=sample_rate_hz,
+        languages=languages,
+        rnnt=rnnt,
+        cache_aware_streaming=cache_aware_streaming,
+        chunk_size_samples=chunk_size_samples,
+        max_partial_interval_ms=max_partial_interval_ms,
+        supports_partials=_model_supports_partials(model),
+    )
+
+
+def validate_model_capability(capability: ModelCapability, config: WorkerConfig) -> None:
+    if not capability.rnnt:
+        raise WorkerError(f"model must be RNNT/Transducer; got {capability.model_class}")
+    if not capability.cache_aware_streaming:
+        raise WorkerError("model must expose cache-aware streaming support")
+    if capability.sample_rate_hz != config.sample_rate_hz:
+        raise WorkerError(
+            f"model sample_rate {capability.sample_rate_hz} "
+            f"does not match configured {config.sample_rate_hz}"
+        )
+    if capability.languages and config.language not in capability.languages:
+        raise WorkerError(f"language {config.language} is not supported by model")
+    if capability.chunk_size_samples != config.chunk_size_samples:
+        raise WorkerError(
+            f"chunk_size_samples {config.chunk_size_samples} "
+            f"does not match model chunk_size {capability.chunk_size_samples}"
+        )
+    if capability.max_partial_interval_ms != config.max_partial_interval_ms:
+        raise WorkerError(
+            f"max_partial_interval_ms {config.max_partial_interval_ms} "
+            f"does not match model {capability.max_partial_interval_ms}"
+        )
+    if config.emit_partial and not capability.supports_partials:
+        raise WorkerError("model does not expose partial result support")
+
+
+def _config_from_message(message: JsonMapping) -> WorkerConfig:
+    model_path = _require_readable_file(_required_string(message, "model_path"), "model_path")
+    language = _required_string(message, "language")
+    sample_rate_hz = _required_positive_int(message, "sample_rate_hz")
+    channels = _required_positive_int(message, "channels")
+    audio_encoding = _required_string(message, "audio_encoding")
+    emit_partial = _required_bool(message, "emit_partial")
+    chunk_size_samples = _required_positive_int(message, "chunk_size_samples")
+    max_partial_interval_ms = _required_positive_int(message, "max_partial_interval_ms")
+    if channels != SUPPORTED_CHANNELS:
+        raise WorkerError("channels must be 1; upstream must provide mono audio")
+    if audio_encoding != SUPPORTED_AUDIO_ENCODING:
+        raise WorkerError(
+            f"audio_encoding must be {SUPPORTED_AUDIO_ENCODING}; transcoding is not performed"
+        )
+    return WorkerConfig(
+        model_path=model_path,
+        language=language,
+        sample_rate_hz=sample_rate_hz,
+        channels=channels,
+        audio_encoding=audio_encoding,
+        emit_partial=emit_partial,
+        chunk_size_samples=chunk_size_samples,
+        max_partial_interval_ms=max_partial_interval_ms,
+    )
+
+
+def _validate_stream_contract(message: JsonMapping, config: WorkerConfig) -> None:
+    candidate = _config_from_message(message)
+    if candidate != config:
+        raise WorkerError("start stream contract does not match worker health contract")
+
+
+def _parse_audio_chunk(message: JsonMapping) -> AudioChunk:
+    session_id = _required_string(message, "session_id")
+    encoding = _required_string(message, "encoding")
+    sample_count = _required_positive_int(message, "sample_count")
+    data = _required_string(message, "data")
+    if encoding != WIRE_AUDIO_ENCODING:
+        raise WorkerError(f"audio encoding must be {WIRE_AUDIO_ENCODING}")
+    try:
+        payload = base64.b64decode(data, validate=True)
+    except binascii.Error as exc:
+        raise WorkerError("audio data is not valid base64") from exc
+    expected_bytes = sample_count * SUPPORTED_CHANNELS * 4
+    if len(payload) != expected_bytes:
+        raise WorkerError(f"sample_count mismatch: expected {expected_bytes} bytes, got {len(payload)}")
+    return AudioChunk(session_id=session_id, sample_count=sample_count, payload=payload)
+
+
+def _decode_float32le_samples(payload: bytes, *, sample_count: int) -> tuple[float, ...]:
+    samples: list[float] = []
+    for index, (sample,) in enumerate(struct.iter_unpack("<f", payload)):
+        if not math.isfinite(sample):
+            raise WorkerError(f"audio sample {index} is not finite")
+        if sample < -1.0 or sample > 1.0:
+            raise WorkerError(f"audio sample {index} is outside normalized float32 range")
+        samples.append(sample)
+    if len(samples) != sample_count:
+        raise WorkerError("decoded sample_count mismatch")
+    return tuple(samples)
+
+
+def _load_json_line(line: str) -> JsonMapping:
+    try:
+        decoded = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise WorkerError(f"malformed JSON line: {exc.msg}") from exc
+    value = _validate_json_value(decoded)
+    if type(value) is not dict:
+        raise WorkerError("JSON line must be a mapping")
+    return value
+
+
+def _validate_json_value(value) -> JsonValue:
+    if value is None:
+        return None
+    if type(value) is str or type(value) is int or type(value) is float or type(value) is bool:
+        return value
+    if type(value) is list:
+        return [_validate_json_value(item) for item in value]
+    if type(value) is dict:
+        validated: JsonMapping = {}
+        for key, item in value.items():
+            if type(key) is not str:
+                raise WorkerError("JSON object keys must be strings")
+            validated[key] = _validate_json_value(item)
+        return validated
+    raise WorkerError("unsupported JSON value")
+
+
+def _emit(message: JsonMapping) -> None:
+    print(json.dumps(message, ensure_ascii=False, separators=(",", ":")), flush=True)
+
+
+def _emit_many(messages: tuple[JsonMapping, ...]) -> None:
+    for message in messages:
+        _emit(message)
+
+
+def _require_readable_file(value: str, label: str) -> Path:
+    path = Path(value).expanduser()
+    try:
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise WorkerError(f"{label} file does not exist: {path}") from exc
+    if not resolved.is_file():
+        raise WorkerError(f"{label} path is not a file: {resolved}")
+    if not os.access(resolved, os.R_OK):
+        raise WorkerError(f"{label} file is not readable: {resolved}")
+    return resolved
+
+
+def _required_string(document: JsonMapping, key: str) -> str:
+    if key not in document:
+        raise WorkerError(f"missing required field: {key}")
+    value = document[key]
+    if type(value) is not str or not value.strip():
+        raise WorkerError(f"{key} must be a non-empty string")
+    return value
+
+
+def _required_bool(document: JsonMapping, key: str) -> bool:
+    if key not in document:
+        raise WorkerError(f"missing required field: {key}")
+    value = document[key]
+    if type(value) is not bool:
+        raise WorkerError(f"{key} must be a bool")
+    return value
+
+
+def _required_int(document: JsonMapping, key: str) -> int:
+    if key not in document:
+        raise WorkerError(f"missing required field: {key}")
+    value = document[key]
+    if type(value) is not int:
+        raise WorkerError(f"{key} must be an integer")
+    return value
+
+
+def _required_positive_int(document: JsonMapping, key: str) -> int:
+    value = _required_int(document, key)
+    if value <= 0:
+        raise WorkerError(f"{key} must be positive")
+    return value
+
+
+def _required_attr(value, name: str):
+    if not hasattr(value, name):
+        raise WorkerError(f"model is missing required attribute: {name}")
+    return getattr(value, name)
+
+
+def _required_config_section(config, name: str):
+    if isinstance(config, dict):
+        if name not in config:
+            raise WorkerError(f"model config is missing section: {name}")
+        return config[name]
+    if not hasattr(config, name):
+        raise WorkerError(f"model config is missing section: {name}")
+    return getattr(config, name)
+
+
+def _required_config_int(config, name: str) -> int:
+    value = _required_config_section(config, name)
+    if type(value) is not int:
+        raise WorkerError(f"model config {name} must be an integer")
+    return value
+
+
+def _optional_config_int(config, name: str, *, default_value: int) -> int:
+    if isinstance(config, dict):
+        if name not in config:
+            return default_value
+        value = config[name]
+    elif hasattr(config, name):
+        value = getattr(config, name)
+    else:
+        return default_value
+    if type(value) is not int:
+        raise WorkerError(f"model config {name} must be an integer")
+    return value
+
+
+def _extract_model_class(model, cfg) -> str:
+    class_name = model.__class__.__name__
+    if class_name:
+        return class_name
+    if isinstance(cfg, dict) and "target" in cfg and type(cfg["target"]) is str:
+        return cfg["target"]
+    if hasattr(cfg, "target"):
+        target = getattr(cfg, "target")
+        if type(target) is str:
+            return target
+    raise WorkerError("model class cannot be determined")
+
+
+def _extract_languages(cfg) -> tuple[str, ...]:
+    if isinstance(cfg, dict) and "languages" in cfg:
+        return _string_tuple(cfg["languages"], "languages")
+    if hasattr(cfg, "languages"):
+        return _string_tuple(getattr(cfg, "languages"), "languages")
+    if isinstance(cfg, dict) and "language" in cfg:
+        return (_required_config_string(cfg, "language"),)
+    if hasattr(cfg, "language"):
+        value = getattr(cfg, "language")
+        if type(value) is str and value:
+            return (value,)
+    return ()
+
+
+def _required_config_string(config, name: str) -> str:
+    value = _required_config_section(config, name)
+    if type(value) is not str or not value.strip():
+        raise WorkerError(f"model config {name} must be a non-empty string")
+    return value
+
+
+def _string_tuple(value, label: str) -> tuple[str, ...]:
+    if type(value) is not list and type(value) is not tuple:
+        raise WorkerError(f"model config {label} must be a string list")
+    strings: list[str] = []
+    for item in value:
+        if type(item) is not str or not item.strip():
+            raise WorkerError(f"model config {label} must contain only non-empty strings")
+        strings.append(item)
+    return tuple(strings)
+
+
+def _is_rnnt_model_class(model_class: str) -> bool:
+    lowered = model_class.lower()
+    return "rnnt" in lowered or "transducer" in lowered
+
+
+def _config_section_mentions(config, needle: str) -> bool:
+    if isinstance(config, dict):
+        values = tuple(config.values())
+    elif hasattr(config, "__dict__"):
+        values = tuple(vars(config).values())
+    else:
+        values = ()
+    for value in values:
+        if type(value) is str and needle in value.lower():
+            return True
+    return False
+
+
+def _encoder_supports_cache_aware_streaming(encoder) -> bool:
+    if isinstance(encoder, dict):
+        if encoder.get("cache_aware_streaming") is True:
+            return True
+        if encoder.get("streaming") == "cache_aware":
+            return True
+        return "streaming_cfg" in encoder
+    if getattr(encoder, "cache_aware_streaming", False) is True:
+        return True
+    if getattr(encoder, "streaming", "") == "cache_aware":
+        return True
+    return hasattr(encoder, "streaming_cfg")
+
+
+def _model_supports_partials(model) -> bool:
+    return hasattr(model, "accept_audio") or hasattr(model, "transcribe_streaming_chunk")
+
+
+def _require_text_result(value) -> str:
+    text = _optional_text_result(value)
+    if not text:
+        raise WorkerError("model streaming API must return non-empty text")
+    return text
+
+
+def _optional_text_result(value) -> str:
+    if value is None:
+        return ""
+    if type(value) is str:
+        return value
+    if isinstance(value, dict) and "text" in value and type(value["text"]) is str:
+        return value["text"]
+    if hasattr(value, "text"):
+        text = getattr(value, "text")
+        if type(text) is str:
+            return text
+    raise WorkerError("model streaming API must return text")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

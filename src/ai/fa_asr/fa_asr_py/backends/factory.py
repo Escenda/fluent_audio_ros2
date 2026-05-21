@@ -8,6 +8,10 @@ from fa_asr_py.backends.local_command import (
     LocalCommandAsrBackend,
     load_local_command_config,
 )
+from fa_asr_py.backends.nemo_rnnt_streaming import (
+    NemoRnntStreamingAsrBackend,
+    load_nemo_rnnt_streaming_config,
+)
 from fa_asr_py.backends.openai_realtime import (
     OpenAiRealtimeAsrBackend,
     load_openai_realtime_config,
@@ -40,6 +44,12 @@ class AsrBackendSettings:
     working_directory: str = ""
     output_text_path: str = ""
     result_format: str = ""
+    sample_rate_hz: int = 0
+    channels: int = 0
+    chunk_size_samples: int = 0
+    chunk_ms: int = 0
+    emit_partial: bool = True
+    max_partial_interval_ms: int = 0
 
 
 def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
@@ -92,6 +102,22 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 workspace_dir=settings.workspace_dir,
                 cleanup_audio_files=settings.cleanup_audio_files,
                 result_format=settings.result_format.strip(),
+            )
+        )
+    if backend_name == NemoRnntStreamingAsrBackend.name:
+        return NemoRnntStreamingAsrBackend(
+            load_nemo_rnnt_streaming_config(
+                command=settings.command.strip(),
+                model_path_value=settings.model_path.strip(),
+                language=settings.language,
+                timeout_sec=settings.timeout_sec,
+                working_directory_value=settings.working_directory.strip(),
+                sample_rate_hz=settings.sample_rate_hz,
+                channels=settings.channels,
+                chunk_size_samples=settings.chunk_size_samples,
+                chunk_ms=settings.chunk_ms,
+                emit_partial=settings.emit_partial,
+                max_partial_interval_ms=settings.max_partial_interval_ms,
             )
         )
     if backend_name == OpenAiRealtimeAsrBackend.name:

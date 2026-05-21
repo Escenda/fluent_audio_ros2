@@ -16,6 +16,7 @@ ament_python_install_package(fa_asr_py PACKAGE_DIR fa_asr_py)
 install(PROGRAMS
   scripts/download_whisper_cpp_model
   scripts/fa_asr_node
+  scripts/nemo_rnnt_streaming_worker
   scripts/prepare_whisper_cpp_asr
   scripts/whisper_cpp_worker
   DESTINATION lib/${PROJECT_NAME}

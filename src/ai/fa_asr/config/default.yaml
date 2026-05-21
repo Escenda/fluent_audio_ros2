@@ -46,6 +46,8 @@ fa_asr:
     # - local_command: generic local ASR process, requires backend.model_path
     # - whisper.cpp: whisper.cpp process, requires backend.model_path
     # - parakeet_worker: external worker/process/container, requires backend.model
+    # - nemo_rnnt_streaming: external JSONL streaming worker/process/container,
+    #   requires backend.command and a local backend.model_path .nemo file
     # - openai_realtime: external OpenAI Realtime worker/process, requires backend.model
     #   and backend.openai_realtime.api_key_env
     # - openai_transcriptions: external OpenAI Transcriptions worker/process, requires
@@ -70,6 +72,13 @@ fa_asr:
     backend.health_args: []
     backend.output_text_path: ""
     backend.result_format: ""
+    backend.sample_rate_hz: 16000
+    backend.channels: 1
+    backend.chunk_size_samples: 1600
+    # chunk_ms is not accepted by nemo_rnnt_streaming yet; set chunk_size_samples explicitly.
+    backend.chunk_ms: 0
+    backend.emit_partial: true
+    backend.max_partial_interval_ms: 300
 
     # QoS is explicit per edge. Do not infer reliability/depth from topic names.
     audio.qos.depth: 20

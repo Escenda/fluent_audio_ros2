@@ -10,6 +10,10 @@ from fa_asr_py.backends.base import (
 )
 from fa_asr_py.backends.factory import AsrBackendSettings, build_asr_backend
 from fa_asr_py.backends.local_command import LocalCommandAsrBackend, LocalCommandAsrConfig
+from fa_asr_py.backends.nemo_rnnt_streaming import (
+    NemoRnntStreamingAsrBackend,
+    NemoRnntStreamingConfig,
+)
 from fa_asr_py.backends.openai_realtime import (
     OpenAiRealtimeAsrBackend,
     OpenAiRealtimeAsrConfig,
@@ -44,5 +48,7 @@ __all__ = [
     "LocalCommandAsrConfig",
     "WhisperCppAsrBackend",
     "WhisperCppAsrConfig",
+    "NemoRnntStreamingAsrBackend",
+    "NemoRnntStreamingConfig",
     "build_asr_backend",
 ]
