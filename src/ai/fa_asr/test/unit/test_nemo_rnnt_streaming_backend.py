@@ -84,7 +84,9 @@ for line in sys.stdin:
         emit({"type": "stream_started", "session_id": message["session_id"]})
         continue
     if message["type"] == "audio":
-        if behavior == "result_beyond_pushed":
+        if behavior == "empty_final_without_prior_hypothesis":
+            pass
+        elif behavior == "result_beyond_pushed":
             emit({
                 "type": "partial",
                 "session_id": message["session_id"],
@@ -127,7 +129,12 @@ for line in sys.stdin:
             emit({
                 "type": "final",
                 "session_id": message["session_id"],
-                "text": "" if behavior == "empty_final_transcript" else "final text",
+                "text": ""
+                if behavior in (
+                    "empty_final_transcript",
+                    "empty_final_without_prior_hypothesis",
+                )
+                else "final text",
                 "sample_count": 4,
             })
         emit({"type": "finished", "session_id": message["session_id"]})
@@ -265,12 +272,28 @@ def test_finish_maps_final_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert asr_transcript_text(results[0].transcript) == "final text"
 
 
-def test_finish_maps_empty_final_result(
+def test_finish_commits_last_non_empty_partial_when_final_is_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     backend = _backend(tmp_path, monkeypatch, behavior="empty_final_transcript")
     session = backend.start_stream(AsrStreamRequest(session_id="s1", user_turn_id=7))
     session.push_audio(_payload())
+    results = session.finish()
+    assert len(results) == 1
+    assert results[0].is_final is True
+    assert asr_transcript_text(results[0].transcript) == "partial"
+
+
+def test_finish_keeps_empty_final_without_prior_non_empty_hypothesis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = _backend(
+        tmp_path,
+        monkeypatch,
+        behavior="empty_final_without_prior_hypothesis",
+    )
+    session = backend.start_stream(AsrStreamRequest(session_id="s1", user_turn_id=7))
+    assert session.push_audio(_payload()) == ()
     results = session.finish()
     assert len(results) == 1
     assert results[0].is_final is True

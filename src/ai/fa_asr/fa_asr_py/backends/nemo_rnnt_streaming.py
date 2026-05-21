@@ -20,6 +20,7 @@ from fa_asr_py.backends.base import (
     AsrStreamResult,
     AsrTranscript,
     AsrTranscriptSegment,
+    asr_transcript_text,
     build_asr_transcript,
 )
 
@@ -118,6 +119,7 @@ class NemoRnntStreamingSession:
         self._pushed_sample_count = 0
         self._finished = False
         self._cancelled = False
+        self._last_non_empty_partial_hypothesis_text: str | None = None
         process.start_stream(config, request)
 
     def push_audio(self, payload: AsrAudioPayload) -> tuple[AsrStreamResult, ...]:
@@ -166,16 +168,48 @@ class NemoRnntStreamingSession:
         self, results: tuple[AsrStreamResult, ...], *, final_required: bool
     ) -> tuple[AsrStreamResult, ...]:
         saw_final = False
+        validated_results: list[AsrStreamResult] = []
         for result in results:
             if result.sample_count > self._pushed_sample_count:
                 raise RuntimeError(
                     "ASR stream result sample_count exceeds pushed audio sample count"
                 )
-            if result.is_final:
+            committed_result = self._apply_streaming_commit_semantics(result)
+            if committed_result.is_final:
                 saw_final = True
+            self._remember_non_empty_partial_hypothesis(committed_result)
+            validated_results.append(committed_result)
         if final_required and not saw_final:
             raise RuntimeError("ASR stream finish did not return a final result")
-        return results
+        return tuple(validated_results)
+
+    def _apply_streaming_commit_semantics(self, result: AsrStreamResult) -> AsrStreamResult:
+        result_text = asr_transcript_text(result.transcript)
+        if not result.is_final or result_text:
+            return result
+        if self._last_non_empty_partial_hypothesis_text is None:
+            return result
+        return AsrStreamResult(
+            transcript=build_asr_transcript(
+                (
+                    AsrTranscriptSegment(
+                        start_sample=0,
+                        end_sample=result.sample_count,
+                        text=self._last_non_empty_partial_hypothesis_text,
+                    ),
+                ),
+                sample_count=result.sample_count,
+            ),
+            is_final=True,
+            sample_count=result.sample_count,
+        )
+
+    def _remember_non_empty_partial_hypothesis(self, result: AsrStreamResult) -> None:
+        if result.is_final:
+            return
+        result_text = asr_transcript_text(result.transcript)
+        if result_text:
+            self._last_non_empty_partial_hypothesis_text = result_text
 
 
 class _JsonLinesWorkerProcess:
