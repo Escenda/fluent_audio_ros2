@@ -30,8 +30,9 @@ _KWS_FRONTEND_REQUIRED_ENV = (
     "FLUENT_AUDIO_KWS_KEYWORDS",
 )
 _VOICE_FRONTEND_REQUIRED_ENV = (
-    "FLUENT_AUDIO_ASR_MODEL_PATH",
     "FLUENT_AUDIO_ASR_WORKER",
+    "FLUENT_AUDIO_ASR_MODEL",
+    "FLUENT_AUDIO_ASR_LANGUAGE",
     "FLUENT_AUDIO_TURN_DETECTOR_MODEL",
     "FLUENT_AUDIO_TURN_DETECTOR_PROVIDER",
     "FLUENT_AUDIO_TURN_DETECTOR_WORKER",
@@ -138,10 +139,9 @@ def _set_kws_frontend_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 def _set_voice_frontend_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _set_kws_frontend_env(monkeypatch, tmp_path)
     values = {
-        "FLUENT_AUDIO_ASR_MODEL_PATH": str(
-            tmp_path / "models" / "asr" / "ggml-large-v3.bin"
-        ),
-        "FLUENT_AUDIO_ASR_WORKER": str(tmp_path / "bin" / "whisper_cpp_worker"),
+        "FLUENT_AUDIO_ASR_WORKER": str(tmp_path / "bin" / "parakeet_asr_worker"),
+        "FLUENT_AUDIO_ASR_MODEL": "parakeet-rnnt-multilingual",
+        "FLUENT_AUDIO_ASR_LANGUAGE": "ja-JP",
         "FLUENT_AUDIO_TURN_DETECTOR_MODEL": str(
             tmp_path / "models" / "turn_detector" / "smart_turn.onnx"
         ),
@@ -697,8 +697,8 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
         audio_window_params["export.output_directory"]
         == "/tmp/fluent_audio/fa_audio_window/so101_voice_frontend"
     )
-    assert asr_params["audio_topic"] == vad_params["input_topic"]
-    assert asr_params["expected_stream_id"] == vad_params["input_stream_id"]
+    assert asr_params["audio_topic"] == high_pass_params["output_topic"]
+    assert asr_params["expected_stream_id"] == high_pass_params["output.stream_id"]
     _assert_asr_speech_control_contract(
         asr_params,
         expected_stream_id=vad_params["input_stream_id"],
@@ -710,20 +710,20 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
     assert asr_params["timeline.clock"] == "media"
     assert asr_params["timeline.window_id"] == "so101_voice_frontend_mic_asr"
     assert asr_params["timeline.window_epoch"] == audio_window_params["window.epoch"]
-    assert asr_params["backend.name"] == "whisper.cpp"
+    assert asr_params["backend.name"] == "parakeet_worker"
+    assert asr_params["backend.command"] == str(tmp_path / "bin" / "parakeet_asr_worker")
+    assert asr_params["backend.model"] == "parakeet-rnnt-multilingual"
+    assert asr_params["backend.language"] == "ja-JP"
     assert asr_params["backend.result_format"] == "plain_text"
-    assert asr_params["backend.model_path"] == str(
-        tmp_path / "models" / "asr" / "ggml-large-v3.bin"
-    )
-    assert asr_params["backend.command"] == str(
-        tmp_path / "bin" / "whisper_cpp_worker"
-    )
     assert asr_params["workspace_dir"] == "/tmp/fluent_audio/fa_asr/so101_voice_frontend"
+    assert "backend.model_path" not in asr_params
     assert "{audio}" in asr_params["backend.args"]
     assert "{model}" in asr_params["backend.args"]
+    assert "{language}" in asr_params["backend.args"]
     assert "{sample_rate}" in asr_params["backend.args"]
-    assert "{audio}" not in asr_params["backend.health_args"]
     assert "{model}" in asr_params["backend.health_args"]
+    assert "{language}" in asr_params["backend.health_args"]
+    assert "{audio}" not in asr_params["backend.health_args"]
 
     assert turn_detector_params["audio_topic"] == vad_params["input_topic"]
     assert turn_detector_params["expected_stream_id"] == vad_params["input_stream_id"]
@@ -1031,7 +1031,6 @@ def test_kws_profiles_carry_external_worker_contract_in_system_config(
         ("config/fluent_audio_system.sample.yaml", "ai"),
         ("config/profiles/so101.yaml", "ai"),
         ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
-        ("config/profiles/so101_voice_frontend.yaml", "voice_frontend"),
     ),
 )
 def test_asr_profiles_carry_whisper_worker_contract_in_system_config(
@@ -1063,6 +1062,59 @@ def test_asr_profiles_carry_whisper_worker_contract_in_system_config(
     assert "{sample_rate}" in params["backend.args"]
     assert "{model}" in params["backend.health_args"]
     assert "{audio}" not in params["backend.health_args"]
+
+
+def test_so101_voice_frontend_asr_carries_parakeet_worker_contract_in_system_config() -> None:
+    config = yaml.safe_load(
+        (PACKAGE_ROOT / "config/profiles/so101_voice_frontend.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    archive_group = next(
+        group for group in config["groups"] if group["id"] == "audio_archive_format"
+    )
+    frequency_group = next(
+        group for group in config["groups"] if group["id"] == "audio_frequency"
+    )
+    voice_group = next(group for group in config["groups"] if group["id"] == "voice_frontend")
+    archive_format = next(
+        node for node in archive_group["nodes"] if node["id"] == "fa_archive_sample_format"
+    )
+    high_pass = next(node for node in frequency_group["nodes"] if node["id"] == "fa_high_pass")
+    vad = next(node for node in voice_group["nodes"] if node["id"] == "fa_vad")
+    asr = next(node for node in voice_group["nodes"] if node["id"] == "fa_asr")
+    archive_params = archive_format["parameters"]
+    high_pass_params = high_pass["parameters"]
+    vad_params = vad["parameters"]
+    params = asr["parameters"]
+
+    assert params["audio_topic"] == high_pass_params["output_topic"]
+    assert params["expected_stream_id"] == high_pass_params["output.stream_id"]
+    assert archive_params["input.encoding"] == "FLOAT32LE"
+    assert archive_params["input.bit_depth"] == 32
+    assert archive_params["output.encoding"] == "PCM16LE"
+    assert archive_params["output.bit_depth"] == 16
+    assert archive_params["expected.sample_rate"] == 16000
+    assert archive_params["expected.channels"] == 1
+    assert archive_params["expected.layout"] == "interleaved"
+    _assert_asr_speech_control_contract(
+        params,
+        expected_stream_id=vad_params["input_stream_id"],
+    )
+    assert params["backend.name"] == "parakeet_worker"
+    assert params["backend.command"] == "${env:FLUENT_AUDIO_ASR_WORKER}"
+    assert params["backend.model"] == "${env:FLUENT_AUDIO_ASR_MODEL}"
+    assert params["backend.language"] == "${env:FLUENT_AUDIO_ASR_LANGUAGE}"
+    assert params["backend.result_format"] == "plain_text"
+    assert "backend.model_path" not in params
+    assert "{audio}" in params["backend.args"]
+    assert "{model}" in params["backend.args"]
+    assert "{language}" in params["backend.args"]
+    assert "{sample_rate}" in params["backend.args"]
+    assert "{model}" in params["backend.health_args"]
+    assert "{language}" in params["backend.health_args"]
+    assert "{audio}" not in params["backend.health_args"]
+    assert "vad_topic" not in params
 
 
 @pytest.mark.parametrize(

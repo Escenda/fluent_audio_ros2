@@ -9,8 +9,11 @@ import numpy as np
 import pytest
 
 from fa_asr_py.backends.base import (
+    AsrAudioPayload,
     AsrBackendCapability,
     AsrRequest,
+    AsrStreamRequest,
+    AsrStreamResult,
     AsrTranscript,
     AsrTranscriptSegment,
     plain_text_to_asr_transcript,
@@ -133,6 +136,7 @@ class _FakeAsrResult:
     STATUS_FINAL = 1
     STATUS_TIMEOUT = 2
     STATUS_ERROR = 3
+    STATUS_PARTIAL = 4
 
 
 class _FakeAsrState:
@@ -167,6 +171,13 @@ class _FakeAsrEvent:
     EVENT_INVALID_AUDIO_FRAME_DROPPED = 19
     EVENT_AUDIO_FRAME_TIMELINE_APPEND_DROPPED = 20
     EVENT_FAIL_CLOSED = 21
+    EVENT_STREAM_OPENED = 22
+    EVENT_STREAM_AUDIO_PUSHED = 23
+    EVENT_STREAM_PARTIAL_RESULT = 24
+    EVENT_STREAM_FINAL_RESULT = 25
+    EVENT_STREAM_CLOSED = 26
+    EVENT_STREAM_CANCELLED = 27
+    EVENT_STREAM_ERROR = 28
 
 
 class _FakeResolvedTimeRange:
@@ -352,6 +363,99 @@ class _RecordingBackend:
             return AsrTranscript(segments=self.segments)
         return plain_text_to_asr_transcript(
             self.transcript,
+            sample_count=request.payload.sample_count,
+        )
+
+
+def _streaming_result(text: str, *, sample_count: int, is_final: bool) -> AsrStreamResult:
+    return AsrStreamResult(
+        transcript=plain_text_to_asr_transcript(text, sample_count=sample_count),
+        is_final=is_final,
+        sample_count=sample_count,
+    )
+
+
+class _RecordingStreamingSession:
+    def __init__(self, *, partial_text: str = "partial", final_text: str = "final") -> None:
+        self.partial_text = partial_text
+        self.final_text = final_text
+        self.pushed_payloads: list[AsrAudioPayload] = []
+        self.pending_results: list[AsrStreamResult] = []
+        self.sample_count = 0
+        self.partial_emitted = False
+        self.finish_called = False
+        self.cancel_called = False
+
+    def push_audio(self, payload: AsrAudioPayload) -> tuple[AsrStreamResult, ...]:
+        self.pushed_payloads.append(payload)
+        self.sample_count += payload.sample_count
+        if self.partial_text and not self.partial_emitted:
+            self.pending_results.append(
+                _streaming_result(
+                    self.partial_text,
+                    sample_count=self.sample_count,
+                    is_final=False,
+                )
+            )
+            self.partial_emitted = True
+        return self.drain_results()
+
+    def drain_results(self) -> tuple[AsrStreamResult, ...]:
+        results = tuple(self.pending_results)
+        self.pending_results.clear()
+        return results
+
+    def finish(self) -> tuple[AsrStreamResult, ...]:
+        self.finish_called = True
+        return (
+            _streaming_result(
+                self.final_text,
+                sample_count=self.sample_count,
+                is_final=True,
+            ),
+        )
+
+    def cancel(self) -> None:
+        self.cancel_called = True
+
+
+class _RecordingStreamingBackend:
+    name = "recording_streaming_backend"
+
+    def __init__(
+        self,
+        *,
+        audio_encoding: str = "FLOAT32LE",
+        sample_rate_hz: int = 10,
+        partial_text: str = "partial",
+        final_text: str = "final",
+    ) -> None:
+        self.capability = AsrBackendCapability(
+            audio_encoding=audio_encoding,
+            sample_rate_hz=sample_rate_hz,
+            channels=1,
+            streaming=True,
+            final_results_only=False,
+        )
+        self.partial_text = partial_text
+        self.final_text = final_text
+        self.streams: list[_RecordingStreamingSession] = []
+        self.start_calls: list[tuple[str, int]] = []
+        self.requests: list[AsrRequest] = []
+
+    def start_stream(self, request: AsrStreamRequest) -> _RecordingStreamingSession:
+        self.start_calls.append((request.session_id, request.user_turn_id))
+        session = _RecordingStreamingSession(
+            partial_text=self.partial_text,
+            final_text=self.final_text,
+        )
+        self.streams.append(session)
+        return session
+
+    def transcribe(self, request: AsrRequest) -> AsrTranscript:
+        self.requests.append(request)
+        return plain_text_to_asr_transcript(
+            "timeline transcript",
             sample_count=request.payload.sample_count,
         )
 
@@ -1255,6 +1359,200 @@ def test_control_close_slices_timeline_and_submits_selected_asr_ready_range(
         np.array([0.2, 0.3, 0.4], dtype=np.float32),
     )
     assert backend.requests == []
+
+
+def test_streaming_control_open_starts_backend_stream_before_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingStreamingBackend(partial_text="")
+    node = _node(module, backend=backend)
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=True,
+            start=True,
+            end=False,
+            stamp_unix_ns=1_000_000_000,
+        )
+    )
+
+    assert backend.start_calls == [("session-1", 9)]
+    assert len(backend.streams) == 1
+    assert backend.streams[0].finish_called is False
+    assert node._jobs.empty()
+    assert [msg.event for msg in node.asr_event_pub.messages] == [
+        module.AsrEvent.EVENT_CONTROL_RECEIVED,
+        module.AsrEvent.EVENT_CONTROL_WINDOW_OPENED,
+        module.AsrEvent.EVENT_STREAM_OPENED,
+    ]
+
+
+def test_streaming_audio_pushes_incrementally_and_publishes_partial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingStreamingBackend(partial_text="partial text")
+    node = _node(module, backend=backend)
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=True,
+            start=True,
+            end=False,
+            stamp_unix_ns=1_000_000_000,
+        )
+    )
+
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    stream = backend.streams[0]
+    assert len(stream.pushed_payloads) == 1
+    np.testing.assert_array_equal(
+        stream.pushed_payloads[0].float32_samples(),
+        np.array([0.1, 0.2], dtype=np.float32),
+    )
+    assert node._jobs.empty()
+    assert len(node.asr_result_pub.messages) == 1
+    assert node.asr_result_pub.messages[0].status == module.AsrResult.STATUS_PARTIAL
+    assert node.asr_result_pub.messages[0].text == "partial text"
+    assert stream.finish_called is False
+    event_codes = [msg.event for msg in node.asr_event_pub.messages]
+    assert module.AsrEvent.EVENT_STREAM_AUDIO_PUSHED in event_codes
+    assert module.AsrEvent.EVENT_STREAM_PARTIAL_RESULT in event_codes
+
+
+def test_streaming_control_close_finishes_stream_and_publishes_final(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingStreamingBackend(
+        partial_text="partial text",
+        final_text="final text",
+    )
+    node = _node(module, backend=backend)
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=True,
+            start=True,
+            end=False,
+            stamp_unix_ns=1_000_000_000,
+        )
+    )
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=False,
+            end=True,
+            stamp_unix_ns=1_200_000_000,
+        )
+    )
+
+    stream = backend.streams[0]
+    assert stream.finish_called is True
+    assert node._jobs.empty()
+    assert [(msg.status, msg.text) for msg in node.asr_result_pub.messages] == [
+        (module.AsrResult.STATUS_PARTIAL, "partial text"),
+        (module.AsrResult.STATUS_FINAL, "final text"),
+    ]
+    event_codes = [msg.event for msg in node.asr_event_pub.messages]
+    assert module.AsrEvent.EVENT_STREAM_FINAL_RESULT in event_codes
+    assert module.AsrEvent.EVENT_STREAM_CLOSED in event_codes
+
+
+def test_transcribe_audio_stays_timeline_batch_for_streaming_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingStreamingBackend(partial_text="")
+    node = _node(module, backend=backend)
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2, 0.3], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    result = node.handle_transcribe_audio(
+        _FakeTranscribeAudioRequest(time_range_spec="1000000000..1300000000"),
+        _response(),
+    )
+
+    assert result.success is True
+    assert result.segments[0].text == "timeline transcript"
+    assert backend.start_calls == []
+    assert len(backend.requests) == 1
+
+
+def test_streaming_backend_pcm16_requirement_rejects_float32_frame_without_conversion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingStreamingBackend(audio_encoding="PCM16LE", partial_text="")
+    node = _node(module, backend=backend)
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=True,
+            start=True,
+            end=False,
+            stamp_unix_ns=1_000_000_000,
+        )
+    )
+
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    assert len(backend.streams) == 1
+    assert backend.streams[0].pushed_payloads == []
+    assert node.asr_result_pub.messages == []
+    assert node.asr_event_pub.messages[-1].event == (
+        module.AsrEvent.EVENT_INVALID_AUDIO_FRAME_DROPPED
+    )
+    assert node._logger.error_records[-1] == (
+        "Dropping invalid AudioFrame: AudioFrame encoding must be PCM16LE, got FLOAT32LE"
+    )
 
 
 def test_control_window_observability_reports_open_close_and_queue(

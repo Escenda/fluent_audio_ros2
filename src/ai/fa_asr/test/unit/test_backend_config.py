@@ -30,7 +30,6 @@ from fa_asr_py.backends.parakeet_worker import (
     ParakeetWorkerAsrBackend,
     load_parakeet_worker_config,
 )
-from fa_asr_py.backends.riva_nim_grpc import RivaNimGrpcAsrBackend
 from fa_asr_py.backends.whisper_cpp import WhisperCppAsrBackend, load_whisper_cpp_config
 
 
@@ -429,42 +428,6 @@ def _command_backend_parameters(
         "backend.working_directory": _TypedParameter(_FakeParameter.Type.STRING, ""),
         "backend.output_text_path": _TypedParameter(_FakeParameter.Type.STRING, ""),
         "backend.result_format": _TypedParameter(_FakeParameter.Type.STRING, "plain_text"),
-    }
-
-
-def _riva_backend_parameters(*, server: str) -> dict[str, _TypedParameter]:
-    return {
-        "backend.name": _TypedParameter(_FakeParameter.Type.STRING, "riva_nim_grpc"),
-        "backend.model": _TypedParameter(_FakeParameter.Type.STRING, "parakeet-ctc-1.1b"),
-        "backend.language": _TypedParameter(_FakeParameter.Type.STRING, "ja-JP"),
-        "backend.timeout_sec": _TypedParameter(_FakeParameter.Type.DOUBLE, 10.0),
-        "backend.riva_nim_grpc.server": _TypedParameter(_FakeParameter.Type.STRING, server),
-        "backend.riva_nim_grpc.use_ssl": _TypedParameter(_FakeParameter.Type.BOOL, False),
-        "backend.riva_nim_grpc.audio_encoding": _TypedParameter(
-            _FakeParameter.Type.STRING,
-            "PCM16LE",
-        ),
-        "backend.riva_nim_grpc.sample_rate_hz": _TypedParameter(
-            _FakeParameter.Type.INTEGER,
-            16000,
-        ),
-        "backend.riva_nim_grpc.channels": _TypedParameter(_FakeParameter.Type.INTEGER, 1),
-        "backend.riva_nim_grpc.chunk_size_bytes": _TypedParameter(
-            _FakeParameter.Type.INTEGER,
-            3200,
-        ),
-        "backend.riva_nim_grpc.interim_results": _TypedParameter(
-            _FakeParameter.Type.BOOL,
-            False,
-        ),
-        "backend.riva_nim_grpc.automatic_punctuation": _TypedParameter(
-            _FakeParameter.Type.BOOL,
-            True,
-        ),
-        "backend.riva_nim_grpc.enable_word_time_offsets": _TypedParameter(
-            _FakeParameter.Type.BOOL,
-            True,
-        ),
     }
 
 
@@ -1558,7 +1521,7 @@ def test_asr_node_local_command_does_not_require_other_backend_parameters(
         sys.modules.pop("fa_asr_py.asr_node", None)
 
 
-def test_asr_node_riva_requires_server_only_when_riva_selected(
+def test_asr_node_rejects_unknown_backend_name(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1570,11 +1533,16 @@ def test_asr_node_riva_requires_server_only_when_riva_selected(
         module = importlib.import_module("fa_asr_py.asr_node")
         node = _backend_config_node(
             module,
-            _riva_backend_parameters(server=""),
+            {
+                "backend.name": _TypedParameter(
+                    _FakeParameter.Type.STRING,
+                    "unsupported_backend",
+                ),
+            },
             workspace_dir=tmp_path / "work",
         )
 
-        with pytest.raises(RuntimeError, match="backend.riva_nim_grpc.server is required"):
+        with pytest.raises(RuntimeError, match="unsupported ASR backend.name: unsupported_backend"):
             module.FaAsrNode._load_backend(node)
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)

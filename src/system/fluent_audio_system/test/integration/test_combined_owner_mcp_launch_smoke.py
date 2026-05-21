@@ -57,12 +57,14 @@ _SOURCE_ID = _DISABLED_SITE_BINDING
 _PROFILE_SOURCE_ID = "mic"
 _ASR_STREAM_ID = "audio/high_pass/mic"
 _WINDOW_STREAM_ID = "audio/archive_pcm16/mic"
+_PROFILE_ASR_LANGUAGE = "ja-JP"
 _ARCHIVE_REASON = "combined launch smoke"
 _ARCHIVE_ARTIFACT_ID = "fluent_audio_system_launch"
 _PROFILE_MCP_PORT = 9110
 _REAL_ASR_SMOKE_ENV = "FLUENT_AUDIO_REAL_ASR_SMOKE"
 _REAL_ASR_WORKER_ENV = "FLUENT_AUDIO_ASR_WORKER"
-_REAL_ASR_MODEL_PATH_ENV = "FLUENT_AUDIO_ASR_MODEL_PATH"
+_REAL_ASR_MODEL_ENV = "FLUENT_AUDIO_ASR_MODEL"
+_REAL_ASR_LANGUAGE_ENV = "FLUENT_AUDIO_ASR_LANGUAGE"
 _REAL_ASR_AUDIO_F32_PATH_ENV = "FLUENT_AUDIO_REAL_ASR_AUDIO_F32_PATH"
 _REAL_ASR_SAMPLE_RATE_ENV = "FLUENT_AUDIO_REAL_ASR_SAMPLE_RATE"
 _REAL_ASR_EXPECTED_TEXT_ENV = "FLUENT_AUDIO_REAL_ASR_EXPECTED_TEXT"
@@ -82,6 +84,7 @@ import struct
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("command", nargs="?", choices=("transcribe", "health"))
     parser.add_argument("--health", action="store_true")
     parser.add_argument("--audio")
     parser.add_argument("--model", required=True)
@@ -95,7 +98,7 @@ def main() -> int:
         raise RuntimeError(f"missing model: {model_path}")
     if not args.language:
         raise RuntimeError("language is required")
-    if args.health:
+    if args.health or args.command == "health":
         return 0
     if args.audio is None:
         raise RuntimeError("--audio is required")
@@ -129,65 +132,6 @@ def main() -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 """
-_PROFILE_FAKE_ASR_WORKER = """#!/usr/bin/env python3
-from __future__ import annotations
-
-import argparse
-import math
-from pathlib import Path
-import struct
-
-
-def _samples(audio_path: Path) -> list[float]:
-    audio_bytes = audio_path.read_bytes()
-    if not audio_bytes:
-        raise RuntimeError("empty audio")
-    if len(audio_bytes) % 4 != 0:
-        raise RuntimeError("expected float32le audio")
-    samples = [sample for (sample,) in struct.iter_unpack("<f", audio_bytes)]
-    if not samples:
-        raise RuntimeError("empty float32le audio")
-    if not all(math.isfinite(sample) for sample in samples):
-        raise RuntimeError("expected finite float32le audio")
-    if any(sample < -1.0 or sample > 1.0 for sample in samples):
-        raise RuntimeError("expected normalized float32le audio")
-    if not all(abs(sample - 0.125) <= 1.0e-7 for sample in samples):
-        raise RuntimeError("unexpected profile audio sample values")
-    return samples
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    health_parser = subparsers.add_parser("health")
-    health_parser.add_argument("--model", required=True)
-    health_parser.add_argument("--language", required=True)
-    transcribe_parser = subparsers.add_parser("transcribe")
-    transcribe_parser.add_argument("--audio", required=True)
-    transcribe_parser.add_argument("--model", required=True)
-    transcribe_parser.add_argument("--sample-rate", type=int, required=True)
-    transcribe_parser.add_argument("--language", required=True)
-    args = parser.parse_args()
-
-    model_path = Path(args.model)
-    if not model_path.is_file():
-        raise RuntimeError(f"missing model: {model_path}")
-    if not args.language:
-        raise RuntimeError("language is required")
-    if args.command == "health":
-        return 0
-    if args.sample_rate <= 0:
-        raise RuntimeError("sample rate must be positive")
-    _samples(Path(args.audio))
-    print(model_path.read_text(encoding="utf-8").strip())
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-"""
-
-
 @dataclass(frozen=True)
 class _SmokeConfig:
     suffix: str
@@ -227,8 +171,10 @@ class _ProfileSmokeConfig:
     asr_node_name: str
     audio_window_node_name: str
     mcp_node_name: str
-    asr_model_path: Path
     asr_worker_path: Path
+    asr_model: str
+    asr_language: str
+    fake_asr_model_path: Path
     vad_model_dir: Path
     vad_worker_path: Path
     kws_worker_path: Path
@@ -254,8 +200,9 @@ class _ProfileSmokeConfig:
 
 @dataclass(frozen=True)
 class _RealAsrSmokeInput:
-    worker_command: str
-    model_path: Path
+    worker_path: Path
+    model: str
+    language: str
     audio_bytes: bytes
     expected_text: str | None
 
@@ -607,6 +554,7 @@ def _build_profile_smoke_config(tmp_path: Path) -> _ProfileSmokeConfig:
     suffix = "p_" + uuid.uuid4().hex
     source_index = int(suffix[-8:], 16) % 10_000
     start_unix_ns = 40_000_000_000 + source_index * _NSEC_PER_SEC
+    fake_asr_model_path = tmp_path / "fake_profile_asr_model.txt"
     return _ProfileSmokeConfig(
         suffix=suffix,
         client_node_name=f"so101_profile_smoke_client_{suffix}",
@@ -617,8 +565,10 @@ def _build_profile_smoke_config(tmp_path: Path) -> _ProfileSmokeConfig:
         asr_node_name="fa_asr",
         audio_window_node_name="fa_audio_window_mic",
         mcp_node_name="fa_audio_mcp_server",
-        asr_model_path=tmp_path / "profile_fake_asr_model.txt",
-        asr_worker_path=tmp_path / "profile_fake_asr_worker.py",
+        asr_worker_path=tmp_path / "fake_profile_asr_worker.py",
+        asr_model=str(fake_asr_model_path),
+        asr_language=_PROFILE_ASR_LANGUAGE,
+        fake_asr_model_path=fake_asr_model_path,
         vad_model_dir=tmp_path / "fake_silero_model",
         vad_worker_path=tmp_path / "fake_vad_worker.py",
         kws_worker_path=tmp_path / "fake_kws_worker.py",
@@ -652,8 +602,10 @@ def _build_real_asr_profile_smoke_config(
         asr_node_name="fa_asr",
         audio_window_node_name="fa_audio_window_mic",
         mcp_node_name="fa_audio_mcp_server",
-        asr_model_path=real_asr.model_path,
-        asr_worker_path=Path(real_asr.worker_command),
+        asr_worker_path=real_asr.worker_path,
+        asr_model=real_asr.model,
+        asr_language=real_asr.language,
+        fake_asr_model_path=tmp_path / "unused_fake_profile_asr_model.txt",
         vad_model_dir=tmp_path / "fake_silero_model",
         vad_worker_path=tmp_path / "fake_vad_worker.py",
         kws_worker_path=tmp_path / "fake_kws_worker.py",
@@ -684,14 +636,12 @@ def _write_runtime_files(config: _SmokeConfig) -> None:
 
 
 def _write_profile_runtime_files(config: _ProfileSmokeConfig) -> None:
-    _write_profile_fake_asr_runtime_files(config)
+    if not config.fake_asr_model_path.exists():
+        config.fake_asr_model_path.write_text(_PROFILE_TRANSCRIPT + "\n", encoding="utf-8")
+    if not config.asr_worker_path.exists():
+        config.asr_worker_path.write_text(_FAKE_ASR_WORKER, encoding="utf-8")
+        config.asr_worker_path.chmod(0o755)
     _write_profile_non_asr_runtime_files(config)
-
-
-def _write_profile_fake_asr_runtime_files(config: _ProfileSmokeConfig) -> None:
-    config.asr_model_path.write_text(_PROFILE_TRANSCRIPT + "\n", encoding="utf-8")
-    config.asr_worker_path.write_text(_PROFILE_FAKE_ASR_WORKER, encoding="utf-8")
-    config.asr_worker_path.chmod(0o755)
 
 
 def _write_profile_non_asr_runtime_files(config: _ProfileSmokeConfig) -> None:
@@ -1027,8 +977,9 @@ def _profile_launch_environment(
             "FLUENT_AUDIO_KWS_JOINER": str(config.kws_joiner_path),
             "FLUENT_AUDIO_KWS_TOKENS": str(config.kws_tokens_path),
             "FLUENT_AUDIO_KWS_KEYWORDS": str(config.kws_keywords_path),
-            "FLUENT_AUDIO_ASR_MODEL_PATH": str(config.asr_model_path),
             "FLUENT_AUDIO_ASR_WORKER": str(config.asr_worker_path),
+            "FLUENT_AUDIO_ASR_MODEL": config.asr_model,
+            "FLUENT_AUDIO_ASR_LANGUAGE": config.asr_language,
             "FLUENT_AUDIO_TURN_DETECTOR_MODEL": str(config.turn_model_path),
             "FLUENT_AUDIO_TURN_DETECTOR_PROVIDER": "CPUExecutionProvider",
             "FLUENT_AUDIO_TURN_DETECTOR_WORKER": str(config.turn_worker_path),
@@ -1820,10 +1771,10 @@ def _assert_profile_transcribe_response(
     _assert_profile_time_range(window_ref.time_range, config)
 
     model_ref = response.model_ref
-    assert model_ref.backend_name == "whisper.cpp"
+    assert model_ref.backend_name == "parakeet_worker"
     assert model_ref.backend_kind == "asr"
-    assert model_ref.model_id == ""
-    assert model_ref.model_path == str(config.asr_model_path)
+    assert model_ref.model_id == config.asr_model
+    assert model_ref.model_path == ""
     assert model_ref.model_version == ""
     assert model_ref.model_revision == ""
 
@@ -1857,10 +1808,10 @@ def _assert_real_asr_profile_transcribe_response(
     _assert_profile_time_range(window_ref.time_range, config)
 
     model_ref = response.model_ref
-    assert model_ref.backend_name == "whisper.cpp"
+    assert model_ref.backend_name == "parakeet_worker"
     assert model_ref.backend_kind == "asr"
-    assert model_ref.model_path == str(real_asr.model_path)
-    assert model_ref.model_id == ""
+    assert model_ref.model_path == ""
+    assert model_ref.model_id == real_asr.model
     assert model_ref.model_version == ""
     assert model_ref.model_revision == ""
 
@@ -1934,10 +1885,10 @@ def _assert_profile_transcribe_json(
         "time_range": expected_time_range,
     }
     assert transcribe["model_ref"] == {
-        "backend_name": "whisper.cpp",
+        "backend_name": "parakeet_worker",
         "backend_kind": "asr",
-        "model_id": "",
-        "model_path": str(config.asr_model_path),
+        "model_id": config.asr_model,
+        "model_path": "",
         "model_version": "",
         "model_revision": "",
     }
@@ -2340,8 +2291,11 @@ def _ensure_launch_running(process: subprocess.Popen[str]) -> None:
 
 
 def _load_real_asr_smoke_input() -> _RealAsrSmokeInput:
-    worker_path = _required_executable_file_env(_REAL_ASR_WORKER_ENV)
-    model_path = _required_file_env(_REAL_ASR_MODEL_PATH_ENV)
+    worker_path = _required_file_env(_REAL_ASR_WORKER_ENV)
+    if not os.access(worker_path, os.X_OK):
+        raise AssertionError(f"{_REAL_ASR_WORKER_ENV} must point to an executable file: {worker_path}")
+    model = _required_env(_REAL_ASR_MODEL_ENV)
+    language = _required_env(_REAL_ASR_LANGUAGE_ENV)
     audio_path = _required_file_env(_REAL_ASR_AUDIO_F32_PATH_ENV)
     _validate_real_asr_sample_rate()
     audio_bytes = audio_path.read_bytes()
@@ -2363,8 +2317,9 @@ def _load_real_asr_smoke_input() -> _RealAsrSmokeInput:
             "within [-1.0, 1.0]"
         )
     return _RealAsrSmokeInput(
-        worker_command=str(worker_path),
-        model_path=model_path,
+        worker_path=worker_path,
+        model=model,
+        language=language,
         audio_bytes=audio_bytes,
         expected_text=_real_asr_expected_text(),
     )
@@ -2388,13 +2343,6 @@ def _required_file_env(name: str) -> Path:
         raise AssertionError(f"{name} must point to a file: {resolved}")
     if not os.access(resolved, os.R_OK):
         raise AssertionError(f"{name} must point to a readable file: {resolved}")
-    return resolved
-
-
-def _required_executable_file_env(name: str) -> Path:
-    resolved = _required_file_env(name)
-    if not os.access(resolved, os.X_OK):
-        raise AssertionError(f"{name} must point to an executable file: {resolved}")
     return resolved
 
 

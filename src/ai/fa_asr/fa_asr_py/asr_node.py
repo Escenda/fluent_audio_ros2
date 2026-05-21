@@ -7,7 +7,7 @@ import queue
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, TextIO
+from typing import Callable, Iterable, TextIO, cast
 
 import numpy as np
 from builtin_interfaces.msg import Time
@@ -37,6 +37,10 @@ from fa_asr_py.backends.base import (
     AsrBackendCapability,
     AsrAudioPayload,
     AsrRequest,
+    AsrStreamRequest,
+    AsrStreamResult,
+    AsrStreamingSession,
+    StreamingAsrBackend,
     AsrTranscript,
     asr_transcript_text,
     build_asr_transcript,
@@ -100,6 +104,10 @@ class ControlWindowState:
     open: bool = False
     start_unix_ns: int = 0
     previous_active: bool = False
+    stream_session: AsrStreamingSession | None = None
+    stream_session_id: str = ""
+    stream_user_turn_id: int = 0
+    stream_sample_count: int = 0
 
 
 class FaAsrNode(Node):
@@ -312,15 +320,6 @@ class FaAsrNode(Node):
         self.declare_parameter("backend.health_args", Parameter.Type.STRING_ARRAY)
         self.declare_parameter("backend.output_text_path", Parameter.Type.STRING)
         self.declare_parameter("backend.result_format", Parameter.Type.STRING)
-        self.declare_parameter("backend.riva_nim_grpc.server", Parameter.Type.STRING)
-        self.declare_parameter("backend.riva_nim_grpc.use_ssl", Parameter.Type.BOOL)
-        self.declare_parameter("backend.riva_nim_grpc.audio_encoding", Parameter.Type.STRING)
-        self.declare_parameter("backend.riva_nim_grpc.sample_rate_hz", Parameter.Type.INTEGER)
-        self.declare_parameter("backend.riva_nim_grpc.channels", Parameter.Type.INTEGER)
-        self.declare_parameter("backend.riva_nim_grpc.chunk_size_bytes", Parameter.Type.INTEGER)
-        self.declare_parameter("backend.riva_nim_grpc.interim_results", Parameter.Type.BOOL)
-        self.declare_parameter("backend.riva_nim_grpc.automatic_punctuation", Parameter.Type.BOOL)
-        self.declare_parameter("backend.riva_nim_grpc.enable_word_time_offsets", Parameter.Type.BOOL)
         self.declare_parameter("audio.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)
@@ -498,40 +497,6 @@ class FaAsrNode(Node):
                     result_format=self._string_parameter("backend.result_format"),
                 )
             )
-        if backend_name == "riva_nim_grpc":
-            return build_asr_backend(
-                AsrBackendSettings(
-                    name=backend_name,
-                    workspace_dir=self.workspace_dir,
-                    cleanup_audio_files=self.cleanup_audio_files,
-                    model=self._string_parameter("backend.model"),
-                    language=self._string_parameter("backend.language"),
-                    timeout_sec=self._double_parameter("backend.timeout_sec"),
-                    riva_nim_grpc_server=self._string_parameter("backend.riva_nim_grpc.server"),
-                    riva_nim_grpc_use_ssl=self._bool_parameter("backend.riva_nim_grpc.use_ssl"),
-                    riva_nim_grpc_audio_encoding=self._string_parameter(
-                        "backend.riva_nim_grpc.audio_encoding"
-                    ),
-                    riva_nim_grpc_sample_rate_hz=self._integer_parameter(
-                        "backend.riva_nim_grpc.sample_rate_hz"
-                    ),
-                    riva_nim_grpc_channels=self._integer_parameter(
-                        "backend.riva_nim_grpc.channels"
-                    ),
-                    riva_nim_grpc_chunk_size_bytes=self._integer_parameter(
-                        "backend.riva_nim_grpc.chunk_size_bytes"
-                    ),
-                    riva_nim_grpc_interim_results=self._bool_parameter(
-                        "backend.riva_nim_grpc.interim_results"
-                    ),
-                    riva_nim_grpc_automatic_punctuation=self._bool_parameter(
-                        "backend.riva_nim_grpc.automatic_punctuation"
-                    ),
-                    riva_nim_grpc_enable_word_time_offsets=self._bool_parameter(
-                        "backend.riva_nim_grpc.enable_word_time_offsets"
-                    ),
-                )
-            )
         return build_asr_backend(
             AsrBackendSettings(
                 name=backend_name,
@@ -553,6 +518,15 @@ class FaAsrNode(Node):
             streaming=capability.streaming,
             final_results_only=capability.final_results_only,
         )
+
+    def _streaming_backend(self) -> StreamingAsrBackend:
+        if not self.input_capability.streaming:
+            raise RuntimeError("ASR backend is not configured as streaming")
+        if not hasattr(self.backend, "start_stream"):
+            raise RuntimeError(
+                "streaming ASR backend must implement start_stream(request)"
+            )
+        return cast(StreamingAsrBackend, self.backend)
 
     def _backend_args(self) -> tuple[str, ...]:
         return self._string_array_parameter("backend.args")
@@ -953,9 +927,12 @@ class FaAsrNode(Node):
     def on_turn_context(self, msg: TurnContext) -> None:
         with self._turn_state_lock:
             if not msg.active or not msg.session_id:
+                if self.input_capability.streaming:
+                    self._cancel_open_streams("context_inactive")
                 if (
                     self.control_default_enabled
                     and self._context_active
+                    and not self.input_capability.streaming
                     and self.finalize_on_context_inactive
                 ):
                     self._submit_current_buffer(
@@ -974,7 +951,14 @@ class FaAsrNode(Node):
                 self._active_session_id != new_session_id
                 or self._active_user_turn_id != new_user_turn_id
             )
-            if self.control_default_enabled and self._context_active and key_changed:
+            if self.input_capability.streaming and self._context_active and key_changed:
+                self._cancel_open_streams("turn_replaced")
+            if (
+                self.control_default_enabled
+                and self._context_active
+                and key_changed
+                and not self.input_capability.streaming
+            ):
                 self._submit_current_buffer("turn_replaced", publish_timeout_if_empty=False)
 
             if key_changed:
@@ -1076,8 +1060,46 @@ class FaAsrNode(Node):
             window.open = False
             window.start_unix_ns = 0
             return
+        stream_session: AsrStreamingSession | None = None
+        if self.input_capability.streaming:
+            if not self._context_active or not self._active_session_id:
+                self._emit_event(
+                    AsrEvent.EVENT_SUBMIT_SKIPPED_CONTEXT_INACTIVE,
+                    "stream_open_skipped_context_inactive",
+                    control_id=event.control_id,
+                    source_id=event.source_id,
+                    stream_id=event.stream_id,
+                    start_unix_ns=start_unix_ns,
+                )
+                window.open = False
+                window.start_unix_ns = 0
+                return
+            try:
+                with self._backend_lock:
+                    stream_session = self._streaming_backend().start_stream(
+                        AsrStreamRequest(
+                            session_id=self._active_session_id,
+                            user_turn_id=self._active_user_turn_id,
+                        )
+                    )
+            except Exception as exc:
+                self._handle_stream_error(
+                    "stream_open_failed",
+                    exc,
+                    control_id=event.control_id,
+                    session_id=self._active_session_id,
+                    user_turn_id=self._active_user_turn_id,
+                    sample_count=0,
+                    start_unix_ns=start_unix_ns,
+                    end_unix_ns=start_unix_ns,
+                )
+                return
         window.open = True
         window.start_unix_ns = start_unix_ns
+        window.stream_session = stream_session
+        window.stream_session_id = self._active_session_id if stream_session is not None else ""
+        window.stream_user_turn_id = self._active_user_turn_id if stream_session is not None else 0
+        window.stream_sample_count = 0
         self._emit_event(
             AsrEvent.EVENT_CONTROL_WINDOW_OPENED,
             "control_window_opened",
@@ -1091,6 +1113,19 @@ class FaAsrNode(Node):
             window_open=True,
             start_unix_ns=start_unix_ns,
         )
+        if stream_session is not None:
+            self._emit_event(
+                AsrEvent.EVENT_STREAM_OPENED,
+                "stream_opened",
+                control_id=event.control_id,
+                source_id=event.source_id,
+                stream_id=event.stream_id,
+                session_id=window.stream_session_id,
+                user_turn_id=window.stream_user_turn_id,
+                context_active=self._context_active,
+                window_open=True,
+                start_unix_ns=start_unix_ns,
+            )
 
     def _close_control_window(
         self,
@@ -1115,8 +1150,11 @@ class FaAsrNode(Node):
         post_roll_ns = self._milliseconds_to_nanoseconds(config.post_roll_ms)
         end_unix_ns = event.stamp_unix_ns + post_roll_ns
         start_unix_ns = window.start_unix_ns
+        session = window.stream_session
+        session_id = window.stream_session_id
+        user_turn_id = window.stream_user_turn_id
+        sample_count = window.stream_sample_count
         window.open = False
-        window.start_unix_ns = 0
         self._emit_event(
             AsrEvent.EVENT_CONTROL_WINDOW_CLOSED,
             "control_window_closed",
@@ -1124,12 +1162,25 @@ class FaAsrNode(Node):
             control_id=event.control_id,
             source_id=event.source_id,
             stream_id=event.stream_id,
-            session_id=self._active_session_id,
-            user_turn_id=self._active_user_turn_id,
+            session_id=session_id if session is not None else self._active_session_id,
+            user_turn_id=user_turn_id if session is not None else self._active_user_turn_id,
             context_active=self._context_active,
             start_unix_ns=start_unix_ns,
             end_unix_ns=end_unix_ns,
         )
+        if self.input_capability.streaming:
+            self._finish_streaming_window(
+                control_id=event.control_id,
+                session=session,
+                session_id=session_id,
+                user_turn_id=user_turn_id,
+                sample_count=sample_count,
+                start_unix_ns=start_unix_ns,
+                end_unix_ns=end_unix_ns,
+                window=window,
+            )
+            return
+        window.start_unix_ns = 0
         if not config.submit_on_close:
             self._emit_event(
                 AsrEvent.EVENT_SUBMIT_SKIPPED_SUBMIT_ON_CLOSE_FALSE,
@@ -1176,6 +1227,319 @@ class FaAsrNode(Node):
             end_unix_ns=end_unix_ns,
             reason=f"control:{event.control_id}:close",
         )
+
+    def _finish_streaming_window(
+        self,
+        *,
+        control_id: str,
+        session: AsrStreamingSession | None,
+        session_id: str,
+        user_turn_id: int,
+        sample_count: int,
+        start_unix_ns: int,
+        end_unix_ns: int,
+        window: ControlWindowState,
+    ) -> None:
+        if session is None:
+            self._handle_stream_error(
+                "stream_close_missing_session",
+                RuntimeError("streaming control window has no backend stream session"),
+                control_id=control_id,
+                session_id=session_id,
+                user_turn_id=user_turn_id,
+                sample_count=sample_count,
+                start_unix_ns=start_unix_ns,
+                end_unix_ns=end_unix_ns,
+            )
+            self._reset_streaming_window(window)
+            return
+
+        try:
+            with self._backend_lock:
+                pending_results = tuple(session.drain_results())
+                final_results = tuple(session.finish())
+                finished_results = tuple(session.drain_results())
+        except Exception as exc:
+            self._handle_stream_error(
+                "stream_close_failed",
+                exc,
+                control_id=control_id,
+                session_id=session_id,
+                user_turn_id=user_turn_id,
+                sample_count=sample_count,
+                start_unix_ns=start_unix_ns,
+                end_unix_ns=end_unix_ns,
+            )
+            self._reset_streaming_window(window)
+            return
+
+        final_published = self._publish_stream_results(
+            control_id=control_id,
+            session_id=session_id,
+            user_turn_id=user_turn_id,
+            results=pending_results,
+            sample_count=sample_count,
+            start_unix_ns=start_unix_ns,
+            end_unix_ns=end_unix_ns,
+        )
+        final_published = (
+            self._publish_stream_results(
+                control_id=control_id,
+                session_id=session_id,
+                user_turn_id=user_turn_id,
+                results=final_results,
+                sample_count=sample_count,
+                start_unix_ns=start_unix_ns,
+                end_unix_ns=end_unix_ns,
+            )
+            or final_published
+        )
+        final_published = (
+            self._publish_stream_results(
+                control_id=control_id,
+                session_id=session_id,
+                user_turn_id=user_turn_id,
+                results=finished_results,
+                sample_count=sample_count,
+                start_unix_ns=start_unix_ns,
+                end_unix_ns=end_unix_ns,
+            )
+            or final_published
+        )
+        self._emit_event(
+            AsrEvent.EVENT_STREAM_CLOSED,
+            "stream_closed",
+            control_id=control_id,
+            source_id=self.expected_source_id,
+            stream_id=self.expected_stream_id,
+            session_id=session_id,
+            user_turn_id=user_turn_id,
+            context_active=self._context_active,
+            sample_count=sample_count,
+            start_unix_ns=start_unix_ns,
+            end_unix_ns=end_unix_ns,
+        )
+        self._reset_streaming_window(window)
+        if not final_published:
+            self._handle_stream_error(
+                "stream_final_missing",
+                RuntimeError("streaming ASR backend closed without a final result"),
+                control_id=control_id,
+                session_id=session_id,
+                user_turn_id=user_turn_id,
+                sample_count=sample_count,
+                start_unix_ns=start_unix_ns,
+                end_unix_ns=end_unix_ns,
+            )
+
+    def _push_audio_to_open_streams(
+        self,
+        payload: AsrAudioPayload,
+        *,
+        start_unix_ns: int,
+    ) -> None:
+        if not self.input_capability.streaming:
+            return
+        for control_id, window in self._control_windows.items():
+            session = window.stream_session
+            if not window.open or session is None:
+                continue
+            try:
+                with self._backend_lock:
+                    push_results = tuple(session.push_audio(payload))
+                    drained_results = tuple(session.drain_results())
+                window.stream_sample_count += payload.sample_count
+                self._emit_event(
+                    AsrEvent.EVENT_STREAM_AUDIO_PUSHED,
+                    "stream_audio_pushed",
+                    control_id=control_id,
+                    source_id=self.expected_source_id,
+                    stream_id=self.expected_stream_id,
+                    session_id=window.stream_session_id,
+                    user_turn_id=window.stream_user_turn_id,
+                    context_active=self._context_active,
+                    window_open=True,
+                    sample_count=payload.sample_count,
+                    start_unix_ns=start_unix_ns,
+                )
+                self._publish_stream_results(
+                    control_id=control_id,
+                    session_id=window.stream_session_id,
+                    user_turn_id=window.stream_user_turn_id,
+                    results=push_results + drained_results,
+                    sample_count=window.stream_sample_count,
+                    start_unix_ns=window.start_unix_ns,
+                    end_unix_ns=start_unix_ns,
+                )
+            except Exception as exc:
+                self._handle_stream_error(
+                    "stream_audio_push_failed",
+                    exc,
+                    control_id=control_id,
+                    session_id=window.stream_session_id,
+                    user_turn_id=window.stream_user_turn_id,
+                    sample_count=window.stream_sample_count,
+                    start_unix_ns=window.start_unix_ns,
+                    end_unix_ns=start_unix_ns,
+                )
+                self._reset_streaming_window(window)
+
+    def _publish_stream_results(
+        self,
+        *,
+        control_id: str,
+        session_id: str,
+        user_turn_id: int,
+        results: Iterable[AsrStreamResult],
+        sample_count: int,
+        start_unix_ns: int,
+        end_unix_ns: int,
+    ) -> bool:
+        final_published = False
+        for result in results:
+            if result.sample_count > sample_count:
+                raise RuntimeError(
+                    "ASR stream result sample_count exceeds pushed audio sample count"
+                )
+            validated_transcript = build_asr_transcript(
+                result.transcript.segments,
+                sample_count=result.sample_count,
+            )
+            if result.is_final:
+                final_published = True
+                self._publish_result(
+                    session_id,
+                    user_turn_id,
+                    AsrResult.STATUS_FINAL,
+                    "stream_final",
+                    asr_transcript_text(validated_transcript),
+                )
+                self._emit_event(
+                    AsrEvent.EVENT_STREAM_FINAL_RESULT,
+                    "stream_final_result",
+                    transition_to_state=AsrState.STATE_COMPLETED,
+                    control_id=control_id,
+                    source_id=self.expected_source_id,
+                    stream_id=self.expected_stream_id,
+                    session_id=session_id,
+                    user_turn_id=user_turn_id,
+                    context_active=self._context_active,
+                    sample_count=result.sample_count,
+                    start_unix_ns=start_unix_ns,
+                    end_unix_ns=end_unix_ns,
+                )
+                continue
+            self._publish_result(
+                session_id,
+                user_turn_id,
+                AsrResult.STATUS_PARTIAL,
+                "stream_partial",
+                asr_transcript_text(validated_transcript),
+            )
+            self._emit_event(
+                AsrEvent.EVENT_STREAM_PARTIAL_RESULT,
+                "stream_partial_result",
+                transition_to_state=AsrState.STATE_TRANSCRIBING,
+                control_id=control_id,
+                source_id=self.expected_source_id,
+                stream_id=self.expected_stream_id,
+                session_id=session_id,
+                user_turn_id=user_turn_id,
+                context_active=self._context_active,
+                window_open=True,
+                sample_count=result.sample_count,
+                start_unix_ns=start_unix_ns,
+                end_unix_ns=end_unix_ns,
+            )
+        return final_published
+
+    def _handle_stream_error(
+        self,
+        reason: str,
+        exc: Exception,
+        *,
+        control_id: str,
+        session_id: str,
+        user_turn_id: int,
+        sample_count: int,
+        start_unix_ns: int,
+        end_unix_ns: int,
+    ) -> None:
+        error_text = str(exc)
+        self.get_logger().error(f"ASR stream failed: {error_text}")
+        if session_id:
+            self._publish_result(
+                session_id,
+                user_turn_id,
+                AsrResult.STATUS_ERROR,
+                reason,
+                "",
+            )
+        self._emit_event(
+            AsrEvent.EVENT_STREAM_ERROR,
+            reason,
+            transition_to_state=AsrState.STATE_FAILED,
+            control_id=control_id,
+            source_id=self.expected_source_id,
+            stream_id=self.expected_stream_id,
+            session_id=session_id,
+            user_turn_id=user_turn_id,
+            context_active=self._context_active,
+            sample_count=sample_count,
+            start_unix_ns=start_unix_ns,
+            end_unix_ns=end_unix_ns,
+            error_code=error_text,
+        )
+        self._fail_closed(f"ASR stream failed: {error_text}")
+
+    def _cancel_open_streams(self, reason: str) -> None:
+        for control_id, window in self._control_windows.items():
+            session = window.stream_session
+            if session is None:
+                continue
+            session_id = window.stream_session_id
+            user_turn_id = window.stream_user_turn_id
+            sample_count = window.stream_sample_count
+            start_unix_ns = window.start_unix_ns
+            try:
+                with self._backend_lock:
+                    session.cancel()
+            except Exception as exc:
+                self._handle_stream_error(
+                    "stream_cancel_failed",
+                    exc,
+                    control_id=control_id,
+                    session_id=session_id,
+                    user_turn_id=user_turn_id,
+                    sample_count=sample_count,
+                    start_unix_ns=start_unix_ns,
+                    end_unix_ns=start_unix_ns,
+                )
+                self._reset_streaming_window(window)
+                continue
+            self._emit_event(
+                AsrEvent.EVENT_STREAM_CANCELLED,
+                reason,
+                control_id=control_id,
+                source_id=self.expected_source_id,
+                stream_id=self.expected_stream_id,
+                session_id=session_id,
+                user_turn_id=user_turn_id,
+                context_active=self._context_active,
+                sample_count=sample_count,
+                start_unix_ns=start_unix_ns,
+                end_unix_ns=start_unix_ns,
+            )
+            self._reset_streaming_window(window)
+
+    @staticmethod
+    def _reset_streaming_window(window: ControlWindowState) -> None:
+        window.open = False
+        window.start_unix_ns = 0
+        window.stream_session = None
+        window.stream_session_id = ""
+        window.stream_user_turn_id = 0
+        window.stream_sample_count = 0
 
     def _submit_timeline_window(
         self,
@@ -1334,6 +1698,9 @@ class FaAsrNode(Node):
             return
 
         with self._turn_state_lock:
+            self._push_audio_to_open_streams(payload, start_unix_ns=start_unix_ns)
+            if self.input_capability.streaming:
+                return
             if not self.control_default_enabled:
                 return
             if not self._context_active or not self._active_session_id:
@@ -1564,6 +1931,8 @@ class FaAsrNode(Node):
 
     def _check_timeout(self) -> None:
         with self._turn_state_lock:
+            if self.input_capability.streaming:
+                return
             if not self.control_default_enabled:
                 return
             if not self._context_active:
@@ -1850,6 +2219,8 @@ class FaAsrNode(Node):
         self.asr_result_pub.publish(msg)
 
     def destroy_node(self) -> bool:
+        if getattr(self, "input_capability", None) is not None and self.input_capability.streaming:
+            self._cancel_open_streams("destroy_node")
         self._jobs.put(None)
         self._worker.join(timeout=2.0)
         trace_file = getattr(self, "_trace_file", None)

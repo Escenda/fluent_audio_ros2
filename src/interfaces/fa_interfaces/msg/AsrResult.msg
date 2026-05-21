@@ -4,6 +4,7 @@
 uint8 STATUS_FINAL=1
 uint8 STATUS_TIMEOUT=2
 uint8 STATUS_ERROR=3
+uint8 STATUS_PARTIAL=4
 
 # タイムスタンプ（送信時刻）
 builtin_interfaces/Time timestamp
@@ -20,5 +21,5 @@ uint8 status
 # status が STATUS_TIMEOUT / STATUS_ERROR の場合の理由
 string reason
 
-# 認識テキスト（STATUS_FINAL の場合に使用）
+# 認識テキスト（STATUS_PARTIAL / STATUS_FINAL の場合に使用）
 string text

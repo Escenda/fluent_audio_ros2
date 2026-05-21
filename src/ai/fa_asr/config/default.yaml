@@ -70,15 +70,6 @@ fa_asr:
     backend.health_args: []
     backend.output_text_path: ""
     backend.result_format: ""
-    backend.riva_nim_grpc.server: ""
-    backend.riva_nim_grpc.use_ssl: false
-    backend.riva_nim_grpc.audio_encoding: ""
-    backend.riva_nim_grpc.sample_rate_hz: 0
-    backend.riva_nim_grpc.channels: 0
-    backend.riva_nim_grpc.chunk_size_bytes: 0
-    backend.riva_nim_grpc.interim_results: false
-    backend.riva_nim_grpc.automatic_punctuation: true
-    backend.riva_nim_grpc.enable_word_time_offsets: true
 
     # QoS is explicit per edge. Do not infer reliability/depth from topic names.
     audio.qos.depth: 20

@@ -129,6 +129,33 @@ class AsrTranscript:
     segments: tuple[AsrTranscriptSegment, ...]
 
 
+@dataclass(frozen=True)
+class AsrStreamRequest:
+    session_id: str
+    user_turn_id: int
+
+
+@dataclass(frozen=True)
+class AsrStreamResult:
+    transcript: AsrTranscript
+    is_final: bool
+    sample_count: int
+
+
+class AsrStreamingSession(Protocol):
+    def push_audio(self, payload: AsrAudioPayload) -> tuple[AsrStreamResult, ...]:
+        ...
+
+    def drain_results(self) -> tuple[AsrStreamResult, ...]:
+        ...
+
+    def finish(self) -> tuple[AsrStreamResult, ...]:
+        ...
+
+    def cancel(self) -> None:
+        ...
+
+
 def validate_result_format(result_format: str) -> str:
     normalized = result_format.strip()
     if not normalized:
@@ -237,4 +264,9 @@ class AsrBackend(Protocol):
     capability: AsrBackendCapability
 
     def transcribe(self, request: AsrRequest) -> AsrTranscript:
+        ...
+
+
+class StreamingAsrBackend(AsrBackend, Protocol):
+    def start_stream(self, request: AsrStreamRequest) -> AsrStreamingSession:
         ...
