@@ -19,8 +19,8 @@ from fa_turn_detector_py.turn_detector_node import FaTurnDetectorNode
 PACKAGE_ROOT = Path(__file__).parents[2]
 AUDIO_QOS_DEPTH = 10
 AUDIO_QOS_RELIABLE = False
-VAD_QOS_DEPTH = 10
-VAD_QOS_RELIABLE = False
+CONTROL_QOS_DEPTH = 10
+CONTROL_QOS_RELIABLE = False
 TURN_CONTEXT_QOS_DEPTH = 10
 TURN_CONTEXT_QOS_RELIABLE = True
 OUTPUT_QOS_DEPTH = 10
@@ -94,7 +94,7 @@ def _parameter_overrides(
     model_path: Path,
     audio_topic: str,
     expected_stream_id: str,
-    vad_topic: str,
+    control_topic: str,
     turn_context_topic: str,
     output_topic: str,
 ) -> list[Parameter]:
@@ -102,10 +102,38 @@ def _parameter_overrides(
     return [
         Parameter("audio_topic", Parameter.Type.STRING, audio_topic),
         Parameter("expected_stream_id", Parameter.Type.STRING, expected_stream_id),
-        Parameter("vad_topic", Parameter.Type.STRING, vad_topic),
         Parameter("turn_context_topic", Parameter.Type.STRING, turn_context_topic),
         Parameter("output_topic", Parameter.Type.STRING, output_topic),
         Parameter("expected_source_id", Parameter.Type.STRING, "mic-a"),
+        Parameter("control.default_enabled", Parameter.Type.BOOL, False),
+        Parameter("control.inputs", Parameter.Type.STRING_ARRAY, ["speech_control"]),
+        Parameter("control.speech_control.action", Parameter.Type.STRING, "topic"),
+        Parameter("control.speech_control.topic", Parameter.Type.STRING, control_topic),
+        Parameter(
+            "control.speech_control.msg_type",
+            Parameter.Type.STRING,
+            "fa_interfaces/msg/VadState",
+        ),
+        Parameter("control.speech_control.source_id", Parameter.Type.STRING, "mic-a"),
+        Parameter(
+            "control.speech_control.stream_id",
+            Parameter.Type.STRING,
+            expected_stream_id,
+        ),
+        Parameter("control.speech_control.active_field", Parameter.Type.STRING, "is_speech"),
+        Parameter("control.speech_control.start_field", Parameter.Type.STRING, "start"),
+        Parameter("control.speech_control.end_field", Parameter.Type.STRING, "end"),
+        Parameter(
+            "control.speech_control.close_on",
+            Parameter.Type.STRING,
+            "end_or_active_falling",
+        ),
+        Parameter("control.speech_control.qos.depth", Parameter.Type.INTEGER, CONTROL_QOS_DEPTH),
+        Parameter(
+            "control.speech_control.qos.reliable",
+            Parameter.Type.BOOL,
+            CONTROL_QOS_RELIABLE,
+        ),
         Parameter("backend.name", Parameter.Type.STRING, "smart_turn_onnx"),
         Parameter("backend.model_path", Parameter.Type.STRING, str(model_path)),
         Parameter("backend.threshold", Parameter.Type.DOUBLE, 0.5),
@@ -142,8 +170,6 @@ def _parameter_overrides(
         Parameter("backend.cleanup_audio_files", Parameter.Type.BOOL, True),
         Parameter("audio.qos.depth", Parameter.Type.INTEGER, AUDIO_QOS_DEPTH),
         Parameter("audio.qos.reliable", Parameter.Type.BOOL, AUDIO_QOS_RELIABLE),
-        Parameter("vad.qos.depth", Parameter.Type.INTEGER, VAD_QOS_DEPTH),
-        Parameter("vad.qos.reliable", Parameter.Type.BOOL, VAD_QOS_RELIABLE),
         Parameter("turn_context.qos.depth", Parameter.Type.INTEGER, TURN_CONTEXT_QOS_DEPTH),
         Parameter("turn_context.qos.reliable", Parameter.Type.BOOL, TURN_CONTEXT_QOS_RELIABLE),
         Parameter("output.qos.depth", Parameter.Type.INTEGER, OUTPUT_QOS_DEPTH),
@@ -158,7 +184,7 @@ def test_turn_detector_publishes_turn_end_from_ros_graph_fixture(tmp_path: Path)
     suffix = str(time.time_ns())
     audio_topic = f"audio/test/turn_detector_audio_{suffix}"
     expected_stream_id = f"audio/raw/turn_detector_{suffix}"
-    vad_topic = f"voice/test/turn_detector_vad_{suffix}"
+    control_topic = f"voice/test/turn_detector_control_{suffix}"
     turn_context_topic = f"conversation/test/turn_context_{suffix}"
     output_topic = f"voice/test/turn_end_{suffix}"
     model_path = tmp_path / "smart_turn.onnx"
@@ -170,7 +196,7 @@ def test_turn_detector_publishes_turn_end_from_ros_graph_fixture(tmp_path: Path)
             model_path=model_path,
             audio_topic=audio_topic,
             expected_stream_id=expected_stream_id,
-            vad_topic=vad_topic,
+            control_topic=control_topic,
             turn_context_topic=turn_context_topic,
             output_topic=output_topic,
         )
@@ -184,8 +210,8 @@ def test_turn_detector_publishes_turn_end_from_ros_graph_fixture(tmp_path: Path)
     )
     vad_pub = io_node.create_publisher(
         VadState,
-        vad_topic,
-        _qos_profile(depth=VAD_QOS_DEPTH, reliable=VAD_QOS_RELIABLE),
+        control_topic,
+        _qos_profile(depth=CONTROL_QOS_DEPTH, reliable=CONTROL_QOS_RELIABLE),
     )
     context_pub = io_node.create_publisher(
         TurnContext,
@@ -208,7 +234,7 @@ def test_turn_detector_publishes_turn_end_from_ros_graph_fixture(tmp_path: Path)
             executor,
             lambda: (
                 io_node.count_subscribers(audio_topic) > 0
-                and io_node.count_subscribers(vad_topic) > 0
+                and io_node.count_subscribers(control_topic) > 0
                 and io_node.count_subscribers(turn_context_topic) > 0
                 and io_node.count_publishers(output_topic) > 0
             ),

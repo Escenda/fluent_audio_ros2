@@ -16,6 +16,19 @@ def test_default_config_requires_explicit_backend_and_external_worker_boundary()
     assert params["expected_stream_id"] == "audio/raw/mic"
     assert params["audio_topic"] != params["expected_stream_id"]
     assert params["expected_source_id"] == ""
+    assert params["control.default_enabled"] is False
+    assert params["control.inputs"] == ["speech_control"]
+    assert params["control.speech_control.action"] == "topic"
+    assert params["control.speech_control.topic"] == "voice/vad_state"
+    assert params["control.speech_control.msg_type"] == "fa_interfaces/msg/VadState"
+    assert params["control.speech_control.source_id"] == ""
+    assert params["control.speech_control.stream_id"] == "audio/raw/mic"
+    assert params["control.speech_control.active_field"] == "is_speech"
+    assert params["control.speech_control.start_field"] == "start"
+    assert params["control.speech_control.end_field"] == "end"
+    assert params["control.speech_control.close_on"] == "end_or_active_falling"
+    assert params["control.speech_control.qos.depth"] == 10
+    assert params["control.speech_control.qos.reliable"] is False
     assert params["backend.name"] == ""
     assert params["backend.model_path"] == ""
     assert params["backend.execution_provider"] == ""
@@ -28,8 +41,6 @@ def test_default_config_requires_explicit_backend_and_external_worker_boundary()
     assert params["backend.threshold"] == 0.5
     assert params["audio.qos.depth"] == 10
     assert params["audio.qos.reliable"] is False
-    assert params["vad.qos.depth"] == 10
-    assert params["vad.qos.reliable"] is False
     assert params["turn_context.qos.depth"] == 10
     assert params["turn_context.qos.reliable"] is True
     assert params["output.qos.depth"] == 10

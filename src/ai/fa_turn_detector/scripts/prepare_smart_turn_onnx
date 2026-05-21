@@ -1,0 +1,549 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SMART_TURN_ONNX_URL="https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.0.onnx"
+SMART_TURN_ONNX_SHA256="07a133aba31e2d0b523f17f8c2e4e65efe6d8f685efd12ca4fe21ebf4e798991"
+SMART_TURN_ONNX_SIZE="8757193"
+DEFAULT_PROVIDER="CPUExecutionProvider"
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+case "${SCRIPT_PATH}" in
+  */*) SCRIPT_DIR="$(cd -- "${SCRIPT_PATH%/*}" >/dev/null 2>&1 && pwd -P)" ;;
+  *) SCRIPT_DIR="$(pwd -P)" ;;
+esac
+PACKAGE_DIR="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd -P)"
+DEFAULT_MODEL_PATH="${PACKAGE_DIR}/models/smart-turn-v3/smart-turn-v3.0.onnx"
+WORKER="${SCRIPT_DIR}/smart_turn_onnx_worker"
+TRACE_FILE=""
+TRACE_STATUS="failure"
+TRACE_FAILURE_REASON=""
+TRACE_FINALIZED=false
+
+usage() {
+  cat >&2 <<EOF
+Usage: $(basename -- "$0") [options]
+
+Options:
+  --model-path PATH        Smart Turn v3 ONNX model path
+                           (default: ${DEFAULT_MODEL_PATH})
+  --model-url URL          source URL used when the model file is missing
+                           (default: ${SMART_TURN_ONNX_URL})
+  --provider PROVIDER      ONNX Runtime execution provider to emit
+                           (default: ${DEFAULT_PROVIDER})
+  --trace-file PATH        trace log file path (default: package source traces or user cache)
+  -h, --help               show this help
+EOF
+}
+
+fail() {
+  local reason="$1"
+  local code="${2:-1}"
+  TRACE_FAILURE_REASON="${reason}"
+  trace_write_field "failure_reason" "${reason}"
+  printf 'ERROR: %s\n' "${reason}" >&2
+  exit "${code}"
+}
+
+absolute_existing_file() {
+  local input_path="$1"
+  local label="$2"
+  if [[ ! -f "${input_path}" ]]; then
+    fail "${label} does not exist or is not a file: ${input_path}"
+  fi
+
+  local dir="${input_path%/*}"
+  local base="${input_path##*/}"
+  if [[ "${dir}" == "${input_path}" ]]; then
+    dir="."
+  fi
+  printf '%s/%s\n' "$(cd -- "${dir}" >/dev/null 2>&1 && pwd -P)" "${base}"
+}
+
+absolute_executable_file() {
+  local input_path="$1"
+  local label="$2"
+  local path
+  path="$(absolute_existing_file "${input_path}" "${label}")"
+  if [[ ! -x "${path}" ]]; then
+    fail "${label} is not executable: ${path}"
+  fi
+  printf '%s\n' "${path}"
+}
+
+absolute_target_file() {
+  local path="$1"
+  if [[ -z "${path}" ]]; then
+    return 1
+  fi
+
+  local dir="${path%/*}"
+  local base="${path##*/}"
+  if [[ "${dir}" == "${path}" ]]; then
+    dir="."
+  fi
+  if [[ -z "${base}" || "${base}" == "." || "${base}" == ".." ]]; then
+    return 1
+  fi
+
+  mkdir -p -- "${dir}" || return 1
+  printf '%s/%s\n' "$(cd -- "${dir}" >/dev/null 2>&1 && pwd -P)" "${base}"
+}
+
+require_command() {
+  local name="$1"
+  if ! command -v -- "${name}" >/dev/null 2>&1; then
+    fail "${name} is required to prepare Smart Turn ONNX, but it was not found in PATH"
+  fi
+}
+
+validate_provider() {
+  local provider="$1"
+  if [[ -z "${provider}" ]]; then
+    fail "--provider must not be empty" 2
+  fi
+  case "${provider}" in
+    CPUExecutionProvider|CUDAExecutionProvider|TensorrtExecutionProvider) printf '%s\n' "${provider}" ;;
+    *) fail "unsupported --provider for Smart Turn ONNX: ${provider}; supported providers: CPUExecutionProvider, CUDAExecutionProvider, TensorrtExecutionProvider" 2 ;;
+  esac
+}
+
+file_size_bytes() {
+  local path="$1"
+  wc -c < "${path}" | tr -d '[:space:]'
+}
+
+file_sha256() {
+  local path="$1"
+  sha256sum "${path}" | awk '{print $1}'
+}
+
+is_git_lfs_pointer() {
+  local path="$1"
+  local first_line=""
+  IFS= read -r first_line < "${path}" || true
+  [[ "${first_line}" == "version https://git-lfs.github.com/spec/v1" ]]
+}
+
+validate_model_file() {
+  local model_path="$1"
+  local expected_sha256="$2"
+  local expected_size="$3"
+  model_path="$(absolute_existing_file "${model_path}" "Smart Turn ONNX model")"
+
+  if [[ ! -s "${model_path}" ]]; then
+    fail "Smart Turn ONNX model file is empty: ${model_path}"
+  fi
+  if is_git_lfs_pointer "${model_path}"; then
+    fail "Smart Turn ONNX model is a Git LFS pointer, not an ONNX payload: ${model_path}"
+  fi
+
+  trace_stage_start "validate_model_size" "${model_path}"
+  local actual_size
+  actual_size="$(file_size_bytes "${model_path}")"
+  if [[ "${actual_size}" != "${expected_size}" ]]; then
+    fail "Smart Turn ONNX model size mismatch: ${model_path}; expected ${expected_size} bytes, got ${actual_size} bytes"
+  fi
+  trace_write_field "model_size" "${actual_size}"
+  trace_stage_finish "validate_model_size" "${actual_size}"
+
+  trace_stage_start "validate_model_sha256" "${model_path}"
+  local actual_sha256
+  actual_sha256="$(file_sha256 "${model_path}")"
+  if [[ "${actual_sha256}" != "${expected_sha256}" ]]; then
+    fail "Smart Turn ONNX model sha256 mismatch: ${model_path}; expected ${expected_sha256}, got ${actual_sha256}"
+  fi
+  trace_write_field "model_sha256" "${actual_sha256}"
+  trace_stage_finish "validate_model_sha256" "${actual_sha256}"
+
+  printf '%s\n' "${model_path}"
+}
+
+download_model() {
+  local model_url="$1"
+  local model_path="$2"
+  local parent_dir="${model_path%/*}"
+  local temp_path="${model_path}.download.$$"
+
+  trace_stage_start "download_requirements" "curl"
+  require_command curl
+  trace_stage_finish "download_requirements" "curl"
+
+  trace_stage_start "download_model" "${model_url}"
+  printf 'Downloading Smart Turn ONNX model into %s\n' "${model_path}" >&2
+  mkdir -p -- "${parent_dir}"
+  rm -f -- "${temp_path}"
+  if ! curl -fL --retry 3 --connect-timeout 20 --output "${temp_path}" "${model_url}" >&2; then
+    rm -f -- "${temp_path}"
+    fail "failed to download Smart Turn ONNX model from ${model_url}"
+  fi
+  mv -- "${temp_path}" "${model_path}"
+  trace_stage_finish "download_model" "${model_path}"
+}
+
+find_fluent_audio_root() {
+  local current="${PACKAGE_DIR}"
+  while [[ "${current}" != "/" ]]; do
+    if [[ -f "${current}/PRODUCT_OWNER_ROLE.md" && -d "${current}/src/ai/fa_turn_detector" ]]; then
+      printf '%s\n' "${current}"
+      return 0
+    fi
+    current="$(cd -- "${current}/.." >/dev/null 2>&1 && pwd -P)"
+  done
+  return 1
+}
+
+container_path_for() {
+  local source_root="$1"
+  local host_path="$2"
+  case "${host_path}" in
+    "${source_root}")
+      printf '%s\n' "/ros2_ws/src/fluent_audio_ros2"
+      ;;
+    "${source_root}"/*)
+      printf '%s/%s\n' "/ros2_ws/src/fluent_audio_ros2" "${host_path#"${source_root}/"}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+shell_value() {
+  printf '%q' "$1"
+}
+
+trace_timestamp() {
+  date -u '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+trace_value() {
+  local value="$1"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "${value}"
+}
+
+trace_append_line() {
+  [[ -n "${TRACE_FILE}" ]] || return 0
+  if ! printf '%s\n' "$1" >> "${TRACE_FILE}"; then
+    printf 'ERROR: failed to write trace file: %s\n' "${TRACE_FILE}" >&2
+    exit 1
+  fi
+}
+
+trace_write_field() {
+  local key="$1"
+  local value="$2"
+  trace_append_line "${key}=$(trace_value "${value}")"
+}
+
+trace_has_failure_reason() {
+  [[ -n "${TRACE_FILE}" && -f "${TRACE_FILE}" ]] || return 1
+  local line=""
+  while IFS= read -r line; do
+    case "${line}" in
+      failure_reason=?*) return 0 ;;
+    esac
+  done < "${TRACE_FILE}"
+  return 1
+}
+
+trace_stage_start() {
+  local value
+  value="$(trace_timestamp) $1"
+  if [[ -n "${2:-}" ]]; then
+    value="${value} ${2}"
+  fi
+  trace_write_field "stage_start" "${value}"
+}
+
+trace_stage_finish() {
+  local value
+  value="$(trace_timestamp) $1"
+  if [[ -n "${2:-}" ]]; then
+    value="${value} ${2}"
+  fi
+  trace_write_field "stage_finish" "${value}"
+}
+
+print_env_blocks() {
+  local model_path="$1"
+  local provider="$2"
+  local worker_path="$3"
+  local source_root=""
+  local container_model=""
+  local container_worker=""
+  local container_trace=""
+  local vlabor_trace="${TRACE_FILE}"
+
+  if source_root="$(find_fluent_audio_root)"; then
+    container_model="$(container_path_for "${source_root}" "${model_path}" || true)"
+    container_worker="$(container_path_for "${source_root}" "${worker_path}" || true)"
+    container_trace="$(container_path_for "${source_root}" "${TRACE_FILE}" || true)"
+    if [[ -n "${container_trace}" ]]; then
+      vlabor_trace="${container_trace}"
+    fi
+  fi
+
+  printf '# Generated by prepare_smart_turn_onnx for provider=%s\n' "${provider}"
+  printf '# Running this script alone only prints shell code; it does not update the current shell.\n'
+  printf '# To apply to the current host shell:\n'
+  printf '#   source <(src/ai/fa_turn_detector/scripts/prepare_smart_turn_onnx ...)\n'
+  printf '# To emit VLAbor container env values while sourcing:\n'
+  printf '#   FLUENT_AUDIO_ENV_TARGET=vlabor source <(src/ai/fa_turn_detector/scripts/prepare_smart_turn_onnx ...)\n'
+  printf 'case "${FLUENT_AUDIO_ENV_TARGET:-host}" in\n'
+  printf '  host)\n'
+  printf '    export FLUENT_AUDIO_TURN_DETECTOR_MODEL=%s\n' "$(shell_value "${model_path}")"
+  printf '    export FLUENT_AUDIO_TURN_DETECTOR_PROVIDER=%s\n' "$(shell_value "${provider}")"
+  printf '    export FLUENT_AUDIO_TURN_DETECTOR_WORKER=%s\n' "$(shell_value "${worker_path}")"
+  printf '    export FLUENT_AUDIO_TURN_DETECTOR_PREPARE_TRACE_FILE=%s\n' "$(shell_value "${TRACE_FILE}")"
+  printf '    ;;\n'
+  if [[ -n "${container_model}" && -n "${container_worker}" ]]; then
+    printf '  vlabor)\n'
+    printf '    export FLUENT_AUDIO_TURN_DETECTOR_MODEL=%s\n' "$(shell_value "${container_model}")"
+    printf '    export FLUENT_AUDIO_TURN_DETECTOR_PROVIDER=%s\n' "$(shell_value "${provider}")"
+    printf '    export FLUENT_AUDIO_TURN_DETECTOR_WORKER=%s\n' "$(shell_value "${container_worker}")"
+    printf '    export FLUENT_AUDIO_TURN_DETECTOR_PREPARE_TRACE_FILE=%s\n' "$(shell_value "${vlabor_trace}")"
+    printf '    ;;\n'
+  else
+    printf '  vlabor)\n'
+    printf '    printf %%s\\\\n %s >&2\n' "$(shell_value "VLAbor container paths are unavailable because model or worker is outside ${source_root:-the fluent_audio_ros2 source tree}.")"
+    printf '    return 1 2>/dev/null || exit 1\n'
+    printf '    ;;\n'
+  fi
+  printf '  *)\n'
+  printf '    printf %%s\\\\n "unsupported FLUENT_AUDIO_ENV_TARGET: ${FLUENT_AUDIO_ENV_TARGET}" >&2\n'
+  printf '    return 2 2>/dev/null || exit 2\n'
+  printf '    ;;\n'
+  printf 'esac\n'
+}
+
+absolute_output_file() {
+  local path="$1"
+  if [[ -z "${path}" ]]; then
+    return 1
+  fi
+
+  local dir="${path%/*}"
+  local base="${path##*/}"
+  if [[ "${dir}" == "${path}" ]]; then
+    dir="."
+  fi
+  if [[ -z "${base}" || "${base}" == "." || "${base}" == ".." ]]; then
+    return 1
+  fi
+
+  mkdir -p -- "${dir}" || return 1
+  printf '%s/%s\n' "$(cd -- "${dir}" >/dev/null 2>&1 && pwd -P)" "${base}"
+}
+
+default_trace_file() {
+  local trace_dir=""
+  local source_root=""
+  if source_root="$(find_fluent_audio_root)"; then
+    trace_dir="${PACKAGE_DIR}/traces/prepare_smart_turn_onnx"
+  else
+    if [[ -z "${HOME:-}" ]]; then
+      printf 'ERROR: HOME is required to choose the default trace directory outside source\n' >&2
+      exit 1
+    fi
+    trace_dir="${HOME}/.cache/fluent_audio/fa_turn_detector/traces/prepare_smart_turn_onnx"
+  fi
+
+  printf '%s/prepare_%s_%s.log\n' "${trace_dir}" "$(date -u '+%Y%m%dT%H%M%SZ')" "$$"
+}
+
+init_trace() {
+  local requested_path="$1"
+  local requested_path_is_set="$2"
+  local trace_path=""
+
+  if [[ "${requested_path_is_set}" == "true" ]]; then
+    if ! trace_path="$(absolute_output_file "${requested_path}")"; then
+      printf 'ERROR: trace file path is invalid or not writable: %s\n' "${requested_path}" >&2
+      exit 1
+    fi
+  else
+    trace_path="$(default_trace_file)"
+    if ! trace_path="$(absolute_output_file "${trace_path}")"; then
+      printf 'ERROR: failed to create default trace file path\n' >&2
+      exit 1
+    fi
+  fi
+
+  if ! : > "${trace_path}"; then
+    printf 'ERROR: failed to create trace file: %s\n' "${trace_path}" >&2
+    exit 1
+  fi
+
+  TRACE_FILE="${trace_path}"
+  printf 'Trace file: %s\n' "${TRACE_FILE}" >&2
+  trace_write_field "started_at" "$(trace_timestamp)"
+  trace_write_field "script_path" "${SCRIPT_PATH}"
+  trace_write_field "script_dir" "${SCRIPT_DIR}"
+  trace_write_field "package_dir" "${PACKAGE_DIR}"
+  trace_write_field "trace_file" "${TRACE_FILE}"
+}
+
+trace_finalize() {
+  local exit_code="$?"
+  if [[ "${TRACE_FINALIZED}" == "true" ]]; then
+    return "${exit_code}"
+  fi
+  TRACE_FINALIZED=true
+
+  if [[ -n "${TRACE_FILE}" ]]; then
+    if [[ "${TRACE_STATUS}" != "success" && -z "${TRACE_FAILURE_REASON}" ]] && ! trace_has_failure_reason; then
+      TRACE_FAILURE_REASON="command exited with status ${exit_code}"
+    fi
+    trace_write_field "ended_at" "$(trace_timestamp)"
+    trace_write_field "status" "${TRACE_STATUS}"
+    trace_write_field "exit_code" "${exit_code}"
+    trace_write_field "model_url" "${MODEL_URL:-}"
+    trace_write_field "model_path" "${MODEL_PATH:-}"
+    trace_write_field "provider" "${PROVIDER:-}"
+    trace_write_field "expected_sha256" "${EXPECTED_SHA256:-}"
+    trace_write_field "expected_size" "${EXPECTED_SIZE:-}"
+    trace_write_field "worker_script" "${WORKER:-}"
+    trace_write_field "worker_path" "${WORKER_PATH:-}"
+    if [[ -n "${TRACE_FAILURE_REASON}" ]] || ! trace_has_failure_reason; then
+      trace_write_field "failure_reason" "${TRACE_FAILURE_REASON}"
+    fi
+  fi
+
+  return "${exit_code}"
+}
+
+MODEL_PATH="${DEFAULT_MODEL_PATH}"
+MODEL_URL="${SMART_TURN_ONNX_URL}"
+PROVIDER="${DEFAULT_PROVIDER}"
+EXPECTED_SHA256="${SMART_TURN_ONNX_SHA256}"
+EXPECTED_SIZE="${SMART_TURN_ONNX_SIZE}"
+WORKER_PATH=""
+TRACE_FILE_REQUEST="${FLUENT_AUDIO_TURN_DETECTOR_PREPARE_TRACE_FILE:-}"
+TRACE_FILE_REQUEST_SET=false
+TRACE_PREPARSE_ERROR=""
+
+if [[ -n "${TRACE_FILE_REQUEST}" ]]; then
+  TRACE_FILE_REQUEST_SET=true
+fi
+
+TRACE_SCAN_ARGS=("$@")
+TRACE_SCAN_INDEX=0
+while [[ "${TRACE_SCAN_INDEX}" -lt "${#TRACE_SCAN_ARGS[@]}" ]]; do
+  case "${TRACE_SCAN_ARGS[${TRACE_SCAN_INDEX}]}" in
+    --trace-file)
+      if [[ "$((TRACE_SCAN_INDEX + 1))" -ge "${#TRACE_SCAN_ARGS[@]}" ]]; then
+        TRACE_PREPARSE_ERROR="--trace-file requires a value"
+        break
+      fi
+      TRACE_SCAN_INDEX=$((TRACE_SCAN_INDEX + 1))
+      TRACE_FILE_REQUEST="${TRACE_SCAN_ARGS[${TRACE_SCAN_INDEX}]}"
+      TRACE_FILE_REQUEST_SET=true
+      ;;
+    --trace-file=*)
+      TRACE_FILE_REQUEST="${TRACE_SCAN_ARGS[${TRACE_SCAN_INDEX}]#--trace-file=}"
+      TRACE_FILE_REQUEST_SET=true
+      ;;
+  esac
+  TRACE_SCAN_INDEX=$((TRACE_SCAN_INDEX + 1))
+done
+
+init_trace "${TRACE_FILE_REQUEST}" "${TRACE_FILE_REQUEST_SET}"
+trap trace_finalize EXIT
+
+if [[ -n "${TRACE_PREPARSE_ERROR}" ]]; then
+  fail "${TRACE_PREPARSE_ERROR}" 2
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model-path)
+      [[ $# -ge 2 ]] || fail "--model-path requires a value" 2
+      MODEL_PATH="$2"
+      shift 2
+      ;;
+    --model-path=*)
+      MODEL_PATH="${1#--model-path=}"
+      shift
+      ;;
+    --model-url)
+      [[ $# -ge 2 ]] || fail "--model-url requires a value" 2
+      MODEL_URL="$2"
+      shift 2
+      ;;
+    --model-url=*)
+      MODEL_URL="${1#--model-url=}"
+      shift
+      ;;
+    --provider)
+      [[ $# -ge 2 ]] || fail "--provider requires a value" 2
+      PROVIDER="$2"
+      shift 2
+      ;;
+    --provider=*)
+      PROVIDER="${1#--provider=}"
+      shift
+      ;;
+    --trace-file)
+      [[ $# -ge 2 ]] || fail "--trace-file requires a value" 2
+      shift 2
+      ;;
+    --trace-file=*)
+      shift
+      ;;
+    -h|--help)
+      trace_stage_start "usage" "--help"
+      usage
+      trace_stage_finish "usage" "printed help"
+      TRACE_STATUS="success"
+      exit 0
+      ;;
+    --*)
+      fail "unknown option: $1" 2
+      ;;
+    *)
+      fail "unexpected positional argument: $1" 2
+      ;;
+  esac
+done
+
+trace_write_field "model_url" "${MODEL_URL}"
+trace_write_field "requested_model_path" "${MODEL_PATH}"
+trace_stage_start "validate_preconditions" "worker executable, provider, expected digest"
+WORKER_PATH="$(absolute_executable_file "${WORKER}" "Smart Turn ONNX worker")"
+PROVIDER="$(validate_provider "${PROVIDER}")"
+require_command sha256sum
+require_command awk
+trace_write_field "provider" "${PROVIDER}"
+trace_write_field "worker_path" "${WORKER_PATH}"
+trace_write_field "expected_sha256" "${EXPECTED_SHA256}"
+trace_write_field "expected_size" "${EXPECTED_SIZE}"
+trace_stage_finish "validate_preconditions" "worker executable, provider, expected digest"
+
+trace_stage_start "resolve_model_path" "absolute target file"
+if ! MODEL_PATH="$(absolute_target_file "${MODEL_PATH}")"; then
+  fail "--model-path is invalid or its parent directory is not writable: ${MODEL_PATH}" 2
+fi
+trace_write_field "model_path" "${MODEL_PATH}"
+trace_stage_finish "resolve_model_path" "${MODEL_PATH}"
+
+if [[ -e "${MODEL_PATH}" && ! -f "${MODEL_PATH}" ]]; then
+  fail "Smart Turn ONNX model path exists but is not a file: ${MODEL_PATH}"
+elif [[ ! -f "${MODEL_PATH}" ]]; then
+  download_model "${MODEL_URL}" "${MODEL_PATH}"
+else
+  trace_stage_start "download_model" "existing file"
+  trace_stage_finish "download_model" "${MODEL_PATH}"
+fi
+
+trace_stage_start "validate_model_file" "size sha256 lfs pointer"
+MODEL_PATH="$(validate_model_file "${MODEL_PATH}" "${EXPECTED_SHA256}" "${EXPECTED_SIZE}")"
+trace_write_field "model_path" "${MODEL_PATH}"
+trace_stage_finish "validate_model_file" "${MODEL_PATH}"
+
+trace_stage_start "emit_env_block" "stdout"
+print_env_blocks "${MODEL_PATH}" "${PROVIDER}" "${WORKER_PATH}"
+trace_stage_finish "emit_env_block" "stdout"
+TRACE_STATUS="success"

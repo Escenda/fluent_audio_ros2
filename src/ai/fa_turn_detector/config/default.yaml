@@ -2,11 +2,23 @@ fa_turn_detector:
   ros__parameters:
     audio_topic: "audio/frame"
     expected_stream_id: "audio/raw/mic"
-    vad_topic: "voice/vad_state"
     turn_context_topic: "conversation/turn_context"
     output_topic: "voice/turn_end"
     # Required. Must match AudioFrame.source_id from the configured fa_in/source pipeline.
     expected_source_id: ""
+    control.default_enabled: false
+    control.inputs: ["speech_control"]
+    control.speech_control.action: "topic"
+    control.speech_control.topic: "voice/vad_state"
+    control.speech_control.msg_type: "fa_interfaces/msg/VadState"
+    control.speech_control.source_id: ""
+    control.speech_control.stream_id: "audio/raw/mic"
+    control.speech_control.active_field: "is_speech"
+    control.speech_control.start_field: "start"
+    control.speech_control.end_field: "end"
+    control.speech_control.close_on: "end_or_active_falling"
+    control.speech_control.qos.depth: 10
+    control.speech_control.qos.reliable: false
     # Required backend id. Empty means startup fails closed until launch/profile config selects one.
     backend.name: ""
     # Required. Set an explicit model path in launch/system config.
@@ -29,8 +41,6 @@ fa_turn_detector:
     # QoS is explicit per edge. Do not infer reliability/depth from topic names.
     audio.qos.depth: 10
     audio.qos.reliable: false
-    vad.qos.depth: 10
-    vad.qos.reliable: false
     turn_context.qos.depth: 10
     turn_context.qos.reliable: true
     output.qos.depth: 10

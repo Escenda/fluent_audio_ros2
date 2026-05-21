@@ -27,12 +27,16 @@ class _FakeLogger:
     def __init__(self) -> None:
         self.fatal_records: list[str] = []
         self.error_records: list[str] = []
+        self.debug_records: list[str] = []
 
     def fatal(self, message: str) -> None:
         self.fatal_records.append(message)
 
     def error(self, message: str) -> None:
         self.error_records.append(message)
+
+    def debug(self, message: str) -> None:
+        self.debug_records.append(message)
 
 
 class _FakeNode:
@@ -111,6 +115,9 @@ class _TypedNode:
 class _ParameterMapNode:
     def __init__(self, parameters: dict[str, _TypedParameter]) -> None:
         self._parameters = parameters
+
+    def declare_parameter(self, name: str, parameter_type: str) -> None:
+        del name, parameter_type
 
     def get_parameter(self, name: str) -> _TypedParameter:
         return self._parameters[name]
@@ -213,6 +220,51 @@ def _smart_turn_backend(tmp_path: Path, *, probability: str = "0.75") -> SmartTu
     )
 
 
+def _control_parameter_map(
+    *,
+    control_inputs: tuple[str, ...] = ("speech_control",),
+    default_enabled: bool = False,
+    action: str = "topic",
+    topic: str = "voice/vad_state",
+    msg_type: str = "fa_interfaces/msg/VadState",
+    source_id: str = "mic-a",
+    stream_id: str = "audio/raw/mic",
+    active_field: str = "is_speech",
+    start_field: str = "start",
+    end_field: str = "end",
+    close_on: str = "end_or_active_falling",
+    qos_depth: int = 10,
+    qos_reliable: bool = False,
+) -> dict[str, _TypedParameter]:
+    return {
+        "control.default_enabled": _TypedParameter(_FakeParameter.Type.BOOL, default_enabled),
+        "control.inputs": _TypedParameter(_FakeParameter.Type.STRING_ARRAY, control_inputs),
+        "control.speech_control.action": _TypedParameter(_FakeParameter.Type.STRING, action),
+        "control.speech_control.topic": _TypedParameter(_FakeParameter.Type.STRING, topic),
+        "control.speech_control.msg_type": _TypedParameter(_FakeParameter.Type.STRING, msg_type),
+        "control.speech_control.source_id": _TypedParameter(_FakeParameter.Type.STRING, source_id),
+        "control.speech_control.stream_id": _TypedParameter(_FakeParameter.Type.STRING, stream_id),
+        "control.speech_control.active_field": _TypedParameter(
+            _FakeParameter.Type.STRING,
+            active_field,
+        ),
+        "control.speech_control.start_field": _TypedParameter(
+            _FakeParameter.Type.STRING,
+            start_field,
+        ),
+        "control.speech_control.end_field": _TypedParameter(_FakeParameter.Type.STRING, end_field),
+        "control.speech_control.close_on": _TypedParameter(_FakeParameter.Type.STRING, close_on),
+        "control.speech_control.qos.depth": _TypedParameter(
+            _FakeParameter.Type.INTEGER,
+            qos_depth,
+        ),
+        "control.speech_control.qos.reliable": _TypedParameter(
+            _FakeParameter.Type.BOOL,
+            qos_reliable,
+        ),
+    }
+
+
 def _install_onnxruntime_fake(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -282,10 +334,21 @@ def test_default_config_requires_explicit_backend_model_and_provider() -> None:
     assert params["backend.args"] == []
     assert params["backend.health_args"] == []
     assert params["expected_source_id"] == ""
+    assert params["control.default_enabled"] is False
+    assert params["control.inputs"] == ["speech_control"]
+    assert params["control.speech_control.action"] == "topic"
+    assert params["control.speech_control.topic"] == "voice/vad_state"
+    assert params["control.speech_control.msg_type"] == "fa_interfaces/msg/VadState"
+    assert params["control.speech_control.source_id"] == ""
+    assert params["control.speech_control.stream_id"] == "audio/raw/mic"
+    assert params["control.speech_control.active_field"] == "is_speech"
+    assert params["control.speech_control.start_field"] == "start"
+    assert params["control.speech_control.end_field"] == "end"
+    assert params["control.speech_control.close_on"] == "end_or_active_falling"
+    assert params["control.speech_control.qos.depth"] == 10
+    assert params["control.speech_control.qos.reliable"] is False
     assert params["audio.qos.depth"] == 10
     assert params["audio.qos.reliable"] is False
-    assert params["vad.qos.depth"] == 10
-    assert params["vad.qos.reliable"] is False
     assert params["turn_context.qos.depth"] == 10
     assert params["turn_context.qos.reliable"] is True
     assert params["output.qos.depth"] == 10
@@ -557,7 +620,7 @@ def test_turn_detector_node_parameter_helpers_reject_wrong_ros_parameter_types(
         sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
 
 
-def test_turn_detector_rejects_unbound_vad_identity(
+def test_turn_detector_control_config_validation_rejects_unsupported_contracts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     package_root = Path(__file__).parents[2]
@@ -568,28 +631,155 @@ def test_turn_detector_rejects_unbound_vad_identity(
 
     try:
         module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
-        msg = _FakeVadState()
-        msg.source_id = "mic-a"
-        msg.stream_id = "audio/raw/mic"
+        config = module.FaTurnDetectorNode._load_control_config(
+            _ParameterMapNode(_control_parameter_map())
+        )
+        assert config.control_id == "speech_control"
+        assert config.topic == "voice/vad_state"
+        assert config.qos_depth == 10
+        assert config.qos_reliable is False
 
-        module.FaTurnDetectorNode._validate_vad_identity(
-            msg,
-            expected_source_id="mic-a",
-            expected_stream_id="audio/raw/mic",
+        with pytest.raises(
+            RuntimeError,
+            match="control.default_enabled must be false for fa_turn_detector",
+        ):
+            node = module.FaTurnDetectorNode.__new__(module.FaTurnDetectorNode)
+            node.control_default_enabled = True
+            node._validate_control_default_enabled()
+        with pytest.raises(RuntimeError, match="control.inputs must contain exactly one ID"):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(_control_parameter_map(control_inputs=()))
+            )
+        with pytest.raises(RuntimeError, match="control.inputs must contain exactly one ID"):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(_control_parameter_map(control_inputs=("speech_control", "other")))
+            )
+        with pytest.raises(RuntimeError, match="control.inputs must not contain duplicate IDs"):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(
+                    _control_parameter_map(control_inputs=("speech_control", "speech_control"))
+                )
+            )
+        with pytest.raises(RuntimeError, match="control.inputs must not contain empty IDs"):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(_control_parameter_map(control_inputs=("",)))
+            )
+        with pytest.raises(
+            RuntimeError,
+            match="control.inputs IDs must not contain surrounding whitespace",
+        ):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(_control_parameter_map(control_inputs=(" speech_control",)))
+            )
+        with pytest.raises(RuntimeError, match="control.speech_control.action must be topic"):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(_control_parameter_map(action="service"))
+            )
+        with pytest.raises(
+            RuntimeError,
+            match="control.speech_control.msg_type must be fa_interfaces/msg/VadState",
+        ):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(_control_parameter_map(msg_type="std_msgs/msg/Bool"))
+            )
+        with pytest.raises(
+            RuntimeError,
+            match="control.speech_control.active_field must be is_speech",
+        ):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(_control_parameter_map(active_field="speech"))
+            )
+        with pytest.raises(RuntimeError, match="control.speech_control.start_field must be start"):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(_control_parameter_map(start_field="started"))
+            )
+        with pytest.raises(RuntimeError, match="control.speech_control.end_field must be end"):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(_control_parameter_map(end_field="ended"))
+            )
+        with pytest.raises(
+            RuntimeError,
+            match="control.speech_control.close_on must be end_or_active_falling",
+        ):
+            module.FaTurnDetectorNode._load_control_config(
+                _ParameterMapNode(_control_parameter_map(close_on="end"))
+            )
+    finally:
+        sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+
+def test_turn_detector_control_event_identity_uses_control_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = Path(__file__).parents[2]
+    shutdown_calls: list[bool] = []
+    _install_turn_detector_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(package_root))
+    sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+    try:
+        module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
+        config = module.ControlInputConfig(
+            control_id="speech_control",
+            action="topic",
+            topic="voice/vad_state",
+            msg_type="fa_interfaces/msg/VadState",
+            source_id="mic-a",
+            stream_id="audio/raw/mic",
+            active_field="is_speech",
+            start_field="start",
+            end_field="end",
+            close_on="end_or_active_falling",
+            qos_depth=10,
+            qos_reliable=False,
+        )
+        event = module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic-a",
+            stream_id="audio/raw/mic",
+            active=False,
+            start=False,
+            end=True,
         )
 
-        with pytest.raises(ValueError, match="VadState source_id must match expected_source_id"):
-            module.FaTurnDetectorNode._validate_vad_identity(
-                msg,
-                expected_source_id="mic-b",
-                expected_stream_id="audio/raw/mic",
+        module.FaTurnDetectorNode._validate_control_event_identity(event, config=config)
+
+        node = module.FaTurnDetectorNode.__new__(module.FaTurnDetectorNode)
+        node.control_config = config
+        node.expected_source_id = "mic-a"
+        node.expected_stream_id = "audio/raw/mic"
+        node._validate_control_binding_contract()
+        node.expected_stream_id = "audio/other"
+        with pytest.raises(
+            RuntimeError,
+            match="control.speech_control.stream_id must match expected_stream_id",
+        ):
+            node._validate_control_binding_contract()
+
+        with pytest.raises(ValueError, match="source_id/stream_id mismatch"):
+            module.FaTurnDetectorNode._validate_control_event_identity(
+                module.ControlEvent(
+                    control_id="speech_control",
+                    source_id="mic-b",
+                    stream_id="audio/raw/mic",
+                    active=False,
+                    start=False,
+                    end=True,
+                ),
+                config=config,
             )
 
-        with pytest.raises(ValueError, match="VadState stream_id must match expected_stream_id"):
-            module.FaTurnDetectorNode._validate_vad_identity(
-                msg,
-                expected_source_id="mic-a",
-                expected_stream_id="audio/other",
+        with pytest.raises(ValueError, match="source_id/stream_id mismatch"):
+            module.FaTurnDetectorNode._validate_control_event_identity(
+                module.ControlEvent(
+                    control_id="speech_control",
+                    source_id="mic-a",
+                    stream_id="audio/other",
+                    active=False,
+                    start=False,
+                    end=True,
+                ),
+                config=config,
             )
     finally:
         sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
@@ -633,6 +823,84 @@ def test_turn_context_replacement_clears_audio_buffer_and_vad_state(
         assert node._active_session_id == "session-a"
         assert node._active_user_turn_id == 2
         assert node._context_active is True
+    finally:
+        sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+
+def test_turn_detector_control_close_triggers_detection_only_with_active_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package_root = Path(__file__).parents[2]
+    shutdown_calls: list[bool] = []
+    _install_turn_detector_import_fakes(monkeypatch, shutdown_calls)
+    monkeypatch.syspath_prepend(str(package_root))
+    sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
+
+    try:
+        module = importlib.import_module("fa_turn_detector_py.turn_detector_node")
+        node = module.FaTurnDetectorNode.__new__(module.FaTurnDetectorNode)
+        node._logger = _FakeLogger()
+        node.control_config = module.ControlInputConfig(
+            control_id="speech_control",
+            action="topic",
+            topic="voice/vad_state",
+            msg_type="fa_interfaces/msg/VadState",
+            source_id="mic-a",
+            stream_id="audio/raw/mic",
+            active_field="is_speech",
+            start_field="start",
+            end_field="end",
+            close_on="end_or_active_falling",
+            qos_depth=10,
+            qos_reliable=False,
+        )
+        detections: list[str] = []
+
+        def record_detection() -> None:
+            detections.append("detect")
+
+        node._detect_turn_end = record_detection
+        node._context_active = False
+        node.is_speech = True
+
+        node.on_control_event(
+            module.ControlEvent(
+                control_id="speech_control",
+                source_id="mic-a",
+                stream_id="audio/raw/mic",
+                active=False,
+                start=False,
+                end=True,
+            )
+        )
+
+        assert detections == []
+        assert node.is_speech is False
+
+        node._context_active = True
+        node.is_speech = True
+        node.on_control_event(
+            module.ControlEvent(
+                control_id="speech_control",
+                source_id="mic-a",
+                stream_id="audio/raw/mic",
+                active=False,
+                start=False,
+                end=False,
+            )
+        )
+        node.on_control_event(
+            module.ControlEvent(
+                control_id="speech_control",
+                source_id="mic-a",
+                stream_id="audio/raw/mic",
+                active=True,
+                start=False,
+                end=True,
+            )
+        )
+
+        assert detections == ["detect", "detect"]
     finally:
         sys.modules.pop("fa_turn_detector_py.turn_detector_node", None)
 
