@@ -30,17 +30,19 @@ def _write_model(path: Path) -> Path:
     return path
 
 
-def _fake_modules_dir(tmp_path: Path, *, model_kind: str = "rnnt") -> Path:
+def _fake_modules_dir(tmp_path: Path, *, model_kind: str = "cache_aware") -> Path:
     root = tmp_path / "fake_nemo"
     models_dir = root / "nemo" / "collections" / "asr" / "models"
     utils_dir = root / "nemo" / "collections" / "asr" / "parts" / "utils"
     if model_kind == "offline":
         class_name = "FakeOfflineModel"
+    elif model_kind == "runtime_cache_aware":
+        class_name = "FakeRuntimeCacheAwareRNNTModel"
     elif model_kind == "cache_aware":
         class_name = "FakeCacheAwareRNNTModel"
     else:
         class_name = "FakeRNNTModel"
-    cache_aware = "False" if model_kind == "offline" else "True"
+    cache_aware = "False" if model_kind in ("offline", "runtime_cache_aware") else "True"
     decoder_kind = "ctc" if model_kind == "offline" else "rnnt"
     models_dir.mkdir(parents=True)
     utils_dir.mkdir(parents=True)
@@ -53,6 +55,32 @@ def _fake_modules_dir(tmp_path: Path, *, model_kind: str = "rnnt") -> Path:
         models_dir,
     ):
         (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    root.joinpath("numpy.py").write_text(
+        """
+float32 = "float32"
+
+
+def asarray(samples, dtype=None):
+    del dtype
+    return tuple(samples)
+""",
+        encoding="utf-8",
+    )
+    root.joinpath("torch.py").write_text(
+        """
+class _InferenceMode:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+
+def inference_mode():
+    return _InferenceMode()
+""",
+        encoding="utf-8",
+    )
     utils_dir.joinpath("streaming_utils.py").write_text(
         """
 class CacheAwareStreamingAudioBuffer:
@@ -115,8 +143,7 @@ class {class_name}:
         self.samples = []
         self.reset_reasons = []
         self.calls = 0
-        if "{model_kind}" == "cache_aware":
-            self.encoder = FakeEncoder()
+        self.encoder = FakeEncoder()
 
     def start_stream(self, session_id):
         self.session_id = session_id
@@ -135,7 +162,7 @@ class {class_name}:
         self.reset_reasons.append(reason)
 
     def conformer_stream_step(self, **kwargs):
-        if "{model_kind}" != "cache_aware":
+        if "{model_kind}" not in ("cache_aware", "runtime_cache_aware"):
             raise RuntimeError("unexpected conformer_stream_step call")
         self.calls += 1
         return (
@@ -162,7 +189,7 @@ def _run_worker(*, python_path: Path, stdin_text: str) -> subprocess.CompletedPr
     env = os.environ.copy()
     env["PYTHONPATH"] = str(python_path)
     return subprocess.run(
-        (sys.executable, str(WORKER)),
+        (sys.executable, "-S", str(WORKER)),
         input=stdin_text,
         capture_output=True,
         text=True,
@@ -206,7 +233,7 @@ def _audio_b64(samples: tuple[float, ...]) -> str:
 
 def test_health_accepts_fake_cache_aware_rnnt_model(tmp_path: Path) -> None:
     model_path = _write_model(tmp_path / "model.nemo")
-    fake_root = _fake_modules_dir(tmp_path)
+    fake_root = _fake_modules_dir(tmp_path, model_kind="cache_aware")
 
     completed = _run_worker(
         python_path=fake_root,
@@ -216,9 +243,28 @@ def test_health_accepts_fake_cache_aware_rnnt_model(tmp_path: Path) -> None:
     assert completed.returncode == 0
     response = json.loads(completed.stdout)
     assert response["type"] == "health_ok"
-    assert response["model_class"] == "FakeRNNTModel"
+    assert response["model_class"] == "FakeCacheAwareRNNTModel"
     assert response["cache_aware_streaming"] is True
     assert response["sample_rate_hz"] == 16000
+    assert completed.stderr == ""
+
+
+def test_health_accepts_runtime_encoder_cache_aware_model_when_cfg_encoder_lacks_it(
+    tmp_path: Path,
+) -> None:
+    model_path = _write_model(tmp_path / "model.nemo")
+    fake_root = _fake_modules_dir(tmp_path, model_kind="runtime_cache_aware")
+
+    completed = _run_worker(
+        python_path=fake_root,
+        stdin_text=_json_line(_health_message(model_path)),
+    )
+
+    assert completed.returncode == 0
+    response = json.loads(completed.stdout)
+    assert response["type"] == "health_ok"
+    assert response["model_class"] == "FakeRuntimeCacheAwareRNNTModel"
+    assert response["cache_aware_streaming"] is True
     assert completed.stderr == ""
 
 
@@ -324,7 +370,7 @@ def test_jsonl_protocol_accepts_health_start_audio_drain_and_finish(
         "final",
         "finished",
     ]
-    assert responses[-2]["text"] == "final-2"
+    assert responses[-2]["text"] == "cache-1"
     assert completed.stderr == ""
 
 

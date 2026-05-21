@@ -424,13 +424,16 @@ def inspect_model_capability(model) -> ModelCapability:
     preprocessor = _required_config_section(cfg, "preprocessor")
     decoder = _required_config_section(cfg, "decoder")
     joint = _required_config_section(cfg, "joint")
-    encoder = _required_config_section(cfg, "encoder")
+    encoder_config = _required_config_section(cfg, "encoder")
+    runtime_encoder = _required_attr(model, "encoder")
     sample_rate_hz = _required_config_int(preprocessor, "sample_rate")
     languages = _extract_languages(cfg)
     rnnt = _is_rnnt_model_class(model_class) or _config_section_mentions(decoder, "rnnt")
-    cache_aware_streaming = _encoder_supports_cache_aware_streaming(encoder)
-    chunk_size_samples = _optional_config_int(encoder, "chunk_size_samples", default_value=0)
-    max_partial_interval_ms = _optional_config_int(encoder, "max_partial_interval_ms", default_value=0)
+    cache_aware_streaming = _encoder_supports_cache_aware_streaming(runtime_encoder)
+    chunk_size_samples = _optional_config_int(encoder_config, "chunk_size_samples", default_value=0)
+    max_partial_interval_ms = _optional_config_int(
+        encoder_config, "max_partial_interval_ms", default_value=0
+    )
     _required_config_section(joint, "jointnet")
     return ModelCapability(
         model_class=model_class,
