@@ -22,6 +22,7 @@ def test_default_config_does_not_select_backend_or_worker_implicitly() -> None:
     assert params["backend.result_format"] == ""
     assert params["expected_source_id"] == ""
     assert params["expected_stream_id"] == ""
+    assert params["timeline.timestamp_alignment_tolerance_ms"] == 1.0
     assert params["asr_state_topic"] == "voice/asr/state"
     assert params["asr_event_topic"] == "voice/asr/event"
     assert params["trace.enabled"] is False

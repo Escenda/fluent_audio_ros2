@@ -14,6 +14,7 @@ fa_asr:
     target_sample_rate: 16000
     min_audio_sec: 0.3
     timeline.retention_sec: 1800.0
+    timeline.timestamp_alignment_tolerance_ms: 1.0
     timeline.clock: "media"
     timeline.window_id: "fa_asr_rolling_asr_window"
     timeline.window_epoch: 0

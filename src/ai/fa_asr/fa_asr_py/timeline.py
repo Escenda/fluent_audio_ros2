@@ -14,7 +14,7 @@ ERROR_RANGE_OUTSIDE_WINDOW = "range_outside_window"
 ERROR_RANGE_NOT_CONTINUOUS = "range_not_continuous"
 
 _NSEC_PER_SEC = 1_000_000_000
-_TIMESTAMP_ALIGNMENT_TOLERANCE_NS = 1_000_000
+_NSEC_PER_MSEC = 1_000_000
 _NUMERIC_RANGE_PATTERN = re.compile(r"^([0-9]+)\.\.([0-9]+)$")
 
 
@@ -74,17 +74,34 @@ def parse_numeric_time_range(time_range_spec: str) -> NumericTimeRange:
 
 
 class RollingAsrTimeline:
-    def __init__(self, *, sample_rate: int, retention_sec: float) -> None:
+    def __init__(
+        self,
+        *,
+        sample_rate: int,
+        retention_sec: float,
+        timestamp_alignment_tolerance_ms: float,
+    ) -> None:
         if sample_rate <= 0:
             raise ValueError("sample_rate must be greater than zero")
         if not np.isfinite(retention_sec) or retention_sec <= 0.0:
             raise ValueError("retention_sec must be finite and greater than zero")
+        if (
+            not np.isfinite(timestamp_alignment_tolerance_ms)
+            or timestamp_alignment_tolerance_ms < 0.0
+        ):
+            raise ValueError(
+                "timestamp_alignment_tolerance_ms must be finite and greater "
+                "than or equal to zero"
+            )
         retention_ns = int(retention_sec * _NSEC_PER_SEC)
         if retention_ns <= 0:
             raise ValueError("retention_sec is too small to represent in nanoseconds")
 
         self._sample_rate = int(sample_rate)
         self._retention_ns = retention_ns
+        self._timestamp_alignment_tolerance_ns = int(
+            round(timestamp_alignment_tolerance_ms * _NSEC_PER_MSEC)
+        )
         self._frames: list[TimelineFrame] = []
         self._latest_end_unix_ns = 0
         self._retained_start_unix_ns = 0
@@ -296,7 +313,7 @@ class RollingAsrTimeline:
             return start_unix_ns
 
         previous = self._frames[-1]
-        tolerance_ns = self._timestamp_alignment_tolerance_ns()
+        tolerance_ns = self._timestamp_alignment_tolerance_ns
         if start_unix_ns < previous.floor_end_unix_ns:
             overlap_ns = previous.floor_end_unix_ns - start_unix_ns
             if overlap_ns <= tolerance_ns:
@@ -312,9 +329,6 @@ class RollingAsrTimeline:
                 return previous.end_unix_ns
 
         return start_unix_ns
-
-    def _timestamp_alignment_tolerance_ns(self) -> int:
-        return _TIMESTAMP_ALIGNMENT_TOLERANCE_NS
 
     def _sample_index_to_floor_duration_ns(self, sample_index: int) -> int:
         numerator = sample_index * _NSEC_PER_SEC

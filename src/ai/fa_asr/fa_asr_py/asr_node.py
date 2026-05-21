@@ -127,6 +127,11 @@ class FaAsrNode(Node):
         self.timeline_retention_sec = self._positive_double_parameter(
             "timeline.retention_sec"
         )
+        self.timeline_timestamp_alignment_tolerance_ms = (
+            self._non_negative_double_parameter(
+                "timeline.timestamp_alignment_tolerance_ms"
+            )
+        )
         self.timeline_clock = self._timeline_clock_parameter("timeline.clock")
         self.timeline_window_id = self._string_parameter("timeline.window_id").strip()
         if not self.timeline_window_id:
@@ -169,10 +174,7 @@ class FaAsrNode(Node):
                 f"{self.target_sample_rate}, got {self.input_capability.sample_rate_hz}"
             )
         self._backend_lock = threading.Lock()
-        self._timeline = RollingAsrTimeline(
-            sample_rate=self.target_sample_rate,
-            retention_sec=self.timeline_retention_sec,
-        )
+        self._timeline = self._build_timeline()
         self._timeline_lock = threading.Lock()
         self._turn_state_lock = threading.RLock()
         self._io_callback_group = MutuallyExclusiveCallbackGroup()
@@ -276,6 +278,10 @@ class FaAsrNode(Node):
         self.declare_parameter("target_sample_rate", Parameter.Type.INTEGER)
         self.declare_parameter("min_audio_sec", Parameter.Type.DOUBLE)
         self.declare_parameter("timeline.retention_sec", Parameter.Type.DOUBLE)
+        self.declare_parameter(
+            "timeline.timestamp_alignment_tolerance_ms",
+            Parameter.Type.DOUBLE,
+        )
         self.declare_parameter("timeline.clock", Parameter.Type.STRING)
         self.declare_parameter("timeline.window_id", Parameter.Type.STRING)
         self.declare_parameter("timeline.window_epoch", Parameter.Type.INTEGER)
@@ -387,6 +393,13 @@ class FaAsrNode(Node):
                 )
             )
         return tuple(configs)
+
+    def _build_timeline(self) -> RollingAsrTimeline:
+        return RollingAsrTimeline(
+            sample_rate=self.target_sample_rate,
+            retention_sec=self.timeline_retention_sec,
+            timestamp_alignment_tolerance_ms=self.timeline_timestamp_alignment_tolerance_ms,
+        )
 
     def _declare_control_parameters(self, prefix: str) -> None:
         self.declare_parameter(f"{prefix}.action", Parameter.Type.STRING)

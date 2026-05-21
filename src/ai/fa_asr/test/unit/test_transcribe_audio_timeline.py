@@ -459,7 +459,7 @@ def _node(module, *, backend) -> _FakeNode:
     node.backend = backend
     node.input_capability = backend.capability
     node._backend_lock = threading.Lock()
-    node._timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
+    node._timeline = _timeline(sample_rate=10, retention_sec=10.0)
     node._timeline_lock = threading.Lock()
     node._turn_state_lock = threading.RLock()
     node._context_active = False
@@ -505,6 +505,19 @@ def _response() -> _FakeTranscribeAudioResponse:
     return _FakeTranscribeAudioResponse()
 
 
+def _timeline(
+    *,
+    sample_rate: int = 10,
+    retention_sec: float = 10.0,
+    timestamp_alignment_tolerance_ms: float = 1.0,
+) -> RollingAsrTimeline:
+    return RollingAsrTimeline(
+        sample_rate=sample_rate,
+        retention_sec=retention_sec,
+        timestamp_alignment_tolerance_ms=timestamp_alignment_tolerance_ms,
+    )
+
+
 def test_numeric_time_range_parser_accepts_exact_numeric_range() -> None:
     time_range = parse_numeric_time_range("1000000000..1200000000")
 
@@ -535,8 +548,26 @@ def test_numeric_time_range_parser_rejects_unsupported_ranges(spec: str) -> None
     assert exc_info.value.error_code == ERROR_TIME_RANGE_UNRESOLVED
 
 
+@pytest.mark.parametrize(
+    "timestamp_alignment_tolerance_ms",
+    [-0.001, float("nan"), float("inf"), -float("inf")],
+)
+def test_timeline_constructor_rejects_invalid_timestamp_alignment_tolerance(
+    timestamp_alignment_tolerance_ms: float,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="timestamp_alignment_tolerance_ms must be finite and greater than or equal to zero",
+    ):
+        RollingAsrTimeline(
+            sample_rate=16_000,
+            retention_sec=10.0,
+            timestamp_alignment_tolerance_ms=timestamp_alignment_tolerance_ms,
+        )
+
+
 def test_timeline_retains_configured_horizon_and_rejects_outside_range() -> None:
-    timeline = RollingAsrTimeline(sample_rate=10, retention_sec=1.0)
+    timeline = _timeline(sample_rate=10, retention_sec=1.0)
     timeline.append(
         start_unix_ns=1_000_000_000,
         samples=np.linspace(-0.95, 0.95, 20, dtype=np.float32),
@@ -549,7 +580,7 @@ def test_timeline_retains_configured_horizon_and_rejects_outside_range() -> None
 
 
 def test_empty_timeline_refuses_requested_range() -> None:
-    timeline = RollingAsrTimeline(sample_rate=10, retention_sec=1.0)
+    timeline = _timeline(sample_rate=10, retention_sec=1.0)
 
     with pytest.raises(TimelineRangeError) as exc_info:
         timeline.slice(parse_numeric_time_range("1000000000..1100000000"))
@@ -558,7 +589,7 @@ def test_empty_timeline_refuses_requested_range() -> None:
 
 
 def test_timeline_detects_gap_for_range_crossing_missing_audio() -> None:
-    timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
+    timeline = _timeline(sample_rate=10, retention_sec=10.0)
     timeline.append(start_unix_ns=1_000_000_000, samples=np.array([0.1, 0.2], dtype=np.float32))
     timeline.append(start_unix_ns=1_400_000_000, samples=np.array([0.5, 0.6], dtype=np.float32))
 
@@ -569,7 +600,7 @@ def test_timeline_detects_gap_for_range_crossing_missing_audio() -> None:
 
 
 def test_timeline_reports_non_continuous_when_requested_start_is_inside_gap() -> None:
-    timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
+    timeline = _timeline(sample_rate=10, retention_sec=10.0)
     timeline.append(start_unix_ns=1_000_000_000, samples=np.array([0.1, 0.2], dtype=np.float32))
     timeline.append(start_unix_ns=1_500_000_000, samples=np.array([0.5, 0.6], dtype=np.float32))
 
@@ -580,7 +611,7 @@ def test_timeline_reports_non_continuous_when_requested_start_is_inside_gap() ->
 
 
 def test_timeline_rejects_overlap_without_corrupting_prior_audio() -> None:
-    timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
+    timeline = _timeline(sample_rate=10, retention_sec=10.0)
     timeline.append(start_unix_ns=1_000_000_000, samples=np.array([0.1, 0.2], dtype=np.float32))
 
     with pytest.raises(TimelineRangeError) as exc_info:
@@ -595,7 +626,11 @@ def test_timeline_rejects_overlap_without_corrupting_prior_audio() -> None:
 
 
 def test_timeline_aligns_sub_sample_timestamp_overlap() -> None:
-    timeline = RollingAsrTimeline(sample_rate=16_000, retention_sec=10.0)
+    timeline = _timeline(
+        sample_rate=16_000,
+        retention_sec=10.0,
+        timestamp_alignment_tolerance_ms=0.4,
+    )
     first_start_unix_ns = 1_000_000_000
     expected_second_start_unix_ns = 1_020_000_000
 
@@ -625,7 +660,11 @@ def test_timeline_aligns_sub_sample_timestamp_overlap() -> None:
 
 
 def test_timeline_aligns_sub_sample_timestamp_gap() -> None:
-    timeline = RollingAsrTimeline(sample_rate=16_000, retention_sec=10.0)
+    timeline = _timeline(
+        sample_rate=16_000,
+        retention_sec=10.0,
+        timestamp_alignment_tolerance_ms=0.4,
+    )
     first_start_unix_ns = 1_000_000_000
     expected_second_start_unix_ns = 1_020_000_000
 
@@ -655,7 +694,11 @@ def test_timeline_aligns_sub_sample_timestamp_gap() -> None:
 
 
 def test_timeline_rejects_overlap_beyond_alignment_tolerance() -> None:
-    timeline = RollingAsrTimeline(sample_rate=16_000, retention_sec=10.0)
+    timeline = _timeline(
+        sample_rate=16_000,
+        retention_sec=10.0,
+        timestamp_alignment_tolerance_ms=0.25,
+    )
     first_start_unix_ns = 1_000_000_000
     expected_second_start_unix_ns = 1_020_000_000
 
@@ -665,7 +708,60 @@ def test_timeline_rejects_overlap_beyond_alignment_tolerance() -> None:
     )
     with pytest.raises(TimelineRangeError) as exc_info:
         timeline.append(
-            start_unix_ns=expected_second_start_unix_ns - 1_000_001,
+            start_unix_ns=expected_second_start_unix_ns - 250_001,
+            samples=np.full(320, 0.75, dtype=np.float32),
+        )
+
+    assert exc_info.value.error_code == ERROR_WINDOW_NOT_FOUND
+
+
+def test_timeline_reports_gap_beyond_configured_alignment_tolerance() -> None:
+    timeline = _timeline(
+        sample_rate=16_000,
+        retention_sec=10.0,
+        timestamp_alignment_tolerance_ms=0.25,
+    )
+    first_start_unix_ns = 1_000_000_000
+    expected_second_start_unix_ns = 1_020_000_000
+
+    timeline.append(
+        start_unix_ns=first_start_unix_ns,
+        samples=np.full(320, 0.25, dtype=np.float32),
+    )
+    timeline.append(
+        start_unix_ns=expected_second_start_unix_ns + 250_001,
+        samples=np.full(320, 0.75, dtype=np.float32),
+    )
+
+    with pytest.raises(TimelineRangeError) as exc_info:
+        timeline.slice(
+            parse_numeric_time_range(
+                f"{first_start_unix_ns}..{first_start_unix_ns + 40_000_000}"
+            )
+        )
+
+    assert exc_info.value.error_code == ERROR_RANGE_NOT_CONTINUOUS
+
+
+def test_asr_node_builds_timeline_with_configured_alignment_tolerance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    node = module.FaAsrNode.__new__(module.FaAsrNode)
+    node.target_sample_rate = 16_000
+    node.timeline_retention_sec = 10.0
+    node.timeline_timestamp_alignment_tolerance_ms = 0.25
+    timeline = module.FaAsrNode._build_timeline(node)
+    first_start_unix_ns = 1_000_000_000
+    expected_second_start_unix_ns = 1_020_000_000
+
+    timeline.append(
+        start_unix_ns=first_start_unix_ns,
+        samples=np.full(320, 0.25, dtype=np.float32),
+    )
+    with pytest.raises(TimelineRangeError) as exc_info:
+        timeline.append(
+            start_unix_ns=expected_second_start_unix_ns - 250_001,
             samples=np.full(320, 0.75, dtype=np.float32),
         )
 
@@ -673,7 +769,7 @@ def test_timeline_rejects_overlap_beyond_alignment_tolerance() -> None:
 
 
 def test_timeline_slices_exact_values_across_contiguous_frames() -> None:
-    timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
+    timeline = _timeline(sample_rate=10, retention_sec=10.0)
     timeline.append(
         start_unix_ns=1_000_000_000,
         samples=np.array([0.1, 0.2, 0.3], dtype=np.float32),
@@ -695,7 +791,7 @@ def test_timeline_slices_exact_values_across_contiguous_frames() -> None:
 
 
 def test_timeline_quantizes_non_sample_boundary_request_to_covering_sample_span() -> None:
-    timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
+    timeline = _timeline(sample_rate=10, retention_sec=10.0)
     timeline.append(start_unix_ns=1_000_000_000, samples=np.array([0.1, 0.2], dtype=np.float32))
 
     timeline_slice = timeline.slice(parse_numeric_time_range("1050000000..1150000000"))
@@ -706,7 +802,7 @@ def test_timeline_quantizes_non_sample_boundary_request_to_covering_sample_span(
 
 
 def test_timeline_slices_non_exact_sample_rate_with_integer_coverage_range() -> None:
-    timeline = RollingAsrTimeline(sample_rate=48_000, retention_sec=10.0)
+    timeline = _timeline(sample_rate=48_000, retention_sec=10.0)
     samples = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
 
     timeline.append(start_unix_ns=1_000_000_000, samples=samples)
@@ -724,7 +820,7 @@ def test_timeline_slices_non_exact_sample_rate_with_integer_coverage_range() -> 
 
 
 def test_timeline_accepts_quantized_floor_contiguous_append_at_48khz() -> None:
-    timeline = RollingAsrTimeline(sample_rate=48_000, retention_sec=10.0)
+    timeline = _timeline(sample_rate=48_000, retention_sec=10.0)
     first_start_unix_ns = 1_000_000_000
     second_start_unix_ns = 1_000_020_833
     requested_end_unix_ns = 1_000_041_666
@@ -749,7 +845,7 @@ def test_timeline_accepts_quantized_floor_contiguous_append_at_48khz() -> None:
 
 
 def test_timeline_rejects_before_quantized_floor_boundary_without_corruption() -> None:
-    timeline = RollingAsrTimeline(sample_rate=48_000, retention_sec=10.0)
+    timeline = _timeline(sample_rate=48_000, retention_sec=10.0)
     first_start_unix_ns = 1_000_000_000
     first_floor_end_unix_ns = 1_000_020_833
 
@@ -985,7 +1081,7 @@ def test_transcribe_audio_outside_retained_window_does_not_call_backend(
     module = _asr_node_module(monkeypatch)
     backend = _RecordingBackend("hello")
     node = _node(module, backend=backend)
-    node._timeline = RollingAsrTimeline(sample_rate=10, retention_sec=0.2)
+    node._timeline = _timeline(sample_rate=10, retention_sec=0.2)
     node.on_audio(
         _FakeAudioFrame(
             samples=np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32),

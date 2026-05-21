@@ -657,6 +657,7 @@ def test_default_config_requires_explicit_backend_name() -> None:
     assert params["backend.result_format"] == ""
     assert params["expected_source_id"] == ""
     assert params["expected_stream_id"] == ""
+    assert params["timeline.timestamp_alignment_tolerance_ms"] == 1.0
     assert params["asr_state_topic"] == "voice/asr/state"
     assert params["asr_event_topic"] == "voice/asr/event"
     assert params["trace.enabled"] is False
@@ -705,6 +706,10 @@ def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
             _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, 0.3)),
             "min_audio_sec",
         ) == 0.3
+        assert module.FaAsrNode._non_negative_double_parameter(
+            _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, 0.0)),
+            "timeline.timestamp_alignment_tolerance_ms",
+        ) == 0.0
         assert module.FaAsrNode._string_array_parameter(
             _TypedNode(_TypedParameter(_FakeParameter.Type.STRING_ARRAY, ("--audio", "{audio}"))),
             "backend.args",
@@ -770,6 +775,17 @@ def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
             module.FaAsrNode._positive_double_parameter(
                 _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, float("nan"))),
                 "silence_timeout_sec",
+            )
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                "timeline.timestamp_alignment_tolerance_ms must be finite and greater "
+                "than or equal to zero"
+            ),
+        ):
+            module.FaAsrNode._non_negative_double_parameter(
+                _TypedNode(_TypedParameter(_FakeParameter.Type.DOUBLE, -0.1)),
+                "timeline.timestamp_alignment_tolerance_ms",
             )
         with pytest.raises(RuntimeError, match="backend.args must be a string array"):
             module.FaAsrNode._string_array_parameter(
