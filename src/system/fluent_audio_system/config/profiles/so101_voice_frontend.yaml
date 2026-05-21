@@ -294,6 +294,7 @@ groups:
           turn_context_topic: "conversation/turn_context"
           asr_result_topic: "voice/asr/result"
           timeline.retention_sec: 1800.0
+          timeline.timestamp_alignment_tolerance_ms: 5.0
           timeline.clock: "media"
           timeline.window_id: "so101_voice_frontend_mic_asr"
           timeline.window_epoch: 1

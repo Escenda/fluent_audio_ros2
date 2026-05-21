@@ -17,6 +17,26 @@ FixtureParamMapping: TypeAlias = dict[str, "FixtureParamValue"]
 FixtureParamSequence: TypeAlias = list["FixtureParamValue"]
 FixtureParamValue: TypeAlias = FixtureParamScalar | FixtureParamMapping | FixtureParamSequence
 
+_KWS_FRONTEND_REQUIRED_ENV = (
+    "FLUENT_AUDIO_VAD_MODEL_DIR",
+    "FLUENT_AUDIO_VAD_PROVIDER",
+    "FLUENT_AUDIO_VAD_WORKER",
+    "FLUENT_AUDIO_KWS_PROVIDER",
+    "FLUENT_AUDIO_KWS_WORKER",
+    "FLUENT_AUDIO_KWS_ENCODER",
+    "FLUENT_AUDIO_KWS_DECODER",
+    "FLUENT_AUDIO_KWS_JOINER",
+    "FLUENT_AUDIO_KWS_TOKENS",
+    "FLUENT_AUDIO_KWS_KEYWORDS",
+)
+_VOICE_FRONTEND_REQUIRED_ENV = (
+    "FLUENT_AUDIO_ASR_MODEL_PATH",
+    "FLUENT_AUDIO_ASR_WORKER",
+    "FLUENT_AUDIO_TURN_DETECTOR_MODEL",
+    "FLUENT_AUDIO_TURN_DETECTOR_PROVIDER",
+    "FLUENT_AUDIO_TURN_DETECTOR_WORKER",
+)
+
 
 def _patch_fluent_audio_system_share(monkeypatch: pytest.MonkeyPatch) -> None:
     def package_share(package_name: str) -> str:
@@ -578,15 +598,19 @@ def test_so101_kws_frontend_profile_expands_vad_and_kws_worker_contract(
         assert placeholder in kws_params["backend.health_args"]
 
 
+@pytest.mark.parametrize("missing_env", _KWS_FRONTEND_REQUIRED_ENV)
 def test_so101_kws_frontend_profile_requires_worker_and_model_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    missing_env: str,
 ) -> None:
     _patch_profile_package_shares(monkeypatch, tmp_path)
+    _set_kws_frontend_env(monkeypatch, tmp_path)
+    monkeypatch.delenv(missing_env)
 
     with pytest.raises(
         RuntimeError,
-        match="environment variable FLUENT_AUDIO_VAD_MODEL_DIR is required",
+        match=fr"environment variable {missing_env} is required",
     ):
         load_system_config(
             "${share:fluent_audio_system}/config/profiles/so101_kws_frontend.yaml"
@@ -682,6 +706,7 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
     assert asr_params["turn_context_topic"] == "conversation/turn_context"
     assert asr_params["asr_result_topic"] == "voice/asr/result"
     assert asr_params["timeline.retention_sec"] == audio_window_params["window.retention_seconds"]
+    assert asr_params["timeline.timestamp_alignment_tolerance_ms"] == 5.0
     assert asr_params["timeline.clock"] == "media"
     assert asr_params["timeline.window_id"] == "so101_voice_frontend_mic_asr"
     assert asr_params["timeline.window_epoch"] == audio_window_params["window.epoch"]
@@ -763,16 +788,19 @@ def test_so101_voice_frontend_and_agent_audio_tools_compose_as_one_system(
     assert packages.index("fa_audio_window") < packages.index("fa_audio_mcp")
 
 
+@pytest.mark.parametrize("missing_env", _VOICE_FRONTEND_REQUIRED_ENV)
 def test_so101_voice_frontend_profile_requires_asr_and_turn_detector_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    missing_env: str,
 ) -> None:
     _patch_profile_package_shares(monkeypatch, tmp_path)
-    _set_kws_frontend_env(monkeypatch, tmp_path)
+    _set_voice_frontend_env(monkeypatch, tmp_path)
+    monkeypatch.delenv(missing_env)
 
     with pytest.raises(
         RuntimeError,
-        match="environment variable FLUENT_AUDIO_ASR_MODEL_PATH is required",
+        match=fr"environment variable {missing_env} is required",
     ):
         load_system_config(
             "${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml"
@@ -876,19 +904,26 @@ def test_voice_frontend_profiles_bind_ai_consumers_to_resampled_mic_stream(
 
 
 @pytest.mark.parametrize(
-    ("profile_path", "group_id", "expected_window_id"),
     (
-        ("config/fluent_audio_system.sample.yaml", "ai", "sample_mic_asr"),
-        ("config/profiles/so101.yaml", "ai", "so101_mic_asr"),
+        "profile_path",
+        "group_id",
+        "expected_window_id",
+        "expected_timestamp_alignment_tolerance_ms",
+    ),
+    (
+        ("config/fluent_audio_system.sample.yaml", "ai", "sample_mic_asr", None),
+        ("config/profiles/so101.yaml", "ai", "so101_mic_asr", 5.0),
         (
             "config/profiles/so101_mic_frontend.yaml",
             "voice_frontend",
             "so101_mic_frontend_mic_asr",
+            5.0,
         ),
         (
             "config/profiles/so101_voice_frontend.yaml",
             "voice_frontend",
             "so101_voice_frontend_mic_asr",
+            5.0,
         ),
     ),
 )
@@ -896,6 +931,7 @@ def test_asr_profiles_carry_explicit_timeline_reference_contract(
     profile_path: str,
     group_id: str,
     expected_window_id: str,
+    expected_timestamp_alignment_tolerance_ms: float | None,
 ) -> None:
     config = yaml.safe_load((PACKAGE_ROOT / profile_path).read_text(encoding="utf-8"))
     group = next(group for group in config["groups"] if group["id"] == group_id)
@@ -903,6 +939,13 @@ def test_asr_profiles_carry_explicit_timeline_reference_contract(
     params = asr["parameters"]
 
     assert params["timeline.retention_sec"] == 1800.0
+    if expected_timestamp_alignment_tolerance_ms is None:
+        assert "timeline.timestamp_alignment_tolerance_ms" not in params
+    else:
+        assert (
+            params["timeline.timestamp_alignment_tolerance_ms"]
+            == expected_timestamp_alignment_tolerance_ms
+        )
     assert params["timeline.clock"] == "media"
     assert params["timeline.window_id"] == expected_window_id
     assert params["timeline.window_epoch"] == 1

@@ -199,6 +199,8 @@ class _SmokeConfig:
     vad_topic: str
     turn_context_topic: str
     asr_result_topic: str
+    asr_state_topic: str
+    asr_event_topic: str
     transcribe_service: str
     export_service: str
     archive_service: str
@@ -583,6 +585,8 @@ def _build_smoke_config(tmp_path: Path) -> _SmokeConfig:
         vad_topic=f"{base}/vad",
         turn_context_topic=f"{base}/turn_context",
         asr_result_topic=f"{base}/asr_result",
+        asr_state_topic=f"{base}/asr_state",
+        asr_event_topic=f"{base}/asr_event",
         transcribe_service=f"{base}/transcribe",
         export_service=f"{base}/export",
         archive_service=f"{base}/archive",
@@ -734,12 +738,15 @@ def _write_asr_params(config: _SmokeConfig) -> None:
                     "audio_topic": config.asr_audio_topic,
                     "turn_context_topic": config.turn_context_topic,
                     "asr_result_topic": config.asr_result_topic,
+                    "asr_state_topic": config.asr_state_topic,
+                    "asr_event_topic": config.asr_event_topic,
                     "transcribe_service_name": config.transcribe_service,
                     "expected_source_id": _SOURCE_ID,
                     "expected_stream_id": _ASR_STREAM_ID,
                     "target_sample_rate": _SAMPLE_RATE,
                     "min_audio_sec": 0.3,
                     "timeline.retention_sec": 10.0,
+                    "timeline.timestamp_alignment_tolerance_ms": 1.0,
                     "timeline.clock": "media",
                     "timeline.window_id": "combined_launch_asr_window",
                     "timeline.window_epoch": 11,
@@ -762,6 +769,8 @@ def _write_asr_params(config: _SmokeConfig) -> None:
                     "finalize_on_context_inactive": True,
                     "workspace_dir": str(config.asr_workspace),
                     "cleanup_audio_files": True,
+                    "trace.enabled": False,
+                    "trace.path": "",
                     "backend.name": "local_command",
                     "backend.kind": "asr",
                     "backend.model": _MODEL_ID,
@@ -805,6 +814,8 @@ def _write_asr_params(config: _SmokeConfig) -> None:
                     "turn_context.qos.reliable": True,
                     "result.qos.depth": 10,
                     "result.qos.reliable": True,
+                    "observability.qos.depth": 50,
+                    "observability.qos.reliable": True,
                 }
             }
         },
