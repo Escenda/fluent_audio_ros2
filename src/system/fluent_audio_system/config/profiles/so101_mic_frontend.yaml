@@ -248,26 +248,16 @@ groups:
           timeline.clock: "media"
           timeline.window_id: "so101_mic_frontend_mic_asr"
           timeline.window_epoch: 1
-          backend.name: "whisper.cpp"
+          backend.name: "nemo_rnnt_streaming"
           backend.model_path: "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
           backend.command: "${env:FLUENT_AUDIO_ASR_WORKER}"
-          backend.args:
-            - "transcribe"
-            - "--audio"
-            - "{audio}"
-            - "--model"
-            - "{model}"
-            - "--sample-rate"
-            - "{sample_rate}"
-            - "--language"
-            - "{language}"
-          backend.health_args:
-            - "health"
-            - "--model"
-            - "{model}"
-            - "--language"
-            - "{language}"
-          backend.result_format: "plain_text"
+          backend.language: "en"
+          backend.sample_rate_hz: 16000
+          backend.channels: 1
+          backend.chunk_size_samples: 1600
+          backend.chunk_ms: 0
+          backend.emit_partial: true
+          backend.max_partial_interval_ms: 300
           backend.timeout_sec: 120.0
           workspace_dir: "/tmp/fluent_audio/fa_asr/so101_mic_frontend"
           cleanup_audio_files: true

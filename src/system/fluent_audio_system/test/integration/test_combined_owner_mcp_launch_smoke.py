@@ -57,14 +57,13 @@ _SOURCE_ID = _DISABLED_SITE_BINDING
 _PROFILE_SOURCE_ID = "mic"
 _ASR_STREAM_ID = "audio/high_pass/mic"
 _WINDOW_STREAM_ID = "audio/archive_pcm16/mic"
-_PROFILE_ASR_LANGUAGE = "ja-JP"
+_PROFILE_ASR_LANGUAGE = "en"
 _ARCHIVE_REASON = "combined launch smoke"
 _ARCHIVE_ARTIFACT_ID = "fluent_audio_system_launch"
 _PROFILE_MCP_PORT = 9110
 _REAL_ASR_SMOKE_ENV = "FLUENT_AUDIO_REAL_ASR_SMOKE"
 _REAL_ASR_WORKER_ENV = "FLUENT_AUDIO_ASR_WORKER"
-_REAL_ASR_MODEL_ENV = "FLUENT_AUDIO_ASR_MODEL"
-_REAL_ASR_LANGUAGE_ENV = "FLUENT_AUDIO_ASR_LANGUAGE"
+_REAL_ASR_MODEL_PATH_ENV = "FLUENT_AUDIO_ASR_MODEL_PATH"
 _REAL_ASR_AUDIO_F32_PATH_ENV = "FLUENT_AUDIO_REAL_ASR_AUDIO_F32_PATH"
 _REAL_ASR_SAMPLE_RATE_ENV = "FLUENT_AUDIO_REAL_ASR_SAMPLE_RATE"
 _REAL_ASR_EXPECTED_TEXT_ENV = "FLUENT_AUDIO_REAL_ASR_EXPECTED_TEXT"
@@ -978,8 +977,7 @@ def _profile_launch_environment(
             "FLUENT_AUDIO_KWS_TOKENS": str(config.kws_tokens_path),
             "FLUENT_AUDIO_KWS_KEYWORDS": str(config.kws_keywords_path),
             "FLUENT_AUDIO_ASR_WORKER": str(config.asr_worker_path),
-            "FLUENT_AUDIO_ASR_MODEL": config.asr_model,
-            "FLUENT_AUDIO_ASR_LANGUAGE": config.asr_language,
+            "FLUENT_AUDIO_ASR_MODEL_PATH": config.asr_model,
             "FLUENT_AUDIO_TURN_DETECTOR_MODEL": str(config.turn_model_path),
             "FLUENT_AUDIO_TURN_DETECTOR_PROVIDER": "CPUExecutionProvider",
             "FLUENT_AUDIO_TURN_DETECTOR_WORKER": str(config.turn_worker_path),
@@ -1771,10 +1769,10 @@ def _assert_profile_transcribe_response(
     _assert_profile_time_range(window_ref.time_range, config)
 
     model_ref = response.model_ref
-    assert model_ref.backend_name == "parakeet_worker"
+    assert model_ref.backend_name == "nemo_rnnt_streaming"
     assert model_ref.backend_kind == "asr"
-    assert model_ref.model_id == config.asr_model
-    assert model_ref.model_path == ""
+    assert model_ref.model_id == ""
+    assert model_ref.model_path == config.asr_model
     assert model_ref.model_version == ""
     assert model_ref.model_revision == ""
 
@@ -1808,10 +1806,10 @@ def _assert_real_asr_profile_transcribe_response(
     _assert_profile_time_range(window_ref.time_range, config)
 
     model_ref = response.model_ref
-    assert model_ref.backend_name == "parakeet_worker"
+    assert model_ref.backend_name == "nemo_rnnt_streaming"
     assert model_ref.backend_kind == "asr"
-    assert model_ref.model_path == ""
-    assert model_ref.model_id == real_asr.model
+    assert model_ref.model_path == real_asr.model
+    assert model_ref.model_id == ""
     assert model_ref.model_version == ""
     assert model_ref.model_revision == ""
 
@@ -1885,10 +1883,10 @@ def _assert_profile_transcribe_json(
         "time_range": expected_time_range,
     }
     assert transcribe["model_ref"] == {
-        "backend_name": "parakeet_worker",
+        "backend_name": "nemo_rnnt_streaming",
         "backend_kind": "asr",
-        "model_id": config.asr_model,
-        "model_path": "",
+        "model_id": "",
+        "model_path": config.asr_model,
         "model_version": "",
         "model_revision": "",
     }
@@ -2294,8 +2292,8 @@ def _load_real_asr_smoke_input() -> _RealAsrSmokeInput:
     worker_path = _required_file_env(_REAL_ASR_WORKER_ENV)
     if not os.access(worker_path, os.X_OK):
         raise AssertionError(f"{_REAL_ASR_WORKER_ENV} must point to an executable file: {worker_path}")
-    model = _required_env(_REAL_ASR_MODEL_ENV)
-    language = _required_env(_REAL_ASR_LANGUAGE_ENV)
+    model = str(_required_file_env(_REAL_ASR_MODEL_PATH_ENV))
+    language = _PROFILE_ASR_LANGUAGE
     audio_path = _required_file_env(_REAL_ASR_AUDIO_F32_PATH_ENV)
     _validate_real_asr_sample_rate()
     audio_bytes = audio_path.read_bytes()

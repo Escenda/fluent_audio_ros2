@@ -1122,7 +1122,7 @@ def test_node_env_expands_inline_env_values(
             "fa_asr",
             "fa_asr_node",
             {
-                "backend.name": "whisper.cpp",
+                "backend.name": "nemo_rnnt_streaming",
                 "audio_topic": "voice/audio",
                 "expected_stream_id": "voice/vad_state",
                 "control.default_enabled": False,

@@ -31,8 +31,7 @@ _KWS_FRONTEND_REQUIRED_ENV = (
 )
 _VOICE_FRONTEND_REQUIRED_ENV = (
     "FLUENT_AUDIO_ASR_WORKER",
-    "FLUENT_AUDIO_ASR_MODEL",
-    "FLUENT_AUDIO_ASR_LANGUAGE",
+    "FLUENT_AUDIO_ASR_MODEL_PATH",
     "FLUENT_AUDIO_TURN_DETECTOR_MODEL",
     "FLUENT_AUDIO_TURN_DETECTOR_PROVIDER",
     "FLUENT_AUDIO_TURN_DETECTOR_WORKER",
@@ -139,9 +138,10 @@ def _set_kws_frontend_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 def _set_voice_frontend_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _set_kws_frontend_env(monkeypatch, tmp_path)
     values = {
-        "FLUENT_AUDIO_ASR_WORKER": str(tmp_path / "bin" / "parakeet_asr_worker"),
-        "FLUENT_AUDIO_ASR_MODEL": "parakeet-rnnt-multilingual",
-        "FLUENT_AUDIO_ASR_LANGUAGE": "ja-JP",
+        "FLUENT_AUDIO_ASR_WORKER": str(tmp_path / "bin" / "nemo_rnnt_streaming_worker"),
+        "FLUENT_AUDIO_ASR_MODEL_PATH": str(
+            tmp_path / "models" / "asr" / "nemotron-speech-streaming-en-0.6b.nemo"
+        ),
         "FLUENT_AUDIO_TURN_DETECTOR_MODEL": str(
             tmp_path / "models" / "turn_detector" / "smart_turn.onnx"
         ),
@@ -710,20 +710,25 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
     assert asr_params["timeline.clock"] == "media"
     assert asr_params["timeline.window_id"] == "so101_voice_frontend_mic_asr"
     assert asr_params["timeline.window_epoch"] == audio_window_params["window.epoch"]
-    assert asr_params["backend.name"] == "parakeet_worker"
-    assert asr_params["backend.command"] == str(tmp_path / "bin" / "parakeet_asr_worker")
-    assert asr_params["backend.model"] == "parakeet-rnnt-multilingual"
-    assert asr_params["backend.language"] == "ja-JP"
-    assert asr_params["backend.result_format"] == "plain_text"
+    assert asr_params["backend.name"] == "nemo_rnnt_streaming"
+    assert asr_params["backend.command"] == str(
+        tmp_path / "bin" / "nemo_rnnt_streaming_worker"
+    )
+    assert asr_params["backend.model_path"] == str(
+        tmp_path / "models" / "asr" / "nemotron-speech-streaming-en-0.6b.nemo"
+    )
+    assert asr_params["backend.language"] == "en"
+    assert asr_params["backend.sample_rate_hz"] == 16000
+    assert asr_params["backend.channels"] == 1
+    assert asr_params["backend.chunk_size_samples"] == 1600
+    assert asr_params["backend.chunk_ms"] == 0
+    assert asr_params["backend.emit_partial"] is True
+    assert asr_params["backend.max_partial_interval_ms"] == 300
     assert asr_params["workspace_dir"] == "/tmp/fluent_audio/fa_asr/so101_voice_frontend"
-    assert "backend.model_path" not in asr_params
-    assert "{audio}" in asr_params["backend.args"]
-    assert "{model}" in asr_params["backend.args"]
-    assert "{language}" in asr_params["backend.args"]
-    assert "{sample_rate}" in asr_params["backend.args"]
-    assert "{model}" in asr_params["backend.health_args"]
-    assert "{language}" in asr_params["backend.health_args"]
-    assert "{audio}" not in asr_params["backend.health_args"]
+    assert "backend.model" not in asr_params
+    assert "backend.args" not in asr_params
+    assert "backend.health_args" not in asr_params
+    assert "backend.result_format" not in asr_params
 
     assert turn_detector_params["audio_topic"] == vad_params["input_topic"]
     assert turn_detector_params["expected_stream_id"] == vad_params["input_stream_id"]
@@ -810,7 +815,7 @@ def test_so101_voice_frontend_profile_requires_asr_and_turn_detector_env(
 @pytest.mark.parametrize(
     ("package_name", "executable_name", "backend_name"),
     (
-        ("fa_asr", "fa_asr_node", "whisper.cpp"),
+        ("fa_asr", "fa_asr_node", "nemo_rnnt_streaming"),
         ("fa_kws", "fa_kws_node", "sherpa_onnx_kws"),
         ("fa_turn_detector", "fa_turn_detector_node", "smart_turn_onnx"),
     ),
@@ -1033,7 +1038,7 @@ def test_kws_profiles_carry_external_worker_contract_in_system_config(
         ("config/profiles/so101_mic_frontend.yaml", "voice_frontend"),
     ),
 )
-def test_asr_profiles_carry_whisper_worker_contract_in_system_config(
+def test_asr_profiles_carry_nemo_rnnt_streaming_contract_in_system_config(
     profile_path: str,
     group_id: str,
 ) -> None:
@@ -1042,10 +1047,16 @@ def test_asr_profiles_carry_whisper_worker_contract_in_system_config(
     asr = next(node for node in group["nodes"] if node["id"] == "fa_asr")
     params = asr["parameters"]
 
-    assert params["backend.name"] == "whisper.cpp"
-    assert params["backend.result_format"] == "plain_text"
+    assert params["backend.name"] == "nemo_rnnt_streaming"
     assert params["backend.command"] == "${env:FLUENT_AUDIO_ASR_WORKER}"
     assert params["backend.model_path"] == "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
+    assert params["backend.language"] == "en"
+    assert params["backend.sample_rate_hz"] == 16000
+    assert params["backend.channels"] == 1
+    assert params["backend.chunk_size_samples"] == 1600
+    assert params["backend.chunk_ms"] == 0
+    assert params["backend.emit_partial"] is True
+    assert params["backend.max_partial_interval_ms"] == 300
     _assert_asr_speech_control_contract(
         params,
         expected_stream_id=params["expected_stream_id"],
@@ -1057,14 +1068,12 @@ def test_asr_profiles_carry_whisper_worker_contract_in_system_config(
     assert params["cleanup_audio_files"] is True
     assert params["result.qos.depth"] == 10
     assert params["result.qos.reliable"] is True
-    assert "{audio}" in params["backend.args"]
-    assert "{model}" in params["backend.args"]
-    assert "{sample_rate}" in params["backend.args"]
-    assert "{model}" in params["backend.health_args"]
-    assert "{audio}" not in params["backend.health_args"]
+    assert "backend.args" not in params
+    assert "backend.health_args" not in params
+    assert "backend.result_format" not in params
 
 
-def test_so101_voice_frontend_asr_carries_parakeet_worker_contract_in_system_config() -> None:
+def test_so101_voice_frontend_asr_carries_nemo_rnnt_streaming_contract_in_system_config() -> None:
     config = yaml.safe_load(
         (PACKAGE_ROOT / "config/profiles/so101_voice_frontend.yaml").read_text(
             encoding="utf-8"
@@ -1101,19 +1110,20 @@ def test_so101_voice_frontend_asr_carries_parakeet_worker_contract_in_system_con
         params,
         expected_stream_id=vad_params["input_stream_id"],
     )
-    assert params["backend.name"] == "parakeet_worker"
+    assert params["backend.name"] == "nemo_rnnt_streaming"
     assert params["backend.command"] == "${env:FLUENT_AUDIO_ASR_WORKER}"
-    assert params["backend.model"] == "${env:FLUENT_AUDIO_ASR_MODEL}"
-    assert params["backend.language"] == "${env:FLUENT_AUDIO_ASR_LANGUAGE}"
-    assert params["backend.result_format"] == "plain_text"
-    assert "backend.model_path" not in params
-    assert "{audio}" in params["backend.args"]
-    assert "{model}" in params["backend.args"]
-    assert "{language}" in params["backend.args"]
-    assert "{sample_rate}" in params["backend.args"]
-    assert "{model}" in params["backend.health_args"]
-    assert "{language}" in params["backend.health_args"]
-    assert "{audio}" not in params["backend.health_args"]
+    assert params["backend.model_path"] == "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
+    assert params["backend.language"] == "en"
+    assert params["backend.sample_rate_hz"] == 16000
+    assert params["backend.channels"] == 1
+    assert params["backend.chunk_size_samples"] == 1600
+    assert params["backend.chunk_ms"] == 0
+    assert params["backend.emit_partial"] is True
+    assert params["backend.max_partial_interval_ms"] == 300
+    assert "backend.model" not in params
+    assert "backend.args" not in params
+    assert "backend.health_args" not in params
+    assert "backend.result_format" not in params
     assert "vad_topic" not in params
 
 
