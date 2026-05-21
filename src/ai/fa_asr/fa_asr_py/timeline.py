@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from fa_asr_py.backends.base import AsrAudioPayload
+
 
 ERROR_TIME_RANGE_UNRESOLVED = "time_range_unresolved"
 ERROR_WINDOW_NOT_FOUND = "window_not_found"
@@ -24,9 +26,20 @@ class NumericTimeRange:
 
 @dataclass(frozen=True)
 class TimelineSlice:
-    samples: np.ndarray
-    sample_rate: int
+    payload: AsrAudioPayload
     time_range: NumericTimeRange
+
+    @property
+    def samples(self) -> np.ndarray:
+        return self.payload.float32_samples()
+
+    @property
+    def sample_rate(self) -> int:
+        return self.payload.sample_rate_hz
+
+    @property
+    def sample_count(self) -> int:
+        return self.payload.sample_count
 
 
 @dataclass(frozen=True)
@@ -34,7 +47,7 @@ class TimelineFrame:
     start_unix_ns: int
     floor_end_unix_ns: int
     end_unix_ns: int
-    samples: np.ndarray
+    payload: AsrAudioPayload
 
 
 class TimelineRangeError(ValueError):
@@ -84,22 +97,25 @@ class RollingAsrTimeline:
     def latest_end_unix_ns(self) -> int:
         return self._latest_end_unix_ns
 
-    def append(self, *, start_unix_ns: int, samples: np.ndarray) -> None:
+    def append(
+        self,
+        *,
+        start_unix_ns: int,
+        payload: AsrAudioPayload | None = None,
+        samples: np.ndarray | None = None,
+    ) -> None:
         if start_unix_ns <= 0:
             raise TimelineRangeError(
                 ERROR_TIME_RANGE_UNRESOLVED,
                 "AudioFrame header.stamp must resolve to a positive unix nanosecond timestamp",
             )
-        if samples.ndim != 1:
-            raise ValueError("samples must be a 1D array")
-        if samples.dtype != np.float32:
-            raise ValueError("samples dtype must be np.float32")
-        if samples.size == 0:
-            raise ValueError("samples must not be empty")
+        audio_payload = self._resolve_append_payload(payload=payload, samples=samples)
+        if audio_payload.sample_rate_hz != self._sample_rate:
+            raise ValueError("payload sample_rate_hz must match timeline sample_rate")
 
         start_unix_ns = self._align_adjacent_frame_start(start_unix_ns)
-        floor_duration_ns = self._sample_index_to_floor_duration_ns(samples.size)
-        ceil_duration_ns = self._sample_index_to_ceil_duration_ns(samples.size)
+        floor_duration_ns = self._sample_index_to_floor_duration_ns(audio_payload.sample_count)
+        ceil_duration_ns = self._sample_index_to_ceil_duration_ns(audio_payload.sample_count)
         floor_end_unix_ns = start_unix_ns + floor_duration_ns
         end_unix_ns = start_unix_ns + ceil_duration_ns
 
@@ -108,7 +124,7 @@ class RollingAsrTimeline:
                 start_unix_ns=start_unix_ns,
                 floor_end_unix_ns=floor_end_unix_ns,
                 end_unix_ns=end_unix_ns,
-                samples=samples.copy(),
+                payload=audio_payload,
             )
         )
         self._latest_end_unix_ns = max(self._latest_end_unix_ns, end_unix_ns)
@@ -135,7 +151,9 @@ class RollingAsrTimeline:
                 "requested end is newer than the retained ASR timeline window",
             )
 
-        pieces: list[np.ndarray] = []
+        pieces: list[bytes] = []
+        encoding = self._frames[0].payload.encoding
+        channels = self._frames[0].payload.channels
         actual_start_unix_ns: int | None = None
         actual_end_unix_ns: int | None = None
         cursor_unix_ns = time_range.start_unix_ns
@@ -147,14 +165,25 @@ class RollingAsrTimeline:
                     ERROR_RANGE_NOT_CONTINUOUS,
                     "requested ASR timeline range crosses an audio gap",
                 )
+            if frame.payload.encoding != encoding or frame.payload.channels != channels:
+                raise TimelineRangeError(
+                    ERROR_RANGE_NOT_CONTINUOUS,
+                    "requested ASR timeline range crosses mixed audio payload formats",
+                )
             piece_end_unix_ns = min(time_range.end_unix_ns, frame.end_unix_ns)
             frame_start_index = self._floor_sample_index(cursor_unix_ns - frame.start_unix_ns)
             frame_end_index = self._ceil_sample_index(piece_end_unix_ns - frame.start_unix_ns)
-            frame_start_index = min(frame_start_index, frame.samples.size)
-            frame_end_index = min(frame_end_index, frame.samples.size)
+            frame_start_index = min(frame_start_index, frame.payload.sample_count)
+            frame_end_index = min(frame_end_index, frame.payload.sample_count)
 
             if frame_start_index < frame_end_index:
-                pieces.append(frame.samples[frame_start_index:frame_end_index])
+                pieces.append(
+                    self._slice_payload_bytes(
+                        frame.payload,
+                        start_sample=frame_start_index,
+                        end_sample=frame_end_index,
+                    )
+                )
                 piece_actual_start_unix_ns = (
                     frame.start_unix_ns
                     + self._sample_index_to_floor_duration_ns(frame_start_index)
@@ -179,9 +208,22 @@ class RollingAsrTimeline:
                         ERROR_RANGE_OUTSIDE_WINDOW,
                         "requested start quantizes before the retained ASR timeline window",
                     )
+                payload = AsrAudioPayload(
+                    encoding=encoding,
+                    sample_rate_hz=self._sample_rate,
+                    channels=channels,
+                    data=b"".join(pieces),
+                    sample_count=sum(
+                        self._payload_sample_count(
+                            payload_bytes=piece,
+                            encoding=encoding,
+                            channels=channels,
+                        )
+                        for piece in pieces
+                    ),
+                )
                 return TimelineSlice(
-                    samples=np.concatenate(pieces).astype(np.float32, copy=False),
-                    sample_rate=self._sample_rate,
+                    payload=payload,
                     time_range=NumericTimeRange(
                         start_unix_ns=actual_start_unix_ns,
                         end_unix_ns=actual_end_unix_ns,
@@ -199,6 +241,55 @@ class RollingAsrTimeline:
             if frame.end_unix_ns > self._retained_start_unix_ns:
                 retained_frames.append(frame)
         self._frames = retained_frames
+
+    def _resolve_append_payload(
+        self,
+        *,
+        payload: AsrAudioPayload | None,
+        samples: np.ndarray | None,
+    ) -> AsrAudioPayload:
+        if payload is not None and samples is not None:
+            raise ValueError("append accepts either payload or samples, not both")
+        if payload is not None:
+            return payload
+        if samples is None:
+            raise ValueError("append requires payload or samples")
+        return AsrAudioPayload.from_float32_samples(
+            samples,
+            sample_rate_hz=self._sample_rate,
+            channels=1,
+        )
+
+    @staticmethod
+    def _slice_payload_bytes(
+        payload: AsrAudioPayload,
+        *,
+        start_sample: int,
+        end_sample: int,
+    ) -> bytes:
+        bytes_per_sample = RollingAsrTimeline._payload_bytes_per_sample(
+            encoding=payload.encoding
+        )
+        stride = bytes_per_sample * payload.channels
+        return payload.data[start_sample * stride : end_sample * stride]
+
+    @staticmethod
+    def _payload_sample_count(
+        *,
+        payload_bytes: bytes,
+        encoding: str,
+        channels: int,
+    ) -> int:
+        stride = RollingAsrTimeline._payload_bytes_per_sample(encoding=encoding) * channels
+        return len(payload_bytes) // stride
+
+    @staticmethod
+    def _payload_bytes_per_sample(*, encoding: str) -> int:
+        if encoding == "FLOAT32LE":
+            return np.dtype("<f4").itemsize
+        if encoding == "PCM16LE":
+            return np.dtype("<i2").itemsize
+        raise ValueError(f"unsupported ASR timeline payload encoding: {encoding}")
 
     def _align_adjacent_frame_start(self, start_unix_ns: int) -> int:
         if not self._frames:

@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import pytest
 
-from fa_asr_py.backends.base import AsrRequest, asr_transcript_text
+from fa_asr_py.backends.base import AsrAudioPayload, AsrRequest, asr_transcript_text
 from fa_asr_py.backends.factory import AsrBackendSettings, build_asr_backend
 
 
@@ -55,8 +55,7 @@ def _request() -> AsrRequest:
     return AsrRequest(
         session_id="session-1",
         user_turn_id=7,
-        samples=samples,
-        sample_rate=16000,
+        payload=AsrAudioPayload.from_float32_samples(samples, sample_rate_hz=16000),
     )
 
 

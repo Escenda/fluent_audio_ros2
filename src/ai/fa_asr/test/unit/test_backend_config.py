@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from fa_asr_py.backends.base import (
+    AsrAudioPayload,
     AsrRequest,
     AsrTranscript,
     AsrTranscriptSegment,
@@ -29,10 +30,19 @@ from fa_asr_py.backends.parakeet_worker import (
     ParakeetWorkerAsrBackend,
     load_parakeet_worker_config,
 )
+from fa_asr_py.backends.riva_nim_grpc import RivaNimGrpcAsrBackend
 from fa_asr_py.backends.whisper_cpp import WhisperCppAsrBackend, load_whisper_cpp_config
 
 
 PACKAGE_ROOT = Path(__file__).parents[2]
+
+
+def _float32_request(samples: np.ndarray, *, sample_rate: int = 16000) -> AsrRequest:
+    return AsrRequest(
+        session_id="session",
+        user_turn_id=1,
+        payload=AsrAudioPayload.from_float32_samples(samples, sample_rate_hz=sample_rate),
+    )
 
 
 def _write_executable(path: Path) -> Path:
@@ -103,6 +113,9 @@ class _FakeNode:
     def get_logger(self) -> "_FakeLogger":
         return self._logger
 
+    def get_clock(self) -> "_FakeClock":
+        return _FakeClock()
+
 
 class _FakeLogger:
     def __init__(self) -> None:
@@ -114,6 +127,32 @@ class _FakeLogger:
 
     def fatal(self, message: str) -> None:
         self.fatal_records.append(message)
+
+
+class _FakeClockNow:
+    def __init__(self, *, sec: int = 99, nanosec: int = 123) -> None:
+        self.nanoseconds = sec * 1_000_000_000 + nanosec
+        self._sec = sec
+        self._nanosec = nanosec
+
+    def to_msg(self) -> "_FakeTime":
+        msg = _FakeTime()
+        msg.sec = self._sec
+        msg.nanosec = self._nanosec
+        return msg
+
+
+class _FakeClock:
+    def now(self) -> _FakeClockNow:
+        return _FakeClockNow()
+
+
+class _RecordingPublisher:
+    def __init__(self) -> None:
+        self.messages = []
+
+    def publish(self, msg) -> None:
+        self.messages.append(msg)
 
 
 class _FakeParameter:
@@ -145,6 +184,40 @@ class _FakeAsrResult:
     STATUS_FINAL = 1
     STATUS_TIMEOUT = 2
     STATUS_ERROR = 3
+
+
+class _FakeAsrState:
+    STATE_WAITING = 1
+    STATE_COLLECTING = 2
+    STATE_QUEUED = 3
+    STATE_TRANSCRIBING = 4
+    STATE_COMPLETED = 5
+    STATE_TIMEOUT = 6
+    STATE_FAILED = 7
+
+
+class _FakeAsrEvent:
+    EVENT_STARTUP_IDLE = 1
+    EVENT_CONTROL_RECEIVED = 2
+    EVENT_CONTROL_REJECTED_IDENTITY = 3
+    EVENT_CONTROL_WINDOW_OPENED = 4
+    EVENT_CLOSE_IGNORED_NO_WINDOW = 5
+    EVENT_CONTROL_WINDOW_CLOSED = 6
+    EVENT_SUBMIT_SKIPPED_SUBMIT_ON_CLOSE_FALSE = 7
+    EVENT_SUBMIT_SKIPPED_CONTEXT_INACTIVE = 8
+    EVENT_INVALID_CLOSE_TIME = 9
+    EVENT_TIMELINE_SLICE_UNAVAILABLE = 10
+    EVENT_TIMELINE_SLICE_NOT_CONTINUOUS = 11
+    EVENT_TIMELINE_OVERLAP_DERIVED_FAILURE = 12
+    EVENT_WINDOW_TOO_SHORT = 13
+    EVENT_JOB_QUEUED = 14
+    EVENT_BACKEND_TRANSCRIPTION_STARTED = 15
+    EVENT_BACKEND_COMPLETED = 16
+    EVENT_BACKEND_TIMEOUT = 17
+    EVENT_BACKEND_ERROR = 18
+    EVENT_INVALID_AUDIO_FRAME_DROPPED = 19
+    EVENT_AUDIO_FRAME_TIMELINE_APPEND_DROPPED = 20
+    EVENT_FAIL_CLOSED = 21
 
 
 class _FakeAudioFrame:
@@ -259,9 +332,140 @@ class _TypedNode:
 class _ParameterMapNode:
     def __init__(self, parameters: dict[str, _TypedParameter]) -> None:
         self._parameters = parameters
+        self.declared_parameters: list[tuple[str, str]] = []
+
+    def declare_parameter(self, name: str, parameter_type: str) -> None:
+        self.declared_parameters.append((name, parameter_type))
 
     def get_parameter(self, name: str) -> _TypedParameter:
         return self._parameters[name]
+
+
+def _control_parameter_map(
+    *,
+    action: str = "topic",
+    msg_type: str = "fa_interfaces/msg/VadState",
+    topic: str = "voice/vad_state",
+    source_id: str = "mic0",
+    stream_id: str = "stream0",
+    pre_roll_ms: float = 0.0,
+    post_roll_ms: float = 0.0,
+) -> dict[str, _TypedParameter]:
+    return {
+        "control.inputs": _TypedParameter(_FakeParameter.Type.STRING_ARRAY, ("speech_control",)),
+        "control.speech_control.action": _TypedParameter(_FakeParameter.Type.STRING, action),
+        "control.speech_control.topic": _TypedParameter(_FakeParameter.Type.STRING, topic),
+        "control.speech_control.msg_type": _TypedParameter(_FakeParameter.Type.STRING, msg_type),
+        "control.speech_control.source_id": _TypedParameter(_FakeParameter.Type.STRING, source_id),
+        "control.speech_control.stream_id": _TypedParameter(_FakeParameter.Type.STRING, stream_id),
+        "control.speech_control.active_field": _TypedParameter(
+            _FakeParameter.Type.STRING,
+            "is_speech",
+        ),
+        "control.speech_control.start_field": _TypedParameter(_FakeParameter.Type.STRING, "start"),
+        "control.speech_control.end_field": _TypedParameter(_FakeParameter.Type.STRING, "end"),
+        "control.speech_control.open_on": _TypedParameter(
+            _FakeParameter.Type.STRING,
+            "start_or_active_rising",
+        ),
+        "control.speech_control.close_on": _TypedParameter(
+            _FakeParameter.Type.STRING,
+            "end_or_active_falling",
+        ),
+        "control.speech_control.submit_on_close": _TypedParameter(_FakeParameter.Type.BOOL, True),
+        "control.speech_control.pre_roll_ms": _TypedParameter(
+            _FakeParameter.Type.DOUBLE,
+            pre_roll_ms,
+        ),
+        "control.speech_control.post_roll_ms": _TypedParameter(
+            _FakeParameter.Type.DOUBLE,
+            post_roll_ms,
+        ),
+        "control.speech_control.qos.depth": _TypedParameter(_FakeParameter.Type.INTEGER, 50),
+        "control.speech_control.qos.reliable": _TypedParameter(_FakeParameter.Type.BOOL, False),
+    }
+
+
+def _control_config_node(module: ModuleType, parameters: dict[str, _TypedParameter]):
+    node = module.FaAsrNode.__new__(module.FaAsrNode)
+    parameter_node = _ParameterMapNode(parameters)
+    node.get_parameter = parameter_node.get_parameter
+    node.declare_parameter = parameter_node.declare_parameter
+    return node
+
+
+def _backend_config_node(
+    module: ModuleType,
+    parameters: dict[str, _TypedParameter],
+    *,
+    workspace_dir: Path,
+):
+    node = module.FaAsrNode.__new__(module.FaAsrNode)
+    parameter_node = _ParameterMapNode(parameters)
+    node.get_parameter = parameter_node.get_parameter
+    node.declare_parameter = parameter_node.declare_parameter
+    node.workspace_dir = workspace_dir
+    node.cleanup_audio_files = True
+    return node
+
+
+def _command_backend_parameters(
+    *,
+    backend_name: str,
+    command: Path,
+    model_path: Path,
+) -> dict[str, _TypedParameter]:
+    return {
+        "backend.name": _TypedParameter(_FakeParameter.Type.STRING, backend_name),
+        "backend.command": _TypedParameter(_FakeParameter.Type.STRING, str(command)),
+        "backend.model_path": _TypedParameter(_FakeParameter.Type.STRING, str(model_path)),
+        "backend.language": _TypedParameter(_FakeParameter.Type.STRING, "ja"),
+        "backend.args": _TypedParameter(
+            _FakeParameter.Type.STRING_ARRAY,
+            ("--model", "{model}", "--audio", "{audio}", "--sample-rate", "{sample_rate}"),
+        ),
+        "backend.health_args": _TypedParameter(_FakeParameter.Type.STRING_ARRAY, ()),
+        "backend.timeout_sec": _TypedParameter(_FakeParameter.Type.DOUBLE, 1.0),
+        "backend.working_directory": _TypedParameter(_FakeParameter.Type.STRING, ""),
+        "backend.output_text_path": _TypedParameter(_FakeParameter.Type.STRING, ""),
+        "backend.result_format": _TypedParameter(_FakeParameter.Type.STRING, "plain_text"),
+    }
+
+
+def _riva_backend_parameters(*, server: str) -> dict[str, _TypedParameter]:
+    return {
+        "backend.name": _TypedParameter(_FakeParameter.Type.STRING, "riva_nim_grpc"),
+        "backend.model": _TypedParameter(_FakeParameter.Type.STRING, "parakeet-ctc-1.1b"),
+        "backend.language": _TypedParameter(_FakeParameter.Type.STRING, "ja-JP"),
+        "backend.timeout_sec": _TypedParameter(_FakeParameter.Type.DOUBLE, 10.0),
+        "backend.riva_nim_grpc.server": _TypedParameter(_FakeParameter.Type.STRING, server),
+        "backend.riva_nim_grpc.use_ssl": _TypedParameter(_FakeParameter.Type.BOOL, False),
+        "backend.riva_nim_grpc.audio_encoding": _TypedParameter(
+            _FakeParameter.Type.STRING,
+            "PCM16LE",
+        ),
+        "backend.riva_nim_grpc.sample_rate_hz": _TypedParameter(
+            _FakeParameter.Type.INTEGER,
+            16000,
+        ),
+        "backend.riva_nim_grpc.channels": _TypedParameter(_FakeParameter.Type.INTEGER, 1),
+        "backend.riva_nim_grpc.chunk_size_bytes": _TypedParameter(
+            _FakeParameter.Type.INTEGER,
+            3200,
+        ),
+        "backend.riva_nim_grpc.interim_results": _TypedParameter(
+            _FakeParameter.Type.BOOL,
+            False,
+        ),
+        "backend.riva_nim_grpc.automatic_punctuation": _TypedParameter(
+            _FakeParameter.Type.BOOL,
+            True,
+        ),
+        "backend.riva_nim_grpc.enable_word_time_offsets": _TypedParameter(
+            _FakeParameter.Type.BOOL,
+            True,
+        ),
+    }
 
 
 class _BackendCrash(Exception):
@@ -347,7 +551,9 @@ def _install_asr_node_import_fakes(
 
     fa_interfaces_module = ModuleType("fa_interfaces")
     fa_interfaces_msg_module = ModuleType("fa_interfaces.msg")
+    fa_interfaces_msg_module.AsrEvent = _FakeAsrEvent
     fa_interfaces_msg_module.AsrResult = _FakeAsrResult
+    fa_interfaces_msg_module.AsrState = _FakeAsrState
     fa_interfaces_msg_module.AudioFrame = _FakeAudioFrame
     fa_interfaces_msg_module.AudioModelRef = _FakeAudioModelRef
     fa_interfaces_msg_module.AudioWindowRef = _FakeAudioWindowRef
@@ -426,6 +632,23 @@ def test_default_config_requires_explicit_backend_name() -> None:
 
     params = config["fa_asr"]["ros__parameters"]
 
+    assert "vad_topic" not in params
+    assert "finalize_on_vad_end" not in params
+    assert "vad.qos.depth" not in params
+    assert "vad.qos.reliable" not in params
+    assert params["control.default_enabled"] is False
+    assert params["control.inputs"] == ["speech_control"]
+    assert params["control.speech_control.action"] == "topic"
+    assert params["control.speech_control.topic"] == "voice/vad_state"
+    assert params["control.speech_control.msg_type"] == "fa_interfaces/msg/VadState"
+    assert params["control.speech_control.active_field"] == "is_speech"
+    assert params["control.speech_control.start_field"] == "start"
+    assert params["control.speech_control.end_field"] == "end"
+    assert params["control.speech_control.open_on"] == "start_or_active_rising"
+    assert params["control.speech_control.close_on"] == "end_or_active_falling"
+    assert params["control.speech_control.submit_on_close"] is True
+    assert params["control.speech_control.qos.depth"] == 50
+    assert params["control.speech_control.qos.reliable"] is False
     assert params["backend.name"] == ""
     assert params["backend.openai_realtime.api_key_env"] == ""
     assert params["backend.openai_transcriptions.api_key_env"] == ""
@@ -434,14 +657,18 @@ def test_default_config_requires_explicit_backend_name() -> None:
     assert params["backend.result_format"] == ""
     assert params["expected_source_id"] == ""
     assert params["expected_stream_id"] == ""
+    assert params["asr_state_topic"] == "voice/asr/state"
+    assert params["asr_event_topic"] == "voice/asr/event"
+    assert params["trace.enabled"] is False
+    assert params["trace.path"] == ""
     assert params["audio.qos.depth"] == 20
     assert params["audio.qos.reliable"] is False
-    assert params["vad.qos.depth"] == 50
-    assert params["vad.qos.reliable"] is False
     assert params["turn_context.qos.depth"] == 10
     assert params["turn_context.qos.reliable"] is True
     assert params["result.qos.depth"] == 10
     assert params["result.qos.reliable"] is True
+    assert params["observability.qos.depth"] == 50
+    assert params["observability.qos.reliable"] is True
 
 
 def test_asr_node_parameter_helpers_reject_wrong_ros_parameter_types(
@@ -596,10 +823,12 @@ def test_asr_node_rejects_empty_audio_data(monkeypatch: pytest.MonkeyPatch) -> N
     try:
         module = importlib.import_module("fa_asr_py.asr_node")
         with pytest.raises(ValueError, match="AudioFrame data is required"):
-            module.FaAsrNode._frame_to_float(
+            module.FaAsrNode._frame_to_payload(
                 _FakeAudioFrame(b""),
                 expected_source_id="mic0",
                 expected_stream_id="stream0",
+                expected_encoding="FLOAT32LE",
+                expected_channels=1,
             )
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
@@ -622,12 +851,21 @@ def test_asr_node_rejects_empty_audio_data_from_callback(
         node.target_sample_rate = 16000
         node.expected_source_id = "mic0"
         node.expected_stream_id = "stream0"
-        node._samples = []
+        node.input_capability = module.AsrBackendCapability(
+            audio_encoding="FLOAT32LE",
+            sample_rate_hz=16000,
+            channels=1,
+            streaming=False,
+            final_results_only=True,
+        )
+        node._payload_chunks = []
+        node._buffer_sample_count = 0
         node._samples_lock = threading.Lock()
 
         node.on_audio(_FakeAudioFrame(b""))
 
-        assert node._samples == []
+        assert node._payload_chunks == []
+        assert node._buffer_sample_count == 0
         assert node._logger.error_records == [
             "Dropping invalid AudioFrame: AudioFrame data is required"
         ]
@@ -648,10 +886,12 @@ def test_asr_node_rejects_non_float32le_encoding(
         frame.encoding = "PCM32LE"
 
         with pytest.raises(ValueError, match="AudioFrame encoding must be FLOAT32LE"):
-            module.FaAsrNode._frame_to_float(
+            module.FaAsrNode._frame_to_payload(
                 frame,
                 expected_source_id="mic0",
                 expected_stream_id="stream0",
+                expected_encoding="FLOAT32LE",
+                expected_channels=1,
             )
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
@@ -669,23 +909,27 @@ def test_asr_node_rejects_unbound_source_or_stream_identity(
         frame = _FakeAudioFrame(np.zeros(160, dtype=np.float32).tobytes())
 
         with pytest.raises(ValueError, match="AudioFrame source_id must match expected_source_id"):
-            module.FaAsrNode._frame_to_float(
+            module.FaAsrNode._frame_to_payload(
                 frame,
                 expected_source_id="mic1",
                 expected_stream_id="stream0",
+                expected_encoding="FLOAT32LE",
+                expected_channels=1,
             )
 
         with pytest.raises(ValueError, match="AudioFrame stream_id must match expected_stream_id"):
-            module.FaAsrNode._frame_to_float(
+            module.FaAsrNode._frame_to_payload(
                 frame,
                 expected_source_id="mic0",
                 expected_stream_id="audio/other",
+                expected_encoding="FLOAT32LE",
+                expected_channels=1,
             )
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
 
-def test_asr_node_rejects_unbound_vad_identity(
+def test_asr_node_rejects_unsupported_control_action_and_msg_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_asr_node_import_fakes(monkeypatch)
@@ -694,34 +938,22 @@ def test_asr_node_rejects_unbound_vad_identity(
 
     try:
         module = importlib.import_module("fa_asr_py.asr_node")
-        msg = _FakeVadState()
-        msg.source_id = "mic0"
-        msg.stream_id = "stream0"
-
-        module.FaAsrNode._validate_vad_identity(
-            msg,
-            expected_source_id="mic0",
-            expected_stream_id="stream0",
-        )
-
-        with pytest.raises(ValueError, match="VadState source_id must match expected_source_id"):
-            module.FaAsrNode._validate_vad_identity(
-                msg,
-                expected_source_id="mic1",
-                expected_stream_id="stream0",
+        with pytest.raises(RuntimeError, match="control.speech_control.action must be topic"):
+            module.FaAsrNode._load_control_configs(
+                _control_config_node(module, _control_parameter_map(action="service"))
             )
-
-        with pytest.raises(ValueError, match="VadState stream_id must match expected_stream_id"):
-            module.FaAsrNode._validate_vad_identity(
-                msg,
-                expected_source_id="mic0",
-                expected_stream_id="stream1",
+        with pytest.raises(
+            RuntimeError,
+            match="control.speech_control.msg_type must be fa_interfaces/msg/VadState",
+        ):
+            module.FaAsrNode._load_control_configs(
+                _control_config_node(module, _control_parameter_map(msg_type="std_msgs/msg/Bool"))
             )
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
 
-def test_asr_node_finalizes_current_buffer_on_vad_end(
+def test_asr_node_rejects_invalid_control_identity_and_roll_ranges(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_asr_node_import_fakes(monkeypatch)
@@ -730,31 +962,21 @@ def test_asr_node_finalizes_current_buffer_on_vad_end(
 
     try:
         module = importlib.import_module("fa_asr_py.asr_node")
-        node = module.FaAsrNode.__new__(module.FaAsrNode)
-        node._context_active = True
-        node._turn_state_lock = threading.RLock()
-        node.finalize_on_vad_end = True
-        node.expected_source_id = "mic0"
-        node.expected_stream_id = "stream0"
-        submissions: list[tuple[str, bool]] = []
-
-        def submit_current_buffer(
-            reason: str,
-            *,
-            publish_timeout_if_empty: bool,
-        ) -> None:
-            submissions.append((reason, publish_timeout_if_empty))
-
-        node._submit_current_buffer = submit_current_buffer
-        msg = _FakeVadState()
-        msg.source_id = "mic0"
-        msg.stream_id = "stream0"
-        msg.is_speech = False
-        msg.end = True
-
-        node.on_vad(msg)
-
-        assert submissions == [("vad_end", False)]
+        with pytest.raises(RuntimeError, match="control.speech_control.source_id is required"):
+            module.FaAsrNode._load_control_configs(
+                _control_config_node(module, _control_parameter_map(source_id=""))
+            )
+        with pytest.raises(RuntimeError, match="control.speech_control.stream_id is required"):
+            module.FaAsrNode._load_control_configs(
+                _control_config_node(module, _control_parameter_map(stream_id=""))
+            )
+        with pytest.raises(
+            RuntimeError,
+            match="control.speech_control.pre_roll_ms must be finite and greater than or equal to zero",
+        ):
+            module.FaAsrNode._load_control_configs(
+                _control_config_node(module, _control_parameter_map(pre_roll_ms=-1.0))
+            )
     finally:
         sys.modules.pop("fa_asr_py.asr_node", None)
 
@@ -788,8 +1010,10 @@ def test_asr_node_maps_unexpected_backend_exception_to_error_result(
         job = module.TranscriptionJob(
             session_id="session-1",
             user_turn_id=9,
-            samples=np.zeros(1, dtype=np.float32),
-            sample_rate=16000,
+            payload=AsrAudioPayload.from_float32_samples(
+                np.zeros(1, dtype=np.float32),
+                sample_rate_hz=16000,
+            ),
             reason="vad_end",
         )
 
@@ -836,8 +1060,10 @@ def test_asr_node_maps_backend_timeout_to_error_result(
         job = module.TranscriptionJob(
             session_id="session-1",
             user_turn_id=9,
-            samples=np.zeros(1, dtype=np.float32),
-            sample_rate=16000,
+            payload=AsrAudioPayload.from_float32_samples(
+                np.zeros(1, dtype=np.float32),
+                sample_rate_hz=16000,
+            ),
             reason="vad_end",
         )
 
@@ -879,8 +1105,10 @@ def test_asr_node_publishes_text_derived_from_backend_segments(
         job = module.TranscriptionJob(
             session_id="session-1",
             user_turn_id=9,
-            samples=np.zeros(2, dtype=np.float32),
-            sample_rate=16000,
+            payload=AsrAudioPayload.from_float32_samples(
+                np.zeros(2, dtype=np.float32),
+                sample_rate_hz=16000,
+            ),
             reason="vad_end",
         )
 
@@ -1099,12 +1327,7 @@ def test_openai_realtime_maps_configured_api_key_env_to_worker_env(
 
     assert asr_transcript_text(
         backend.transcribe(
-            AsrRequest(
-                session_id="session",
-                user_turn_id=1,
-                samples=np.zeros(160, dtype=np.float32),
-                sample_rate=16000,
-            )
+            _float32_request(np.zeros(160, dtype=np.float32))
         )
     ) == "openai-env-ok"
 
@@ -1135,12 +1358,7 @@ def test_openai_transcriptions_maps_configured_api_key_env_to_worker_env(
 
     assert asr_transcript_text(
         backend.transcribe(
-            AsrRequest(
-                session_id="session",
-                user_turn_id=1,
-                samples=np.zeros(160, dtype=np.float32),
-                sample_rate=16000,
-            )
+            _float32_request(np.zeros(160, dtype=np.float32))
         )
     ) == "openai-env-ok"
 
@@ -1292,6 +1510,58 @@ def test_build_backend_rejects_unknown_backend(tmp_path: Path) -> None:
                 model_path="",
             )
         )
+
+
+def test_asr_node_local_command_does_not_require_other_backend_parameters(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+    command = _write_executable(tmp_path / "worker")
+    model_path = tmp_path / "model.bin"
+    model_path.write_text("model", encoding="utf-8")
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        node = _backend_config_node(
+            module,
+            _command_backend_parameters(
+                backend_name="local_command",
+                command=command,
+                model_path=model_path,
+            ),
+            workspace_dir=tmp_path / "work",
+        )
+
+        backend = module.FaAsrNode._load_backend(node)
+
+        assert isinstance(backend, LocalCommandAsrBackend)
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
+def test_asr_node_riva_requires_server_only_when_riva_selected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        module = importlib.import_module("fa_asr_py.asr_node")
+        node = _backend_config_node(
+            module,
+            _riva_backend_parameters(server=""),
+            workspace_dir=tmp_path / "work",
+        )
+
+        with pytest.raises(RuntimeError, match="backend.riva_nim_grpc.server is required"):
+            module.FaAsrNode._load_backend(node)
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
 
 
 def test_backends_use_dedicated_classes(
@@ -1629,44 +1899,10 @@ def test_output_text_path_rejects_unknown_placeholder(tmp_path: Path) -> None:
         )
 
 
-def test_asr_request_validation_rejects_implicit_sample_casts(tmp_path: Path) -> None:
-    command = _write_executable(tmp_path / "worker")
-    model_path = tmp_path / "model.bin"
-    model_path.write_text("ok", encoding="utf-8")
-    backend = build_asr_backend(
-        _settings(
-            tmp_path,
-            backend_name="local_command",
-            command=command,
-            model="",
-            model_path=str(model_path),
-        )
-    )
-
+def test_asr_payload_validation_rejects_implicit_sample_casts() -> None:
     with pytest.raises(ValueError, match="samples must be float32"):
-        backend.transcribe(
-            AsrRequest(
-                session_id="session",
-                user_turn_id=1,
-                samples=np.zeros(160, dtype=np.float64),
-                sample_rate=16000,
-            )
-        )
+        _float32_request(np.zeros(160, dtype=np.float64))
     with pytest.raises(ValueError, match="samples must be one-dimensional"):
-        backend.transcribe(
-            AsrRequest(
-                session_id="session",
-                user_turn_id=1,
-                samples=np.zeros((2, 80), dtype=np.float32),
-                sample_rate=16000,
-            )
-        )
-    with pytest.raises(ValueError, match="sample_rate must be positive"):
-        backend.transcribe(
-            AsrRequest(
-                session_id="session",
-                user_turn_id=1,
-                samples=np.zeros(160, dtype=np.float32),
-                sample_rate=0,
-            )
-        )
+        _float32_request(np.zeros((2, 80), dtype=np.float32))
+    with pytest.raises(ValueError, match="sample_rate_hz must be positive"):
+        _float32_request(np.zeros(160, dtype=np.float32), sample_rate=0)

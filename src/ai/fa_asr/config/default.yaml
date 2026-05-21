@@ -1,9 +1,10 @@
 fa_asr:
   ros__parameters:
     audio_topic: "audio/frame"
-    vad_topic: "voice/vad_state"
     turn_context_topic: "conversation/turn_context"
     asr_result_topic: "voice/asr/result"
+    asr_state_topic: "voice/asr/state"
+    asr_event_topic: "voice/asr/event"
     transcribe_service_name: "transcribe_audio"
     # Required. Must match AudioFrame.source_id from the configured fa_in/source pipeline.
     expected_source_id: ""
@@ -17,10 +18,28 @@ fa_asr:
     timeline.window_id: "fa_asr_rolling_asr_window"
     timeline.window_epoch: 0
     silence_timeout_sec: 10.0
-    finalize_on_vad_end: true
+    control.default_enabled: false
+    control.inputs: ["speech_control"]
+    control.speech_control.action: "topic"
+    control.speech_control.topic: "voice/vad_state"
+    control.speech_control.msg_type: "fa_interfaces/msg/VadState"
+    control.speech_control.source_id: ""
+    control.speech_control.stream_id: ""
+    control.speech_control.active_field: "is_speech"
+    control.speech_control.start_field: "start"
+    control.speech_control.end_field: "end"
+    control.speech_control.open_on: "start_or_active_rising"
+    control.speech_control.close_on: "end_or_active_falling"
+    control.speech_control.submit_on_close: true
+    control.speech_control.pre_roll_ms: 0.0
+    control.speech_control.post_roll_ms: 0.0
+    control.speech_control.qos.depth: 50
+    control.speech_control.qos.reliable: false
     finalize_on_context_inactive: true
     workspace_dir: "/tmp/fa_asr"
     cleanup_audio_files: true
+    trace.enabled: false
+    trace.path: ""
 
     # Supported backend.name values:
     # - local_command: generic local ASR process, requires backend.model_path
@@ -50,13 +69,22 @@ fa_asr:
     backend.health_args: []
     backend.output_text_path: ""
     backend.result_format: ""
+    backend.riva_nim_grpc.server: ""
+    backend.riva_nim_grpc.use_ssl: false
+    backend.riva_nim_grpc.audio_encoding: ""
+    backend.riva_nim_grpc.sample_rate_hz: 0
+    backend.riva_nim_grpc.channels: 0
+    backend.riva_nim_grpc.chunk_size_bytes: 0
+    backend.riva_nim_grpc.interim_results: false
+    backend.riva_nim_grpc.automatic_punctuation: true
+    backend.riva_nim_grpc.enable_word_time_offsets: true
 
     # QoS is explicit per edge. Do not infer reliability/depth from topic names.
     audio.qos.depth: 20
     audio.qos.reliable: false
-    vad.qos.depth: 50
-    vad.qos.reliable: false
     turn_context.qos.depth: 10
     turn_context.qos.reliable: true
     result.qos.depth: 10
     result.qos.reliable: true
+    observability.qos.depth: 50
+    observability.qos.reliable: true

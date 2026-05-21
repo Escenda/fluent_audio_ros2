@@ -20,26 +20,39 @@ from fa_asr_py.backends.parakeet_worker import (
     ParakeetWorkerAsrBackend,
     load_parakeet_worker_config,
 )
+from fa_asr_py.backends.riva_nim_grpc import (
+    RivaNimGrpcAsrBackend,
+    load_riva_nim_grpc_config,
+)
 from fa_asr_py.backends.whisper_cpp import WhisperCppAsrBackend, load_whisper_cpp_config
 
 
 @dataclass(frozen=True)
 class AsrBackendSettings:
     name: str
-    command: str
-    model: str
-    model_path: str
-    openai_realtime_api_key_env: str
-    openai_transcriptions_api_key_env: str
-    language: str
-    args: tuple[str, ...]
-    health_args: tuple[str, ...]
-    timeout_sec: float
-    working_directory: str
-    output_text_path: str
-    workspace_dir: Path
-    cleanup_audio_files: bool
-    result_format: str
+    workspace_dir: Path = Path(".")
+    cleanup_audio_files: bool = False
+    command: str = ""
+    model: str = ""
+    model_path: str = ""
+    openai_realtime_api_key_env: str = ""
+    openai_transcriptions_api_key_env: str = ""
+    language: str = ""
+    args: tuple[str, ...] = ()
+    health_args: tuple[str, ...] = ()
+    timeout_sec: float = 0.0
+    working_directory: str = ""
+    output_text_path: str = ""
+    result_format: str = ""
+    riva_nim_grpc_server: str = ""
+    riva_nim_grpc_use_ssl: bool = False
+    riva_nim_grpc_audio_encoding: str = ""
+    riva_nim_grpc_sample_rate_hz: int = 0
+    riva_nim_grpc_channels: int = 0
+    riva_nim_grpc_chunk_size_bytes: int = 0
+    riva_nim_grpc_interim_results: bool = False
+    riva_nim_grpc_automatic_punctuation: bool = True
+    riva_nim_grpc_enable_word_time_offsets: bool = True
 
 
 def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
@@ -126,6 +139,23 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 workspace_dir=settings.workspace_dir,
                 cleanup_audio_files=settings.cleanup_audio_files,
                 result_format=settings.result_format.strip(),
+            )
+        )
+    if backend_name == RivaNimGrpcAsrBackend.name:
+        return RivaNimGrpcAsrBackend(
+            load_riva_nim_grpc_config(
+                server=settings.riva_nim_grpc_server,
+                use_ssl=settings.riva_nim_grpc_use_ssl,
+                model=settings.model,
+                language_code=settings.language,
+                audio_encoding=settings.riva_nim_grpc_audio_encoding,
+                sample_rate_hz=settings.riva_nim_grpc_sample_rate_hz,
+                channels=settings.riva_nim_grpc_channels,
+                chunk_size_bytes=settings.riva_nim_grpc_chunk_size_bytes,
+                interim_results=settings.riva_nim_grpc_interim_results,
+                automatic_punctuation=settings.riva_nim_grpc_automatic_punctuation,
+                enable_word_time_offsets=settings.riva_nim_grpc_enable_word_time_offsets,
+                timeout_sec=settings.timeout_sec,
             )
         )
     raise RuntimeError(f"unsupported ASR backend.name: {backend_name}")

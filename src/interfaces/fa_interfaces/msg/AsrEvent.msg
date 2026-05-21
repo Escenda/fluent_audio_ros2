@@ -1,0 +1,43 @@
+# fa_asr lifecycle observation event.
+
+uint16 EVENT_STARTUP_IDLE=1
+uint16 EVENT_CONTROL_RECEIVED=2
+uint16 EVENT_CONTROL_REJECTED_IDENTITY=3
+uint16 EVENT_CONTROL_WINDOW_OPENED=4
+uint16 EVENT_CLOSE_IGNORED_NO_WINDOW=5
+uint16 EVENT_CONTROL_WINDOW_CLOSED=6
+uint16 EVENT_SUBMIT_SKIPPED_SUBMIT_ON_CLOSE_FALSE=7
+uint16 EVENT_SUBMIT_SKIPPED_CONTEXT_INACTIVE=8
+uint16 EVENT_INVALID_CLOSE_TIME=9
+uint16 EVENT_TIMELINE_SLICE_UNAVAILABLE=10
+uint16 EVENT_TIMELINE_SLICE_NOT_CONTINUOUS=11
+uint16 EVENT_TIMELINE_OVERLAP_DERIVED_FAILURE=12
+uint16 EVENT_WINDOW_TOO_SHORT=13
+uint16 EVENT_JOB_QUEUED=14
+uint16 EVENT_BACKEND_TRANSCRIPTION_STARTED=15
+uint16 EVENT_BACKEND_COMPLETED=16
+uint16 EVENT_BACKEND_TIMEOUT=17
+uint16 EVENT_BACKEND_ERROR=18
+uint16 EVENT_INVALID_AUDIO_FRAME_DROPPED=19
+uint16 EVENT_AUDIO_FRAME_TIMELINE_APPEND_DROPPED=20
+uint16 EVENT_FAIL_CLOSED=21
+
+builtin_interfaces/Time timestamp
+uint64 event_seq
+uint16 event
+uint8 state
+uint8 state_before
+uint8 state_after
+string reason
+string session_id
+uint32 user_turn_id
+string control_id
+string source_id
+string stream_id
+bool context_active
+bool window_open
+uint32 queued_jobs
+uint32 sample_count
+int64 start_unix_ns
+int64 end_unix_ns
+string error_code

@@ -1,4 +1,5 @@
 import importlib
+import json
 import queue
 import sys
 import threading
@@ -8,6 +9,7 @@ import numpy as np
 import pytest
 
 from fa_asr_py.backends.base import (
+    AsrBackendCapability,
     AsrRequest,
     AsrTranscript,
     AsrTranscriptSegment,
@@ -28,6 +30,8 @@ class _FakeLogger:
     def __init__(self) -> None:
         self.error_records: list[str] = []
         self.debug_records: list[str] = []
+        self.info_records: list[str] = []
+        self.fatal_records: list[str] = []
 
     def error(self, message: str) -> None:
         self.error_records.append(message)
@@ -35,10 +39,42 @@ class _FakeLogger:
     def debug(self, message: str) -> None:
         self.debug_records.append(message)
 
+    def info(self, message: str) -> None:
+        self.info_records.append(message)
+
+    def fatal(self, message: str) -> None:
+        self.fatal_records.append(message)
+
+
+class _FakeClockNow:
+    def __init__(self, *, sec: int = 99, nanosec: int = 123) -> None:
+        self.nanoseconds = sec * 1_000_000_000 + nanosec
+        self._sec = sec
+        self._nanosec = nanosec
+
+    def to_msg(self) -> "_FakeHeaderStamp":
+        return _FakeHeaderStamp(sec=self._sec, nanosec=self._nanosec)
+
+
+class _FakeClock:
+    def now(self) -> _FakeClockNow:
+        return _FakeClockNow()
+
+
+class _RecordingPublisher:
+    def __init__(self) -> None:
+        self.messages = []
+
+    def publish(self, msg) -> None:
+        self.messages.append(msg)
+
 
 class _FakeNode:
     def get_logger(self) -> _FakeLogger:
         return self._logger
+
+    def get_clock(self) -> _FakeClock:
+        return _FakeClock()
 
 
 class _FakeParameter:
@@ -97,6 +133,40 @@ class _FakeAsrResult:
     STATUS_FINAL = 1
     STATUS_TIMEOUT = 2
     STATUS_ERROR = 3
+
+
+class _FakeAsrState:
+    STATE_WAITING = 1
+    STATE_COLLECTING = 2
+    STATE_QUEUED = 3
+    STATE_TRANSCRIBING = 4
+    STATE_COMPLETED = 5
+    STATE_TIMEOUT = 6
+    STATE_FAILED = 7
+
+
+class _FakeAsrEvent:
+    EVENT_STARTUP_IDLE = 1
+    EVENT_CONTROL_RECEIVED = 2
+    EVENT_CONTROL_REJECTED_IDENTITY = 3
+    EVENT_CONTROL_WINDOW_OPENED = 4
+    EVENT_CLOSE_IGNORED_NO_WINDOW = 5
+    EVENT_CONTROL_WINDOW_CLOSED = 6
+    EVENT_SUBMIT_SKIPPED_SUBMIT_ON_CLOSE_FALSE = 7
+    EVENT_SUBMIT_SKIPPED_CONTEXT_INACTIVE = 8
+    EVENT_INVALID_CLOSE_TIME = 9
+    EVENT_TIMELINE_SLICE_UNAVAILABLE = 10
+    EVENT_TIMELINE_SLICE_NOT_CONTINUOUS = 11
+    EVENT_TIMELINE_OVERLAP_DERIVED_FAILURE = 12
+    EVENT_WINDOW_TOO_SHORT = 13
+    EVENT_JOB_QUEUED = 14
+    EVENT_BACKEND_TRANSCRIPTION_STARTED = 15
+    EVENT_BACKEND_COMPLETED = 16
+    EVENT_BACKEND_TIMEOUT = 17
+    EVENT_BACKEND_ERROR = 18
+    EVENT_INVALID_AUDIO_FRAME_DROPPED = 19
+    EVENT_AUDIO_FRAME_TIMELINE_APPEND_DROPPED = 20
+    EVENT_FAIL_CLOSED = 21
 
 
 class _FakeResolvedTimeRange:
@@ -207,7 +277,23 @@ class _FakeTurnContext:
 
 
 class _FakeVadState:
-    pass
+    def __init__(
+        self,
+        *,
+        sec: int,
+        nanosec: int = 0,
+        source_id: str = "mic0",
+        stream_id: str = "stream0",
+        is_speech: bool = False,
+        start: bool = False,
+        end: bool = False,
+    ) -> None:
+        self.header = _FakeHeader(sec=sec, nanosec=nanosec)
+        self.source_id = source_id
+        self.stream_id = stream_id
+        self.is_speech = is_speech
+        self.start = start
+        self.end = end
 
 
 class _FakeTranscribeAudioRequest:
@@ -242,6 +328,13 @@ class _FakeTranscribeAudio:
 
 class _RecordingBackend:
     name = "recording_backend"
+    capability = AsrBackendCapability(
+        audio_encoding="FLOAT32LE",
+        sample_rate_hz=10,
+        channels=1,
+        streaming=False,
+        final_results_only=True,
+    )
 
     def __init__(
         self,
@@ -259,12 +352,13 @@ class _RecordingBackend:
             return AsrTranscript(segments=self.segments)
         return plain_text_to_asr_transcript(
             self.transcript,
-            sample_count=int(request.samples.size),
+            sample_count=request.payload.sample_count,
         )
 
 
 class _TimeoutBackend:
     name = "timeout_backend"
+    capability = _RecordingBackend.capability
 
     def transcribe(self, request: AsrRequest) -> AsrTranscript:
         del request
@@ -273,6 +367,7 @@ class _TimeoutBackend:
 
 class _ErrorBackend:
     name = "error_backend"
+    capability = _RecordingBackend.capability
 
     def transcribe(self, request: AsrRequest) -> AsrTranscript:
         del request
@@ -311,7 +406,9 @@ def _install_asr_node_import_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
 
     fa_interfaces_module = ModuleType("fa_interfaces")
     fa_interfaces_msg_module = ModuleType("fa_interfaces.msg")
+    fa_interfaces_msg_module.AsrEvent = _FakeAsrEvent
     fa_interfaces_msg_module.AsrResult = _FakeAsrResult
+    fa_interfaces_msg_module.AsrState = _FakeAsrState
     fa_interfaces_msg_module.AudioFrame = _FakeAudioFrame
     fa_interfaces_msg_module.AudioModelRef = _FakeAudioModelRef
     fa_interfaces_msg_module.AudioWindowRef = _FakeAudioWindowRef
@@ -360,6 +457,7 @@ def _node(module, *, backend) -> _FakeNode:
     node.backend_model_version = ""
     node.backend_model_revision = "rev1"
     node.backend = backend
+    node.input_capability = backend.capability
     node._backend_lock = threading.Lock()
     node._timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
     node._timeline_lock = threading.Lock()
@@ -367,10 +465,39 @@ def _node(module, *, backend) -> _FakeNode:
     node._context_active = False
     node._active_session_id = ""
     node._active_user_turn_id = 0
-    node._samples = []
+    node._payload_chunks = []
+    node._buffer_sample_count = 0
     node._samples_lock = threading.Lock()
     node._jobs = queue.Queue()
-    node.finalize_on_vad_end = True
+    node._asr_state = module.AsrState.STATE_WAITING
+    node._event_seq = 0
+    node.asr_result_pub = _RecordingPublisher()
+    node.asr_state_pub = _RecordingPublisher()
+    node.asr_event_pub = _RecordingPublisher()
+    node._trace_file = None
+    node._trace_lock = threading.Lock()
+    node.control_default_enabled = False
+    node.control_configs = (
+        module.ControlInputConfig(
+            control_id="speech_control",
+            action="topic",
+            topic="voice/vad_state",
+            msg_type="fa_interfaces/msg/VadState",
+            source_id="mic0",
+            stream_id="stream0",
+            active_field="is_speech",
+            start_field="start",
+            end_field="end",
+            open_on="start_or_active_rising",
+            close_on="end_or_active_falling",
+            submit_on_close=True,
+            pre_roll_ms=0.0,
+            post_roll_ms=0.0,
+            qos_depth=50,
+            qos_reliable=False,
+        ),
+    )
+    node._control_windows = {"speech_control": module.ControlWindowState()}
     return node
 
 
@@ -412,7 +539,7 @@ def test_timeline_retains_configured_horizon_and_rejects_outside_range() -> None
     timeline = RollingAsrTimeline(sample_rate=10, retention_sec=1.0)
     timeline.append(
         start_unix_ns=1_000_000_000,
-        samples=np.arange(20, dtype=np.float32),
+        samples=np.linspace(-0.95, 0.95, 20, dtype=np.float32),
     )
 
     with pytest.raises(TimelineRangeError) as exc_info:
@@ -432,8 +559,8 @@ def test_empty_timeline_refuses_requested_range() -> None:
 
 def test_timeline_detects_gap_for_range_crossing_missing_audio() -> None:
     timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
-    timeline.append(start_unix_ns=1_000_000_000, samples=np.array([1.0, 2.0], dtype=np.float32))
-    timeline.append(start_unix_ns=1_400_000_000, samples=np.array([5.0, 6.0], dtype=np.float32))
+    timeline.append(start_unix_ns=1_000_000_000, samples=np.array([0.1, 0.2], dtype=np.float32))
+    timeline.append(start_unix_ns=1_400_000_000, samples=np.array([0.5, 0.6], dtype=np.float32))
 
     with pytest.raises(TimelineRangeError) as exc_info:
         timeline.slice(parse_numeric_time_range("1000000000..1500000000"))
@@ -443,8 +570,8 @@ def test_timeline_detects_gap_for_range_crossing_missing_audio() -> None:
 
 def test_timeline_reports_non_continuous_when_requested_start_is_inside_gap() -> None:
     timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
-    timeline.append(start_unix_ns=1_000_000_000, samples=np.array([1.0, 2.0], dtype=np.float32))
-    timeline.append(start_unix_ns=1_500_000_000, samples=np.array([5.0, 6.0], dtype=np.float32))
+    timeline.append(start_unix_ns=1_000_000_000, samples=np.array([0.1, 0.2], dtype=np.float32))
+    timeline.append(start_unix_ns=1_500_000_000, samples=np.array([0.5, 0.6], dtype=np.float32))
 
     with pytest.raises(TimelineRangeError) as exc_info:
         timeline.slice(parse_numeric_time_range("1300000000..1600000000"))
@@ -454,17 +581,17 @@ def test_timeline_reports_non_continuous_when_requested_start_is_inside_gap() ->
 
 def test_timeline_rejects_overlap_without_corrupting_prior_audio() -> None:
     timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
-    timeline.append(start_unix_ns=1_000_000_000, samples=np.array([1.0, 2.0], dtype=np.float32))
+    timeline.append(start_unix_ns=1_000_000_000, samples=np.array([0.1, 0.2], dtype=np.float32))
 
     with pytest.raises(TimelineRangeError) as exc_info:
         timeline.append(
             start_unix_ns=1_198_999_999,
-            samples=np.array([9.0, 10.0], dtype=np.float32),
+            samples=np.array([0.9, 1.0], dtype=np.float32),
         )
 
     assert exc_info.value.error_code == ERROR_WINDOW_NOT_FOUND
     timeline_slice = timeline.slice(parse_numeric_time_range("1000000000..1200000000"))
-    np.testing.assert_array_equal(timeline_slice.samples, np.array([1.0, 2.0], dtype=np.float32))
+    np.testing.assert_array_equal(timeline_slice.samples, np.array([0.1, 0.2], dtype=np.float32))
 
 
 def test_timeline_aligns_sub_sample_timestamp_overlap() -> None:
@@ -474,11 +601,11 @@ def test_timeline_aligns_sub_sample_timestamp_overlap() -> None:
 
     timeline.append(
         start_unix_ns=first_start_unix_ns,
-        samples=np.ones(320, dtype=np.float32),
+        samples=np.full(320, 0.25, dtype=np.float32),
     )
     timeline.append(
         start_unix_ns=expected_second_start_unix_ns - 352_334,
-        samples=np.full(320, 2.0, dtype=np.float32),
+        samples=np.full(320, 0.75, dtype=np.float32),
     )
     timeline_slice = timeline.slice(
         parse_numeric_time_range(
@@ -489,11 +616,11 @@ def test_timeline_aligns_sub_sample_timestamp_overlap() -> None:
     assert timeline_slice.samples.size == 640
     np.testing.assert_array_equal(
         timeline_slice.samples[:320],
-        np.ones(320, dtype=np.float32),
+        np.full(320, 0.25, dtype=np.float32),
     )
     np.testing.assert_array_equal(
         timeline_slice.samples[320:],
-        np.full(320, 2.0, dtype=np.float32),
+        np.full(320, 0.75, dtype=np.float32),
     )
 
 
@@ -504,11 +631,11 @@ def test_timeline_aligns_sub_sample_timestamp_gap() -> None:
 
     timeline.append(
         start_unix_ns=first_start_unix_ns,
-        samples=np.ones(320, dtype=np.float32),
+        samples=np.full(320, 0.25, dtype=np.float32),
     )
     timeline.append(
         start_unix_ns=expected_second_start_unix_ns + 337_014,
-        samples=np.full(320, 2.0, dtype=np.float32),
+        samples=np.full(320, 0.75, dtype=np.float32),
     )
     timeline_slice = timeline.slice(
         parse_numeric_time_range(
@@ -519,11 +646,11 @@ def test_timeline_aligns_sub_sample_timestamp_gap() -> None:
     assert timeline_slice.samples.size == 640
     np.testing.assert_array_equal(
         timeline_slice.samples[:320],
-        np.ones(320, dtype=np.float32),
+        np.full(320, 0.25, dtype=np.float32),
     )
     np.testing.assert_array_equal(
         timeline_slice.samples[320:],
-        np.full(320, 2.0, dtype=np.float32),
+        np.full(320, 0.75, dtype=np.float32),
     )
 
 
@@ -534,12 +661,12 @@ def test_timeline_rejects_overlap_beyond_alignment_tolerance() -> None:
 
     timeline.append(
         start_unix_ns=first_start_unix_ns,
-        samples=np.ones(320, dtype=np.float32),
+        samples=np.full(320, 0.25, dtype=np.float32),
     )
     with pytest.raises(TimelineRangeError) as exc_info:
         timeline.append(
             start_unix_ns=expected_second_start_unix_ns - 1_000_001,
-            samples=np.full(320, 2.0, dtype=np.float32),
+            samples=np.full(320, 0.75, dtype=np.float32),
         )
 
     assert exc_info.value.error_code == ERROR_WINDOW_NOT_FOUND
@@ -549,11 +676,11 @@ def test_timeline_slices_exact_values_across_contiguous_frames() -> None:
     timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
     timeline.append(
         start_unix_ns=1_000_000_000,
-        samples=np.array([1.0, 2.0, 3.0], dtype=np.float32),
+        samples=np.array([0.1, 0.2, 0.3], dtype=np.float32),
     )
     timeline.append(
         start_unix_ns=1_300_000_000,
-        samples=np.array([4.0, 5.0], dtype=np.float32),
+        samples=np.array([0.4, 0.5], dtype=np.float32),
     )
 
     timeline_slice = timeline.slice(parse_numeric_time_range("1100000000..1500000000"))
@@ -563,24 +690,24 @@ def test_timeline_slices_exact_values_across_contiguous_frames() -> None:
     assert timeline_slice.samples.size == 4
     np.testing.assert_array_equal(
         timeline_slice.samples,
-        np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32),
+        np.array([0.2, 0.3, 0.4, 0.5], dtype=np.float32),
     )
 
 
 def test_timeline_quantizes_non_sample_boundary_request_to_covering_sample_span() -> None:
     timeline = RollingAsrTimeline(sample_rate=10, retention_sec=10.0)
-    timeline.append(start_unix_ns=1_000_000_000, samples=np.array([1.0, 2.0], dtype=np.float32))
+    timeline.append(start_unix_ns=1_000_000_000, samples=np.array([0.1, 0.2], dtype=np.float32))
 
     timeline_slice = timeline.slice(parse_numeric_time_range("1050000000..1150000000"))
 
     assert timeline_slice.time_range.start_unix_ns == 1_000_000_000
     assert timeline_slice.time_range.end_unix_ns == 1_200_000_000
-    np.testing.assert_array_equal(timeline_slice.samples, np.array([1.0, 2.0], dtype=np.float32))
+    np.testing.assert_array_equal(timeline_slice.samples, np.array([0.1, 0.2], dtype=np.float32))
 
 
 def test_timeline_slices_non_exact_sample_rate_with_integer_coverage_range() -> None:
     timeline = RollingAsrTimeline(sample_rate=48_000, retention_sec=10.0)
-    samples = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float32)
+    samples = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
 
     timeline.append(start_unix_ns=1_000_000_000, samples=samples)
     timeline_slice = timeline.slice(parse_numeric_time_range("1000020834..1000062499"))
@@ -592,7 +719,7 @@ def test_timeline_slices_non_exact_sample_rate_with_integer_coverage_range() -> 
     assert timeline_slice.time_range.end_unix_ns >= 1_000_062_499
     np.testing.assert_array_equal(
         timeline_slice.samples,
-        np.array([20.0, 30.0], dtype=np.float32),
+        np.array([0.2, 0.3], dtype=np.float32),
     )
 
 
@@ -602,10 +729,10 @@ def test_timeline_accepts_quantized_floor_contiguous_append_at_48khz() -> None:
     second_start_unix_ns = 1_000_020_833
     requested_end_unix_ns = 1_000_041_666
 
-    timeline.append(start_unix_ns=first_start_unix_ns, samples=np.array([10.0], dtype=np.float32))
+    timeline.append(start_unix_ns=first_start_unix_ns, samples=np.array([0.1], dtype=np.float32))
     timeline.append(
         start_unix_ns=second_start_unix_ns,
-        samples=np.array([20.0, 30.0], dtype=np.float32),
+        samples=np.array([0.2, 0.3], dtype=np.float32),
     )
     timeline_slice = timeline.slice(
         parse_numeric_time_range(f"{first_start_unix_ns}..{requested_end_unix_ns}")
@@ -617,7 +744,7 @@ def test_timeline_accepts_quantized_floor_contiguous_append_at_48khz() -> None:
     assert timeline_slice.time_range.end_unix_ns >= requested_end_unix_ns
     np.testing.assert_array_equal(
         timeline_slice.samples,
-        np.array([10.0, 20.0], dtype=np.float32),
+        np.array([0.1, 0.2], dtype=np.float32),
     )
 
 
@@ -626,18 +753,18 @@ def test_timeline_rejects_before_quantized_floor_boundary_without_corruption() -
     first_start_unix_ns = 1_000_000_000
     first_floor_end_unix_ns = 1_000_020_833
 
-    timeline.append(start_unix_ns=first_start_unix_ns, samples=np.array([10.0], dtype=np.float32))
+    timeline.append(start_unix_ns=first_start_unix_ns, samples=np.array([0.1], dtype=np.float32))
     with pytest.raises(TimelineRangeError) as exc_info:
         timeline.append(
             start_unix_ns=first_floor_end_unix_ns - 1_000_001,
-            samples=np.array([90.0], dtype=np.float32),
+            samples=np.array([0.9], dtype=np.float32),
         )
 
     assert exc_info.value.error_code == ERROR_WINDOW_NOT_FOUND
     timeline_slice = timeline.slice(
         parse_numeric_time_range(f"{first_start_unix_ns}..{first_floor_end_unix_ns}")
     )
-    np.testing.assert_array_equal(timeline_slice.samples, np.array([10.0], dtype=np.float32))
+    np.testing.assert_array_equal(timeline_slice.samples, np.array([0.1], dtype=np.float32))
 
 
 def test_on_audio_buffers_valid_frame_without_turn_context_and_service_transcribes(
@@ -876,7 +1003,7 @@ def test_transcribe_audio_outside_retained_window_does_not_call_backend(
     assert backend.requests == []
 
 
-def test_active_turn_invalid_timestamp_is_not_buffered_or_submitted_on_vad_end(
+def test_active_turn_invalid_timestamp_is_not_buffered_or_submitted_on_control_close(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _asr_node_module(monkeypatch)
@@ -892,16 +1019,351 @@ def test_active_turn_invalid_timestamp_is_not_buffered_or_submitted_on_vad_end(
             sec=0,
         )
     )
-    assert node._samples == []
+    assert node._payload_chunks == []
+    assert node._buffer_sample_count == 0
 
-    vad = _FakeVadState()
-    vad.source_id = "mic0"
-    vad.stream_id = "stream0"
-    vad.is_speech = False
-    vad.end = True
-    node.on_vad(vad)
+    event = module.ControlEvent(
+        control_id="speech_control",
+        source_id="mic0",
+        stream_id="stream0",
+        active=False,
+        start=False,
+        end=True,
+        stamp_unix_ns=1_300_000_000,
+    )
+    node.on_control_event(event)
 
-    assert node._samples == []
+    assert node._payload_chunks == []
+    assert node._buffer_sample_count == 0
+    assert node._jobs.empty()
+    assert backend.requests == []
+
+
+def test_control_default_disabled_does_not_submit_from_audio_arrival(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingBackend("hello")
+    node = _node(module, backend=backend)
+    node.control_default_enabled = False
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2, 0.3], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    assert node._payload_chunks == []
+    assert node._buffer_sample_count == 0
+    assert node._jobs.empty()
+    assert backend.requests == []
+
+
+def test_control_source_stream_mismatch_does_not_submit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingBackend("hello")
+    node = _node(module, backend=backend)
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32),
+            sec=1,
+        )
+    )
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=True,
+            end=False,
+            stamp_unix_ns=1_000_000_000,
+        )
+    )
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic1",
+            stream_id="stream0",
+            active=False,
+            start=False,
+            end=True,
+            stamp_unix_ns=1_300_000_000,
+        )
+    )
+
+    assert node._jobs.empty()
+    assert backend.requests == []
+    assert node._logger.error_records == [
+        "Dropping control event speech_control: source_id/stream_id mismatch"
+    ]
+
+
+def test_control_close_slices_timeline_and_submits_selected_asr_ready_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingBackend("hello")
+    node = _node(module, backend=backend)
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=True,
+            end=False,
+            stamp_unix_ns=1_100_000_000,
+        )
+    )
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=False,
+            end=True,
+            stamp_unix_ns=1_400_000_000,
+        )
+    )
+
+    assert node._jobs.qsize() == 1
+    job = node._jobs.get_nowait()
+    assert job.session_id == "session-1"
+    assert job.user_turn_id == 9
+    assert job.reason == "control:speech_control:close"
+    assert job.payload.sample_rate_hz == 10
+    assert job.payload.sample_count == 3
+    np.testing.assert_array_equal(
+        job.payload.float32_samples(),
+        np.array([0.2, 0.3, 0.4], dtype=np.float32),
+    )
+    assert backend.requests == []
+
+
+def test_control_window_observability_reports_open_close_and_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    node = _node(module, backend=_RecordingBackend("hello"))
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=True,
+            start=True,
+            end=False,
+            stamp_unix_ns=1_100_000_000,
+        )
+    )
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=False,
+            end=True,
+            stamp_unix_ns=1_400_000_000,
+        )
+    )
+
+    event_codes = [msg.event for msg in node.asr_event_pub.messages]
+    assert event_codes == [
+        module.AsrEvent.EVENT_CONTROL_RECEIVED,
+        module.AsrEvent.EVENT_CONTROL_WINDOW_OPENED,
+        module.AsrEvent.EVENT_CONTROL_RECEIVED,
+        module.AsrEvent.EVENT_CONTROL_WINDOW_CLOSED,
+        module.AsrEvent.EVENT_JOB_QUEUED,
+    ]
+    assert [msg.event_seq for msg in node.asr_event_pub.messages] == [1, 2, 3, 4, 5]
+    assert [
+        (msg.state_before, msg.state_after)
+        for msg in node.asr_event_pub.messages
+    ] == [
+        (module.AsrState.STATE_WAITING, module.AsrState.STATE_WAITING),
+        (module.AsrState.STATE_WAITING, module.AsrState.STATE_COLLECTING),
+        (module.AsrState.STATE_COLLECTING, module.AsrState.STATE_COLLECTING),
+        (module.AsrState.STATE_COLLECTING, module.AsrState.STATE_WAITING),
+        (module.AsrState.STATE_WAITING, module.AsrState.STATE_QUEUED),
+    ]
+    assert node.asr_event_pub.messages[-1].state == module.AsrState.STATE_QUEUED
+    assert node.asr_event_pub.messages[-1].state_after == module.AsrState.STATE_QUEUED
+    assert node.asr_event_pub.messages[-1].sample_count == 3
+    assert node.asr_state_pub.messages[-1].reason == "job_queued"
+
+
+def test_control_skip_observability_reports_no_window_inactive_and_disabled_submit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    node = _node(module, backend=_RecordingBackend("hello"))
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=False,
+            end=True,
+            stamp_unix_ns=1_100_000_000,
+        )
+    )
+
+    node._context_active = False
+    node._active_session_id = ""
+    node._control_windows["speech_control"].open = True
+    node._control_windows["speech_control"].start_unix_ns = 1_100_000_000
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=False,
+            end=True,
+            stamp_unix_ns=1_400_000_000,
+        )
+    )
+
+    disabled_submit_config = module.ControlInputConfig(
+        control_id="manual_control",
+        action="topic",
+        topic="voice/vad_state",
+        msg_type="fa_interfaces/msg/VadState",
+        source_id="mic0",
+        stream_id="stream0",
+        active_field="is_speech",
+        start_field="start",
+        end_field="end",
+        open_on="start_or_active_rising",
+        close_on="end_or_active_falling",
+        submit_on_close=False,
+        pre_roll_ms=0.0,
+        post_roll_ms=0.0,
+        qos_depth=50,
+        qos_reliable=False,
+    )
+    disabled_submit_window = module.ControlWindowState(open=True, start_unix_ns=1_100_000_000)
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+    node._close_control_window(
+        disabled_submit_config,
+        disabled_submit_window,
+        module.ControlEvent(
+            control_id="manual_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=False,
+            end=True,
+            stamp_unix_ns=1_400_000_000,
+        ),
+    )
+
+    event_codes = [msg.event for msg in node.asr_event_pub.messages]
+    assert module.AsrEvent.EVENT_CLOSE_IGNORED_NO_WINDOW in event_codes
+    assert module.AsrEvent.EVENT_SUBMIT_SKIPPED_CONTEXT_INACTIVE in event_codes
+    assert module.AsrEvent.EVENT_SUBMIT_SKIPPED_SUBMIT_ON_CLOSE_FALSE in event_codes
+
+
+def test_invalid_close_time_observability_reports_rejected_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    node = _node(module, backend=_RecordingBackend("hello"))
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+    config = node.control_configs[0]
+    window = module.ControlWindowState(open=True, start_unix_ns=1_400_000_000)
+
+    node._close_control_window(
+        config,
+        window,
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=False,
+            end=True,
+            stamp_unix_ns=1_100_000_000,
+        ),
+    )
+
+    assert node.asr_event_pub.messages[-1].event == module.AsrEvent.EVENT_INVALID_CLOSE_TIME
+    assert node.asr_event_pub.messages[-1].error_code == ERROR_TIME_RANGE_UNRESOLVED
+
+
+def test_control_close_without_active_context_does_not_submit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingBackend("hello")
+    node = _node(module, backend=backend)
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2, 0.3], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=True,
+            end=False,
+            stamp_unix_ns=1_000_000_000,
+        )
+    )
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=False,
+            end=True,
+            stamp_unix_ns=1_300_000_000,
+        )
+    )
+
     assert node._jobs.empty()
     assert backend.requests == []
 
@@ -989,3 +1451,160 @@ def test_too_short_requested_audio_fails_before_backend(
     assert result.success is False
     assert result.error_code == _FakeTranscribeAudioResponse.ERROR_TRANSCRIBE_FAILED
     assert backend.requests == []
+
+
+def test_audio_drop_observability_reports_invalid_frame_and_timeline_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    node = _node(module, backend=_RecordingBackend("hello"))
+    node._asr_state = module.AsrState.STATE_COLLECTING
+    invalid_frame = _FakeAudioFrame(samples=np.array([0.1, 0.2], dtype=np.float32), sec=1)
+    invalid_frame.encoding = "PCM16LE"
+
+    node.on_audio(invalid_frame)
+    node.on_audio(_FakeAudioFrame(samples=np.array([0.1, 0.2], dtype=np.float32), sec=2))
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.3, 0.4], dtype=np.float32),
+            sec=2,
+            nanosec=99_000_000,
+        )
+    )
+
+    event_codes = [msg.event for msg in node.asr_event_pub.messages]
+    assert module.AsrEvent.EVENT_INVALID_AUDIO_FRAME_DROPPED in event_codes
+    assert module.AsrEvent.EVENT_TIMELINE_OVERLAP_DERIVED_FAILURE in event_codes
+    assert [msg.event_seq for msg in node.asr_event_pub.messages] == [1, 2]
+    assert [
+        (msg.state_before, msg.state_after)
+        for msg in node.asr_event_pub.messages
+    ] == [
+        (module.AsrState.STATE_COLLECTING, module.AsrState.STATE_COLLECTING),
+        (module.AsrState.STATE_COLLECTING, module.AsrState.STATE_COLLECTING),
+    ]
+    assert node._asr_state == module.AsrState.STATE_COLLECTING
+
+
+def test_timeline_slice_observability_reports_unavailable_not_continuous_and_short(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    node = _node(module, backend=_RecordingBackend("hello"))
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+
+    node._submit_timeline_window(
+        start_unix_ns=1_000_000_000,
+        end_unix_ns=1_100_000_000,
+        reason="empty_timeline",
+    )
+    node.on_audio(_FakeAudioFrame(samples=np.array([0.1, 0.2], dtype=np.float32), sec=1))
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.5, 0.6], dtype=np.float32),
+            sec=1,
+            nanosec=400_000_000,
+        )
+    )
+    node._submit_timeline_window(
+        start_unix_ns=1_000_000_000,
+        end_unix_ns=1_500_000_000,
+        reason="gap_timeline",
+    )
+    node.min_audio_sec = 0.3
+    node._submit_timeline_window(
+        start_unix_ns=1_000_000_000,
+        end_unix_ns=1_100_000_000,
+        reason="short_window",
+    )
+
+    event_codes = [msg.event for msg in node.asr_event_pub.messages]
+    assert module.AsrEvent.EVENT_TIMELINE_SLICE_UNAVAILABLE in event_codes
+    assert module.AsrEvent.EVENT_TIMELINE_SLICE_NOT_CONTINUOUS in event_codes
+    assert module.AsrEvent.EVENT_WINDOW_TOO_SHORT in event_codes
+
+
+def test_backend_observability_reports_started_completed_timeout_error_and_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    success_node = _node(module, backend=_RecordingBackend("hello"))
+    success_node._run_transcription(
+        module.TranscriptionJob(
+            session_id="session-1",
+            user_turn_id=9,
+            payload=module.AsrAudioPayload.from_float32_samples(
+                np.array([0.1, 0.2], dtype=np.float32),
+                sample_rate_hz=10,
+            ),
+            reason="control:speech_control:close",
+        )
+    )
+    success_codes = [msg.event for msg in success_node.asr_event_pub.messages]
+    assert success_codes == [
+        module.AsrEvent.EVENT_BACKEND_TRANSCRIPTION_STARTED,
+        module.AsrEvent.EVENT_BACKEND_COMPLETED,
+    ]
+
+    timeout_node = _node(module, backend=_TimeoutBackend())
+    timeout_node._run_transcription(
+        module.TranscriptionJob(
+            session_id="session-1",
+            user_turn_id=9,
+            payload=module.AsrAudioPayload.from_float32_samples(
+                np.array([0.1, 0.2], dtype=np.float32),
+                sample_rate_hz=10,
+            ),
+            reason="control:speech_control:close",
+        )
+    )
+    timeout_codes = [msg.event for msg in timeout_node.asr_event_pub.messages]
+    assert module.AsrEvent.EVENT_BACKEND_TIMEOUT in timeout_codes
+    assert module.AsrEvent.EVENT_FAIL_CLOSED in timeout_codes
+
+    error_node = _node(module, backend=_ErrorBackend())
+    error_node._run_transcription(
+        module.TranscriptionJob(
+            session_id="session-1",
+            user_turn_id=9,
+            payload=module.AsrAudioPayload.from_float32_samples(
+                np.array([0.1, 0.2], dtype=np.float32),
+                sample_rate_hz=10,
+            ),
+            reason="control:speech_control:close",
+        )
+    )
+    error_codes = [msg.event for msg in error_node.asr_event_pub.messages]
+    assert module.AsrEvent.EVENT_BACKEND_ERROR in error_codes
+    assert module.AsrEvent.EVENT_FAIL_CLOSED in error_codes
+
+
+def test_trace_file_is_append_only_jsonl_and_unwritable_path_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    trace_path = tmp_path / "asr-trace.jsonl"
+    trace_file = module.FaAsrNode._open_trace_file(
+        enabled=True,
+        trace_path=str(trace_path),
+    )
+    node = _node(module, backend=_RecordingBackend("hello"))
+    node._trace_file = trace_file
+    node._emit_event(module.AsrEvent.EVENT_STARTUP_IDLE, "startup_idle")
+    trace_file.close()
+
+    lines = trace_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["event_seq"] == 1
+    assert record["event"] == module.AsrEvent.EVENT_STARTUP_IDLE
+    assert record["state"] == module.AsrState.STATE_WAITING
+    assert record["state_before"] == module.AsrState.STATE_WAITING
+    assert record["state_after"] == module.AsrState.STATE_WAITING
+    assert record["reason"] == "startup_idle"
+
+    with pytest.raises(RuntimeError, match="trace.path is not writable"):
+        module.FaAsrNode._open_trace_file(enabled=True, trace_path=str(tmp_path))

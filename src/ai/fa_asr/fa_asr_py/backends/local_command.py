@@ -21,6 +21,7 @@ class LocalCommandAsrBackend:
 
     def __init__(self, config: LocalCommandAsrConfig) -> None:
         self._runner = _CommandProcessRunner(config.process)
+        self.capability = config.process.capability
 
     def transcribe(self, request: AsrRequest) -> AsrTranscript:
         return self._runner.transcribe(request)

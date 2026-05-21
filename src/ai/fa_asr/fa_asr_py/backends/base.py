@@ -5,6 +5,8 @@ from typing import Protocol
 
 import numpy as np
 
+ASR_AUDIO_ENCODING_FLOAT32LE = "FLOAT32LE"
+ASR_AUDIO_ENCODING_PCM16LE = "PCM16LE"
 RESULT_FORMAT_PLAIN_TEXT = "plain_text"
 RESULT_FORMAT_SEGMENTS_JSON_V1 = "segments_json_v1"
 SUPPORTED_RESULT_FORMATS = frozenset(
@@ -13,11 +15,105 @@ SUPPORTED_RESULT_FORMATS = frozenset(
 
 
 @dataclass(frozen=True)
+class AsrBackendCapability:
+    audio_encoding: str
+    sample_rate_hz: int
+    channels: int
+    streaming: bool
+    final_results_only: bool
+
+
+@dataclass(frozen=True)
+class AsrAudioPayload:
+    encoding: str
+    sample_rate_hz: int
+    channels: int
+    data: bytes
+    sample_count: int
+
+    @classmethod
+    def from_float32_samples(
+        cls,
+        samples: np.ndarray,
+        *,
+        sample_rate_hz: int,
+        channels: int = 1,
+    ) -> "AsrAudioPayload":
+        _validate_sample_rate(sample_rate_hz)
+        _validate_channels(channels)
+        _validate_float32_samples(samples)
+        return cls(
+            encoding=ASR_AUDIO_ENCODING_FLOAT32LE,
+            sample_rate_hz=sample_rate_hz,
+            channels=channels,
+            data=samples.astype("<f4", copy=False).tobytes(),
+            sample_count=int(samples.size),
+        )
+
+    @classmethod
+    def from_pcm16le_bytes(
+        cls,
+        data: bytes,
+        *,
+        sample_rate_hz: int,
+        channels: int,
+    ) -> "AsrAudioPayload":
+        _validate_sample_rate(sample_rate_hz)
+        _validate_channels(channels)
+        if not data:
+            raise ValueError("ASR audio payload data is required")
+        bytes_per_sample = np.dtype("<i2").itemsize
+        frame_width = bytes_per_sample * channels
+        if len(data) % frame_width != 0:
+            raise ValueError("PCM16LE payload byte length must align to channels")
+        return cls(
+            encoding=ASR_AUDIO_ENCODING_PCM16LE,
+            sample_rate_hz=sample_rate_hz,
+            channels=channels,
+            data=bytes(data),
+            sample_count=len(data) // frame_width,
+        )
+
+    def float32_samples(self) -> np.ndarray:
+        if self.encoding != ASR_AUDIO_ENCODING_FLOAT32LE:
+            raise ValueError(f"ASR audio payload encoding must be FLOAT32LE, got {self.encoding}")
+        samples = np.frombuffer(self.data, dtype="<f4")
+        _validate_float32_samples(samples)
+        return samples
+
+    def validate_matches(self, capability: "AsrBackendCapability") -> None:
+        if self.encoding != capability.audio_encoding:
+            raise ValueError(
+                f"ASR request encoding must be {capability.audio_encoding}, got {self.encoding}"
+            )
+        if self.sample_rate_hz != capability.sample_rate_hz:
+            raise ValueError(
+                "ASR request sample_rate_hz must be "
+                f"{capability.sample_rate_hz}, got {self.sample_rate_hz}"
+            )
+        if self.channels != capability.channels:
+            raise ValueError(
+                f"ASR request channels must be {capability.channels}, got {self.channels}"
+            )
+        if self.sample_count <= 0:
+            raise ValueError("ASR request sample_count must be greater than zero")
+        if not self.data:
+            raise ValueError("ASR request data is required")
+
+
+@dataclass(frozen=True)
 class AsrRequest:
     session_id: str
     user_turn_id: int
-    samples: np.ndarray
-    sample_rate: int
+    payload: AsrAudioPayload
+
+    @property
+    def sample_rate(self) -> int:
+        return self.payload.sample_rate_hz
+
+    @property
+    def samples(self) -> np.ndarray:
+        return self.payload.float32_samples()
 
 
 @dataclass(frozen=True)
@@ -109,8 +205,36 @@ def _validate_segment(segment: AsrTranscriptSegment, *, sample_count: int) -> No
             )
 
 
+def _validate_sample_rate(sample_rate_hz: int) -> None:
+    if type(sample_rate_hz) is not int:
+        raise ValueError("ASR audio sample_rate_hz must be an integer")
+    if sample_rate_hz <= 0:
+        raise ValueError("ASR audio sample_rate_hz must be positive")
+
+
+def _validate_channels(channels: int) -> None:
+    if type(channels) is not int:
+        raise ValueError("ASR audio channels must be an integer")
+    if channels <= 0:
+        raise ValueError("ASR audio channels must be positive")
+
+
+def _validate_float32_samples(samples: np.ndarray) -> None:
+    if samples.dtype != np.float32:
+        raise ValueError("ASR request samples must be float32")
+    if samples.ndim != 1:
+        raise ValueError("ASR request samples must be one-dimensional")
+    if samples.size == 0:
+        raise ValueError("ASR request samples are required")
+    if not np.all(np.isfinite(samples)):
+        raise ValueError("ASR request contains non-finite samples")
+    if np.any(samples < -1.0) or np.any(samples > 1.0):
+        raise ValueError("ASR request samples must be normalized to [-1.0, 1.0]")
+
+
 class AsrBackend(Protocol):
     name: str
+    capability: AsrBackendCapability
 
     def transcribe(self, request: AsrRequest) -> AsrTranscript:
         ...

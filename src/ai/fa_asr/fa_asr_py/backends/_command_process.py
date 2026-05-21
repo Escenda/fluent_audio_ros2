@@ -12,8 +12,10 @@ from pathlib import Path
 import numpy as np
 
 from fa_asr_py.backends.base import (
+    ASR_AUDIO_ENCODING_FLOAT32LE,
     RESULT_FORMAT_PLAIN_TEXT,
     RESULT_FORMAT_SEGMENTS_JSON_V1,
+    AsrBackendCapability,
     AsrRequest,
     AsrTranscript,
     AsrTranscriptSegment,
@@ -53,6 +55,7 @@ class CommandProcessConfig:
     cleanup_audio_files: bool
     payload_encoding: str
     result_format: str
+    capability: AsrBackendCapability
     environment: tuple[CommandProcessEnvironmentVariable, ...] = ()
 
 
@@ -94,7 +97,7 @@ class _CommandProcessRunner:
             backend_output = self._read_transcript(completed.stdout, output_path)
             return self._parse_backend_output(
                 backend_output,
-                sample_count=int(request.samples.size),
+                sample_count=request.payload.sample_count,
             )
         finally:
             if self._config.cleanup_audio_files and audio_path.exists():
@@ -234,23 +237,21 @@ class _CommandProcessRunner:
 
     @staticmethod
     def _validate_request(request: AsrRequest) -> None:
-        if int(request.sample_rate) <= 0:
-            raise ValueError("ASR request sample_rate must be positive")
-        if request.samples.dtype != np.float32:
-            raise ValueError("ASR request samples must be float32")
-        if request.samples.ndim != 1:
-            raise ValueError("ASR request samples must be one-dimensional")
-        if request.samples.size == 0:
-            raise ValueError("ASR request samples are required")
-        if not np.all(np.isfinite(request.samples)):
-            raise ValueError("ASR request contains non-finite samples")
-        if np.any(request.samples < -1.0) or np.any(request.samples > 1.0):
-            raise ValueError("ASR request samples must be normalized to [-1.0, 1.0]")
+        request.payload.validate_matches(
+            AsrBackendCapability(
+                audio_encoding=ASR_AUDIO_ENCODING_FLOAT32LE,
+                sample_rate_hz=request.payload.sample_rate_hz,
+                channels=1,
+                streaming=False,
+                final_results_only=True,
+            )
+        )
+        request.payload.float32_samples()
 
     def _write_audio_payload(self, path: Path, request: AsrRequest) -> None:
         if self._config.payload_encoding != _PAYLOAD_ENCODING:
             raise RuntimeError(f"unsupported ASR payload_encoding: {self._config.payload_encoding}")
-        self._write_float32le_raw(path, request.samples)
+        self._write_float32le_raw(path, request.payload.float32_samples())
 
     @staticmethod
     def _write_float32le_raw(path: Path, samples: np.ndarray) -> None:
@@ -393,6 +394,13 @@ def _load_command_config(
         cleanup_audio_files=cleanup_audio_files,
         payload_encoding=_PAYLOAD_ENCODING,
         result_format=validated_result_format,
+        capability=AsrBackendCapability(
+            audio_encoding=ASR_AUDIO_ENCODING_FLOAT32LE,
+            sample_rate_hz=0,
+            channels=1,
+            streaming=False,
+            final_results_only=True,
+        ),
     )
 
 
