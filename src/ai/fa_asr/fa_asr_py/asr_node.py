@@ -1287,7 +1287,6 @@ class FaAsrNode(Node):
             with self._backend_lock:
                 pending_results = tuple(session.drain_results())
                 final_results = tuple(session.finish())
-                finished_results = tuple(session.drain_results())
         except Exception as exc:
             self._handle_stream_error(
                 "stream_close_failed",
@@ -1317,18 +1316,6 @@ class FaAsrNode(Node):
                 session_id=session_id,
                 user_turn_id=user_turn_id,
                 results=final_results,
-                sample_count=sample_count,
-                start_unix_ns=start_unix_ns,
-                end_unix_ns=end_unix_ns,
-            )
-            or final_published
-        )
-        final_published = (
-            self._publish_stream_results(
-                control_id=control_id,
-                session_id=session_id,
-                user_turn_id=user_turn_id,
-                results=finished_results,
                 sample_count=sample_count,
                 start_unix_ns=start_unix_ns,
                 end_unix_ns=end_unix_ns,

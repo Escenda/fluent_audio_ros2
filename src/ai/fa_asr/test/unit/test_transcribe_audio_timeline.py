@@ -413,6 +413,8 @@ class _RecordingStreamingSession:
         return self.drain_results()
 
     def drain_results(self) -> tuple[AsrStreamResult, ...]:
+        if self.finish_called:
+            raise RuntimeError("test streaming session forbids drain after finish")
         results = tuple(self.pending_results)
         self.pending_results.clear()
         return results
