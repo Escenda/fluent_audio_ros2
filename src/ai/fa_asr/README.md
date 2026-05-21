@@ -28,11 +28,12 @@ result.qos.reliable: true
 
 ## バックエンド契約
 
-`backend.name` は必須です。対応する backend は `local_command`, `whisper.cpp`, `parakeet_worker`, `openai_realtime`, `openai_transcriptions` です。
-`backend.result_format` も backend 設定時に必須です。default config は `backend.name` / `backend.result_format` を空にし、backend selection と output contract を暗黙選択しません。利用環境ごとの launch/config で `backend.name`、`backend.result_format`、必須パラメータを明示してください。
+`backend.name` は必須です。対応する backend は `local_command`, `whisper.cpp`, `parakeet_worker`, `nemo_rnnt_streaming`, `openai_realtime`, `openai_transcriptions` です。
+non-streaming command 系 backend では `backend.result_format` も backend 設定時に必須です。default config は `backend.name` / `backend.result_format` を空にし、backend selection と output contract を暗黙選択しません。利用環境ごとの launch/config で `backend.name` と backend ごとの必須パラメータを明示してください。
 
 - `local_command` / `whisper.cpp`: `backend.command` と `backend.model_path` が必須です。
 - `parakeet_worker`: `backend.command` と `backend.model` が必須です。Python version / venv / SDK が異なる処理は外部 worker / process / container 側へ置きます。
+- `nemo_rnnt_streaming`: `backend.command` と local `.nemo` file の `backend.model_path` が必須です。JSONL streaming worker と cache-aware NeMo RNNT model を使い、`backend.result_format` / `backend.args` / `backend.health_args` は使いません。
 - `openai_realtime` / `openai_transcriptions`: `backend.command`、`backend.model`、対応する `backend.openai_*.api_key_env` が必須です。OpenAI SDK/API client は外部 worker / process / container 側へ置きます。
 - `backend.args` は default config では空です。backend ごとの worker/CLI contract として `{audio}`、`{model}`、`{sample_rate}` を含む配列を明示してください。
 - `backend.health_args` は `parakeet_worker` / `openai_realtime` / `openai_transcriptions` では必須です。`local_command` / `whisper.cpp` では package 単体の backend contract としては任意ですが、package-owned SO101 profile template では startup health check を明示するために設定します。
