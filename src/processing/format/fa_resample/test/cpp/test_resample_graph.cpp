@@ -139,8 +139,23 @@ void replaceParameter(
   parameters.push_back(replacement);
 }
 
+bool diagnosticsMatchBackendConfig(
+  const DiagnosticValues & values,
+  const BackendGraphSmokeConfig & config)
+{
+  const auto backend_name = values.find("backend.name");
+  const auto backend_quality = values.find("backend.quality");
+  if (backend_name == values.end() || backend_quality == values.end()) {
+    return false;
+  }
+
+  return backend_name->second == config.backend_name &&
+         backend_quality->second == config.expected_quality;
+}
+
 std::optional<DiagnosticValues> findFaResampleDiagnostics(
-  const diagnostic_msgs::msg::DiagnosticArray & diagnostics)
+  const diagnostic_msgs::msg::DiagnosticArray & diagnostics,
+  const BackendGraphSmokeConfig & config)
 {
   for (const auto & status : diagnostics.status) {
     if (status.name != "fa_resample") {
@@ -150,6 +165,9 @@ std::optional<DiagnosticValues> findFaResampleDiagnostics(
     DiagnosticValues values;
     for (const auto & value : status.values) {
       values.emplace(value.key, value.value);
+    }
+    if (!diagnosticsMatchBackendConfig(values, config)) {
+      continue;
     }
     return values;
   }
@@ -252,8 +270,8 @@ void runBackendGraphSmoke(const BackendGraphSmokeConfig & config)
     test_node->create_subscription<diagnostic_msgs::msg::DiagnosticArray>(
       "/diagnostics",
       diagnostics_qos,
-      [&diagnostics_values](const diagnostic_msgs::msg::DiagnosticArray::SharedPtr msg) {
-        const std::optional<DiagnosticValues> values = findFaResampleDiagnostics(*msg);
+      [&diagnostics_values, &config](const diagnostic_msgs::msg::DiagnosticArray::SharedPtr msg) {
+        const std::optional<DiagnosticValues> values = findFaResampleDiagnostics(*msg, config);
         if (values.has_value()) {
           diagnostics_values = values;
         }

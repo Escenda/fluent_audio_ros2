@@ -150,6 +150,29 @@ The XML separates test-only quality metrics from backend delay / processing / fr
 `fa_resample_backend_test.gtest.xml` or a directory of `fa_resample` GTest XML files, renders the quality and
 backend metrics above, and fails incomplete metric groups instead of silently omitting missing evidence.
 
+Verified metrics report values include:
+
+| metric group | rms_error | peak_error | snr_db | algorithmic_delay_ms |
+| --- | --- | --- | --- | --- |
+| `passband_soxr_mq` | `1.134304080736542e-07` | `2.793967723846436e-07` | `1.253201512234613e+02` | `1.500000000000000e+01` |
+| `passband_soxr_hq` | `3.394284426758690e-08` | `1.490116119384766e-07` | `1.357997764820949e+02` | `2.131250000000000e+01` |
+
+Interpretation:
+
+SoXR metrics are comparisons against SoXR `VHQ` reference for the test signal. They prove waveform closeness
+to that reference under the tested signals, not direct human MOS or direct ASR accuracy evidence.
+
+SoXR HQ is the quality-first candidate. In the verified passband report, SoXR HQ has
+`snr_db=1.357997764820949e+02`, `rms_error=3.394284426758690e-08`, and
+`peak_error=1.490116119384766e-07`, with `algorithmic_delay_ms=2.131250000000000e+01`.
+Compared with SpeexDSP q6 in the same report, the SNR difference is about 26.36 dB. That means SoXR HQ is much
+closer to the SoXR VHQ reference in waveform fidelity for this test signal, while carrying much higher
+algorithmic delay than SpeexDSP q6.
+
+Use SoXR HQ for recording, evaluation, offline-ish processing, or latency-tolerant paths where waveform fidelity
+to the chosen reference matters more than low algorithmic delay. SoXR MQ remains a balanced candidate when
+quality should be better than `internal_linear_resampler` and delay should be lower than HQ.
+
 ## Real-device Smoke
 
 SoXR/MQ has been verified in the current running VLAbor container with PowerConf S3 through a
@@ -179,10 +202,27 @@ Verified diagnostics included:
 
 This proves selected-backend real-device smoke in the current running container.
 
-検証済み報告では、running container 内で `libsoxr0` が見えており、Docker/VLAbor container 内の
-`fa_resample` package build/test は `51 tests, 0 errors, 0 failures, 0 skipped` で通過している。
-fresh VLAbor image check
-`docker run --rm --entrypoint bash ghcr.io/takatronix/vlabor-local:latest` では、
-`libsoxr0:amd64 0.1.3-4build2` と `/lib/x86_64-linux-gnu/libsoxr.so.0` が確認済みである。
-この証跡は current fresh VLAbor image に SoXR runtime が存在することを示すが、Dockerfile /
-entrypoint policy の修正や、親 repo / `vlabor_ros2` の変更を主張するものではない。
+## VLAbor Overlay Image Evidence
+
+`ros2_ws/src/vlabor_ros2/docker/Dockerfile.local` が `libsoxr0` / `libspeexdsp1` を持つとは扱わない。
+heavy VLAbor base image の full rebuild も `fa_resample` completion proof ではない。
+
+親 repo の `docker/vlabor/Dockerfile.fluent-audio` と `docker/vlabor/build-fluent-audio-image` は、
+`ghcr.io/takatronix/vlabor-local:latest` から薄い `vlabor-fluent-audio:local` overlay image を作り、
+`libsoxr0` / `libspeexdsp1` だけを追加する contract である。
+
+検証済み報告:
+
+- `docker/vlabor/build-fluent-audio-image` は約 12 秒で成功した。
+- base digest は `sha256:b709...`、出力 image は `vlabor-fluent-audio:local`。
+- apt 出力では `libsoxr0 is already the newest version` と `libspeexdsp1` の新規 install を確認した。
+- `docker run --rm --entrypoint bash vlabor-fluent-audio:local -lc 'dpkg-query -W libsoxr0 libspeexdsp1 && ls -l /lib/x86_64-linux-gnu/libsoxr.so.0* /lib/x86_64-linux-gnu/libspeexdsp.so.1*'`
+  は成功し、`libsoxr0:amd64 0.1.3-4build2`、`libspeexdsp1:amd64 1.2~rc1.2-1.1ubuntu3`、
+  および両方の `.so` symlink / file を確認した。
+- overlay image の検証は build 成功と `docker run` による `dpkg-query` / `.so` dependency check までである。
+- `fa_resample` package build/test は current running VLAbor container へ
+  `docker compose -f docker/vlabor/compose.yml exec vlabor` で入って実行され、
+  `51 tests, 0 errors, 0 failures, 0 skipped` で通過している。
+
+overlay files は親 repo の未コミット編集である。compose / deployment を `vlabor-fluent-audio:local` に
+切り替えた状態での package test、release / publish 採用は未検証であり、別途運用判断が必要である。
