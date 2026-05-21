@@ -11,9 +11,10 @@ import math
 import os
 import struct
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeAlias
+from typing import TextIO, TypeAlias
 
 
 JsonValue: TypeAlias = (
@@ -24,10 +25,97 @@ JsonMapping: TypeAlias = dict[str, JsonValue]
 SUPPORTED_AUDIO_ENCODING = "FLOAT32LE"
 WIRE_AUDIO_ENCODING = "base64_float32le"
 SUPPORTED_CHANNELS = 1
+TRACE_FILE_ENV = "FLUENT_AUDIO_NEMO_RNNT_WORKER_TRACE_FILE"
+TRACE_STDERR_ENV = "FLUENT_AUDIO_NEMO_RNNT_WORKER_TRACE_STDERR"
+DEFAULT_FINITE_ATTENTION_CONTEXT = (70, 1)
 
 
 class WorkerError(RuntimeError):
     pass
+
+
+class WorkerTrace:
+    def __init__(self, trace_file: TextIO | None, *, stderr_enabled: bool) -> None:
+        self._trace_file = trace_file
+        self._stderr_enabled = stderr_enabled
+
+    @classmethod
+    def disabled(cls) -> "WorkerTrace":
+        return cls(None, stderr_enabled=False)
+
+    @classmethod
+    def from_environment(cls) -> "WorkerTrace":
+        trace_path_value = os.environ.get(TRACE_FILE_ENV, "").strip()
+        stderr_enabled = _environment_bool(TRACE_STDERR_ENV)
+        trace_file: TextIO | None = None
+        if trace_path_value:
+            trace_path = Path(trace_path_value).expanduser()
+            try:
+                trace_file = trace_path.open("a", encoding="utf-8", buffering=1)
+            except OSError as exc:
+                raise WorkerError(
+                    f"{TRACE_FILE_ENV} is not writable: {trace_path}"
+                ) from exc
+        return cls(trace_file, stderr_enabled=stderr_enabled)
+
+    def close(self) -> None:
+        if self._trace_file is not None:
+            self._trace_file.close()
+            self._trace_file = None
+
+    def emit(
+        self,
+        event: str,
+        *,
+        command: str = "",
+        session_id: str = "",
+        sample_count: int = 0,
+        accepted_sample_count: int = 0,
+        chunk_count: int = 0,
+        step_num: int = 0,
+        duration_ms: float = -1.0,
+        text_length: int = -1,
+        error_type: str = "",
+        error_message: str = "",
+        details: JsonMapping | None = None,
+    ) -> None:
+        if self._trace_file is None and not self._stderr_enabled:
+            return
+        record: JsonMapping = {
+            "event": event,
+            "pid": os.getpid(),
+            "unix_ns": time.time_ns(),
+        }
+        if command:
+            record["command"] = command
+        if session_id:
+            record["session_id"] = session_id
+        if sample_count:
+            record["sample_count"] = sample_count
+        if accepted_sample_count:
+            record["accepted_sample_count"] = accepted_sample_count
+        if chunk_count:
+            record["chunk_count"] = chunk_count
+        if step_num:
+            record["step_num"] = step_num
+        if duration_ms >= 0.0:
+            record["duration_ms"] = round(duration_ms, 6)
+        if text_length >= 0:
+            record["text_length"] = text_length
+        if error_type:
+            record["error_type"] = error_type
+        if error_message:
+            record["error_message"] = error_message
+        if details:
+            record["details"] = details
+        line = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        try:
+            if self._trace_file is not None:
+                self._trace_file.write(f"{line}\n")
+            if self._stderr_enabled:
+                print(line, file=sys.stderr, flush=True)
+        except OSError as exc:
+            raise WorkerError("failed to write nemo_rnnt_streaming_worker trace") from exc
 
 
 @dataclass(frozen=True)
@@ -62,9 +150,15 @@ class AudioChunk:
 
 
 class StreamingRuntime:
-    def __init__(self, config: WorkerConfig, runner: "NemoStreamingModelRunner") -> None:
+    def __init__(
+        self,
+        config: WorkerConfig,
+        runner: "NemoStreamingModelRunner",
+        trace: WorkerTrace | None = None,
+    ) -> None:
         self._config = config
         self._runner = runner
+        self._trace = trace if trace is not None else WorkerTrace.disabled()
         self._active_session_id = ""
         self._accepted_sample_count = 0
 
@@ -76,6 +170,7 @@ class StreamingRuntime:
         self._runner.start_stream(session_id=session_id)
         self._active_session_id = session_id
         self._accepted_sample_count = 0
+        self._trace.emit("stream_started", command="start", session_id=session_id)
         return ({"type": "stream_started", "session_id": session_id},)
 
     def accept_audio(self, message: JsonMapping) -> tuple[JsonMapping, ...]:
@@ -84,9 +179,23 @@ class StreamingRuntime:
         self._require_active_session(chunk.session_id, "audio")
         samples = _decode_float32le_samples(chunk.payload, sample_count=chunk.sample_count)
         self._accepted_sample_count += chunk.sample_count
+        self._trace.emit(
+            "audio_chunk_accepted",
+            command="audio",
+            session_id=chunk.session_id,
+            sample_count=chunk.sample_count,
+            accepted_sample_count=self._accepted_sample_count,
+        )
         responses: list[JsonMapping] = []
         partial_text = self._runner.accept_audio(samples=samples)
         if self._config.emit_partial and partial_text:
+            self._trace.emit(
+                "partial_generated",
+                command="audio",
+                session_id=chunk.session_id,
+                accepted_sample_count=self._accepted_sample_count,
+                text_length=len(partial_text),
+            )
             responses.append(
                 {
                     "type": "partial",
@@ -95,6 +204,13 @@ class StreamingRuntime:
                     "sample_count": self._accepted_sample_count,
                 }
             )
+        self._trace.emit(
+            "audio_accepted_response",
+            command="audio",
+            session_id=chunk.session_id,
+            sample_count=chunk.sample_count,
+            accepted_sample_count=self._accepted_sample_count,
+        )
         responses.append(
             {
                 "type": "audio_accepted",
@@ -111,6 +227,13 @@ class StreamingRuntime:
         responses: list[JsonMapping] = []
         partial_text = self._runner.poll_partial()
         if self._config.emit_partial and partial_text:
+            self._trace.emit(
+                "partial_generated",
+                command="drain",
+                session_id=session_id,
+                accepted_sample_count=self._accepted_sample_count,
+                text_length=len(partial_text),
+            )
             responses.append(
                 {
                     "type": "partial",
@@ -129,6 +252,13 @@ class StreamingRuntime:
         if self._accepted_sample_count <= 0:
             raise WorkerError("finish requires at least one accepted audio message")
         final_text = self._runner.finish_stream()
+        self._trace.emit(
+            "final_generated",
+            command="finish",
+            session_id=session_id,
+            accepted_sample_count=self._accepted_sample_count,
+            text_length=len(final_text),
+        )
         self._active_session_id = ""
         return (
             {
@@ -147,6 +277,7 @@ class StreamingRuntime:
         self._runner.reset_stream(reason="cancel")
         self._active_session_id = ""
         self._accepted_sample_count = 0
+        self._trace.emit("stream_cancelled", command="cancel", session_id=session_id)
         return ({"type": "cancelled", "session_id": session_id},)
 
     def _ensure_streaming(self) -> None:
@@ -159,9 +290,15 @@ class StreamingRuntime:
 
 
 class NemoStreamingModelRunner:
-    def __init__(self, model, config: WorkerConfig) -> None:
+    def __init__(
+        self,
+        model,
+        config: WorkerConfig,
+        trace: WorkerTrace | None = None,
+    ) -> None:
         self._model = model
-        self._cache_aware_runner = _build_cache_aware_runner(model, config)
+        self._trace = trace if trace is not None else WorkerTrace.disabled()
+        self._cache_aware_runner = _build_cache_aware_runner(model, config, self._trace)
 
     def start_stream(self, *, session_id: str) -> None:
         with redirect_stdout(sys.stderr):
@@ -176,9 +313,37 @@ class NemoStreamingModelRunner:
             if self._cache_aware_runner is not None:
                 return self._cache_aware_runner.accept_audio(samples=samples)
             if hasattr(self._model, "accept_audio"):
-                return _require_text_result(self._model.accept_audio(samples))
+                start_ns = time.perf_counter_ns()
+                self._trace.emit(
+                    "model_accept_audio_start",
+                    command="audio",
+                    sample_count=len(samples),
+                )
+                text = _require_text_result(self._model.accept_audio(samples))
+                self._trace.emit(
+                    "model_accept_audio_finish",
+                    command="audio",
+                    sample_count=len(samples),
+                    duration_ms=_duration_ms_since(start_ns),
+                    text_length=len(text),
+                )
+                return text
             if hasattr(self._model, "transcribe_streaming_chunk"):
-                return _require_text_result(self._model.transcribe_streaming_chunk(samples))
+                start_ns = time.perf_counter_ns()
+                self._trace.emit(
+                    "model_transcribe_streaming_chunk_start",
+                    command="audio",
+                    sample_count=len(samples),
+                )
+                text = _require_text_result(self._model.transcribe_streaming_chunk(samples))
+                self._trace.emit(
+                    "model_transcribe_streaming_chunk_finish",
+                    command="audio",
+                    sample_count=len(samples),
+                    duration_ms=_duration_ms_since(start_ns),
+                    text_length=len(text),
+                )
+                return text
         raise WorkerError("model does not expose accept_audio/transcribe_streaming_chunk")
 
     def poll_partial(self) -> str:
@@ -214,7 +379,12 @@ class NemoStreamingModelRunner:
 
 
 class CacheAwareConformerStreamingRunner:
-    def __init__(self, model, config: WorkerConfig) -> None:
+    def __init__(
+        self,
+        model,
+        config: WorkerConfig,
+        trace: WorkerTrace | None = None,
+    ) -> None:
         _require_module("numpy")
         _require_module("torch")
         _require_module("nemo.collections.asr.parts.utils.streaming_utils")
@@ -227,6 +397,7 @@ class CacheAwareConformerStreamingRunner:
             raise WorkerError("NeMo CacheAwareStreamingAudioBuffer is unavailable")
         self._model = model
         self._config = config
+        self._trace = trace if trace is not None else WorkerTrace.disabled()
         self._buffer_class = streaming_utils.CacheAwareStreamingAudioBuffer
         self._buffer = None
         self._stream_id = -1
@@ -255,10 +426,21 @@ class CacheAwareConformerStreamingRunner:
         self._stream_id = -1
         self._step_num = 0
         self._last_text = ""
+        self._trace.emit(
+            "cache_aware_stream_started",
+            details=_streaming_cfg_trace_details(encoder.streaming_cfg),
+        )
 
     def accept_audio(self, *, samples: tuple[float, ...]) -> str:
         buffer = self._require_buffer()
         audio = self._np.asarray(samples, dtype=self._np.float32)
+        append_start_ns = time.perf_counter_ns()
+        self._trace.emit(
+            "cache_aware_buffer_append_start",
+            command="audio",
+            sample_count=len(samples),
+            details={"stream_id": self._stream_id},
+        )
         if self._stream_id < 0:
             _, _, returned_stream_id = buffer.append_audio(audio, stream_id=-1)
             self._stream_id = self._resolve_initial_stream_id(
@@ -274,6 +456,13 @@ class CacheAwareConformerStreamingRunner:
                 raise WorkerError(
                     "cache-aware buffer changed stream_id during single-stream append"
                 )
+        self._trace.emit(
+            "cache_aware_buffer_append_finish",
+            command="audio",
+            sample_count=len(samples),
+            duration_ms=_duration_ms_since(append_start_ns),
+            details={"stream_id": self._stream_id},
+        )
         return self._drain_available(final=False)
 
     def poll_partial(self) -> str:
@@ -283,15 +472,24 @@ class CacheAwareConformerStreamingRunner:
         final_text = self._drain_available(final=True)
         if final_text:
             self._last_text = final_text
+        self._trace.emit(
+            "cache_aware_finish_stream",
+            command="finish",
+            text_length=len(self._last_text),
+        )
         return self._last_text
 
     def reset_stream(self, *, reason: str) -> None:
-        del reason
         if self._buffer is not None:
             self._buffer.reset_buffer()
         self._buffer = None
         self._stream_id = -1
         self._last_text = ""
+        self._trace.emit(
+            "cache_aware_stream_reset",
+            command="cancel",
+            details={"reason": reason},
+        )
 
     def _require_buffer(self):
         if self._buffer is None:
@@ -323,7 +521,26 @@ class CacheAwareConformerStreamingRunner:
     def _drain_available(self, *, final: bool) -> str:
         buffer = self._require_buffer()
         latest_text = ""
+        chunk_count = 0
+        drain_start_ns = time.perf_counter_ns()
+        self._trace.emit(
+            "cache_aware_buffer_drain_start",
+            command="finish" if final else "audio",
+            details={"final": final},
+        )
         for chunk_audio, chunk_lengths in buffer:
+            chunk_count += 1
+            chunk_time_length = _chunk_time_length(chunk_audio)
+            self._trace.emit(
+                "cache_aware_buffer_chunk",
+                command="finish" if final else "audio",
+                chunk_count=chunk_count,
+                details={
+                    "chunk_time_length": chunk_time_length,
+                    "chunk_lengths": _trace_json_value(chunk_lengths),
+                    "final": final,
+                },
+            )
             latest_text = self._conformer_stream_step(
                 chunk_audio=chunk_audio,
                 chunk_lengths=chunk_lengths,
@@ -331,6 +548,14 @@ class CacheAwareConformerStreamingRunner:
             )
         if latest_text:
             self._last_text = latest_text
+        self._trace.emit(
+            "cache_aware_buffer_drain_finish",
+            command="finish" if final else "audio",
+            chunk_count=chunk_count,
+            duration_ms=_duration_ms_since(drain_start_ns),
+            text_length=len(latest_text),
+            details={"final": final},
+        )
         return latest_text
 
     def _conformer_stream_step(
@@ -342,20 +567,46 @@ class CacheAwareConformerStreamingRunner:
     ) -> str:
         if not hasattr(self._model, "conformer_stream_step"):
             raise WorkerError("model does not expose conformer_stream_step")
-        self._ensure_encoder_max_audio_length(chunk_audio=chunk_audio)
+        chunk_time_length, required_max_audio_length = (
+            self._ensure_encoder_max_audio_length(chunk_audio=chunk_audio)
+        )
+        step_start_ns = time.perf_counter_ns()
+        self._trace.emit(
+            "conformer_stream_step_start",
+            step_num=self._step_num + 1,
+            details={
+                "chunk_time_length": chunk_time_length,
+                "keep_all_outputs": keep_all_outputs,
+                "required_max_audio_length": required_max_audio_length,
+            },
+        )
         with self._torch.inference_mode():
-            outputs = self._model.conformer_stream_step(
-                processed_signal=chunk_audio,
-                processed_signal_length=chunk_lengths,
-                cache_last_channel=self._cache_last_channel,
-                cache_last_time=self._cache_last_time,
-                cache_last_channel_len=self._cache_last_channel_len,
-                keep_all_outputs=keep_all_outputs,
-                previous_hypotheses=self._previous_hypotheses,
-                previous_pred_out=self._previous_pred_out,
-                drop_extra_pre_encoded=self._drop_extra_pre_encoded(),
-                return_transcription=True,
-            )
+            try:
+                outputs = self._model.conformer_stream_step(
+                    processed_signal=chunk_audio,
+                    processed_signal_length=chunk_lengths,
+                    cache_last_channel=self._cache_last_channel,
+                    cache_last_time=self._cache_last_time,
+                    cache_last_channel_len=self._cache_last_channel_len,
+                    keep_all_outputs=keep_all_outputs,
+                    previous_hypotheses=self._previous_hypotheses,
+                    previous_pred_out=self._previous_pred_out,
+                    drop_extra_pre_encoded=self._drop_extra_pre_encoded(),
+                    return_transcription=True,
+                )
+            except Exception as exc:
+                self._trace.emit(
+                    "conformer_stream_step_exception",
+                    step_num=self._step_num + 1,
+                    duration_ms=_duration_ms_since(step_start_ns),
+                    error_type=exc.__class__.__name__,
+                    error_message=str(exc),
+                    details={
+                        "chunk_time_length": chunk_time_length,
+                        "required_max_audio_length": required_max_audio_length,
+                    },
+                )
+                raise
         if type(outputs) is not tuple or len(outputs) != 6:
             raise WorkerError("conformer_stream_step must return six values")
         (
@@ -367,9 +618,20 @@ class CacheAwareConformerStreamingRunner:
             self._previous_hypotheses,
         ) = outputs
         self._step_num += 1
-        return _first_transcription_text(transcribed_texts)
+        text = _first_transcription_text(transcribed_texts)
+        self._trace.emit(
+            "conformer_stream_step_finish",
+            step_num=self._step_num,
+            duration_ms=_duration_ms_since(step_start_ns),
+            text_length=len(text),
+            details={
+                "chunk_time_length": chunk_time_length,
+                "required_max_audio_length": required_max_audio_length,
+            },
+        )
+        return text
 
-    def _ensure_encoder_max_audio_length(self, *, chunk_audio) -> None:
+    def _ensure_encoder_max_audio_length(self, *, chunk_audio) -> tuple[int, int]:
         encoder = _required_attr(self._model, "encoder")
         streaming_cfg = _required_attr(encoder, "streaming_cfg")
         last_channel_cache_size = _required_attr(
@@ -389,10 +651,12 @@ class CacheAwareConformerStreamingRunner:
             )
         if not hasattr(encoder, "set_max_audio_length"):
             raise WorkerError("model encoder does not expose set_max_audio_length")
+        required_max_audio_length = last_channel_cache_size + chunk_time_length
         try:
-            encoder.set_max_audio_length(last_channel_cache_size + chunk_time_length)
+            encoder.set_max_audio_length(required_max_audio_length)
         except Exception as exc:
             raise WorkerError("model encoder failed to set max audio length") from exc
+        return chunk_time_length, required_max_audio_length
 
     def _configure_cache_aware_streaming(self) -> None:
         cfg = _required_attr(self._model, "cfg")
@@ -417,12 +681,20 @@ class CacheAwareConformerStreamingRunner:
                 raise WorkerError(
                     "model encoder does not expose set_default_att_context_size"
                 )
+            attention_context = _select_default_finite_attention_context(
+                encoder,
+                encoder_config,
+            )
             try:
-                encoder.set_default_att_context_size([70, 1])
+                encoder.set_default_att_context_size(list(attention_context))
             except Exception as exc:
                 raise WorkerError(
                     "model encoder failed to set default attention context"
                 ) from exc
+            self._trace.emit(
+                "cache_aware_attention_context_configured",
+                details={"att_context_size": list(attention_context)},
+            )
         if not hasattr(encoder, "setup_streaming_params"):
             raise WorkerError("model encoder does not expose setup_streaming_params")
         try:
@@ -442,6 +714,15 @@ class CacheAwareConformerStreamingRunner:
             raise WorkerError(
                 "streaming_cfg.last_channel_cache_size must be a positive integer"
             )
+        self._trace.emit(
+            "cache_aware_streaming_configured",
+            details={
+                "encoder_chunk_size": encoder_chunk_size,
+                "shift_size": shift_size,
+                "left_chunks": 2,
+                "streaming_cfg": _streaming_cfg_trace_details(streaming_cfg),
+            },
+        )
 
     def _encoder_chunk_size(
         self,
@@ -475,15 +756,36 @@ class CacheAwareConformerStreamingRunner:
 
 
 def main() -> int:
+    trace = WorkerTrace.disabled()
     runtime: StreamingRuntime | None = None
     try:
+        trace = WorkerTrace.from_environment()
         for line in sys.stdin:
             message = _load_json_line(line)
             message_type = _required_string(message, "type")
+            trace.emit(
+                "command_received",
+                command=message_type,
+                session_id=_optional_message_string(message, "session_id"),
+            )
             if message_type == "health":
                 config = _config_from_message(message)
-                capability, runner = _load_validated_model_runner(config)
-                runtime = StreamingRuntime(config, runner)
+                trace.emit("health_start", command="health")
+                capability, runner = _load_validated_model_runner(config, trace)
+                runtime = StreamingRuntime(config, runner, trace)
+                trace.emit(
+                    "health_ok",
+                    command="health",
+                    details={
+                        "cache_aware_streaming": capability.cache_aware_streaming,
+                        "chunk_size_samples": config.chunk_size_samples,
+                        "emit_partial": config.emit_partial,
+                        "language": config.language,
+                        "max_partial_interval_ms": config.max_partial_interval_ms,
+                        "model_class": capability.model_class,
+                        "sample_rate_hz": capability.sample_rate_hz,
+                    },
+                )
                 _emit(
                     {
                         "type": "health_ok",
@@ -504,8 +806,8 @@ def main() -> int:
             if message_type == "start":
                 if runtime is None:
                     config = _config_from_message(message)
-                    _, runner = _load_validated_model_runner(config)
-                    runtime = StreamingRuntime(config, runner)
+                    _, runner = _load_validated_model_runner(config, trace)
+                    runtime = StreamingRuntime(config, runner, trace)
                 _emit_many(runtime.start(message))
                 continue
             if runtime is None:
@@ -525,18 +827,33 @@ def main() -> int:
             raise WorkerError(f"unknown message type: {message_type}")
         return 0
     except WorkerError as exc:
+        trace.emit(
+            "worker_error",
+            error_type=exc.__class__.__name__,
+            error_message=str(exc),
+        )
         print(str(exc), file=sys.stderr)
         return 1
+    except Exception as exc:
+        trace.emit(
+            "worker_exception",
+            error_type=exc.__class__.__name__,
+            error_message=str(exc),
+        )
+        raise
+    finally:
+        trace.close()
 
 
 def _load_validated_model_runner(
     config: WorkerConfig,
+    trace: WorkerTrace,
 ) -> tuple[ModelCapability, NemoStreamingModelRunner]:
     with redirect_stdout(sys.stderr):
         model = load_nemo_model(config.model_path)
         capability = inspect_model_capability(model)
         validate_model_capability(capability, config)
-        runner = NemoStreamingModelRunner(model, config)
+        runner = NemoStreamingModelRunner(model, config, trace)
     return capability, runner
 
 
@@ -671,6 +988,64 @@ def _decode_float32le_samples(payload: bytes, *, sample_count: int) -> tuple[flo
     if len(samples) != sample_count:
         raise WorkerError("decoded sample_count mismatch")
     return tuple(samples)
+
+
+def _environment_bool(name: str) -> bool:
+    value = os.environ.get(name, "").strip().lower()
+    if not value:
+        return False
+    if value in ("0", "false", "no", "off"):
+        return False
+    if value in ("1", "true", "yes", "on"):
+        return True
+    raise WorkerError(f"{name} must be one of 0/1/false/true/no/yes/off/on")
+
+
+def _duration_ms_since(start_ns: int) -> float:
+    return (time.perf_counter_ns() - start_ns) / 1_000_000.0
+
+
+def _optional_message_string(message: JsonMapping, key: str) -> str:
+    value = message.get(key)
+    if type(value) is str:
+        return value
+    return ""
+
+
+def _chunk_time_length(chunk_audio) -> int:
+    if not hasattr(chunk_audio, "size"):
+        raise WorkerError("cache-aware chunk_audio does not expose size")
+    chunk_time_length = chunk_audio.size(-1)
+    if type(chunk_time_length) is not int or chunk_time_length <= 0:
+        raise WorkerError("cache-aware chunk_audio time length must be a positive integer")
+    return chunk_time_length
+
+
+def _streaming_cfg_trace_details(streaming_cfg) -> JsonMapping:
+    details: JsonMapping = {}
+    for name in (
+        "chunk_size",
+        "shift_size",
+        "cache_drop_size",
+        "last_channel_cache_size",
+        "valid_out_len",
+        "pre_encode_cache_size",
+        "drop_extra_pre_encoded",
+    ):
+        value = _optional_attr(streaming_cfg, name)
+        if value is not None:
+            details[name] = _trace_json_value(value)
+    return details
+
+
+def _trace_json_value(value) -> JsonValue:
+    if value is None:
+        return None
+    if type(value) is str or type(value) is int or type(value) is float or type(value) is bool:
+        return value
+    if type(value) is list or type(value) is tuple:
+        return [_trace_json_value(item) for item in value]
+    return value.__class__.__name__
 
 
 def _load_json_line(line: str) -> JsonMapping:
@@ -907,6 +1282,86 @@ def _is_full_context_value(value) -> bool:
     return value[0] == -1 and value[1] == -1
 
 
+def _select_default_finite_attention_context(
+    encoder,
+    encoder_config,
+) -> tuple[int, int]:
+    supported_contexts = _supported_attention_contexts(encoder, encoder_config)
+    if not supported_contexts:
+        raise WorkerError(
+            "model encoder does not expose supported attention contexts; "
+            "refusing implicit finite context setup"
+        )
+    requested_context = DEFAULT_FINITE_ATTENTION_CONTEXT
+    if requested_context in supported_contexts:
+        return requested_context
+    if all(_is_full_context_pair(context) for context in supported_contexts):
+        raise WorkerError(
+            "model encoder does not support a finite attention context; "
+            f"supported_contexts={_attention_contexts_text(supported_contexts)}"
+        )
+    raise WorkerError(
+        "model encoder does not support requested finite attention context "
+        f"{_attention_context_text(requested_context)}; "
+        f"supported_contexts={_attention_contexts_text(supported_contexts)}"
+    )
+
+
+def _supported_attention_contexts(encoder, encoder_config) -> tuple[tuple[int, int], ...]:
+    for name in (
+        "att_context_size_all",
+        "supported_att_context_size",
+        "supported_att_context_sizes",
+    ):
+        value = _optional_attr(encoder, name)
+        if value is not None:
+            return _attention_contexts_from_value(value, f"encoder.{name}")
+    config_value = _optional_config_section(encoder_config, "att_context_size_all")
+    if config_value is not None:
+        return _attention_contexts_from_value(
+            config_value,
+            "model config encoder.att_context_size_all",
+        )
+    return ()
+
+
+def _attention_contexts_from_value(value, label: str) -> tuple[tuple[int, int], ...]:
+    if _is_attention_context_pair(value):
+        return (_attention_context_pair(value, label),)
+    if type(value) is not list and type(value) is not tuple:
+        raise WorkerError(f"{label} must be an attention context pair list")
+    contexts: list[tuple[int, int]] = []
+    for item in value:
+        contexts.append(_attention_context_pair(item, label))
+    return tuple(contexts)
+
+
+def _attention_context_pair(value, label: str) -> tuple[int, int]:
+    if not _is_attention_context_pair(value):
+        raise WorkerError(f"{label} must contain integer attention context pairs")
+    return (value[0], value[1])
+
+
+def _is_attention_context_pair(value) -> bool:
+    if type(value) is not list and type(value) is not tuple:
+        return False
+    if len(value) != 2:
+        return False
+    return type(value[0]) is int and type(value[1]) is int
+
+
+def _is_full_context_pair(value: tuple[int, int]) -> bool:
+    return value == (-1, -1)
+
+
+def _attention_context_text(value: tuple[int, int]) -> str:
+    return f"[{value[0]}, {value[1]}]"
+
+
+def _attention_contexts_text(values: tuple[tuple[int, int], ...]) -> str:
+    return "[" + ", ".join(_attention_context_text(value) for value in values) + "]"
+
+
 def _optional_config_section(config, name: str):
     if isinstance(config, dict):
         if name in config:
@@ -934,12 +1389,13 @@ def _model_supports_partials(model) -> bool:
 def _build_cache_aware_runner(
     model,
     config: WorkerConfig,
+    trace: WorkerTrace,
 ) -> CacheAwareConformerStreamingRunner | None:
     if not hasattr(model, "conformer_stream_step"):
         return None
     if not hasattr(model, "encoder"):
         return None
-    return CacheAwareConformerStreamingRunner(model, config)
+    return CacheAwareConformerStreamingRunner(model, config, trace)
 
 
 def _require_module(module_name: str) -> None:

@@ -62,6 +62,8 @@ def _fake_modules_dir(
         class_name = "FakeCacheAwareRNNTModelWithoutReset"
     elif model_kind == "cache_aware_empty_transcript":
         class_name = "FakeCacheAwareRNNTModelWithEmptyTranscript"
+    elif model_kind == "cache_aware_full_context_only":
+        class_name = "FakeCacheAwareRNNTModelWithFullContextOnly"
     elif model_kind == "cache_aware":
         class_name = "FakeCacheAwareRNNTModel"
     else:
@@ -192,6 +194,11 @@ class CacheAwareStreamingAudioBuffer:
         if model_kind == "cache_aware_invalid_cache_size"
         else str(streaming_cache_size)
     )
+    supported_attention_contexts = (
+        "[[-1, -1]]"
+        if model_kind == "cache_aware_full_context_only"
+        else "[[-1, -1], [70, 1]]"
+    )
     models_dir.joinpath("__init__.py").write_text(
         f"""
 class FakeStreamingCfg:
@@ -205,6 +212,7 @@ class FakeEncoder:
     def __init__(self, model):
         self.model = model
         self.att_context_size = [-1, -1]
+        self.att_context_size_all = {supported_attention_contexts}
         self.streaming_cfg = FakeStreamingCfg()
         self.max_audio_length_calls = []
 
@@ -298,9 +306,16 @@ class ASRModel:
     return root
 
 
-def _run_worker(*, python_path: Path, stdin_text: str) -> subprocess.CompletedProcess[str]:
+def _run_worker(
+    *,
+    python_path: Path,
+    stdin_text: str,
+    env_updates: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(python_path)
+    if env_updates is not None:
+        env.update(env_updates)
     return subprocess.run(
         (sys.executable, "-S", str(WORKER)),
         input=stdin_text,
@@ -342,6 +357,10 @@ def _start_message(model_path: Path) -> dict[str, str | int | bool]:
 def _audio_b64(samples: tuple[float, ...]) -> str:
     payload = b"".join(struct.pack("<f", sample) for sample in samples)
     return base64.b64encode(payload).decode("ascii")
+
+
+def _read_trace_events(trace_path: Path):
+    return [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
 
 
 class _DirectFakeAudio(tuple):
@@ -428,6 +447,7 @@ class _DirectFakeStreamingCfg:
 class _DirectFakeEncoder:
     def __init__(self, last_channel_cache_size) -> None:
         self.att_context_size = [-1, -1]
+        self.att_context_size_all = [[-1, -1], [70, 1]]
         self.streaming_cfg = _DirectFakeStreamingCfg(last_channel_cache_size)
         self.max_audio_length_calls: list[int] = []
         self.model = None
@@ -718,6 +738,22 @@ def test_health_accepts_runtime_encoder_cache_aware_model_when_cfg_encoder_lacks
     assert completed.stderr == ""
 
 
+def test_health_fails_closed_when_model_only_supports_full_context_attention(
+    tmp_path: Path,
+) -> None:
+    model_path = _write_model(tmp_path / "model.nemo")
+    fake_root = _fake_modules_dir(tmp_path, model_kind="cache_aware_full_context_only")
+
+    completed = _run_worker(
+        python_path=fake_root,
+        stdin_text=_json_line(_health_message(model_path)),
+    )
+
+    assert completed.returncode == 1
+    assert "does not support a finite attention context" in completed.stderr
+    assert "supported_contexts=[[-1, -1]]" in completed.stderr
+
+
 def test_health_keeps_jsonl_stdout_clean_when_model_logs_to_stdout(tmp_path: Path) -> None:
     model_path = _write_model(tmp_path / "model.nemo")
     fake_root = _fake_modules_dir(tmp_path, model_kind="noisy_cache_aware")
@@ -839,6 +875,115 @@ def test_jsonl_protocol_accepts_health_start_audio_drain_and_finish(
     ]
     assert responses[-2]["text"] == "cache-1"
     assert completed.stderr == ""
+
+
+def test_trace_file_records_protocol_buffer_drain_and_step_events(
+    tmp_path: Path,
+) -> None:
+    model_path = _write_model(tmp_path / "model.nemo")
+    fake_root = _fake_modules_dir(tmp_path)
+    trace_path = tmp_path / "worker-trace.jsonl"
+    stdin_text = "".join(
+        (
+            _json_line(_health_message(model_path)),
+            _json_line(_start_message(model_path)),
+            _json_line(
+                {
+                    "type": "audio",
+                    "session_id": "s1",
+                    "encoding": "base64_float32le",
+                    "sample_count": 2,
+                    "data": _audio_b64((0.0, 0.25)),
+                }
+            ),
+            _json_line({"type": "finish", "session_id": "s1"}),
+        )
+    )
+
+    completed = _run_worker(
+        python_path=fake_root,
+        stdin_text=stdin_text,
+        env_updates={"FLUENT_AUDIO_NEMO_RNNT_WORKER_TRACE_FILE": str(trace_path)},
+    )
+
+    assert completed.returncode == 0
+    responses = [json.loads(line) for line in completed.stdout.splitlines()]
+    assert [response["type"] for response in responses] == [
+        "health_ok",
+        "stream_started",
+        "partial",
+        "audio_accepted",
+        "final",
+        "finished",
+    ]
+    assert completed.stderr == ""
+    events = _read_trace_events(trace_path)
+    event_names = [event["event"] for event in events]
+    for expected_event in (
+        "command_received",
+        "health_start",
+        "health_ok",
+        "stream_started",
+        "audio_chunk_accepted",
+        "cache_aware_buffer_append_start",
+        "cache_aware_buffer_append_finish",
+        "cache_aware_buffer_drain_start",
+        "cache_aware_buffer_chunk",
+        "conformer_stream_step_start",
+        "conformer_stream_step_finish",
+        "partial_generated",
+        "audio_accepted_response",
+        "final_generated",
+    ):
+        assert expected_event in event_names
+    audio_event = next(event for event in events if event["event"] == "audio_chunk_accepted")
+    assert audio_event["sample_count"] == 2
+    assert audio_event["accepted_sample_count"] == 2
+    chunk_event = next(event for event in events if event["event"] == "cache_aware_buffer_chunk")
+    assert chunk_event["chunk_count"] == 1
+    assert chunk_event["details"]["chunk_time_length"] == 2
+    step_event = next(event for event in events if event["event"] == "conformer_stream_step_finish")
+    assert step_event["duration_ms"] >= 0.0
+    assert step_event["text_length"] == len("cache-1")
+    assert step_event["details"]["required_max_audio_length"] == 10002
+
+
+def test_trace_stderr_records_worker_error_when_enabled(tmp_path: Path) -> None:
+    model_path = _write_model(tmp_path / "model.nemo")
+    fake_root = _fake_modules_dir(tmp_path)
+    audio_message = {
+        "type": "audio",
+        "session_id": "s1",
+        "encoding": "base64_float32le",
+        "sample_count": 1,
+        "data": _audio_b64((1.5,)),
+    }
+    stdin_text = "".join(
+        (
+            _json_line(_health_message(model_path)),
+            _json_line(_start_message(model_path)),
+            _json_line(audio_message),
+        )
+    )
+
+    completed = _run_worker(
+        python_path=fake_root,
+        stdin_text=stdin_text,
+        env_updates={"FLUENT_AUDIO_NEMO_RNNT_WORKER_TRACE_STDERR": "1"},
+    )
+
+    assert completed.returncode == 1
+    stderr_events = [
+        json.loads(line)
+        for line in completed.stderr.splitlines()
+        if line.startswith("{")
+    ]
+    worker_error = next(
+        event for event in stderr_events if event["event"] == "worker_error"
+    )
+    assert worker_error["error_type"] == "WorkerError"
+    assert "normalized float32 range" in worker_error["error_message"]
+    assert "normalized float32 range" in completed.stderr
 
 
 def test_jsonl_protocol_uses_cache_aware_conformer_stream_step_when_available(
