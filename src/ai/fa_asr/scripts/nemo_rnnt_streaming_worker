@@ -281,8 +281,6 @@ class CacheAwareConformerStreamingRunner:
         final_text = self._drain_available(final=True)
         if final_text:
             self._last_text = final_text
-        if not self._last_text:
-            raise WorkerError("cache-aware streaming did not produce a final transcript")
         return self._last_text
 
     def reset_stream(self, *, reason: str) -> None:

@@ -42,6 +42,8 @@ def _fake_modules_dir(tmp_path: Path, *, model_kind: str = "cache_aware") -> Pat
         class_name = "FakeRuntimeCacheAwareRNNTModel"
     elif model_kind == "cache_aware_no_model_reset":
         class_name = "FakeCacheAwareRNNTModelWithoutReset"
+    elif model_kind == "cache_aware_empty_transcript":
+        class_name = "FakeCacheAwareRNNTModelWithEmptyTranscript"
     elif model_kind == "cache_aware":
         class_name = "FakeCacheAwareRNNTModel"
     else:
@@ -191,12 +193,13 @@ class {class_name}:
 {reset_methods}
 
     def conformer_stream_step(self, **kwargs):
-        if "{model_kind}" not in ("cache_aware", "runtime_cache_aware", "cache_aware_no_model_reset"):
+        if "{model_kind}" not in ("cache_aware", "runtime_cache_aware", "cache_aware_no_model_reset", "cache_aware_empty_transcript"):
             raise RuntimeError("unexpected conformer_stream_step call")
         self.calls += 1
+        text = "" if "{model_kind}" == "cache_aware_empty_transcript" else "cache-" + str(self.calls)
         return (
             "pred-" + str(self.calls),
-            [{{"text": "cache-" + str(self.calls)}}],
+            [{{"text": text}}],
             kwargs["cache_last_channel"],
             kwargs["cache_last_time"],
             kwargs["cache_last_channel_len"],
@@ -505,6 +508,41 @@ def test_cache_aware_cancel_uses_runner_reset_without_model_reset_method(
         "audio_accepted",
         "cancelled",
     ]
+    assert completed.stderr == ""
+
+
+def test_cache_aware_finish_allows_empty_final_transcript(tmp_path: Path) -> None:
+    model_path = _write_model(tmp_path / "model.nemo")
+    fake_root = _fake_modules_dir(tmp_path, model_kind="cache_aware_empty_transcript")
+    stdin_text = "".join(
+        (
+            _json_line(_health_message(model_path)),
+            _json_line(_start_message(model_path)),
+            _json_line(
+                {
+                    "type": "audio",
+                    "session_id": "s1",
+                    "encoding": "base64_float32le",
+                    "sample_count": 2,
+                    "data": _audio_b64((0.0, 0.25)),
+                }
+            ),
+            _json_line({"type": "finish", "session_id": "s1"}),
+        )
+    )
+
+    completed = _run_worker(python_path=fake_root, stdin_text=stdin_text)
+
+    assert completed.returncode == 0
+    responses = [json.loads(line) for line in completed.stdout.splitlines()]
+    assert [response["type"] for response in responses] == [
+        "health_ok",
+        "stream_started",
+        "audio_accepted",
+        "final",
+        "finished",
+    ]
+    assert responses[3]["text"] == ""
     assert completed.stderr == ""
 
 

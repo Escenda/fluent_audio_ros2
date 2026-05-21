@@ -127,7 +127,7 @@ for line in sys.stdin:
             emit({
                 "type": "final",
                 "session_id": message["session_id"],
-                "text": "final text",
+                "text": "" if behavior == "empty_final_transcript" else "final text",
                 "sample_count": 4,
             })
         emit({"type": "finished", "session_id": message["session_id"]})
@@ -263,6 +263,18 @@ def test_finish_maps_final_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert len(results) == 1
     assert results[0].is_final is True
     assert asr_transcript_text(results[0].transcript) == "final text"
+
+
+def test_finish_maps_empty_final_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = _backend(tmp_path, monkeypatch, behavior="empty_final_transcript")
+    session = backend.start_stream(AsrStreamRequest(session_id="s1", user_turn_id=7))
+    session.push_audio(_payload())
+    results = session.finish()
+    assert len(results) == 1
+    assert results[0].is_final is True
+    assert asr_transcript_text(results[0].transcript) == ""
 
 
 def test_cancel_sends_cancel_without_final(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

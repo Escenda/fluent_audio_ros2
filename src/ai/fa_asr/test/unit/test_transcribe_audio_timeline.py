@@ -368,8 +368,20 @@ class _RecordingBackend:
 
 
 def _streaming_result(text: str, *, sample_count: int, is_final: bool) -> AsrStreamResult:
+    if is_final and not text.strip():
+        transcript = AsrTranscript(
+            segments=(
+                AsrTranscriptSegment(
+                    start_sample=0,
+                    end_sample=sample_count,
+                    text=text,
+                ),
+            )
+        )
+    else:
+        transcript = plain_text_to_asr_transcript(text, sample_count=sample_count)
     return AsrStreamResult(
-        transcript=plain_text_to_asr_transcript(text, sample_count=sample_count),
+        transcript=transcript,
         is_final=is_final,
         sample_count=sample_count,
     )
@@ -1490,6 +1502,60 @@ def test_streaming_control_close_finishes_stream_and_publishes_final(
     event_codes = [msg.event for msg in node.asr_event_pub.messages]
     assert module.AsrEvent.EVENT_STREAM_FINAL_RESULT in event_codes
     assert module.AsrEvent.EVENT_STREAM_CLOSED in event_codes
+
+
+def test_streaming_control_close_allows_empty_final_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _asr_node_module(monkeypatch)
+    backend = _RecordingStreamingBackend(
+        partial_text="",
+        final_text="",
+    )
+    node = _node(module, backend=backend)
+    node._context_active = True
+    node._active_session_id = "session-1"
+    node._active_user_turn_id = 9
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=True,
+            start=True,
+            end=False,
+            stamp_unix_ns=1_000_000_000,
+        )
+    )
+    node.on_audio(
+        _FakeAudioFrame(
+            samples=np.array([0.1, 0.2], dtype=np.float32),
+            sec=1,
+        )
+    )
+
+    node.on_control_event(
+        module.ControlEvent(
+            control_id="speech_control",
+            source_id="mic0",
+            stream_id="stream0",
+            active=False,
+            start=False,
+            end=True,
+            stamp_unix_ns=1_200_000_000,
+        )
+    )
+
+    stream = backend.streams[0]
+    assert stream.finish_called is True
+    assert node._jobs.empty()
+    assert [(msg.status, msg.text) for msg in node.asr_result_pub.messages] == [
+        (module.AsrResult.STATUS_FINAL, ""),
+    ]
+    event_codes = [msg.event for msg in node.asr_event_pub.messages]
+    assert module.AsrEvent.EVENT_STREAM_FINAL_RESULT in event_codes
+    assert module.AsrEvent.EVENT_STREAM_CLOSED in event_codes
+    assert module.AsrEvent.EVENT_STREAM_ERROR not in event_codes
 
 
 def test_transcribe_audio_stays_timeline_batch_for_streaming_backend(

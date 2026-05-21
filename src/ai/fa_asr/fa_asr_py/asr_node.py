@@ -1433,6 +1433,7 @@ class FaAsrNode(Node):
             validated_transcript = build_asr_transcript(
                 result.transcript.segments,
                 sample_count=result.sample_count,
+                allow_empty_text=result.is_final,
             )
             if result.is_final:
                 final_published = True

@@ -185,6 +185,7 @@ def build_asr_transcript(
     segments: tuple[AsrTranscriptSegment, ...],
     *,
     sample_count: int,
+    allow_empty_text: bool = False,
 ) -> AsrTranscript:
     _validate_sample_count(sample_count)
     if not segments:
@@ -192,7 +193,11 @@ def build_asr_transcript(
 
     previous_end_sample = 0
     for segment in segments:
-        _validate_segment(segment, sample_count=sample_count)
+        _validate_segment(
+            segment,
+            sample_count=sample_count,
+            allow_empty_text=allow_empty_text,
+        )
         if segment.start_sample < previous_end_sample:
             raise RuntimeError("ASR transcript segments must be sorted and non-overlapping")
         previous_end_sample = segment.end_sample
@@ -210,7 +215,12 @@ def _validate_sample_count(sample_count: int) -> None:
         raise RuntimeError("ASR transcript sample_count must be greater than zero")
 
 
-def _validate_segment(segment: AsrTranscriptSegment, *, sample_count: int) -> None:
+def _validate_segment(
+    segment: AsrTranscriptSegment,
+    *,
+    sample_count: int,
+    allow_empty_text: bool,
+) -> None:
     if type(segment.start_sample) is not int or type(segment.end_sample) is not int:
         raise RuntimeError("ASR transcript segment sample offsets must be integers")
     if segment.start_sample < 0:
@@ -221,7 +231,7 @@ def _validate_segment(segment: AsrTranscriptSegment, *, sample_count: int) -> No
         raise RuntimeError("ASR transcript segment end_sample exceeds request sample count")
     if type(segment.text) is not str:
         raise RuntimeError("ASR transcript segment text must be a string")
-    if not segment.text.strip():
+    if not allow_empty_text and not segment.text.strip():
         raise RuntimeError("ASR transcript segment text must not be empty")
     if segment.speaker_label is not None:
         if type(segment.speaker_label) is not str:

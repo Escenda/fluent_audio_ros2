@@ -451,7 +451,12 @@ def _parse_health_ok(message: JsonValue) -> NemoRnntHealthCapability:
 def _parse_result(mapping: dict[str, JsonValue]) -> AsrStreamResult:
     _reject_unsupported_keys(mapping, _RESULT_KEYS, "ASR worker result")
     result_type = _require_string_field(mapping, "type", "ASR worker result")
-    text = _require_string_field(mapping, "text", "ASR worker result")
+    text = _require_result_text_field(
+        mapping,
+        "text",
+        "ASR worker result",
+        allow_empty=result_type == "final",
+    )
     sample_count = _require_int_field(mapping, "sample_count", "ASR worker result")
     transcript = build_asr_transcript(
         (
@@ -462,6 +467,7 @@ def _parse_result(mapping: dict[str, JsonValue]) -> AsrStreamResult:
             ),
         ),
         sample_count=sample_count,
+        allow_empty_text=result_type == "final",
     )
     return AsrStreamResult(
         transcript=transcript,
@@ -528,7 +534,18 @@ def _require_string_field(mapping: dict[str, JsonValue], field: str, label: str)
         raise RuntimeError(f"{label} field {field} must be a string")
     if field != "text" and not value.strip():
         raise RuntimeError(f"{label} field {field} must not be empty")
-    if field == "text" and not value.strip():
+    return value
+
+
+def _require_result_text_field(
+    mapping: dict[str, JsonValue],
+    field: str,
+    label: str,
+    *,
+    allow_empty: bool,
+) -> str:
+    value = _require_string_field(mapping, field, label)
+    if not allow_empty and not value.strip():
         raise RuntimeError("ASR backend returned an empty transcript")
     return value
 
