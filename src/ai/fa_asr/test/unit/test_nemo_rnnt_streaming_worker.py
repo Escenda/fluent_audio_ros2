@@ -36,6 +36,8 @@ def _fake_modules_dir(tmp_path: Path, *, model_kind: str = "cache_aware") -> Pat
     utils_dir = root / "nemo" / "collections" / "asr" / "parts" / "utils"
     if model_kind == "offline":
         class_name = "FakeOfflineModel"
+    elif model_kind == "noisy_cache_aware":
+        class_name = "FakeNoisyCacheAwareRNNTModel"
     elif model_kind == "runtime_cache_aware":
         class_name = "FakeRuntimeCacheAwareRNNTModel"
     elif model_kind == "cache_aware":
@@ -44,6 +46,11 @@ def _fake_modules_dir(tmp_path: Path, *, model_kind: str = "cache_aware") -> Pat
         class_name = "FakeRNNTModel"
     cache_aware = "False" if model_kind in ("offline", "runtime_cache_aware") else "True"
     decoder_kind = "ctc" if model_kind == "offline" else "rnnt"
+    restore_noise = (
+        'print("fake nemo restore log")'
+        if model_kind == "noisy_cache_aware"
+        else ""
+    )
     models_dir.mkdir(parents=True)
     utils_dir.mkdir(parents=True)
     for package_dir in (
@@ -178,6 +185,7 @@ class {class_name}:
 class ASRModel:
     @staticmethod
     def restore_from(path):
+        {restore_noise}
         return {class_name}()
 """,
         encoding="utf-8",
@@ -266,6 +274,23 @@ def test_health_accepts_runtime_encoder_cache_aware_model_when_cfg_encoder_lacks
     assert response["model_class"] == "FakeRuntimeCacheAwareRNNTModel"
     assert response["cache_aware_streaming"] is True
     assert completed.stderr == ""
+
+
+def test_health_keeps_jsonl_stdout_clean_when_model_logs_to_stdout(tmp_path: Path) -> None:
+    model_path = _write_model(tmp_path / "model.nemo")
+    fake_root = _fake_modules_dir(tmp_path, model_kind="noisy_cache_aware")
+
+    completed = _run_worker(
+        python_path=fake_root,
+        stdin_text=_json_line(_health_message(model_path)),
+    )
+
+    assert completed.returncode == 0
+    response = json.loads(completed.stdout)
+    assert response["type"] == "health_ok"
+    assert response["model_class"] == "FakeNoisyCacheAwareRNNTModel"
+    assert completed.stdout.strip().startswith("{")
+    assert "fake nemo restore log" in completed.stderr
 
 
 def test_health_rejects_missing_model_without_importing_nemo(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+from contextlib import redirect_stdout
 import importlib
 import importlib.util
 import json
@@ -163,44 +164,49 @@ class NemoStreamingModelRunner:
         self._cache_aware_runner = _build_cache_aware_runner(model)
 
     def start_stream(self, *, session_id: str) -> None:
-        if self._cache_aware_runner is not None:
-            self._cache_aware_runner.start_stream()
-            return
-        if hasattr(self._model, "start_stream"):
-            self._model.start_stream(session_id)
+        with redirect_stdout(sys.stderr):
+            if self._cache_aware_runner is not None:
+                self._cache_aware_runner.start_stream()
+                return
+            if hasattr(self._model, "start_stream"):
+                self._model.start_stream(session_id)
 
     def accept_audio(self, *, samples: tuple[float, ...]) -> str:
-        if self._cache_aware_runner is not None:
-            return self._cache_aware_runner.accept_audio(samples=samples)
-        if hasattr(self._model, "accept_audio"):
-            return _require_text_result(self._model.accept_audio(samples))
-        if hasattr(self._model, "transcribe_streaming_chunk"):
-            return _require_text_result(self._model.transcribe_streaming_chunk(samples))
+        with redirect_stdout(sys.stderr):
+            if self._cache_aware_runner is not None:
+                return self._cache_aware_runner.accept_audio(samples=samples)
+            if hasattr(self._model, "accept_audio"):
+                return _require_text_result(self._model.accept_audio(samples))
+            if hasattr(self._model, "transcribe_streaming_chunk"):
+                return _require_text_result(self._model.transcribe_streaming_chunk(samples))
         raise WorkerError("model does not expose accept_audio/transcribe_streaming_chunk")
 
     def poll_partial(self) -> str:
-        if self._cache_aware_runner is not None:
-            return self._cache_aware_runner.poll_partial()
-        if hasattr(self._model, "poll_partial"):
-            return _optional_text_result(self._model.poll_partial())
+        with redirect_stdout(sys.stderr):
+            if self._cache_aware_runner is not None:
+                return self._cache_aware_runner.poll_partial()
+            if hasattr(self._model, "poll_partial"):
+                return _optional_text_result(self._model.poll_partial())
         return ""
 
     def finish_stream(self) -> str:
-        if self._cache_aware_runner is not None:
-            return self._cache_aware_runner.finish_stream()
-        if hasattr(self._model, "finish_stream"):
-            return _require_text_result(self._model.finish_stream())
-        if hasattr(self._model, "finalize_stream"):
-            return _require_text_result(self._model.finalize_stream())
+        with redirect_stdout(sys.stderr):
+            if self._cache_aware_runner is not None:
+                return self._cache_aware_runner.finish_stream()
+            if hasattr(self._model, "finish_stream"):
+                return _require_text_result(self._model.finish_stream())
+            if hasattr(self._model, "finalize_stream"):
+                return _require_text_result(self._model.finalize_stream())
         raise WorkerError("model does not expose finish_stream/finalize_stream")
 
     def reset_stream(self, *, reason: str) -> None:
-        if hasattr(self._model, "reset_stream"):
-            self._model.reset_stream(reason)
-            return
-        if hasattr(self._model, "reset"):
-            self._model.reset()
-            return
+        with redirect_stdout(sys.stderr):
+            if hasattr(self._model, "reset_stream"):
+                self._model.reset_stream(reason)
+                return
+            if hasattr(self._model, "reset"):
+                self._model.reset()
+                return
         raise WorkerError("model does not expose reset_stream/reset")
 
 
@@ -349,10 +355,8 @@ def main() -> int:
             message_type = _required_string(message, "type")
             if message_type == "health":
                 config = _config_from_message(message)
-                model = load_nemo_model(config.model_path)
-                capability = inspect_model_capability(model)
-                validate_model_capability(capability, config)
-                runtime = StreamingRuntime(config, NemoStreamingModelRunner(model))
+                capability, runner = _load_validated_model_runner(config)
+                runtime = StreamingRuntime(config, runner)
                 _emit(
                     {
                         "type": "health_ok",
@@ -373,10 +377,8 @@ def main() -> int:
             if message_type == "start":
                 if runtime is None:
                     config = _config_from_message(message)
-                    model = load_nemo_model(config.model_path)
-                    capability = inspect_model_capability(model)
-                    validate_model_capability(capability, config)
-                    runtime = StreamingRuntime(config, NemoStreamingModelRunner(model))
+                    _, runner = _load_validated_model_runner(config)
+                    runtime = StreamingRuntime(config, runner)
                 _emit_many(runtime.start(message))
                 continue
             if runtime is None:
@@ -398,6 +400,17 @@ def main() -> int:
     except WorkerError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+
+
+def _load_validated_model_runner(
+    config: WorkerConfig,
+) -> tuple[ModelCapability, NemoStreamingModelRunner]:
+    with redirect_stdout(sys.stderr):
+        model = load_nemo_model(config.model_path)
+        capability = inspect_model_capability(model)
+        validate_model_capability(capability, config)
+        runner = NemoStreamingModelRunner(model)
+    return capability, runner
 
 
 def load_nemo_model(model_path: Path):
