@@ -87,6 +87,20 @@ full-context / offline transcribe を行う場合は別 backend policy として
 この backend document では、NIM、Riva、gRPC、NGC artifact、local `.nemo`、NeMo cache-aware streaming、language profile、worker health、full ROS graph validation を同じ成功条件として扱いません。
 各概念は、何を説明できるか、何を証明しないかが違います。
 
+| 用語 | owned boundary | 証明すること | 証明しないこと | FluentAudio failure mode | この doc での位置 |
+| --- | --- | --- | --- | --- | --- |
+| NIM | NVIDIA ASR NIM container、serving profile、gRPC / HTTP endpoint。 | Parakeet RNNT Multilingual が NIM serving stack で streaming / offline profile を持つこと。 | local `.nemo` worker の `health_ok`、finite attention context、`start/audio/finish`、non-empty transcript。 | NIM を使わない現行 backend では capability を成功状態にしない。NIM を使う場合は別 backend として readiness / API failure を扱う。 | `NIM` 節と `Research Sources`。 |
+| Riva | Riva server、model repository、RMIR/Triton、Riva gRPC client。 | Riva ASR stack 上の model deployment / recognition capability。 | NeMo local worker の JSONL protocol、local file restore、streaming cache state、ROS graph 成功。 | Riva metadata を local worker success として扱わない。Riva server を使うなら別 backend failure とする。 | `Riva` 節。 |
+| gRPC | NIM/Riva service transport。 | channel readiness、deadline、request/response schema、server error mapping。 | `.nemo` restore、artifact integrity、worker health、transcript success。 | 現行 backend は stdin/stdout JSONL なので gRPC 成功/失敗を状態に入れない。 | `gRPC` 節。 |
+| NGC artifact / `download-version` | NGC registry から local disk への acquisition。 | pinned version contents が取得されたこと。 | format conversion、finite attention context 付与、NIM/Riva 起動、NeMo restore、worker health、runtime readiness。 | download / integrity failure は preparation failure。download success だけで backend readiness にしない。 | `NGC Artifact / download-version` と `Preparation Script Boundary`。 |
+| local `.nemo` | worker が `ASRModel.restore_from(...)` で読む checkpoint。 | file presence / integrity、restore 到達時は model object として読めたこと。 | cache-aware streaming 成立、transcript success、ROS graph success。 | missing、unreadable、restore failure、config mismatch は startup failure。 | `Local .nemo`、`Artifact`、`Backend Algorithm Detail`。 |
+| NeMo offline / full-context transcribe | complete audio を処理する NeMo offline policy。 | local model が full-context API で non-empty output を返せること。 | streaming `health_ok`、partial result、cache state、finite context、low-latency success。 | この streaming backend では `transcribe()` を成功扱いしない。offline が必要なら `nemo_offline_transcribe` を使う。 | `Full-Context / Offline / Simulated Streaming`。 |
+| NeMo cache-aware streaming | worker-owned stream session、encoder cache、previous hypothesis、chunk/shift。 | streaming prerequisites が成立し、audio chunk を stateful step へ進められること。 | offline transcript success、NIM/Riva capability、full ROS graph。 | cache API 不足、streaming params 不成立、shape mismatch は fail closed。simulated streaming fallback は入れない。 | `Cache-Aware Streaming` と phase 5-10。 |
+| finite attention context | encoder attention context capability validation。 | requested finite context が supported contexts に含まれること。 | transcript success、worker minimal stream、NIM/Riva profile success。 | full context `[-1,-1]` のみなら `health_ok` を返さず fail closed。 | `Finite Attention Context` と phase 4。 |
+| worker health | startup readiness gate。 | restore、sample rate、RNNT/Transducer、cache API、finite context、streaming params が audio 到着前に成立すること。 | `audio_accepted`、partial/final transcript、full ROS graph。 | timeout / non-zero exit / stderr fatal / contract mismatch は backend unavailable。 | `Worker Health / Trace` と `Verification Requirements`。 |
+| transcript success | non-empty partial/final text and valid output semantics。 | speech fixture から text が返ったこと。 | accuracy、language support 全般、ROS graph identity/timeline/VAD binding。 | `audio_accepted` だけ、empty final、prior partial なしの final は success にしない。 | phase 10 と worker speech fixture。 |
+| full ROS graph validation | ROS graph 上の ASR-ready stream、control window、backend invocation、result publish。 | `fa_in -> processing -> fa_vad -> fa_asr` 相当の経路で non-empty final result が出ること。 | NIM/Riva matrix、NGC download、worker unit test の代替。 | identity mismatch、timeline gap/overlap、VAD close 不成立、backend error、empty final は未完了。 | `Full ROS Graph Validation` と verification 4。 |
+
 ### NIM
 
 NIM は NVIDIA が配布する ASR serving container です。
@@ -898,7 +912,7 @@ Product Owner が次に判断すべきこと:
 この backend document は、次の情報源に基づいています。
 
 - NVIDIA ASR NIM docs
-  - https://docs.nvidia.com/nim/speech/26.02.0/asr/index.html
+  - https://docs.nvidia.com/nim/speech/latest/asr/index.html
   - ASR NIM が pre-trained NeMo model と TensorRT / Triton inference stack を self-contained container に package し、model download / optimization / serving を扱うこと。
   - streaming mode が audio arrival に応じて partial transcripts を返すこと。
   - Parakeet RNNT Multilingual が 25+ languages、Streaming + Offline、auto language detection を持つ model family として扱われること。
