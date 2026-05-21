@@ -159,9 +159,9 @@ class StreamingRuntime:
 
 
 class NemoStreamingModelRunner:
-    def __init__(self, model) -> None:
+    def __init__(self, model, config: WorkerConfig) -> None:
         self._model = model
-        self._cache_aware_runner = _build_cache_aware_runner(model)
+        self._cache_aware_runner = _build_cache_aware_runner(model, config)
 
     def start_stream(self, *, session_id: str) -> None:
         with redirect_stdout(sys.stderr):
@@ -214,7 +214,7 @@ class NemoStreamingModelRunner:
 
 
 class CacheAwareConformerStreamingRunner:
-    def __init__(self, model) -> None:
+    def __init__(self, model, config: WorkerConfig) -> None:
         _require_module("numpy")
         _require_module("torch")
         _require_module("nemo.collections.asr.parts.utils.streaming_utils")
@@ -226,6 +226,7 @@ class CacheAwareConformerStreamingRunner:
         if not hasattr(streaming_utils, "CacheAwareStreamingAudioBuffer"):
             raise WorkerError("NeMo CacheAwareStreamingAudioBuffer is unavailable")
         self._model = model
+        self._config = config
         self._buffer_class = streaming_utils.CacheAwareStreamingAudioBuffer
         self._buffer = None
         self._stream_id = -1
@@ -236,6 +237,7 @@ class CacheAwareConformerStreamingRunner:
         self._previous_pred_out = None
         self._step_num = 0
         self._last_text = ""
+        self._configure_cache_aware_streaming()
 
     def start_stream(self) -> None:
         encoder = _required_attr(self._model, "encoder")
@@ -340,6 +342,7 @@ class CacheAwareConformerStreamingRunner:
     ) -> str:
         if not hasattr(self._model, "conformer_stream_step"):
             raise WorkerError("model does not expose conformer_stream_step")
+        self._ensure_encoder_max_audio_length(chunk_audio=chunk_audio)
         with self._torch.inference_mode():
             outputs = self._model.conformer_stream_step(
                 processed_signal=chunk_audio,
@@ -365,6 +368,96 @@ class CacheAwareConformerStreamingRunner:
         ) = outputs
         self._step_num += 1
         return _first_transcription_text(transcribed_texts)
+
+    def _ensure_encoder_max_audio_length(self, *, chunk_audio) -> None:
+        encoder = _required_attr(self._model, "encoder")
+        streaming_cfg = _required_attr(encoder, "streaming_cfg")
+        last_channel_cache_size = _required_attr(
+            streaming_cfg,
+            "last_channel_cache_size",
+        )
+        if type(last_channel_cache_size) is not int or last_channel_cache_size <= 0:
+            raise WorkerError(
+                "streaming_cfg.last_channel_cache_size must be a positive integer"
+            )
+        if not hasattr(chunk_audio, "size"):
+            raise WorkerError("cache-aware chunk_audio does not expose size")
+        chunk_time_length = chunk_audio.size(-1)
+        if type(chunk_time_length) is not int or chunk_time_length <= 0:
+            raise WorkerError(
+                "cache-aware chunk_audio time length must be a positive integer"
+            )
+        if not hasattr(encoder, "set_max_audio_length"):
+            raise WorkerError("model encoder does not expose set_max_audio_length")
+        try:
+            encoder.set_max_audio_length(last_channel_cache_size + chunk_time_length)
+        except Exception as exc:
+            raise WorkerError("model encoder failed to set max audio length") from exc
+
+    def _configure_cache_aware_streaming(self) -> None:
+        cfg = _required_attr(self._model, "cfg")
+        preprocessor_config = _required_config_section(cfg, "preprocessor")
+        encoder_config = _required_config_section(cfg, "encoder")
+        window_stride = _required_config_positive_number(
+            preprocessor_config,
+            "window_stride",
+        )
+        subsampling_factor = _required_config_positive_int(
+            encoder_config,
+            "subsampling_factor",
+        )
+        encoder_chunk_size = self._encoder_chunk_size(
+            window_stride=window_stride,
+            subsampling_factor=subsampling_factor,
+        )
+        shift_size = max(1, encoder_chunk_size // 2)
+        encoder = _required_attr(self._model, "encoder")
+        if _is_full_context_attention(encoder_config, encoder):
+            if not hasattr(encoder, "set_default_att_context_size"):
+                raise WorkerError(
+                    "model encoder does not expose set_default_att_context_size"
+                )
+            try:
+                encoder.set_default_att_context_size([70, 1])
+            except Exception as exc:
+                raise WorkerError(
+                    "model encoder failed to set default attention context"
+                ) from exc
+        if not hasattr(encoder, "setup_streaming_params"):
+            raise WorkerError("model encoder does not expose setup_streaming_params")
+        try:
+            encoder.setup_streaming_params(
+                chunk_size=encoder_chunk_size,
+                shift_size=shift_size,
+                left_chunks=2,
+            )
+        except Exception as exc:
+            raise WorkerError("model encoder failed to set streaming params") from exc
+        streaming_cfg = _required_attr(encoder, "streaming_cfg")
+        last_channel_cache_size = _required_attr(
+            streaming_cfg,
+            "last_channel_cache_size",
+        )
+        if type(last_channel_cache_size) is not int or last_channel_cache_size <= 0:
+            raise WorkerError(
+                "streaming_cfg.last_channel_cache_size must be a positive integer"
+            )
+
+    def _encoder_chunk_size(
+        self,
+        *,
+        window_stride: float,
+        subsampling_factor: int,
+    ) -> int:
+        encoder_token_samples = (
+            self._config.sample_rate_hz * window_stride * subsampling_factor
+        )
+        if not math.isfinite(encoder_token_samples) or encoder_token_samples <= 0:
+            raise WorkerError("encoder token duration must be positive")
+        requested = self._config.chunk_size_samples / encoder_token_samples
+        if not math.isfinite(requested) or requested <= 0:
+            raise WorkerError("derived encoder chunk size must be positive")
+        return max(10, math.ceil(requested))
 
     def _drop_extra_pre_encoded(self) -> int:
         if self._step_num == 0:
@@ -443,7 +536,7 @@ def _load_validated_model_runner(
         model = load_nemo_model(config.model_path)
         capability = inspect_model_capability(model)
         validate_model_capability(capability, config)
-        runner = NemoStreamingModelRunner(model)
+        runner = NemoStreamingModelRunner(model, config)
     return capability, runner
 
 
@@ -462,7 +555,14 @@ def load_nemo_model(model_path: Path):
     asr_model_class = models_module.ASRModel
     if not hasattr(asr_model_class, "restore_from"):
         raise WorkerError("NeMo ASRModel.restore_from is unavailable")
-    return asr_model_class.restore_from(str(model_path))
+    model = asr_model_class.restore_from(str(model_path))
+    if not hasattr(model, "eval"):
+        raise WorkerError("NeMo model does not expose eval")
+    try:
+        model.eval()
+    except Exception as exc:
+        raise WorkerError("NeMo model failed to enter eval mode") from exc
+    return model
 
 
 def inspect_model_capability(model) -> ModelCapability:
@@ -680,6 +780,23 @@ def _required_config_int(config, name: str) -> int:
     return value
 
 
+def _required_config_positive_int(config, name: str) -> int:
+    value = _required_config_int(config, name)
+    if value <= 0:
+        raise WorkerError(f"model config {name} must be positive")
+    return value
+
+
+def _required_config_positive_number(config, name: str) -> float:
+    value = _required_config_section(config, name)
+    if type(value) is not int and type(value) is not float:
+        raise WorkerError(f"model config {name} must be numeric")
+    number = float(value)
+    if not math.isfinite(number) or number <= 0.0:
+        raise WorkerError(f"model config {name} must be positive")
+    return number
+
+
 def _optional_config_int(config, name: str, *, default_value: int) -> int:
     if isinstance(config, dict):
         if name not in config:
@@ -775,6 +892,37 @@ def _encoder_supports_cache_aware_streaming(encoder) -> bool:
     return hasattr(encoder, "streaming_cfg")
 
 
+def _is_full_context_attention(encoder_config, encoder) -> bool:
+    configured_context = _optional_config_section(encoder_config, "att_context_size")
+    if _is_full_context_value(configured_context):
+        return True
+    return _is_full_context_value(_optional_attr(encoder, "att_context_size"))
+
+
+def _is_full_context_value(value) -> bool:
+    if type(value) is not list and type(value) is not tuple:
+        return False
+    if len(value) != 2:
+        return False
+    return value[0] == -1 and value[1] == -1
+
+
+def _optional_config_section(config, name: str):
+    if isinstance(config, dict):
+        if name in config:
+            return config[name]
+        return None
+    if hasattr(config, name):
+        return getattr(config, name)
+    return None
+
+
+def _optional_attr(value, name: str):
+    if hasattr(value, name):
+        return getattr(value, name)
+    return None
+
+
 def _model_supports_partials(model) -> bool:
     return (
         hasattr(model, "accept_audio")
@@ -783,12 +931,15 @@ def _model_supports_partials(model) -> bool:
     )
 
 
-def _build_cache_aware_runner(model) -> CacheAwareConformerStreamingRunner | None:
+def _build_cache_aware_runner(
+    model,
+    config: WorkerConfig,
+) -> CacheAwareConformerStreamingRunner | None:
     if not hasattr(model, "conformer_stream_step"):
         return None
     if not hasattr(model, "encoder"):
         return None
-    return CacheAwareConformerStreamingRunner(model)
+    return CacheAwareConformerStreamingRunner(model, config)
 
 
 def _require_module(module_name: str) -> None:
