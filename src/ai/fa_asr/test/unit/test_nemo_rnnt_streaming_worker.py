@@ -40,6 +40,8 @@ def _fake_modules_dir(tmp_path: Path, *, model_kind: str = "cache_aware") -> Pat
         class_name = "FakeNoisyCacheAwareRNNTModel"
     elif model_kind == "runtime_cache_aware":
         class_name = "FakeRuntimeCacheAwareRNNTModel"
+    elif model_kind == "cache_aware_no_model_reset":
+        class_name = "FakeCacheAwareRNNTModelWithoutReset"
     elif model_kind == "cache_aware":
         class_name = "FakeCacheAwareRNNTModel"
     else:
@@ -92,12 +94,24 @@ def inference_mode():
         """
 class CacheAwareStreamingAudioBuffer:
     def __init__(self, model, online_normalization=False):
+        self.model = model
         self.items = []
         self.cursor = 0
+        self.streams_length = None
 
     def append_audio(self, audio, stream_id=-1):
+        self.model.append_stream_ids.append(stream_id)
+        if self.streams_length is None:
+            if stream_id >= 0:
+                raise RuntimeError("first append must create a new stream")
+            self.items.append(audio)
+            self.streams_length = [len(audio)]
+            return None, None, -1
+        if stream_id != 0:
+            raise RuntimeError("subsequent append must target stream 0")
         self.items.append(audio)
-        return None, None, 0 if stream_id < 0 else stream_id
+        self.streams_length[0] += len(audio)
+        return None, None, stream_id
 
     def __iter__(self):
         return self
@@ -115,8 +129,17 @@ class CacheAwareStreamingAudioBuffer:
     def reset_buffer(self):
         self.items = []
         self.cursor = 0
+        self.streams_length = None
 """,
         encoding="utf-8",
+    )
+    reset_methods = (
+        ""
+        if model_kind == "cache_aware_no_model_reset"
+        else """
+    def reset_stream(self, reason):
+        self.reset_reasons.append(reason)
+"""
     )
     models_dir.joinpath("__init__.py").write_text(
         f"""
@@ -148,6 +171,7 @@ class {class_name}:
             "languages": ["ja", "en"],
         }}
         self.samples = []
+        self.append_stream_ids = []
         self.reset_reasons = []
         self.calls = 0
         self.encoder = FakeEncoder()
@@ -164,12 +188,10 @@ class {class_name}:
 
     def finish_stream(self):
         return "final-" + str(len(self.samples))
-
-    def reset_stream(self, reason):
-        self.reset_reasons.append(reason)
+{reset_methods}
 
     def conformer_stream_step(self, **kwargs):
-        if "{model_kind}" not in ("cache_aware", "runtime_cache_aware"):
+        if "{model_kind}" not in ("cache_aware", "runtime_cache_aware", "cache_aware_no_model_reset"):
             raise RuntimeError("unexpected conformer_stream_step call")
         self.calls += 1
         return (
@@ -417,6 +439,15 @@ def test_jsonl_protocol_uses_cache_aware_conformer_stream_step_when_available(
                     "data": _audio_b64((0.0, 0.25)),
                 }
             ),
+            _json_line(
+                {
+                    "type": "audio",
+                    "session_id": "s1",
+                    "encoding": "base64_float32le",
+                    "sample_count": 2,
+                    "data": _audio_b64((0.5, 0.75)),
+                }
+            ),
             _json_line({"type": "finish", "session_id": "s1"}),
         )
     )
@@ -430,11 +461,50 @@ def test_jsonl_protocol_uses_cache_aware_conformer_stream_step_when_available(
         "stream_started",
         "partial",
         "audio_accepted",
+        "partial",
+        "audio_accepted",
         "final",
         "finished",
     ]
     assert responses[2]["text"] == "cache-1"
-    assert responses[4]["text"] == "cache-1"
+    assert responses[4]["text"] == "cache-2"
+    assert responses[6]["text"] == "cache-2"
+    assert completed.stderr == ""
+
+
+def test_cache_aware_cancel_uses_runner_reset_without_model_reset_method(
+    tmp_path: Path,
+) -> None:
+    model_path = _write_model(tmp_path / "model.nemo")
+    fake_root = _fake_modules_dir(tmp_path, model_kind="cache_aware_no_model_reset")
+    stdin_text = "".join(
+        (
+            _json_line(_health_message(model_path)),
+            _json_line(_start_message(model_path)),
+            _json_line(
+                {
+                    "type": "audio",
+                    "session_id": "s1",
+                    "encoding": "base64_float32le",
+                    "sample_count": 2,
+                    "data": _audio_b64((0.0, 0.25)),
+                }
+            ),
+            _json_line({"type": "cancel", "session_id": "s1"}),
+        )
+    )
+
+    completed = _run_worker(python_path=fake_root, stdin_text=stdin_text)
+
+    assert completed.returncode == 0
+    responses = [json.loads(line) for line in completed.stdout.splitlines()]
+    assert [response["type"] for response in responses] == [
+        "health_ok",
+        "stream_started",
+        "partial",
+        "audio_accepted",
+        "cancelled",
+    ]
     assert completed.stderr == ""
 
 

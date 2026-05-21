@@ -201,6 +201,9 @@ class NemoStreamingModelRunner:
 
     def reset_stream(self, *, reason: str) -> None:
         with redirect_stdout(sys.stderr):
+            if self._cache_aware_runner is not None:
+                self._cache_aware_runner.reset_stream(reason=reason)
+                return
             if hasattr(self._model, "reset_stream"):
                 self._model.reset_stream(reason)
                 return
@@ -255,9 +258,20 @@ class CacheAwareConformerStreamingRunner:
         buffer = self._require_buffer()
         audio = self._np.asarray(samples, dtype=self._np.float32)
         if self._stream_id < 0:
-            _, _, self._stream_id = buffer.append_audio(audio, stream_id=-1)
+            _, _, returned_stream_id = buffer.append_audio(audio, stream_id=-1)
+            self._stream_id = self._resolve_initial_stream_id(
+                buffer,
+                returned_stream_id=returned_stream_id,
+            )
         else:
-            buffer.append_audio(audio, stream_id=self._stream_id)
+            _, _, returned_stream_id = buffer.append_audio(
+                audio,
+                stream_id=self._stream_id,
+            )
+            if returned_stream_id != self._stream_id:
+                raise WorkerError(
+                    "cache-aware buffer changed stream_id during single-stream append"
+                )
         return self._drain_available(final=False)
 
     def poll_partial(self) -> str:
@@ -283,6 +297,28 @@ class CacheAwareConformerStreamingRunner:
         if self._buffer is None:
             raise WorkerError("cache-aware runner requires start_stream before audio")
         return self._buffer
+
+    @staticmethod
+    def _resolve_initial_stream_id(buffer, *, returned_stream_id: int) -> int:
+        if returned_stream_id >= 0:
+            return returned_stream_id
+        try:
+            streams_length = buffer.streams_length
+        except AttributeError as exc:
+            raise WorkerError(
+                "cache-aware buffer did not expose streams_length after first append"
+            ) from exc
+        if streams_length is None:
+            raise WorkerError("cache-aware buffer has no stream length after first append")
+        try:
+            stream_count = len(streams_length)
+        except TypeError as exc:
+            raise WorkerError("cache-aware buffer stream length is not countable") from exc
+        if stream_count != 1:
+            raise WorkerError(
+                "cache-aware buffer first append must create exactly one stream"
+            )
+        return 0
 
     def _drain_available(self, *, final: bool) -> str:
         buffer = self._require_buffer()
