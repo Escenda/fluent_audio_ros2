@@ -49,6 +49,100 @@ FluentAudio は NIM / Riva server を使わず、local `.nemo` を NeMo runtime 
 したがって、NIM / Riva / support matrix は model selection と serving stack の根拠です。
 `nemo_rnnt_streaming` backend の成立は、local `.nemo` に対する worker protocol と full ROS graph の代表検証でだけ判定します。
 
+## 調査結果を backend algorithm に落とす
+
+`nemo_rnnt_streaming` では、外部情報と local 実測を次の順序で扱います。
+順序は重要です。
+前段の evidence があっても、後段の evidence が無ければ後段を完了扱いしません。
+
+### 1. Artifact acquisition
+
+`ngc registry model download-version <artifact>` は、artifact version を local disk に取得するための preparation step です。
+`--dest` は取得先 directory、`--file` は取得 file wildcard、`--exclude` は除外 wildcard、`--format_type` は CLI output format です。
+これらは download 対象と表示形式を制御するだけで、Riva artifact を NeMo streaming model に変換しません。
+download 後も、`.nemo` restore、finite attention context、worker health、minimal stream、speech transcript、full ROS graph は未検証です。
+
+この backend の algorithm 上、artifact acquisition は runtime readiness より前の状態です。
+download が成功しても worker を `health_ok` と見なしません。
+download に失敗した場合や version が pin されていない場合は preparation failure として扱い、runtime node で latest artifact を探しに行く fallback は置きません。
+
+### 2. Riva/NGC artifact as local `.nemo` input
+
+`nvidia/riva/parakeet-rnnt-riva-1-1b-unified-ml-cs-universal:trainable_v1.0` は、現在の local 実験では `.nemo` file の取得元 artifact として扱います。
+この artifact が Riva catalog / NGC registry 上にあることは、FluentAudio が Riva server や NIM container を使っていることを意味しません。
+
+local worker が見るのは local `.nemo` file、NeMo runtime、Torch/CUDA、model config、worker JSONL protocol です。
+Riva / NIM serving stack が見るのは container profile、Triton/TensorRT、server config、Riva client / gRPC request、server-side stream state です。
+同じ model family でも実行責務が違うため、failure mode も異なります。
+
+### 3. NIM/Riva support matrix
+
+NIM docs 上の Parakeet RNNT Multilingual は 25+ languages、streaming + offline、auto language detection を持つ model family として扱われます。
+support matrix では `CONTAINER_ID=parakeet-1-1b-rnnt-multilingual` と `NIM_TAGS_SELECTOR` による profile selection が定義され、`mode=ofl`、`mode=str`、`mode=str-thr`、`mode=all` が serving mode として並びます。
+`ja-JP` は support matrix 上 default / prompt type の supported language です。
+
+これは NIM / Riva serving-stack capability です。
+local worker success ではありません。
+この backend では support matrix を「候補 model family と serving profile の根拠」としてだけ使い、`health_ok` や transcript success には昇格しません。
+
+### 4. Health-first local streaming contract
+
+local `nemo_rnnt_streaming` は、audio arrival 前に `health` を通す必要があります。
+health は単なる process alive check ではありません。
+`.nemo` restore、RNNT/Transducer 判定、sample rate、language metadata、cache-aware streaming API、finite attention context、streaming params、public health response contract をまとめて確認する startup gate です。
+
+この backend では、次のどれかが欠けたら fail closed します。
+
+- model が restore できない。
+- model が RNNT / Transducer として扱えない。
+- model sample rate と backend sample rate が合わない。
+- language metadata があり、configured language と一致しない。
+- cache-aware streaming API が無い。
+- requested finite attention context が supported contexts に無い。
+- `setup_streaming_params(...)` が成立しない。
+- `health_ok` response が backend config と一致しない。
+
+runtime audio 到着後に初めて失敗させるのではなく、起動時に止めます。
+
+### 5. Offline/full-context success は streaming success ではない
+
+`nemo_offline_transcribe` の success は、local `.nemo` と NeMo full-context `transcribe(...)` API が使えることを示します。
+しかし `nemo_rnnt_streaming` は cache-aware streaming backend です。
+streaming では stream-local cache、previous hypothesis、previous decoder output、partial/final semantics、chunk / shift / left context を扱います。
+
+full-context model を overlapping chunks で回す方式は、NeMo docs 上は simulated streaming として説明されます。
+ただし latency / accuracy tradeoff と compute duplication を持つ別 policy です。
+この backend では、それを hidden fallback として採用しません。
+採用するなら別 backend / 別 policy として仕様化します。
+
+### 6. Current local evidence
+
+現在この backend で確認済みなのは、local `.nemo` restore に到達した後、finite attention context が成立せず fail closed したことです。
+
+```text
+model encoder does not support a finite attention context; supported_contexts=[[-1, -1]]
+```
+
+この evidence は重要です。
+CUDA が無い、model file が無い、worker executable が無い、という失敗ではありません。
+現行 worker policy が要求する finite context と対象 artifact が公開する supported contexts の契約不一致です。
+
+したがって、現在完了扱いしないものは次です。
+
+- `health_ok`
+- `start`
+- `audio_accepted`
+- non-empty partial transcript
+- non-empty final transcript
+- streaming speech fixture
+- full ROS graph validation
+
+### 7. Documentation contract
+
+この backend docs では、support matrix、artifact acquisition、local file integrity、restore、worker health、streaming state machine、transcript success、full ROS graph validation をそれぞれ別の見出しと表で扱います。
+これは冗長さのためではなく、証拠境界を壊さないためです。
+どこで止まったのかを正確に残すことが、次に model artifact を変えるのか、backend policy を変えるのか、Riva/NIM backend を別に作るのかを判断する前提になります。
+
 ## Runtime Boundary
 
 `fa_asr` node 本体は NeMo / PyTorch / Parakeet を import しません。
@@ -279,8 +373,10 @@ src/ai/fa_asr/models/nemo_rnnt_streaming/
 
 model checkpoint は git 管理しません。
 host または prepare container で取得し、runtime container には volume として渡します。
-host の通常 `PATH` には `ngc` が無く、repo-local `./ngc-cli/ngc` は NGC CLI `4.18.0` として存在することを確認しています。
-`fluent-audio-runtime` container 内 PATH に `ngc` CLI がある前提で runtime node が model download する設計にはしません。
+current host PATH used by this session does not expose `ngc`。
+NGC CLI の availability / location は host または preparation environment が明示的に提供する必要があります。
+この repository 内の NGC CLI path や version は仕様化しません。
+`fluent-audio-runtime` container 内 PATH に `ngc` CLI がある前提で runtime node が model download する設計にも入りません。
 
 NGC CLI でこの artifact を取得する場合の操作単位は、次の pinned version です。
 
@@ -336,8 +432,8 @@ local file と runtime image について確認済みの事実は次です。
 | local `.nemo` path | `src/ai/fa_asr/models/nemo_rnnt_streaming/parakeet-rnnt-riva-1-1b-unified-ml-cs-universal_vtrainable_v1.0/Parakeet-RNNT-XXL-1.1b_merged_universal_spe8.5k_1.0.nemo` | worker が restore した local file。git 管理しない。 |
 | local file size | `4011233560` bytes | NGC metadata の size と整合するが、ASR 成功の証明ではない。 |
 | local SHA256 | `52332e96ef68ff8cfefd1d8d7b8c5d7b5333faa3cfac87ed4cc7b5ec3d5821c0` | local file integrity の証跡。worker capability 成立とは別。 |
-| repo-local NGC CLI | `./ngc-cli/ngc`, version `4.18.0` | artifact 取得用 tooling。runtime worker の依存ではない。 |
-| host `PATH` | `ngc` absent | host shell で `ngc` が常に使える前提にしない。 |
+| NGC CLI availability | host / preparation environment が明示的に提供する必要がある | repository 内の固定 path や version として仕様化しない。runtime worker の依存ではない。 |
+| host `PATH` | current host PATH used by this session does not expose `ngc` | host shell で `ngc` が常に使える前提にしない。 |
 | runtime image | `vlabor-fluent-audio:local` | worker、NeMo、Torch、CUDA が入っている検証対象 image。 |
 | GPU | RTX 5070 Ti | CUDA runtime が存在する検証環境。health failure の主因ではない。 |
 
@@ -1013,7 +1109,7 @@ Product Owner が次に判断すべきこと:
   - `CONTAINER_ID=parakeet-1-1b-rnnt-multilingual` と `NIM_TAGS_SELECTOR` による serving profile selection の説明。
   - これは NIM serving の説明であり、local `.nemo` worker の成功証明ではないこと。
 - NGC CLI registry docs
-  - https://docs.nvidia.com/dgx/ngc-registry-cli-user-guide/index-bak.html
+  - https://docs.ngc.nvidia.com/cli/cmd_registry.html
   - `ngc registry model download-version <org>/[<team>/]<model-name:version>` が registry から local disk へ指定 version を取得する操作であること。
   - `download-version` が artifact contents の取得であり、format conversion や worker health check ではないこと。
 - NVIDIA NeMo Framework ASR Models docs
