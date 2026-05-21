@@ -17,6 +17,7 @@ install(PROGRAMS
   scripts/download_whisper_cpp_model
   scripts/fa_asr_node
   scripts/nemo_rnnt_streaming_worker
+  scripts/prepare_nemo_rnnt_streaming_asr
   scripts/prepare_whisper_cpp_asr
   scripts/whisper_cpp_worker
   DESTINATION lib/${PROJECT_NAME}
