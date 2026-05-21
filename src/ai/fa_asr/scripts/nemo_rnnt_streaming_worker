@@ -160,12 +160,18 @@ class StreamingRuntime:
 class NemoStreamingModelRunner:
     def __init__(self, model) -> None:
         self._model = model
+        self._cache_aware_runner = _build_cache_aware_runner(model)
 
     def start_stream(self, *, session_id: str) -> None:
+        if self._cache_aware_runner is not None:
+            self._cache_aware_runner.start_stream()
+            return
         if hasattr(self._model, "start_stream"):
             self._model.start_stream(session_id)
 
     def accept_audio(self, *, samples: tuple[float, ...]) -> str:
+        if self._cache_aware_runner is not None:
+            return self._cache_aware_runner.accept_audio(samples=samples)
         if hasattr(self._model, "accept_audio"):
             return _require_text_result(self._model.accept_audio(samples))
         if hasattr(self._model, "transcribe_streaming_chunk"):
@@ -173,11 +179,15 @@ class NemoStreamingModelRunner:
         raise WorkerError("model does not expose accept_audio/transcribe_streaming_chunk")
 
     def poll_partial(self) -> str:
+        if self._cache_aware_runner is not None:
+            return self._cache_aware_runner.poll_partial()
         if hasattr(self._model, "poll_partial"):
             return _optional_text_result(self._model.poll_partial())
         return ""
 
     def finish_stream(self) -> str:
+        if self._cache_aware_runner is not None:
+            return self._cache_aware_runner.finish_stream()
         if hasattr(self._model, "finish_stream"):
             return _require_text_result(self._model.finish_stream())
         if hasattr(self._model, "finalize_stream"):
@@ -192,6 +202,143 @@ class NemoStreamingModelRunner:
             self._model.reset()
             return
         raise WorkerError("model does not expose reset_stream/reset")
+
+
+class CacheAwareConformerStreamingRunner:
+    def __init__(self, model) -> None:
+        _require_module("numpy")
+        _require_module("torch")
+        _require_module("nemo.collections.asr.parts.utils.streaming_utils")
+        self._np = importlib.import_module("numpy")
+        self._torch = importlib.import_module("torch")
+        streaming_utils = importlib.import_module(
+            "nemo.collections.asr.parts.utils.streaming_utils"
+        )
+        if not hasattr(streaming_utils, "CacheAwareStreamingAudioBuffer"):
+            raise WorkerError("NeMo CacheAwareStreamingAudioBuffer is unavailable")
+        self._model = model
+        self._buffer_class = streaming_utils.CacheAwareStreamingAudioBuffer
+        self._buffer = None
+        self._stream_id = -1
+        self._cache_last_channel = None
+        self._cache_last_time = None
+        self._cache_last_channel_len = None
+        self._previous_hypotheses = None
+        self._previous_pred_out = None
+        self._step_num = 0
+        self._last_text = ""
+
+    def start_stream(self) -> None:
+        encoder = _required_attr(self._model, "encoder")
+        if not hasattr(encoder, "get_initial_cache_state"):
+            raise WorkerError("model encoder does not expose get_initial_cache_state")
+        self._buffer = self._buffer_class(model=self._model, online_normalization=False)
+        caches = encoder.get_initial_cache_state(batch_size=1)
+        if type(caches) is not tuple or len(caches) != 3:
+            raise WorkerError("encoder initial cache state must contain three tensors")
+        self._cache_last_channel = caches[0]
+        self._cache_last_time = caches[1]
+        self._cache_last_channel_len = caches[2]
+        self._previous_hypotheses = None
+        self._previous_pred_out = None
+        self._stream_id = -1
+        self._step_num = 0
+        self._last_text = ""
+
+    def accept_audio(self, *, samples: tuple[float, ...]) -> str:
+        buffer = self._require_buffer()
+        audio = self._np.asarray(samples, dtype=self._np.float32)
+        if self._stream_id < 0:
+            _, _, self._stream_id = buffer.append_audio(audio, stream_id=-1)
+        else:
+            buffer.append_audio(audio, stream_id=self._stream_id)
+        return self._drain_available(final=False)
+
+    def poll_partial(self) -> str:
+        return self._last_text
+
+    def finish_stream(self) -> str:
+        final_text = self._drain_available(final=True)
+        if final_text:
+            self._last_text = final_text
+        if not self._last_text:
+            raise WorkerError("cache-aware streaming did not produce a final transcript")
+        return self._last_text
+
+    def reset_stream(self, *, reason: str) -> None:
+        del reason
+        if self._buffer is not None:
+            self._buffer.reset_buffer()
+        self._buffer = None
+        self._stream_id = -1
+        self._last_text = ""
+
+    def _require_buffer(self):
+        if self._buffer is None:
+            raise WorkerError("cache-aware runner requires start_stream before audio")
+        return self._buffer
+
+    def _drain_available(self, *, final: bool) -> str:
+        buffer = self._require_buffer()
+        latest_text = ""
+        for chunk_audio, chunk_lengths in buffer:
+            latest_text = self._conformer_stream_step(
+                chunk_audio=chunk_audio,
+                chunk_lengths=chunk_lengths,
+                keep_all_outputs=final or buffer.is_buffer_empty(),
+            )
+        if latest_text:
+            self._last_text = latest_text
+        return latest_text
+
+    def _conformer_stream_step(
+        self,
+        *,
+        chunk_audio,
+        chunk_lengths,
+        keep_all_outputs: bool,
+    ) -> str:
+        if not hasattr(self._model, "conformer_stream_step"):
+            raise WorkerError("model does not expose conformer_stream_step")
+        with self._torch.inference_mode():
+            outputs = self._model.conformer_stream_step(
+                processed_signal=chunk_audio,
+                processed_signal_length=chunk_lengths,
+                cache_last_channel=self._cache_last_channel,
+                cache_last_time=self._cache_last_time,
+                cache_last_channel_len=self._cache_last_channel_len,
+                keep_all_outputs=keep_all_outputs,
+                previous_hypotheses=self._previous_hypotheses,
+                previous_pred_out=self._previous_pred_out,
+                drop_extra_pre_encoded=self._drop_extra_pre_encoded(),
+                return_transcription=True,
+            )
+        if type(outputs) is not tuple or len(outputs) != 6:
+            raise WorkerError("conformer_stream_step must return six values")
+        (
+            self._previous_pred_out,
+            transcribed_texts,
+            self._cache_last_channel,
+            self._cache_last_time,
+            self._cache_last_channel_len,
+            self._previous_hypotheses,
+        ) = outputs
+        self._step_num += 1
+        return _first_transcription_text(transcribed_texts)
+
+    def _drop_extra_pre_encoded(self) -> int:
+        if self._step_num == 0:
+            return 0
+        encoder = _required_attr(self._model, "encoder")
+        streaming_cfg = _required_attr(encoder, "streaming_cfg")
+        value = _required_attr(streaming_cfg, "drop_extra_pre_encoded")
+        if type(value) is int:
+            return value
+        if type(value) is list or type(value) is tuple:
+            if len(value) == 0 or type(value[-1]) is not int:
+                raise WorkerError("drop_extra_pre_encoded must contain integers")
+            return value[-1]
+        raise WorkerError("drop_extra_pre_encoded must be an integer")
 
 
 def main() -> int:
@@ -218,8 +365,8 @@ def main() -> int:
                         "final_results_only": not config.emit_partial,
                         "supports_partials": capability.supports_partials,
                         "language": config.language,
-                        "chunk_size_samples": capability.chunk_size_samples,
-                        "max_partial_interval_ms": capability.max_partial_interval_ms,
+                        "chunk_size_samples": config.chunk_size_samples,
+                        "max_partial_interval_ms": config.max_partial_interval_ms,
                     }
                 )
                 continue
@@ -280,12 +427,10 @@ def inspect_model_capability(model) -> ModelCapability:
     encoder = _required_config_section(cfg, "encoder")
     sample_rate_hz = _required_config_int(preprocessor, "sample_rate")
     languages = _extract_languages(cfg)
-    rnnt = _is_rnnt_model_class(model_class) and _config_section_mentions(decoder, "rnnt")
+    rnnt = _is_rnnt_model_class(model_class) or _config_section_mentions(decoder, "rnnt")
     cache_aware_streaming = _encoder_supports_cache_aware_streaming(encoder)
-    chunk_size_samples = _required_config_int(encoder, "chunk_size")
-    max_partial_interval_ms = _optional_config_int(
-        encoder, "max_partial_interval_ms", default_value=300
-    )
+    chunk_size_samples = _optional_config_int(encoder, "chunk_size_samples", default_value=0)
+    max_partial_interval_ms = _optional_config_int(encoder, "max_partial_interval_ms", default_value=0)
     _required_config_section(joint, "jointnet")
     return ModelCapability(
         model_class=model_class,
@@ -311,16 +456,6 @@ def validate_model_capability(capability: ModelCapability, config: WorkerConfig)
         )
     if capability.languages and config.language not in capability.languages:
         raise WorkerError(f"language {config.language} is not supported by model")
-    if capability.chunk_size_samples != config.chunk_size_samples:
-        raise WorkerError(
-            f"chunk_size_samples {config.chunk_size_samples} "
-            f"does not match model chunk_size {capability.chunk_size_samples}"
-        )
-    if capability.max_partial_interval_ms != config.max_partial_interval_ms:
-        raise WorkerError(
-            f"max_partial_interval_ms {config.max_partial_interval_ms} "
-            f"does not match model {capability.max_partial_interval_ms}"
-        )
     if config.emit_partial and not capability.supports_partials:
         raise WorkerError("model does not expose partial result support")
 
@@ -583,11 +718,35 @@ def _encoder_supports_cache_aware_streaming(encoder) -> bool:
         return True
     if getattr(encoder, "streaming", "") == "cache_aware":
         return True
+    if hasattr(encoder, "setup_streaming_params") and hasattr(
+        encoder, "get_initial_cache_state"
+    ):
+        return True
     return hasattr(encoder, "streaming_cfg")
 
 
 def _model_supports_partials(model) -> bool:
-    return hasattr(model, "accept_audio") or hasattr(model, "transcribe_streaming_chunk")
+    return (
+        hasattr(model, "accept_audio")
+        or hasattr(model, "transcribe_streaming_chunk")
+        or hasattr(model, "conformer_stream_step")
+    )
+
+
+def _build_cache_aware_runner(model) -> CacheAwareConformerStreamingRunner | None:
+    if not hasattr(model, "conformer_stream_step"):
+        return None
+    if not hasattr(model, "encoder"):
+        return None
+    return CacheAwareConformerStreamingRunner(model)
+
+
+def _require_module(module_name: str) -> None:
+    parts = module_name.split(".")
+    for index in range(1, len(parts) + 1):
+        candidate = ".".join(parts[:index])
+        if importlib.util.find_spec(candidate) is None:
+            raise WorkerError(f"required module is unavailable: {module_name}")
 
 
 def _require_text_result(value) -> str:
@@ -609,6 +768,14 @@ def _optional_text_result(value) -> str:
         if type(text) is str:
             return text
     raise WorkerError("model streaming API must return text")
+
+
+def _first_transcription_text(value) -> str:
+    if type(value) is list or type(value) is tuple:
+        if len(value) == 0:
+            return ""
+        return _optional_text_result(value[0])
+    return _optional_text_result(value)
 
 
 if __name__ == "__main__":

@@ -33,19 +33,72 @@ def _write_model(path: Path) -> Path:
 def _fake_modules_dir(tmp_path: Path, *, model_kind: str = "rnnt") -> Path:
     root = tmp_path / "fake_nemo"
     models_dir = root / "nemo" / "collections" / "asr" / "models"
-    class_name = "FakeOfflineModel" if model_kind == "offline" else "FakeRNNTModel"
+    utils_dir = root / "nemo" / "collections" / "asr" / "parts" / "utils"
+    if model_kind == "offline":
+        class_name = "FakeOfflineModel"
+    elif model_kind == "cache_aware":
+        class_name = "FakeCacheAwareRNNTModel"
+    else:
+        class_name = "FakeRNNTModel"
     cache_aware = "False" if model_kind == "offline" else "True"
     decoder_kind = "ctc" if model_kind == "offline" else "rnnt"
     models_dir.mkdir(parents=True)
+    utils_dir.mkdir(parents=True)
     for package_dir in (
         root / "nemo",
         root / "nemo" / "collections",
         root / "nemo" / "collections" / "asr",
+        root / "nemo" / "collections" / "asr" / "parts",
+        utils_dir,
         models_dir,
     ):
         (package_dir / "__init__.py").write_text("", encoding="utf-8")
+    utils_dir.joinpath("streaming_utils.py").write_text(
+        """
+class CacheAwareStreamingAudioBuffer:
+    def __init__(self, model, online_normalization=False):
+        self.items = []
+        self.cursor = 0
+
+    def append_audio(self, audio, stream_id=-1):
+        self.items.append(audio)
+        return None, None, 0 if stream_id < 0 else stream_id
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.cursor >= len(self.items):
+            raise StopIteration
+        item = self.items[self.cursor]
+        self.cursor += 1
+        return item, len(item)
+
+    def is_buffer_empty(self):
+        return self.cursor >= len(self.items)
+
+    def reset_buffer(self):
+        self.items = []
+        self.cursor = 0
+""",
+        encoding="utf-8",
+    )
     models_dir.joinpath("__init__.py").write_text(
         f"""
+class FakeStreamingCfg:
+    drop_extra_pre_encoded = 0
+
+
+class FakeEncoder:
+    cache_aware_streaming = True
+
+    def __init__(self):
+        self.streaming_cfg = FakeStreamingCfg()
+
+    def get_initial_cache_state(self, batch_size):
+        return ("cache_channel", "cache_time", "cache_len")
+
+
 class {class_name}:
     def __init__(self):
         self.cfg = {{
@@ -61,6 +114,9 @@ class {class_name}:
         }}
         self.samples = []
         self.reset_reasons = []
+        self.calls = 0
+        if "{model_kind}" == "cache_aware":
+            self.encoder = FakeEncoder()
 
     def start_stream(self, session_id):
         self.session_id = session_id
@@ -78,6 +134,19 @@ class {class_name}:
     def reset_stream(self, reason):
         self.reset_reasons.append(reason)
 
+    def conformer_stream_step(self, **kwargs):
+        if "{model_kind}" != "cache_aware":
+            raise RuntimeError("unexpected conformer_stream_step call")
+        self.calls += 1
+        return (
+            "pred-" + str(self.calls),
+            [{{"text": "cache-" + str(self.calls)}}],
+            kwargs["cache_last_channel"],
+            kwargs["cache_last_time"],
+            kwargs["cache_last_channel_len"],
+            ["hyp-" + str(self.calls)],
+        )
+
 
 class ASRModel:
     @staticmethod
@@ -93,7 +162,7 @@ def _run_worker(*, python_path: Path, stdin_text: str) -> subprocess.CompletedPr
     env = os.environ.copy()
     env["PYTHONPATH"] = str(python_path)
     return subprocess.run(
-        (str(WORKER),),
+        (sys.executable, str(WORKER)),
         input=stdin_text,
         capture_output=True,
         text=True,
@@ -256,6 +325,45 @@ def test_jsonl_protocol_accepts_health_start_audio_drain_and_finish(
         "finished",
     ]
     assert responses[-2]["text"] == "final-2"
+    assert completed.stderr == ""
+
+
+def test_jsonl_protocol_uses_cache_aware_conformer_stream_step_when_available(
+    tmp_path: Path,
+) -> None:
+    model_path = _write_model(tmp_path / "model.nemo")
+    fake_root = _fake_modules_dir(tmp_path, model_kind="cache_aware")
+    stdin_text = "".join(
+        (
+            _json_line(_health_message(model_path)),
+            _json_line(_start_message(model_path)),
+            _json_line(
+                {
+                    "type": "audio",
+                    "session_id": "s1",
+                    "encoding": "base64_float32le",
+                    "sample_count": 2,
+                    "data": _audio_b64((0.0, 0.25)),
+                }
+            ),
+            _json_line({"type": "finish", "session_id": "s1"}),
+        )
+    )
+
+    completed = _run_worker(python_path=fake_root, stdin_text=stdin_text)
+
+    assert completed.returncode == 0
+    responses = [json.loads(line) for line in completed.stdout.splitlines()]
+    assert [response["type"] for response in responses] == [
+        "health_ok",
+        "stream_started",
+        "partial",
+        "audio_accepted",
+        "final",
+        "finished",
+    ]
+    assert responses[2]["text"] == "cache-1"
+    assert responses[4]["text"] == "cache-1"
     assert completed.stderr == ""
 
 
