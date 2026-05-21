@@ -14,7 +14,8 @@ FIXTURE_DIR = PACKAGE_ROOT / "test" / "fixtures"
 
 FixtureParamScalar: TypeAlias = str | int | float | bool
 FixtureParamMapping: TypeAlias = dict[str, "FixtureParamValue"]
-FixtureParamValue: TypeAlias = FixtureParamScalar | FixtureParamMapping
+FixtureParamSequence: TypeAlias = list["FixtureParamValue"]
+FixtureParamValue: TypeAlias = FixtureParamScalar | FixtureParamMapping | FixtureParamSequence
 
 
 def _patch_fluent_audio_system_share(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,6 +132,71 @@ def _set_voice_frontend_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     }
     for name, value in values.items():
         monkeypatch.setenv(name, value)
+
+
+def _assert_speech_control_topic_contract(
+    params: FixtureParamMapping,
+    expected_stream_id: str,
+) -> None:
+    assert "vad_topic" not in params
+    assert params["control.default_enabled"] is False
+    assert params["control.inputs"] == ["speech_control"]
+    assert params["control.speech_control.action"] == "topic"
+    assert params["control.speech_control.topic"] == "voice/vad_state"
+    assert params["control.speech_control.msg_type"] == "fa_interfaces/msg/VadState"
+    assert params["control.speech_control.source_id"] == "mic"
+    assert params["control.speech_control.stream_id"] == expected_stream_id
+
+
+def _assert_kws_speech_control_contract(
+    params: FixtureParamMapping,
+    expected_stream_id: str,
+) -> None:
+    _assert_speech_control_topic_contract(params, expected_stream_id)
+    assert "vad.probability_gate" not in params
+    assert "vad.max_age_ms" not in params
+    assert "vad.qos.depth" not in params
+    assert "vad.qos.reliable" not in params
+    assert params["control.speech_control.probability_field"] == "probability"
+    assert params["control.speech_control.probability_gate"] == 0.35
+    assert params["control.speech_control.max_age_ms"] == 1000
+    assert params["control.speech_control.qos.depth"] == 20
+    assert params["control.speech_control.qos.reliable"] is False
+
+
+def _assert_asr_speech_control_contract(
+    params: FixtureParamMapping,
+    expected_stream_id: str,
+) -> None:
+    _assert_speech_control_topic_contract(params, expected_stream_id)
+    assert "finalize_on_vad_end" not in params
+    assert params["control.speech_control.active_field"] == "is_speech"
+    assert params["control.speech_control.start_field"] == "start"
+    assert params["control.speech_control.end_field"] == "end"
+    assert params["control.speech_control.open_on"] == "start_or_active_rising"
+    assert params["control.speech_control.close_on"] == "end_or_active_falling"
+    assert params["control.speech_control.submit_on_close"] is True
+    assert params["control.speech_control.pre_roll_ms"] == 0.0
+    assert params["control.speech_control.post_roll_ms"] == 0.0
+    assert params["control.speech_control.qos.depth"] == 50
+    assert params["control.speech_control.qos.reliable"] is False
+
+
+def _assert_turn_detector_speech_control_contract(
+    params: FixtureParamMapping,
+    expected_stream_id: str,
+) -> None:
+    _assert_speech_control_topic_contract(params, expected_stream_id)
+    assert "vad.qos.depth" not in params
+    assert "vad.qos.reliable" not in params
+    assert params["control.speech_control.active_field"] == "is_speech"
+    assert params["control.speech_control.start_field"] == "start"
+    assert params["control.speech_control.end_field"] == "end"
+    assert params["control.speech_control.close_on"] == "end_or_active_falling"
+    assert params["control.speech_control.qos.depth"] == 10
+    assert params["control.speech_control.qos.reliable"] is False
+
+
 def test_system_configs_keep_runtime_node_identity_package_aligned() -> None:
     violations: list[str] = []
     expected_node_names = {
@@ -468,7 +534,10 @@ def test_so101_kws_frontend_profile_expands_vad_and_kws_worker_contract(
     kws_params = params_by_id["fa_kws"]
     assert kws_params["audio_topic"] == vad_params["input_topic"]
     assert kws_params["expected_stream_id"] == vad_params["input_stream_id"]
-    assert kws_params["vad_topic"] == "voice/vad_state"
+    _assert_kws_speech_control_contract(
+        kws_params,
+        expected_stream_id=vad_params["input_stream_id"],
+    )
     assert kws_params["output_topic"] == "voice/wake_word"
     assert kws_params["backend.name"] == "sherpa_onnx_kws"
     assert kws_params["backend.execution_provider"] == "cpu"
@@ -606,7 +675,10 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
     )
     assert asr_params["audio_topic"] == vad_params["input_topic"]
     assert asr_params["expected_stream_id"] == vad_params["input_stream_id"]
-    assert asr_params["vad_topic"] == "voice/vad_state"
+    _assert_asr_speech_control_contract(
+        asr_params,
+        expected_stream_id=vad_params["input_stream_id"],
+    )
     assert asr_params["turn_context_topic"] == "conversation/turn_context"
     assert asr_params["asr_result_topic"] == "voice/asr/result"
     assert asr_params["timeline.retention_sec"] == audio_window_params["window.retention_seconds"]
@@ -630,7 +702,10 @@ def test_so101_voice_frontend_profile_expands_full_voice_backend_contract(
 
     assert turn_detector_params["audio_topic"] == vad_params["input_topic"]
     assert turn_detector_params["expected_stream_id"] == vad_params["input_stream_id"]
-    assert turn_detector_params["vad_topic"] == "voice/vad_state"
+    _assert_turn_detector_speech_control_contract(
+        turn_detector_params,
+        expected_stream_id=vad_params["input_stream_id"],
+    )
     assert turn_detector_params["turn_context_topic"] == "conversation/turn_context"
     assert turn_detector_params["output_topic"] == "voice/turn_end"
     assert turn_detector_params["backend.name"] == "smart_turn_onnx"
@@ -702,6 +777,73 @@ def test_so101_voice_frontend_profile_requires_asr_and_turn_detector_env(
         load_system_config(
             "${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml"
         )
+
+
+@pytest.mark.parametrize(
+    ("package_name", "executable_name", "backend_name"),
+    (
+        ("fa_asr", "fa_asr_node", "whisper.cpp"),
+        ("fa_kws", "fa_kws_node", "sherpa_onnx_kws"),
+        ("fa_turn_detector", "fa_turn_detector_node", "smart_turn_onnx"),
+    ),
+)
+def test_control_schema_rejects_unknown_control_suffix(
+    tmp_path: Path,
+    package_name: str,
+    executable_name: str,
+    backend_name: str,
+) -> None:
+    params_file = tmp_path / f"{package_name}.params.yaml"
+    params_file.write_text(
+        f"{package_name}:\n  ros__parameters: {{}}\n",
+        encoding="utf-8",
+    )
+
+    raw_config: FixtureParamMapping = {
+        "system": {
+            "default_start_delay": 0.0,
+            "inter_group_delay": 0.0,
+        },
+        "groups": [
+            {
+                "id": "ai",
+                "enable": True,
+                "nodes": [
+                    {
+                        "id": package_name,
+                        "enable": True,
+                        "package": package_name,
+                        "exec": executable_name,
+                        "node_name": package_name,
+                        "params_file": str(params_file),
+                        "parameters": {
+                            "audio_topic": "voice/audio",
+                            "expected_stream_id": "voice/mic",
+                            "backend.name": backend_name,
+                            "control.default_enabled": False,
+                            "control.inputs": ["speech_control"],
+                            "control.speech_control.action": "topic",
+                            "control.speech_control.topic": "voice/vad_state",
+                            "control.speech_control.msg_type": (
+                                "fa_interfaces/msg/VadState"
+                            ),
+                            "control.speech_control.stream_id": "voice/mic",
+                            "control.speech_control.open_policy": (
+                                "start_or_active_rising"
+                            ),
+                        },
+                    },
+                ],
+            },
+        ],
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match=f"unsupported {package_name} control parameter "
+        "'control.speech_control.open_policy'",
+    ):
+        config_schema.parse_system_config(raw_config)
 
 
 @pytest.mark.parametrize(
@@ -830,6 +972,10 @@ def test_kws_profiles_carry_external_worker_contract_in_system_config(
     assert params["backend.cleanup_audio_files"] is True
     assert params["output.qos.depth"] == 10
     assert params["output.qos.reliable"] is False
+    _assert_kws_speech_control_contract(
+        params,
+        expected_stream_id=params["expected_stream_id"],
+    )
     assert "{audio}" in params["backend.args"]
     assert "{audio}" not in params["backend.health_args"]
     assert "qos.depth" not in params
@@ -858,7 +1004,10 @@ def test_asr_profiles_carry_whisper_worker_contract_in_system_config(
     assert params["backend.result_format"] == "plain_text"
     assert params["backend.command"] == "${env:FLUENT_AUDIO_ASR_WORKER}"
     assert params["backend.model_path"] == "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
-    assert params["vad_topic"] == "voice/vad_state"
+    _assert_asr_speech_control_contract(
+        params,
+        expected_stream_id=params["expected_stream_id"],
+    )
     assert params["turn_context_topic"] == "conversation/turn_context"
     assert params["asr_result_topic"] == "voice/asr/result"
     assert params["backend.timeout_sec"] == 120.0
@@ -898,7 +1047,10 @@ def test_turn_detector_profiles_carry_external_worker_contract_in_system_config(
         params["backend.execution_provider"]
         == "${env:FLUENT_AUDIO_TURN_DETECTOR_PROVIDER}"
     )
-    assert params["vad_topic"] == "voice/vad_state"
+    _assert_turn_detector_speech_control_contract(
+        params,
+        expected_stream_id=params["expected_stream_id"],
+    )
     assert params["turn_context_topic"] == "conversation/turn_context"
     assert params["output_topic"] == "voice/turn_end"
     assert params["backend.timeout_sec"] == 5.0

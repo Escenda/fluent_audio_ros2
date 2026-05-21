@@ -341,6 +341,29 @@ _AI_AUDIO_CONTRACT = ParameterIdentityContract(
     )),
     stream_identity_keys=frozenset(("expected_stream_id", "input_stream_id")),
 )
+_KWS_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset((
+        "audio_topic",
+        "output_topic",
+    )),
+    stream_identity_keys=frozenset(("expected_stream_id",)),
+)
+_ASR_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset((
+        "audio_topic",
+        "turn_context_topic",
+        "asr_result_topic",
+    )),
+    stream_identity_keys=frozenset(("expected_stream_id",)),
+)
+_TURN_DETECTOR_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset((
+        "audio_topic",
+        "turn_context_topic",
+        "output_topic",
+    )),
+    stream_identity_keys=frozenset(("expected_stream_id",)),
+)
 _AUDIO_WINDOW_CONTRACT = ParameterIdentityContract(
     topic_keys=frozenset(("input_topic",)),
     stream_identity_keys=frozenset(("input.stream_id",)),
@@ -458,9 +481,9 @@ _PARAMETER_IDENTITY_CONTRACTS: dict[str, ParameterIdentityContract] = {
     "fa_bus_router": _BUS_ROUTER_CONTRACT,
     "fa_patchbay": _PATCHBAY_CONTRACT,
     "fa_vad": _VAD_CONTRACT,
-    "fa_kws": _AI_AUDIO_CONTRACT,
-    "fa_asr": _AI_AUDIO_CONTRACT,
-    "fa_turn_detector": _AI_AUDIO_CONTRACT,
+    "fa_kws": _KWS_CONTRACT,
+    "fa_asr": _ASR_CONTRACT,
+    "fa_turn_detector": _TURN_DETECTOR_CONTRACT,
     "fa_audio_embedding": _AI_AUDIO_CONTRACT,
     "fa_audio_window": _AUDIO_WINDOW_CONTRACT,
     "fa_tts": _TTS_CONTRACT,
@@ -472,6 +495,57 @@ _PARAMETER_IDENTITY_CONTRACTS: dict[str, ParameterIdentityContract] = {
         package_name: _FEATURE_ANALYSIS_CONTRACT
         for package_name in _FEATURE_ANALYSIS_PACKAGES
     },
+}
+_CONTROL_TOP_LEVEL_KEYS = frozenset((
+    "control.inputs",
+    "control.default_enabled",
+))
+_ASR_CONTROL_SUFFIXES = frozenset((
+    "action",
+    "topic",
+    "msg_type",
+    "source_id",
+    "stream_id",
+    "active_field",
+    "start_field",
+    "end_field",
+    "open_on",
+    "close_on",
+    "submit_on_close",
+    "pre_roll_ms",
+    "post_roll_ms",
+    "qos.depth",
+    "qos.reliable",
+))
+_KWS_CONTROL_SUFFIXES = frozenset((
+    "action",
+    "topic",
+    "msg_type",
+    "source_id",
+    "stream_id",
+    "probability_field",
+    "probability_gate",
+    "max_age_ms",
+    "qos.depth",
+    "qos.reliable",
+))
+_TURN_DETECTOR_CONTROL_SUFFIXES = frozenset((
+    "action",
+    "topic",
+    "msg_type",
+    "source_id",
+    "stream_id",
+    "active_field",
+    "start_field",
+    "end_field",
+    "close_on",
+    "qos.depth",
+    "qos.reliable",
+))
+_CONTROL_SUFFIXES_BY_PACKAGE: dict[str, frozenset[str]] = {
+    "fa_asr": _ASR_CONTROL_SUFFIXES,
+    "fa_kws": _KWS_CONTROL_SUFFIXES,
+    "fa_turn_detector": _TURN_DETECTOR_CONTROL_SUFFIXES,
 }
 
 
@@ -874,6 +948,8 @@ def _validate_parameter_identity_contract(
     contract = _PARAMETER_IDENTITY_CONTRACTS.get(package)
     if contract is None or not parameters:
         return
+    if package in _CONTROL_SUFFIXES_BY_PACKAGE:
+        contract = _control_identity_contract(package, contract, parameters, node_id)
 
     topic_values = _contract_values(parameters, contract.topic_keys, node_id)
     if not topic_values:
@@ -897,6 +973,86 @@ def _validate_parameter_identity_contract(
                     f"node {node_id} parameter '{stream_key}' must not reuse ROS topic "
                     f"value '{value}'"
                 )
+
+
+def _control_identity_contract(
+    package: str,
+    base_contract: ParameterIdentityContract,
+    parameters: dict[str, ParamValue],
+    node_id: str,
+) -> ParameterIdentityContract:
+    control_parameter_ids = _control_parameter_ids(package, parameters)
+    if "control.inputs" not in parameters:
+        if control_parameter_ids:
+            raise RuntimeError(
+                f"node {node_id}.control.inputs is required when control parameters are set"
+            )
+        return base_contract
+
+    control_ids = _control_inputs(parameters["control.inputs"], node_id)
+    for control_parameter_id in control_parameter_ids:
+        if control_parameter_id not in control_ids:
+            raise RuntimeError(
+                f"node {node_id} control parameter '{control_parameter_id}' "
+                "must be listed in control.inputs"
+            )
+
+    control_topic_keys = {
+        f"control.{control_id}.topic"
+        for control_id in control_ids
+    }
+    control_stream_identity_keys = {
+        f"control.{control_id}.stream_id"
+        for control_id in control_ids
+    }
+    for control_key in sorted(control_topic_keys | control_stream_identity_keys):
+        if control_key not in parameters:
+            raise RuntimeError(f"node {node_id} parameter '{control_key}' is required")
+
+    return ParameterIdentityContract(
+        topic_keys=base_contract.topic_keys | frozenset(control_topic_keys),
+        stream_identity_keys=(
+            base_contract.stream_identity_keys | frozenset(control_stream_identity_keys)
+        ),
+    )
+
+
+def _control_inputs(value: ParamValue, node_id: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise RuntimeError(
+            f"node {node_id} parameter 'control.inputs' must be a list of strings"
+        )
+
+    control_ids: list[str] = []
+    seen: set[str] = set()
+    for control_id in value:
+        if not control_id:
+            raise RuntimeError("control.inputs must not contain empty IDs")
+        if control_id != control_id.strip():
+            raise RuntimeError("control.inputs IDs must not contain surrounding whitespace")
+        if control_id in seen:
+            raise RuntimeError("control.inputs must not contain duplicate IDs")
+        seen.add(control_id)
+        control_ids.append(control_id)
+    return control_ids
+
+
+def _control_parameter_ids(package: str, parameters: dict[str, ParamValue]) -> set[str]:
+    supported_suffixes = _CONTROL_SUFFIXES_BY_PACKAGE[package]
+    control_parameter_ids: set[str] = set()
+    for key in parameters:
+        if not key.startswith("control."):
+            continue
+        if key in _CONTROL_TOP_LEVEL_KEYS:
+            continue
+        segments = key.split(".")
+        if len(segments) < 3 or not segments[1]:
+            raise RuntimeError(f"unsupported {package} control parameter '{key}'")
+        suffix = ".".join(segments[2:])
+        if suffix not in supported_suffixes:
+            raise RuntimeError(f"unsupported {package} control parameter '{key}'")
+        control_parameter_ids.add(segments[1])
+    return control_parameter_ids
 
 
 def _contract_values(

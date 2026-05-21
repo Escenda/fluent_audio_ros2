@@ -642,7 +642,18 @@ groups:
         parameters:
           audio_topic: "audio/resample16k/mic"
           expected_stream_id: "audio/preprocessed/mono16k"
-          vad_topic: "voice/vad_state"
+          control.default_enabled: false
+          control.inputs: ["speech_control"]
+          control.speech_control.action: "topic"
+          control.speech_control.topic: "voice/vad_state"
+          control.speech_control.msg_type: "fa_interfaces/msg/VadState"
+          control.speech_control.source_id: "mic"
+          control.speech_control.stream_id: "audio/preprocessed/mono16k"
+          control.speech_control.probability_field: "probability"
+          control.speech_control.probability_gate: 0.35
+          control.speech_control.max_age_ms: 1000
+          control.speech_control.qos.depth: 20
+          control.speech_control.qos.reliable: false
           output_topic: "voice/wake_word"
           backend.name: "sherpa_onnx_kws"
           backend.execution_provider: "${env:FLUENT_AUDIO_KWS_PROVIDER}"
@@ -728,7 +739,23 @@ groups:
         parameters:
           audio_topic: "audio/resample16k/mic"
           expected_stream_id: "audio/preprocessed/mono16k"
-          vad_topic: "voice/vad_state"
+          control.default_enabled: false
+          control.inputs: ["speech_control"]
+          control.speech_control.action: "topic"
+          control.speech_control.topic: "voice/vad_state"
+          control.speech_control.msg_type: "fa_interfaces/msg/VadState"
+          control.speech_control.source_id: "mic"
+          control.speech_control.stream_id: "audio/preprocessed/mono16k"
+          control.speech_control.active_field: "is_speech"
+          control.speech_control.start_field: "start"
+          control.speech_control.end_field: "end"
+          control.speech_control.open_on: "start_or_active_rising"
+          control.speech_control.close_on: "end_or_active_falling"
+          control.speech_control.submit_on_close: true
+          control.speech_control.pre_roll_ms: 0.0
+          control.speech_control.post_roll_ms: 0.0
+          control.speech_control.qos.depth: 50
+          control.speech_control.qos.reliable: false
           turn_context_topic: "conversation/turn_context"
           asr_result_topic: "voice/asr/result"
           timeline.retention_sec: 1800.0
@@ -784,7 +811,19 @@ groups:
         parameters:
           audio_topic: "audio/resample16k/mic"
           expected_stream_id: "audio/preprocessed/mono16k"
-          vad_topic: "voice/vad_state"
+          control.default_enabled: false
+          control.inputs: ["speech_control"]
+          control.speech_control.action: "topic"
+          control.speech_control.topic: "voice/vad_state"
+          control.speech_control.msg_type: "fa_interfaces/msg/VadState"
+          control.speech_control.source_id: "mic"
+          control.speech_control.stream_id: "audio/preprocessed/mono16k"
+          control.speech_control.active_field: "is_speech"
+          control.speech_control.start_field: "start"
+          control.speech_control.end_field: "end"
+          control.speech_control.close_on: "end_or_active_falling"
+          control.speech_control.qos.depth: 10
+          control.speech_control.qos.reliable: false
           turn_context_topic: "conversation/turn_context"
           output_topic: "voice/turn_end"
           backend.name: "smart_turn_onnx"

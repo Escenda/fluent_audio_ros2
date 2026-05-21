@@ -46,6 +46,7 @@ _RELATIVE_EXPECTED_DURATION_NS = _RELATIVE_AUDIO_END_NS - _RELATIVE_AUDIO_START_
 _ASR_SAMPLE_VALUE = 0.125
 _WINDOW_SAMPLE_VALUE = 1000
 _PROFILE_ARCHIVE_SAMPLE_VALUE = 4096
+_PROFILE_AUDIO_FRAME_SAMPLE_COUNT = 320
 _TRANSCRIPT = "combined launch transcript"
 _PROFILE_TRANSCRIPT = "so101 profile launch transcript"
 _MODEL_ID = "combined-launch-fake-asr"
@@ -53,6 +54,7 @@ _MODEL_VERSION = "test"
 _MODEL_REVISION = "combined-launch-smoke"
 _DISABLED_SITE_BINDING = "disabled"
 _SOURCE_ID = _DISABLED_SITE_BINDING
+_PROFILE_SOURCE_ID = "mic"
 _ASR_STREAM_ID = "audio/high_pass/mic"
 _WINDOW_STREAM_ID = "audio/archive_pcm16/mic"
 _ARCHIVE_REASON = "combined launch smoke"
@@ -64,6 +66,7 @@ _REAL_ASR_MODEL_PATH_ENV = "FLUENT_AUDIO_ASR_MODEL_PATH"
 _REAL_ASR_AUDIO_F32_PATH_ENV = "FLUENT_AUDIO_REAL_ASR_AUDIO_F32_PATH"
 _REAL_ASR_SAMPLE_RATE_ENV = "FLUENT_AUDIO_REAL_ASR_SAMPLE_RATE"
 _REAL_ASR_EXPECTED_TEXT_ENV = "FLUENT_AUDIO_REAL_ASR_EXPECTED_TEXT"
+_SO101_HIGH_PASS_DIRECT_CONSUMERS = 5
 _PROFILE_CONFIG_ARG = (
     "${share:fluent_audio_system}/config/profiles/so101_voice_frontend.yaml,"
     "${share:fluent_audio_system}/config/profiles/so101_agent_audio_tools.yaml"
@@ -729,7 +732,6 @@ def _write_asr_params(config: _SmokeConfig) -> None:
             config.asr_node_name: {
                 "ros__parameters": {
                     "audio_topic": config.asr_audio_topic,
-                    "vad_topic": config.vad_topic,
                     "turn_context_topic": config.turn_context_topic,
                     "asr_result_topic": config.asr_result_topic,
                     "transcribe_service_name": config.transcribe_service,
@@ -742,7 +744,21 @@ def _write_asr_params(config: _SmokeConfig) -> None:
                     "timeline.window_id": "combined_launch_asr_window",
                     "timeline.window_epoch": 11,
                     "silence_timeout_sec": 10.0,
-                    "finalize_on_vad_end": True,
+                    "control.default_enabled": False,
+                    "control.inputs": ["speech_control"],
+                    "control.speech_control.action": "topic",
+                    "control.speech_control.topic": config.vad_topic,
+                    "control.speech_control.msg_type": "fa_interfaces/msg/VadState",
+                    "control.speech_control.source_id": _SOURCE_ID,
+                    "control.speech_control.stream_id": _ASR_STREAM_ID,
+                    "control.speech_control.active_field": "is_speech",
+                    "control.speech_control.start_field": "start",
+                    "control.speech_control.end_field": "end",
+                    "control.speech_control.open_on": "start_or_active_rising",
+                    "control.speech_control.close_on": "end_or_active_falling",
+                    "control.speech_control.submit_on_close": True,
+                    "control.speech_control.pre_roll_ms": 0.0,
+                    "control.speech_control.post_roll_ms": 0.0,
                     "finalize_on_context_inactive": True,
                     "workspace_dir": str(config.asr_workspace),
                     "cleanup_audio_files": True,
@@ -783,8 +799,8 @@ def _write_asr_params(config: _SmokeConfig) -> None:
                     "backend.result_format": "plain_text",
                     "audio.qos.depth": 20,
                     "audio.qos.reliable": True,
-                    "vad.qos.depth": 20,
-                    "vad.qos.reliable": False,
+                    "control.speech_control.qos.depth": 20,
+                    "control.speech_control.qos.reliable": False,
                     "turn_context.qos.depth": 10,
                     "turn_context.qos.reliable": True,
                     "result.qos.depth": 10,
@@ -1024,7 +1040,7 @@ def _start_profile_launch_process_with_environment(
             f"config:={_PROFILE_CONFIG_ARG}",
             "fa_in_enabled:=false",
             "fa_out_enabled:=false",
-            f"fa_in_source_id:={_DISABLED_SITE_BINDING}",
+            f"fa_in_source_id:={_PROFILE_SOURCE_ID}",
             f"fa_out_sink_id:={_DISABLED_SITE_BINDING}",
         ],
         env=env,
@@ -1162,21 +1178,20 @@ def _publish_profile_high_pass_frames(
             high_pass_pub,
             executor,
             process,
+            expected_subscription_count=_SO101_HIGH_PASS_DIRECT_CONSUMERS,
             timeout_sec=timeout_sec,
         )
         frame_data = audio_data
         if frame_data is None:
             frame_data = _float32le_bytes(_ASR_SAMPLE_VALUE, config.sample_count)
-        high_pass_pub.publish(
-            _audio_frame(
-                audio_frame_cls,
-                source_id=_SOURCE_ID,
-                stream_id=_ASR_STREAM_ID,
-                encoding="FLOAT32LE",
-                bit_depth=32,
-                start_unix_ns=config.start_unix_ns,
-                data=frame_data,
-            )
+        _publish_float32le_profile_audio_frames(
+            high_pass_pub,
+            audio_frame_cls,
+            frame_data=frame_data,
+            start_unix_ns=config.start_unix_ns,
+            frame_sample_count=_PROFILE_AUDIO_FRAME_SAMPLE_COUNT,
+            executor=executor,
+            process=process,
         )
         end_time = time.monotonic() + 0.8
         while time.monotonic() < end_time:
@@ -1184,6 +1199,45 @@ def _publish_profile_high_pass_frames(
             executor.spin_once(timeout_sec=0.05)
     finally:
         node.destroy_publisher(high_pass_pub)
+
+
+def _publish_float32le_profile_audio_frames(
+    high_pass_pub,
+    audio_frame_cls,
+    *,
+    frame_data: bytes,
+    start_unix_ns: int,
+    frame_sample_count: int,
+    executor,
+    process: subprocess.Popen[str],
+) -> None:
+    if frame_sample_count <= 0:
+        raise ValueError("frame_sample_count must be greater than zero")
+    bytes_per_sample = struct.calcsize("<f")
+    if len(frame_data) % bytes_per_sample != 0:
+        raise ValueError("profile FLOAT32LE audio data must align to float32 samples")
+
+    frame_byte_count = frame_sample_count * bytes_per_sample
+    sample_offset = 0
+    for byte_offset in range(0, len(frame_data), frame_byte_count):
+        chunk = frame_data[byte_offset : byte_offset + frame_byte_count]
+        chunk_start_unix_ns = (
+            start_unix_ns + sample_offset * _NSEC_PER_SEC // _SAMPLE_RATE
+        )
+        high_pass_pub.publish(
+            _audio_frame(
+                audio_frame_cls,
+                source_id=_PROFILE_SOURCE_ID,
+                stream_id=_ASR_STREAM_ID,
+                encoding="FLOAT32LE",
+                bit_depth=32,
+                start_unix_ns=chunk_start_unix_ns,
+                data=chunk,
+            )
+        )
+        sample_offset += len(chunk) // bytes_per_sample
+        _ensure_launch_running(process)
+        executor.spin_once(timeout_sec=0.001)
 
 
 def _wait_for_publisher_subscriptions(
@@ -1206,15 +1260,20 @@ def _wait_for_profile_high_pass_subscriptions(
     executor,
     process: subprocess.Popen[str],
     *,
+    expected_subscription_count: int,
     timeout_sec: float = 12.0,
 ) -> None:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         _ensure_launch_running(process)
         executor.spin_once(timeout_sec=0.05)
-        if high_pass_pub.get_subscription_count() >= 3:
+        if high_pass_pub.get_subscription_count() >= expected_subscription_count:
             return
-    raise RuntimeError("profile high-pass publisher did not discover expected subscribers")
+    raise RuntimeError(
+        "profile high-pass publisher did not discover expected subscribers: "
+        f"expected={expected_subscription_count} "
+        f"actual={high_pass_pub.get_subscription_count()}"
+    )
 
 
 def _audio_qos(qos_profile_cls, reliability_policy_cls):
@@ -1745,7 +1804,7 @@ def _assert_profile_transcribe_response(
     window_ref = response.audio_window_ref
     assert window_ref.window_id == "so101_voice_frontend_mic_asr"
     assert window_ref.window_epoch == 1
-    assert window_ref.source_id == _SOURCE_ID
+    assert window_ref.source_id == _PROFILE_SOURCE_ID
     assert window_ref.stream_id == _ASR_STREAM_ID
     _assert_profile_time_range(window_ref.time_range, config)
 
@@ -1782,7 +1841,7 @@ def _assert_real_asr_profile_transcribe_response(
     window_ref = response.audio_window_ref
     assert window_ref.window_id == "so101_voice_frontend_mic_asr"
     assert window_ref.window_epoch == 1
-    assert window_ref.source_id == _SOURCE_ID
+    assert window_ref.source_id == _PROFILE_SOURCE_ID
     assert window_ref.stream_id == _ASR_STREAM_ID
     _assert_profile_time_range(window_ref.time_range, config)
 
@@ -1859,7 +1918,7 @@ def _assert_profile_transcribe_json(
     assert transcribe["audio_window_ref"] == {
         "window_id": "so101_voice_frontend_mic_asr",
         "window_epoch": 1,
-        "source_id": _SOURCE_ID,
+        "source_id": _PROFILE_SOURCE_ID,
         "stream_id": _ASR_STREAM_ID,
         "time_range": expected_time_range,
     }
@@ -2153,7 +2212,7 @@ def _assert_profile_archive_metadata(
     assert metadata["operation"] == "archive_audio_window"
     assert metadata["reason"] == _ARCHIVE_REASON
     assert metadata["related_artifact_ids"] == [_ARCHIVE_ARTIFACT_ID]
-    assert metadata["source_id"] == _SOURCE_ID
+    assert metadata["source_id"] == _PROFILE_SOURCE_ID
     assert metadata["stream_id"] == _WINDOW_STREAM_ID
     assert metadata["window_id"] == "so101_voice_frontend_mic_archive"
     assert metadata["window_epoch"] == 1
@@ -2227,7 +2286,7 @@ def _assert_profile_archive_metadata_json(
     assert metadata["operation"] == "archive_audio_window"
     assert metadata["reason"] == _ARCHIVE_REASON
     assert metadata["related_artifact_ids"] == [_ARCHIVE_ARTIFACT_ID]
-    assert metadata["source_id"] == _SOURCE_ID
+    assert metadata["source_id"] == _PROFILE_SOURCE_ID
     assert metadata["stream_id"] == _WINDOW_STREAM_ID
     assert metadata["window_id"] == "so101_voice_frontend_mic_archive"
     assert metadata["window_epoch"] == 1

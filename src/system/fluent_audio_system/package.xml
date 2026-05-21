@@ -14,6 +14,22 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>python3-pydantic</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>fa_asr</exec_depend>
+  <exec_depend>fa_audio_mcp</exec_depend>
+  <exec_depend>fa_audio_window</exec_depend>
+  <exec_depend>fa_dc_offset_removal</exec_depend>
+  <exec_depend>fa_dialogue</exec_depend>
+  <exec_depend>fa_high_pass</exec_depend>
+  <exec_depend>fa_in</exec_depend>
+  <exec_depend>fa_interfaces</exec_depend>
+  <exec_depend>fa_kws</exec_depend>
+  <exec_depend>fa_mix</exec_depend>
+  <exec_depend>fa_out</exec_depend>
+  <exec_depend>fa_resample</exec_depend>
+  <exec_depend>fa_sample_format</exec_depend>
+  <exec_depend>fa_tts</exec_depend>
+  <exec_depend>fa_turn_detector</exec_depend>
+  <exec_depend>fa_vad</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
   <test_depend>rclpy</test_depend>
@@ -22,13 +38,22 @@
   <test_depend>fa_asr</test_depend>
   <test_depend>fa_audio_mcp</test_depend>
   <test_depend>fa_audio_window</test_depend>
+  <test_depend>fa_dc_offset_removal</test_depend>
   <test_depend>fa_decode</test_depend>
+  <test_depend>fa_dialogue</test_depend>
   <test_depend>fa_encode</test_depend>
   <test_depend>fa_gain</test_depend>
+  <test_depend>fa_high_pass</test_depend>
   <test_depend>fa_in</test_depend>
   <test_depend>fa_interfaces</test_depend>
+  <test_depend>fa_kws</test_depend>
+  <test_depend>fa_mix</test_depend>
   <test_depend>fa_out</test_depend>
+  <test_depend>fa_resample</test_depend>
   <test_depend>fa_sample_format</test_depend>
+  <test_depend>fa_tts</test_depend>
+  <test_depend>fa_turn_detector</test_depend>
+  <test_depend>fa_vad</test_depend>
 
   <export>
     <build_type>ament_python</build_type>
