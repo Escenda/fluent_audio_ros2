@@ -71,3 +71,24 @@ src/ai/fa_asr/tools/*
 
 # fa_asr local prepare trace logs
 src/ai/fa_asr/traces/
+
+# fa_vad local Silero torch.hub repositories
+src/ai/fa_vad/models/*
+!src/ai/fa_vad/models/.gitkeep
+
+# fa_vad local prepare trace logs
+src/ai/fa_vad/traces/
+
+# fa_kws local sherpa-onnx KWS model artifacts
+src/ai/fa_kws/models/*
+!src/ai/fa_kws/models/.gitkeep
+
+# fa_kws local prepare trace logs
+src/ai/fa_kws/traces/
+
+# fa_turn_detector local Smart Turn ONNX model artifacts
+src/ai/fa_turn_detector/models/smart-turn-v3/*
+!src/ai/fa_turn_detector/models/smart-turn-v3/README.md
+
+# fa_turn_detector local prepare trace logs
+src/ai/fa_turn_detector/traces/
