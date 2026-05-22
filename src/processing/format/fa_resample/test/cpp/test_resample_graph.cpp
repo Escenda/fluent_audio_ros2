@@ -456,6 +456,82 @@ TEST_F(RclcppFixture, PublishesResampledFloat32Frame)
   EXPECT_EQ(received->data.size(), 160U * sizeof(float));
 }
 
+TEST_F(RclcppFixture, SynthesizesOutputMediaClockFromOutputSampleCount)
+{
+  auto resample_node = std::make_shared<fa_resample::FaResampleNode>(
+    graphNodeOptionsWith(validResampleParameters()));
+  auto test_node = std::make_shared<rclcpp::Node>(
+    "fa_resample_media_clock_graph_test",
+    quietGraphNodeOptions());
+
+  rclcpp::QoS qos(10);
+  qos.best_effort();
+  auto publisher = test_node->create_publisher<fa_interfaces::msg::AudioFrame>(
+    "/fa_resample_test/input",
+    qos);
+
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto subscriber = test_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    "/fa_resample_test/output",
+    qos,
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(resample_node);
+  executor.add_node(test_node);
+
+  const auto discovery_deadline = std::chrono::steady_clock::now() + 1s;
+  while (
+    publisher->get_subscription_count() == 0U &&
+    std::chrono::steady_clock::now() < discovery_deadline) {
+    executor.spin_some(20ms);
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_GT(publisher->get_subscription_count(), 0U);
+
+  auto first = makeFloat32Frame(*test_node);
+  auto second = makeFloat32Frame(*test_node);
+  const rclcpp::Time first_input_stamp(100, 0, RCL_ROS_TIME);
+  const rclcpp::Time jittered_second_input_stamp =
+    first_input_stamp + rclcpp::Duration::from_nanoseconds(5000000);
+  first.header.stamp.sec = 100;
+  first.header.stamp.nanosec = 0;
+  second.header.stamp.sec = 100;
+  second.header.stamp.nanosec = 5000000;
+
+  publisher->publish(first);
+  const auto first_deadline = std::chrono::steady_clock::now() + 3s;
+  while (received.size() < 1U && std::chrono::steady_clock::now() < first_deadline) {
+    executor.spin_some(20ms);
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_GE(received.size(), 1U);
+
+  publisher->publish(second);
+  const auto second_deadline = std::chrono::steady_clock::now() + 3s;
+  while (received.size() < 2U && std::chrono::steady_clock::now() < second_deadline) {
+    executor.spin_some(20ms);
+    std::this_thread::sleep_for(10ms);
+  }
+
+  executor.remove_node(test_node);
+  executor.remove_node(resample_node);
+  subscriber.reset();
+  publisher.reset();
+
+  ASSERT_GE(received.size(), 2U);
+  const rclcpp::Time first_output_stamp(received[0].header.stamp, RCL_ROS_TIME);
+  const rclcpp::Time second_output_stamp(received[1].header.stamp, RCL_ROS_TIME);
+  const rclcpp::Time expected_second_output_stamp =
+    first_output_stamp + rclcpp::Duration::from_nanoseconds(10000000);
+
+  EXPECT_EQ(first_output_stamp.nanoseconds(), first_input_stamp.nanoseconds());
+  EXPECT_EQ(second_output_stamp.nanoseconds(), expected_second_output_stamp.nanoseconds());
+  EXPECT_NE(second_output_stamp.nanoseconds(), jittered_second_input_stamp.nanoseconds());
+}
+
 TEST_F(RclcppFixture, PublishesDiagnosticsWithBackendAndMetricsValues)
 {
   runBackendGraphSmoke(

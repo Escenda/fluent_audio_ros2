@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 
+#include <builtin_interfaces/msg/time.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
@@ -59,6 +60,13 @@ public:
   ~FaResampleNode() override;
 
 private:
+  struct OutputTimelineState
+  {
+    bool started = false;
+    rclcpp::Time base_stamp{0, 0, RCL_ROS_TIME};
+    uint64_t output_frames_published = 0;
+  };
+
   void loadParameters();
   void setupInterfaces();
   void publishDiagnostics();
@@ -72,8 +80,16 @@ private:
     const rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr & pub,
     const std::string & expected_input_stream_id,
     const std::string & output_stream_id,
+    OutputTimelineState & output_timeline,
     std::atomic<uint64_t> & out_counter,
     std::atomic<uint64_t> & drop_counter);
+
+  rclcpp::Time outputFrameStamp(
+    const builtin_interfaces::msg::Time & input_stamp,
+    OutputTimelineState & output_timeline) const;
+  static rclcpp::Duration mediaOffsetFromFrames(
+    uint64_t frame_count,
+    int sample_rate);
 
   ResampleConfig config_;
   std::unique_ptr<backends::ResamplerBackend> backend_{};
@@ -91,6 +107,9 @@ private:
   std::atomic<uint64_t> ref_in_{0};
   std::atomic<uint64_t> ref_out_{0};
   std::atomic<uint64_t> ref_drop_{0};
+
+  OutputTimelineState mic_output_timeline_{};
+  OutputTimelineState ref_output_timeline_{};
 };
 
 }  // namespace fa_resample

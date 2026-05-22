@@ -371,6 +371,7 @@ void FaResampleNode::handleMicFrame(const fa_interfaces::msg::AudioFrame::Shared
     mic_pub_,
     config_.mic_input_stream_id,
     config_.mic_output_stream_id,
+    mic_output_timeline_,
     mic_out_,
     mic_drop_);
 }
@@ -387,8 +388,56 @@ void FaResampleNode::handleRefFrame(const fa_interfaces::msg::AudioFrame::Shared
     ref_pub_,
     config_.ref_input_stream_id,
     config_.ref_output_stream_id,
+    ref_output_timeline_,
     ref_out_,
     ref_drop_);
+}
+
+rclcpp::Duration FaResampleNode::mediaOffsetFromFrames(
+  const uint64_t frame_count,
+  const int sample_rate)
+{
+  if (sample_rate <= 0) {
+    throw std::runtime_error("target sample rate must be positive for output media clock");
+  }
+
+  constexpr uint64_t kNanosecondsPerSecond = 1000000000ULL;
+  const uint64_t rate = static_cast<uint64_t>(sample_rate);
+  const uint64_t seconds = frame_count / rate;
+  const uint64_t remaining_frames = frame_count % rate;
+  const uint64_t max_nanoseconds =
+    static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+  if (seconds > max_nanoseconds / kNanosecondsPerSecond) {
+    throw std::runtime_error("output media clock offset overflow");
+  }
+  const uint64_t second_nanoseconds = seconds * kNanosecondsPerSecond;
+  const uint64_t frame_nanoseconds = remaining_frames * kNanosecondsPerSecond / rate;
+  if (second_nanoseconds > max_nanoseconds - frame_nanoseconds) {
+    throw std::runtime_error("output media clock offset overflow");
+  }
+
+  return rclcpp::Duration::from_nanoseconds(
+    static_cast<int64_t>(second_nanoseconds + frame_nanoseconds));
+}
+
+rclcpp::Time FaResampleNode::outputFrameStamp(
+  const builtin_interfaces::msg::Time & input_stamp,
+  OutputTimelineState & output_timeline) const
+{
+  if (!output_timeline.started) {
+    const rclcpp::Time base_stamp(input_stamp, RCL_ROS_TIME);
+    if (base_stamp.nanoseconds() <= 0) {
+      throw std::runtime_error("input AudioFrame header.stamp must be positive");
+    }
+    output_timeline.base_stamp = base_stamp;
+    output_timeline.output_frames_published = 0;
+    output_timeline.started = true;
+  }
+
+  return output_timeline.base_stamp +
+         mediaOffsetFromFrames(
+           output_timeline.output_frames_published,
+           backend_->targetSampleRate());
 }
 
 bool FaResampleNode::processAndPublish(
@@ -396,6 +445,7 @@ bool FaResampleNode::processAndPublish(
   const rclcpp::Publisher<fa_interfaces::msg::AudioFrame>::SharedPtr & pub,
   const std::string & expected_input_stream_id,
   const std::string & output_stream_id,
+  OutputTimelineState & output_timeline,
   std::atomic<uint64_t> & out_counter,
   std::atomic<uint64_t> & drop_counter)
 {
@@ -446,9 +496,32 @@ bool FaResampleNode::processAndPublish(
   if (result.output_frames == 0) {
     return true;
   }
+  if (
+    output_timeline.output_frames_published >
+    std::numeric_limits<uint64_t>::max() - static_cast<uint64_t>(result.output_frames))
+  {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame (%s): output media clock frame counter overflow",
+      output_stream_id.c_str());
+    drop_counter.fetch_add(1);
+    return false;
+  }
+
+  rclcpp::Time output_stamp;
+  try {
+    output_stamp = outputFrameStamp(in.header.stamp, output_timeline);
+  } catch (const std::runtime_error & e) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 3000,
+      "Dropping frame (%s): %s", output_stream_id.c_str(), e.what());
+    drop_counter.fetch_add(1);
+    return false;
+  }
 
   fa_interfaces::msg::AudioFrame out;
   out.header = in.header;
+  out.header.stamp = output_stamp;
   out.source_id = in.source_id;
   out.stream_id = output_stream_id;
   out.encoding = config_.output_encoding;
@@ -460,6 +533,7 @@ bool FaResampleNode::processAndPublish(
   out.epoch = in.epoch;
 
   pub->publish(out);
+  output_timeline.output_frames_published += static_cast<uint64_t>(result.output_frames);
   out_counter.fetch_add(1);
   return true;
 }

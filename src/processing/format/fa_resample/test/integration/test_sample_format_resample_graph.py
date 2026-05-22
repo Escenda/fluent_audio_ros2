@@ -68,6 +68,8 @@ def _audio_frame(payload: bytes):
     from fa_interfaces.msg import AudioFrame
 
     msg = AudioFrame()
+    msg.header.stamp.sec = 100
+    msg.header.stamp.nanosec = 0
     msg.source_id = "sample_format_resample_source"
     msg.stream_id = "stream/sample_format_resample/raw_pcm16"
     msg.encoding = "PCM16LE"
@@ -246,6 +248,7 @@ def test_sample_format_to_resample_launch_graph_publishes_16khz_float32(
         assert output.bit_depth == 32
         assert output.layout == "interleaved"
         assert output.epoch == 7
+        assert output.header.stamp.sec > 0
         assert len(output.data) == 160 * 4
     finally:
         node.destroy_node()
