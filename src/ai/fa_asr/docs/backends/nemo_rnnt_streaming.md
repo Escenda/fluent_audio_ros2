@@ -333,6 +333,10 @@ model encoder does not support a finite attention context; supported_contexts=[[
 full ROS graph validation は backend 単体の protocol smoke とは別の代表検証です。
 `fa_in -> fa_sample_format -> fa_resample -> fa_vad -> fa_asr` のような実際の ASR-ready stream 経路で、source / stream identity、sample rate、encoding、channels、timeline continuity、control window、ASR event、final result をまとめて確認します。
 
+現在の file-source full graph 試行は、VAD start/end と ASR start まで到達しました。
+ただし ASR-ready rolling timeline の gap により backend に連続 audio を渡せず、non-empty final result には到達していません。
+これは worker health や fixture smoke より広い graph 証跡ですが、full ROS graph validation 完了ではありません。
+
 file source で検証する場合、`fa_in` は `pcm_file_reader` backend として headerless raw PCM だけを読みます。
 WAV / OGG / MP3 / FLAC decode、resample、downmix、gain、normalization は `fa_in` では行いません。
 有限 file source では `startup.required_subscribers >= 1` により、downstream subscriber が matched してから source read を開始します。
@@ -353,7 +357,7 @@ local `.nemo` に対する `health -> start -> audio -> finish`、speech fixture
 | `health_ok` | 未成立 | なし。現状は `health` fail closed。 | `start`、`audio_accepted`、partial / final transcript。 |
 | minimal stream | 未検証 | `health -> start -> audio -> finish` の worker state machine。 | speech recognition quality、full ROS graph。 |
 | speech fixture | 未検証 | real speech から non-empty transcript が出ること。 | ROS graph identity / timeline / VAD binding。 |
-| full ROS graph | 未検証 | ASR-ready ROS pipeline から non-empty final result まで通ること。 | NIM / Riva serving capability。 |
+| full ROS graph | streaming backend としては未検証。別経路の file-source full graph 試行は VAD start/end と ASR start まで到達したが、ASR timeline gap で未完了。 | graph binding、VAD control、ASR invocation の一部が成立したこと。 | streaming non-empty final result、timeline continuity、full ROS graph success、NIM / Riva serving capability。 |
 
 ## Artifact
 
@@ -1049,6 +1053,9 @@ archive branch は `audio/high_pass/frame` から `fa_archive_sample_format` で
 ASR-ready rolling timeline は backend に渡す前の `fa_asr` contract です。
 `timeline.timestamp_alignment_tolerance_ms` 内の bounded overlap / gap は sample boundary に寄せます。
 tolerance 超過 overlap / gap や selected range の coverage failure は、backend に空 audio や短い audio を渡さず、timeline error として扱います。
+
+現行 file-source full graph 試行の ASR timeline gap は、この contract により失敗として扱います。
+VAD start/end と ASR start まで進んだことは記録しますが、gap を補完して backend success に見せません。
 
 ## Failure Conditions
 
