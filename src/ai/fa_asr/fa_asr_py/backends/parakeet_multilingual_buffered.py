@@ -303,8 +303,6 @@ def _resolve_optional_model_path(model_path_value: str) -> Path | None:
 
 def _validate_multilingual_parakeet_model(model: str) -> None:
     normalized = model.lower()
-    if "nemotron" in normalized:
-        raise RuntimeError("backend.model must not use English-only Nemotron ASR")
     for marker in _SUPPORTED_MODEL_MARKERS:
         if marker not in normalized:
             raise RuntimeError(

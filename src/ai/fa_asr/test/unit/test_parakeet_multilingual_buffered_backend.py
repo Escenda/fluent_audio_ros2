@@ -65,7 +65,9 @@ def _payload(samples: np.ndarray, *, sample_rate_hz: int = 16000) -> AsrAudioPay
     )
 
 
-def test_config_requires_multilingual_parakeet_1_1b_model(tmp_path: Path) -> None:
+def test_config_rejects_model_that_does_not_identify_multilingual_parakeet_1_1b(
+    tmp_path: Path,
+) -> None:
     with pytest.raises(RuntimeError, match="multilingual Parakeet 1.1B"):
         load_parakeet_multilingual_buffered_config(
             model="nvidia/parakeet-ctc-0.6b",
@@ -78,9 +80,9 @@ def test_config_requires_multilingual_parakeet_1_1b_model(tmp_path: Path) -> Non
             emit_partial=False,
         )
 
-    with pytest.raises(RuntimeError, match="English-only Nemotron"):
+    with pytest.raises(RuntimeError, match="multilingual Parakeet 1.1B"):
         load_parakeet_multilingual_buffered_config(
-            model="nvidia/nemotron-asr",
+            model="nvidia/general-asr-model",
             model_path_value="",
             language="",
             language_policy="auto_detect",
@@ -231,6 +233,19 @@ def test_transcribe_accepts_only_float32le_16khz_mono() -> None:
             )
         )
 
+    with pytest.raises(ValueError, match="channels must be 1"):
+        backend.transcribe(
+            AsrRequest(
+                session_id="s1",
+                user_turn_id=1,
+                payload=AsrAudioPayload.from_float32_samples(
+                    np.array([0.1, 0.2], dtype=np.float32),
+                    sample_rate_hz=16000,
+                    channels=2,
+                ),
+            )
+        )
+
 
 def test_streaming_redecodes_rolling_buffer_for_partial_and_final() -> None:
     _FakeParakeetRunner.instances.clear()
@@ -331,3 +346,21 @@ def test_streaming_rejects_empty_final_when_speech_energy_is_sufficient() -> Non
 
     with pytest.raises(RuntimeError, match="final transcript must not be empty"):
         session.finish()
+
+
+def test_streaming_allows_empty_final_only_when_speech_energy_is_below_threshold() -> None:
+    _FakeParakeetRunner.instances.clear()
+    _FakeParakeetRunner.scripted_results = [""]
+    backend = ParakeetMultilingualBufferedAsrBackend(
+        _config(emit_partial=False, speech_energy_threshold=0.05),
+        runner_class=_FakeParakeetRunner,
+    )
+    session = backend.start_stream(AsrStreamRequest(session_id="silence", user_turn_id=1))
+    session.push_audio(_payload(np.array([0.001, -0.001, 0.0, 0.001], dtype=np.float32)))
+
+    results = session.finish()
+
+    assert len(results) == 1
+    assert results[0].is_final is True
+    assert results[0].sample_count == 4
+    assert asr_transcript_text(results[0].transcript) == ""

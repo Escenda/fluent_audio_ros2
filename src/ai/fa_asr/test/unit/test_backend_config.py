@@ -30,6 +30,10 @@ from fa_asr_py.backends.parakeet_worker import (
     ParakeetWorkerAsrBackend,
     load_parakeet_worker_config,
 )
+from fa_asr_py.backends.parakeet_multilingual_buffered import (
+    ParakeetMultilingualBufferedAsrBackend,
+    ParakeetMultilingualBufferedConfig,
+)
 from fa_asr_py.backends.whisper_cpp import WhisperCppAsrBackend, load_whisper_cpp_config
 
 
@@ -465,6 +469,15 @@ class _SegmentAsrBackend:
                 AsrTranscriptSegment(start_sample=1, end_sample=2, text="world"),
             )
         )
+
+
+class _NoopParakeetRunner:
+    def __init__(self, config: ParakeetMultilingualBufferedConfig) -> None:
+        self.config = config
+
+    def transcribe(self, samples: np.ndarray) -> str:
+        del samples
+        return "こんにちは"
 
 
 def _install_asr_node_import_fakes(
@@ -1548,7 +1561,71 @@ def test_asr_node_rejects_unknown_backend_name(
         sys.modules.pop("fa_asr_py.asr_node", None)
 
 
-def test_backends_use_dedicated_classes(
+def test_asr_node_loads_standard_parakeet_backend_without_command_parameter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_asr_node_import_fakes(monkeypatch)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
+    sys.modules.pop("fa_asr_py.asr_node", None)
+
+    try:
+        parakeet_module = importlib.import_module(
+            "fa_asr_py.backends.parakeet_multilingual_buffered"
+        )
+        monkeypatch.setattr(
+            parakeet_module,
+            "_ParakeetMultilingualBufferedRunner",
+            _NoopParakeetRunner,
+        )
+        module = importlib.import_module("fa_asr_py.asr_node")
+        node = _backend_config_node(
+            module,
+            {
+                "backend.name": _TypedParameter(
+                    _FakeParameter.Type.STRING,
+                    "parakeet_multilingual_buffered",
+                ),
+                "backend.model": _TypedParameter(
+                    _FakeParameter.Type.STRING,
+                    "nvidia/parakeet-multilingual-1.1b",
+                ),
+                "backend.model_path": _TypedParameter(_FakeParameter.Type.STRING, ""),
+                "backend.language": _TypedParameter(_FakeParameter.Type.STRING, ""),
+                "backend.language_policy": _TypedParameter(
+                    _FakeParameter.Type.STRING,
+                    "auto_detect",
+                ),
+                "backend.sample_rate_hz": _TypedParameter(_FakeParameter.Type.INTEGER, 16000),
+                "backend.channels": _TypedParameter(_FakeParameter.Type.INTEGER, 1),
+                "backend.chunk_size_samples": _TypedParameter(
+                    _FakeParameter.Type.INTEGER,
+                    1600,
+                ),
+                "backend.chunk_ms": _TypedParameter(_FakeParameter.Type.INTEGER, 0),
+                "backend.emit_partial": _TypedParameter(_FakeParameter.Type.BOOL, True),
+                "backend.max_buffer_sec": _TypedParameter(_FakeParameter.Type.DOUBLE, 30.0),
+                "backend.speech_energy_threshold": _TypedParameter(
+                    _FakeParameter.Type.DOUBLE,
+                    0.001,
+                ),
+            },
+            workspace_dir=tmp_path / "work",
+        )
+
+        backend = module.FaAsrNode._load_backend(node)
+
+        assert isinstance(backend, ParakeetMultilingualBufferedAsrBackend)
+        assert backend.name == "parakeet_multilingual_buffered"
+        assert backend.capability.audio_encoding == "FLOAT32LE"
+        assert backend.capability.sample_rate_hz == 16000
+        assert backend.capability.channels == 1
+        assert backend.capability.streaming is True
+    finally:
+        sys.modules.pop("fa_asr_py.asr_node", None)
+
+
+def test_legacy_optional_backends_use_dedicated_classes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

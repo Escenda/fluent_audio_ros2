@@ -1,3 +1,9 @@
+"""Legacy optional local_command backend tests.
+
+These tests exercise the external-process backend contract only. They are not
+validation for the standard parakeet_multilingual_buffered ASR path.
+"""
+
 from pathlib import Path
 import sys
 
