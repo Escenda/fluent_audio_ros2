@@ -42,6 +42,11 @@ local offline 実測だけで streaming 対応とは書きません。
 したがって、この backend で NGC download 成功を `nemo_offline_transcribe` readiness として扱いません。
 download 成功後に必要なのは、local file integrity、worker health、real `.nemo` restore、offline `transcribe(...)` availability、speech fixture、full ROS graph の順の検証です。
 
+`prepare_nemo_offline_transcribe_asr` は、この download / placement / env output を local offline backend 用に固定する preparation script です。
+default model id は `parakeet-1.1b-multilingual-offline`、artifact は `nvidia/riva/parakeet-rnnt-riva-1-1b-unified-ml-cs-universal:trainable_v1.0`、expected file は `Parakeet-RNNT-XXL-1.1b_merged_universal_spe8.5k_1.0.nemo` です。
+script は NIM、Riva server、gRPC、Docker、model server を起動せず、依存もしません。
+local `.nemo` file を検証または取得し、worker executable を検証し、sourceable env と trace を出すだけです。
+
 ### 2. Riva/NGC artifact を local `.nemo` として読むことは Riva/NIM serving ではない
 
 現在の local 実験では、Riva/NGC artifact 由来の `.nemo` を NeMo runtime へ直接渡しています。
@@ -112,7 +117,7 @@ offline success は streaming fail-closed 判定を覆しません。
 - direct offline API が Japanese fixture に対して non-empty text を返したこと。
 - `nemo_offline_transcribe_worker health` が real Parakeet `.nemo` restore まで到達して `ok` を返したこと。
 - raw `FLOAT32LE` 16 kHz mono fixture から worker 経由で non-empty Japanese text が出たこと。
-- commit `43fabab3` の media-clock timestamp fix 後に、commit `5e3ae5a3` の opt-in file-source full ROS graph smoke が `1 passed in 130.86s` で通ったこと。
+- commit `43fabab3` の media-clock timestamp fix 後に、commit `5e3ae5a3` の opt-in file-source full ROS graph smoke が expected text `天 気` ありで `1 passed in 131.01s`、expected text なしで `1 passed in 127.61s` で通ったこと。
 - targeted unit tests が通ったこと。
 
 現在 docs で完了扱いしてはいけない evidence は次です。
@@ -148,6 +153,44 @@ worker は次を所有しません。
 - VAD / KWS / turn detection。
 - upstream resample / downmix / sample-format conversion。
 - 別 ASR backend への fallback。
+
+## Preparation Script
+
+`src/ai/fa_asr/scripts/prepare_nemo_offline_transcribe_asr` は `backend.name=nemo_offline_transcribe` 用の local preparation / env script です。
+runtime ASR、worker health、transcribe smoke、full ROS graph validation は行いません。
+
+default は次です。
+
+| 項目 | 値 |
+| --- | --- |
+| model id | `parakeet-1.1b-multilingual-offline` |
+| NGC artifact | `nvidia/riva/parakeet-rnnt-riva-1-1b-unified-ml-cs-universal:trainable_v1.0` |
+| expected file | `Parakeet-RNNT-XXL-1.1b_merged_universal_spe8.5k_1.0.nemo` |
+
+stdout には sourceable env block を出します。
+backend 固有 contract は次です。
+
+- `FLUENT_AUDIO_ASR_BACKEND=nemo_offline_transcribe`
+- `FLUENT_AUDIO_NEMO_OFFLINE_TRANSCRIBE_MODEL_PATH`
+- `FLUENT_AUDIO_NEMO_OFFLINE_TRANSCRIBE_WORKER`
+
+`FLUENT_AUDIO_ASR_MODEL_PATH` と `FLUENT_AUDIO_ASR_WORKER` は operational convenience です。
+generic ASR profile / shell を簡単にするために同じ path を出しますが、backend 固有 contract としては扱いません。
+`FLUENT_AUDIO_ENV_TARGET=vlabor` で source した場合は、workspace 配下 path を `/ros2_ws/src/fluent_audio_ros2` container target に変換します。
+trace file は preparation の start / end / model id / artifact / model path / worker path / status / failure reason を記録します。
+
+fail-closed 条件は次です。
+
+- unsupported model id
+- unsupported artifact
+- download が必要なのに `ngc` が PATH に無い
+- NGC download failure
+- artifact 内に expected `.nemo` file が無い
+- `nemo_offline_transcribe_worker` missing / not executable
+- trace file を作成または追記できない
+
+この script が成功しても、NGC acquisition と local placement が成立しただけです。
+NIM / Riva / gRPC readiness、local worker health、ASR transcript、streaming backend、file-source full graph、generic live microphone ASR は別検証です。
 
 ## NIM / Riva / gRPC / NGC / local `.nemo`
 
@@ -321,8 +364,8 @@ FluentAudio では、この backend の offline success を low-latency streamin
 | `nemo_offline_transcribe` backend / worker / unit tests | working tree 上で作成済み。 |
 | `nemo_offline_transcribe` real worker health | `fluent-audio-runtime` で real Parakeet `.nemo` restore まで到達し、`ok` を返すことを確認済み。 |
 | `nemo_offline_transcribe` real worker transcription smoke | raw `FLOAT32LE` 16 kHz mono fixture から stdout に `天 気 練 習 残 業 安 心 す ん な り 電 波` が出ることを確認済み。accuracy は未評価。 |
-| targeted unit tests | runtime container で `57 passed, 5 warnings in 0.66s`。 |
-| file-source full ROS graph validation | opt-in smoke 通過済み。local Parakeet `.nemo` + `nemo_offline_transcribe` で non-empty final result を確認。 |
+| targeted unit tests | `bash -n`、prepare / streaming / whisper prepare unit `13 passed`、fa_asr unit `192 passed`。 |
+| file-source full ROS graph validation | opt-in smoke 通過済み。local Parakeet `.nemo` + `nemo_offline_transcribe` で expected text `天 気` または non-empty final result を確認。 |
 | `nemo_rnnt_streaming` `health_ok` | 未成立。finite attention context 不成立で fail closed。 |
 | `nemo_rnnt_streaming` partial / final transcript | 未検証。 |
 
@@ -344,7 +387,7 @@ FluentAudio では、この backend の offline success を low-latency streamin
    - ASR-ready rolling timeline から selected range を切り出し、offline backend へ渡せることを確認する。
 5. file-source full ROS graph validation
    - `fa_in -> processing -> fa_vad -> fa_asr` 相当の graph で ASR-ready stream identity、VAD close、backend invocation、non-empty final result を確認する。
-   - PO 検証では `FLUENT_AUDIO_FILE_JA_REAL_ASR_SMOKE=1`、raw PCM fixture、local worker、local Parakeet `.nemo` を指定して opt-in smoke を実行し、`1 passed in 130.86s`。
+   - PO 検証では `FLUENT_AUDIO_FILE_JA_REAL_ASR_SMOKE=1`、raw PCM fixture、local worker、local Parakeet `.nemo` を指定して opt-in smoke を実行し、`FLUENT_AUDIO_FILE_JA_EXPECTED_TEXT="天 気"` ありで `1 passed in 131.01s`、expected text なしで `1 passed in 127.61s`。
    - この smoke は commit `43fabab3` 後の `pcm_file_reader` media-clock timestamp contract に基づく。pre-43fabab3 の ASR timeline gap は履歴証跡であり、現行 file-source status ではない。
 
 backend 単体の smoke を full ROS graph success として扱いません。file-source graph smoke が通っていても、accuracy、`TranscribeAudio` service integration、NIM/Riva/gRPC backend readiness、generic live microphone ASR は別検証です。

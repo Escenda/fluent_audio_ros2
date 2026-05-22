@@ -35,6 +35,7 @@ observability.qos.reliable: true
 
 `backend.name` は必須です。対応する backend は `local_command`, `whisper.cpp`, `parakeet_worker`, `nemo_offline_transcribe`, `nemo_rnnt_streaming`, `openai_realtime`, `openai_transcriptions` です。
 `nemo_offline_transcribe` は local `.nemo` を NeMo offline / full-context `transcribe(...)` API で呼ぶ non-streaming command / worker backend であり、working tree 上では backend / worker / tests / profile work が作成済みです。PO 検証では real worker health、raw `FLOAT32LE` fixture transcription、opt-in file-source full ROS graph smoke が通過済みです。ただし accuracy 評価、`TranscribeAudio` service integration、NIM / Riva / gRPC backend readiness、generic live microphone ASR は未検証です。
+`prepare_nemo_offline_transcribe_asr` は `backend.name=nemo_offline_transcribe` 用の local `.nemo` preparation / env script です。default は model id `parakeet-1.1b-multilingual-offline`、NGC artifact `nvidia/riva/parakeet-rnnt-riva-1-1b-unified-ml-cs-universal:trainable_v1.0`、expected file `Parakeet-RNNT-XXL-1.1b_merged_universal_spe8.5k_1.0.nemo` です。この script は NIM、Riva server、gRPC、Docker、model server を起動せず、依存もしません。local `.nemo` file の存在または NGC 取得結果、worker executable、host / `/ros2_ws/src/fluent_audio_ros2` container target 用 sourceable env、trace file を扱うだけです。
 non-streaming command 系 backend では `backend.result_format` も backend 設定時に必須です。`nemo_rnnt_streaming` は JSONL streaming protocol を使い、`backend.result_format` / `backend.args` / `backend.health_args` は使いません。default config は `backend.name` / command backend 用 `backend.result_format` を空にし、backend selection と output contract を暗黙選択しません。利用環境ごとの launch/config で `backend.name` と backend ごとの必須パラメータを明示してください。
 
 - `local_command` / `whisper.cpp`: `backend.command` と `backend.model_path` が必須です。
@@ -60,6 +61,18 @@ backend.health_args: ["health", "--model", "{model}", "--language", "{language}"
 
 OpenAI 系 backend は OpenAI 直結実装ではなく、外部 worker command を呼ぶ backend slot です。API key の値、network、SDK は worker 側の責務です。`fa_asr` は `api_key_env` の指定と、その環境変数が空でないことだけを検証し、未設定なら起動失敗します。
 
+## NeMo offline prepare script
+
+`src/ai/fa_asr/scripts/prepare_nemo_offline_transcribe_asr` は、local Parakeet `.nemo` file と `nemo_offline_transcribe_worker` の path を sourceable env として出力します。backend contract の env は次です。
+
+- `FLUENT_AUDIO_ASR_BACKEND=nemo_offline_transcribe`
+- `FLUENT_AUDIO_NEMO_OFFLINE_TRANSCRIBE_MODEL_PATH`
+- `FLUENT_AUDIO_NEMO_OFFLINE_TRANSCRIBE_WORKER`
+
+`FLUENT_AUDIO_ASR_MODEL_PATH` と `FLUENT_AUDIO_ASR_WORKER` も出力しますが、これは profile / shell 操作を楽にする operational convenience であり、backend 固有 contract は上記の `FLUENT_AUDIO_NEMO_OFFLINE_TRANSCRIBE_*` です。`FLUENT_AUDIO_ENV_TARGET=vlabor` で source すると、workspace 内 path を `/ros2_ws/src/fluent_audio_ros2` target に置き換えます。
+
+script は unsupported model id / artifact、download が必要なのに `ngc` が無い状態、NGC artifact 内の expected file 不在、worker non-executable を fail closed にします。NGC acquisition は runtime ASR ではなく、local offline transcribe は streaming ではありません。
+
 ## NeMo local `.nemo` の現 runtime evidence
 
 `fluent-audio-runtime` container で Torch `2.11.0+cu130`、CUDA available の状態を確認し、local Parakeet 1.1B multilingual `.nemo` を `ASRModel.restore_from(...)` で `EncDecRNNTBPEModel` として restore できることを確認しています。
@@ -75,4 +88,4 @@ PO の直接 NeMo API 証跡として、`ASRModel.restore_from(...); model.trans
 
 この direct API evidence 単体では、offline / full-context local NeMo transcribe の viability だけを示します。accuracy、`nemo_rnnt_streaming` backend 成功、file-source full ROS graph 成功は証明しません。`nemo_rnnt_streaming` は引き続き finite attention context 不成立により fail closed / 未検証として扱います。
 
-PO 検証では、commit `43fabab3` により `fa_in` の `pcm_file_reader` が actual PCM frame 数に基づく media-clock timestamp を出すようになった後、commit `5e3ae5a3` の opt-in smoke `src/system/fluent_audio_system/test/integration/test_file_ja_voice_frontend_real_asr_smoke.py` を `fluent-audio-runtime` で実行し、`1 passed in 130.86s` を確認しています。使用した経路は local Parakeet `.nemo` + `nemo_offline_transcribe` であり、NIM / Riva / gRPC / OpenAI は使っていません。この smoke が示すのは stated env 条件下の file-source full ROS graph で non-empty final ASR result が出たことです。accuracy、`TranscribeAudio` service integration、local `nemo_rnnt_streaming` 成功、NIM / Riva serving readiness、汎用 live microphone ASR は証明しません。
+PO 検証では、直接 worker が raw `FLOAT32LE` 16 kHz mono Japanese fixture から `天 気 練 習 残 業 安 心 す ん な り 電 波` を出力しました。commit `43fabab3` により `fa_in` の `pcm_file_reader` が actual PCM frame 数に基づく media-clock timestamp を出すようになった後、commit `5e3ae5a3` の opt-in smoke `src/system/fluent_audio_system/test/integration/test_file_ja_voice_frontend_real_asr_smoke.py` を `fluent-audio-runtime` で実行し、`FLUENT_AUDIO_FILE_JA_EXPECTED_TEXT="天 気"` ありで `1 passed in 131.01s`、expected text なしで `1 passed in 127.61s` を確認しています。使用した経路は local Parakeet `.nemo` + `nemo_offline_transcribe` であり、NIM / Riva / gRPC / OpenAI は使っていません。この smoke が示すのは stated env 条件下の file-source full ROS graph で observed expected-text 範囲または non-empty final ASR result が出たことです。accuracy、`TranscribeAudio` service integration、local `nemo_rnnt_streaming` 成功、NIM / Riva serving readiness、汎用 live microphone ASR は証明しません。
