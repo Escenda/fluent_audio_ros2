@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -76,7 +77,10 @@ private:
   void stopCaptureThread();
   void captureLoop();
   bool waitForRequiredSubscribers();
-  void publishFrame(const uint8_t *data, size_t data_size);
+  void resetFileMediaClock();
+  rclcpp::Time nextFrameStamp(size_t frame_count);
+  rclcpp::Time nextFileMediaStamp(size_t frame_count);
+  void publishFrame(const uint8_t *data, size_t data_size, size_t frame_count);
   void publishDiagnostics();
   fa_in::backends::DeviceInfo determineDeviceFromConfig();
   std::vector<fa_in::backends::DeviceInfo> enumerateCaptureDevices() const;
@@ -110,6 +114,9 @@ private:
   size_t frames_per_buffer_{0};
   size_t bytes_per_frame_{0};
   size_t bytes_per_buffer_{0};
+  bool file_media_clock_started_{false};
+  uint64_t file_media_frames_published_{0};
+  rclcpp::Time file_media_base_stamp_{0, 0, RCL_ROS_TIME};
 
   std::atomic<uint64_t> xruns_{0};
   std::atomic<uint64_t> frames_published_{0};

@@ -148,6 +148,27 @@ rcl_interfaces::msg::ParameterDescriptor dynamicParameterDescriptor()
   descriptor.dynamic_typing = true;
   return descriptor;
 }
+
+rclcpp::Duration mediaOffsetFromFrames(const uint64_t frames, const uint32_t sample_rate)
+{
+  if (sample_rate == 0u) {
+    throw std::runtime_error("audio.sample_rate must be > 0 for media timestamp calculation");
+  }
+
+  const uint64_t seconds = frames / static_cast<uint64_t>(sample_rate);
+  const uint64_t remainder = frames % static_cast<uint64_t>(sample_rate);
+  constexpr uint64_t kNanosecondsPerSecond = 1000000000u;
+  if (seconds > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) / kNanosecondsPerSecond) {
+    throw std::runtime_error("file media timestamp exceeded supported ROS duration range");
+  }
+  const uint64_t offset_ns =
+    (seconds * kNanosecondsPerSecond) +
+    ((remainder * kNanosecondsPerSecond) / static_cast<uint64_t>(sample_rate));
+  if (offset_ns > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    throw std::runtime_error("file media timestamp exceeded supported ROS duration range");
+  }
+  return rclcpp::Duration::from_nanoseconds(static_cast<int64_t>(offset_ns));
+}
 }  // namespace
 
 FaInNode::FaInNode(const rclcpp::NodeOptions & options)
@@ -438,6 +459,9 @@ bool FaInNode::reopenStream(const std::string &device_id)
     return false;
   }
 
+  if (config_.backend_name == kBackendPcmFileReader) {
+    resetFileMediaClock();
+  }
   return true;
 }
 
@@ -524,7 +548,7 @@ void FaInNode::captureLoop()
 
     size_t byte_count = validation::bytesForFrames(
       "captured frame count", read_result.frames, bytes_per_frame_);
-    publishFrame(buffer.data(), byte_count);
+    publishFrame(buffer.data(), byte_count, read_result.frames);
     frames_published_.fetch_add(1);
     last_frame_time_ = std::chrono::steady_clock::now();
   }
@@ -560,10 +584,51 @@ bool FaInNode::waitForRequiredSubscribers()
   return false;
 }
 
-void FaInNode::publishFrame(const uint8_t *data, size_t data_size)
+void FaInNode::resetFileMediaClock()
+{
+  file_media_clock_started_ = false;
+  file_media_frames_published_ = 0;
+  file_media_base_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+}
+
+rclcpp::Time FaInNode::nextFrameStamp(const size_t frame_count)
+{
+  if (config_.backend_name != kBackendPcmFileReader) {
+    return this->now();
+  }
+  return nextFileMediaStamp(frame_count);
+}
+
+rclcpp::Time FaInNode::nextFileMediaStamp(const size_t frame_count)
+{
+  if (frame_count == 0u) {
+    throw std::runtime_error("pcm_file_reader cannot publish a zero-frame AudioFrame");
+  }
+  if (!file_media_clock_started_) {
+    file_media_base_stamp_ = this->now();
+    file_media_clock_started_ = true;
+  }
+
+  const rclcpp::Time stamp =
+    file_media_base_stamp_ + mediaOffsetFromFrames(file_media_frames_published_, config_.sample_rate);
+  if (file_media_frames_published_ >
+      std::numeric_limits<uint64_t>::max() - static_cast<uint64_t>(frame_count))
+  {
+    throw std::runtime_error("file media frame counter overflow");
+  }
+  file_media_frames_published_ += static_cast<uint64_t>(frame_count);
+  return stamp;
+}
+
+void FaInNode::publishFrame(const uint8_t *data, size_t data_size, size_t frame_count)
 {
   fa_interfaces::msg::AudioFrame frame_msg;
-  frame_msg.header.stamp = this->now();
+  try {
+    frame_msg.header.stamp = nextFrameStamp(frame_count);
+  } catch (const std::runtime_error & e) {
+    failClosed(e.what());
+    return;
+  }
   frame_msg.source_id = active_source_id_;
   frame_msg.stream_id = config_.stream_id;
   frame_msg.encoding = config_.encoding;

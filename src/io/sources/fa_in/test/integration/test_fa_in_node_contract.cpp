@@ -24,6 +24,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <builtin_interfaces/msg/time.hpp>
 #include <gtest/gtest.h>
 #include <rclcpp/rclcpp.hpp>
 
@@ -315,6 +316,22 @@ std::vector<rclcpp::Parameter> validFileParameters(const std::filesystem::path &
     rclcpp::Parameter("diagnostics.qos.reliable", false),
     rclcpp::Parameter("diagnostics.publish_period_ms", 1000),
   };
+}
+
+int64_t stampNanoseconds(const builtin_interfaces::msg::Time & stamp)
+{
+  return (static_cast<int64_t>(stamp.sec) * 1000000000ll) + static_cast<int64_t>(stamp.nanosec);
+}
+
+std::vector<uint8_t> pcm16LittleEndianSequence(const size_t frames)
+{
+  std::vector<uint8_t> bytes;
+  bytes.reserve(frames * 2u);
+  for (size_t frame = 0; frame < frames; ++frame) {
+    bytes.push_back(static_cast<uint8_t>(frame & 0xffu));
+    bytes.push_back(static_cast<uint8_t>((frame >> 8u) & 0xffu));
+  }
+  return bytes;
 }
 
 std::vector<rclcpp::Parameter> validNetworkParameters(const TestEndpoint & endpoint)
@@ -623,6 +640,63 @@ TEST_F(RclcppContractTest, FileBackendPublishesRawPcmChunksWithoutFormatMutation
   }
   EXPECT_TRUE(saw_first_chunk);
   EXPECT_TRUE(saw_second_chunk);
+  EXPECT_FALSE(node->hasFatalError());
+}
+
+TEST_F(RclcppContractTest, FileBackendPublishesMediaClockStampsFromActualPcmFrames)
+{
+  const std::vector<uint8_t> fixture_bytes = pcm16LittleEndianSequence(21u);
+  const auto fixture = writeFixtureFile(
+    "fa_in_file_backend_partial_media_clock_fixture.pcm",
+    fixture_bytes);
+  auto parameters = validFileParameters(fixture);
+  replaceParameter(parameters, rclcpp::Parameter("audio.chunk_ms", 20));
+  replaceParameter(parameters, rclcpp::Parameter("startup.required_subscribers", 1));
+  replaceParameter(parameters, rclcpp::Parameter("startup.subscriber_wait_timeout_ms", 2000));
+  replaceParameter(parameters, rclcpp::Parameter("audio.qos.reliable", true));
+
+  auto subscriber_node = std::make_shared<rclcpp::Node>(
+    "fa_in_file_backend_media_clock_subscriber",
+    quietContractNodeOptions());
+  std::vector<fa_interfaces::msg::AudioFrame> received;
+  auto subscription = subscriber_node->create_subscription<fa_interfaces::msg::AudioFrame>(
+    kFileOutputTopic,
+    rclcpp::QoS(10).reliable(),
+    [&received](const fa_interfaces::msg::AudioFrame::SharedPtr msg) {
+      received.push_back(*msg);
+    });
+  auto node = std::make_shared<fa_in::FaInNode>(optionsWith(std::move(parameters)));
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(subscriber_node);
+
+  ASSERT_TRUE(spinUntil(executor, [&received]() {
+    return received.size() >= 3;
+  }));
+  ASSERT_GE(received.size(), 3u);
+
+  const std::vector<uint8_t> first_chunk(fixture_bytes.begin(), fixture_bytes.begin() + 40);
+  const std::vector<uint8_t> partial_final_chunk(fixture_bytes.begin() + 40, fixture_bytes.end());
+  EXPECT_EQ(received[0].data, first_chunk);
+  EXPECT_EQ(received[1].data, partial_final_chunk);
+  EXPECT_EQ(received[2].data, first_chunk);
+  for (const auto & frame : received) {
+    EXPECT_EQ(frame.source_id, kFileSourceId);
+    EXPECT_EQ(frame.stream_id, kFileStreamId);
+    EXPECT_EQ(frame.encoding, "PCM16LE");
+    EXPECT_EQ(frame.sample_rate, 1000u);
+    EXPECT_EQ(frame.channels, 1u);
+    EXPECT_EQ(frame.bit_depth, 16u);
+    EXPECT_EQ(frame.layout, "interleaved");
+  }
+
+  const int64_t first_stamp_ns = stampNanoseconds(received[0].header.stamp);
+  const int64_t second_stamp_ns = stampNanoseconds(received[1].header.stamp);
+  const int64_t third_stamp_ns = stampNanoseconds(received[2].header.stamp);
+  EXPECT_GT(first_stamp_ns, 0);
+  EXPECT_EQ(second_stamp_ns - first_stamp_ns, 20000000ll);
+  EXPECT_EQ(third_stamp_ns - second_stamp_ns, 1000000ll);
   EXPECT_FALSE(node->hasFatalError());
 }
 
