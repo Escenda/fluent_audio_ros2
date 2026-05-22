@@ -123,7 +123,7 @@ def _source_env_block(env_file: Path, *, target: str | None = None) -> tuple[str
     return tuple(completed.stdout.splitlines())
 
 
-def test_prepare_downloads_ignored_model_and_outputs_sourceable_env(
+def test_prepare_downloads_explicit_model_and_outputs_sourceable_env(
     tmp_path: Path,
 ) -> None:
     package = _copy_prepare_package(tmp_path)
@@ -135,6 +135,10 @@ def test_prepare_downloads_ignored_model_and_outputs_sourceable_env(
     completed = _run_prepare(
         package.preparer,
         (
+            "--model-id",
+            "ja-streaming-rnnt",
+            "--model-url",
+            "https://example.test/models/ja-streaming-rnnt.nemo",
             "--models-dir",
             str(model_dir),
             "--trace-file",
@@ -147,7 +151,7 @@ def test_prepare_downloads_ignored_model_and_outputs_sourceable_env(
     assert "Trace file:" in completed.stderr
     env_file = tmp_path / "asr.env"
     env_file.write_text(completed.stdout, encoding="utf-8")
-    model_path = model_dir / "nemotron-speech-streaming-en-0.6b.nemo"
+    model_path = model_dir / "ja-streaming-rnnt.nemo"
     backend, host_model_path, host_worker_path, host_trace_file = _source_env_block(env_file)
     assert backend == "nemo_rnnt_streaming"
     assert host_model_path == str(model_path.resolve(strict=True))
@@ -155,7 +159,7 @@ def test_prepare_downloads_ignored_model_and_outputs_sourceable_env(
     assert host_trace_file == str(trace_file)
     trace_text = trace_file.read_text(encoding="utf-8")
     assert "status=success" in trace_text
-    assert "model_id=nemotron-speech-streaming-en-0.6b" in trace_text
+    assert "model_id=ja-streaming-rnnt" in trace_text
     assert f"model_path={model_path.resolve(strict=True)}" in trace_text
 
     vlabor_backend, vlabor_model, vlabor_worker, vlabor_trace = _source_env_block(
@@ -174,13 +178,31 @@ def test_prepare_downloads_ignored_model_and_outputs_sourceable_env(
     assert vlabor_trace == str(trace_file)
 
 
-def test_prepare_fails_closed_on_unknown_model_id(tmp_path: Path) -> None:
+def test_prepare_requires_explicit_model_id(tmp_path: Path) -> None:
     package = _copy_prepare_package(tmp_path)
 
-    completed = _run_prepare(package.preparer, ("--model-id", "unknown-model"))
+    completed = _run_prepare(package.preparer, ())
 
     assert completed.returncode == 1
-    assert "unsupported model id" in completed.stderr
+    assert "--model-id is required" in completed.stderr
+
+
+def test_prepare_rejects_model_id_with_path_separator(tmp_path: Path) -> None:
+    package = _copy_prepare_package(tmp_path)
+
+    completed = _run_prepare(package.preparer, ("--model-id", "../model"))
+
+    assert completed.returncode == 1
+    assert "model id contains unsupported characters" in completed.stderr
+
+
+def test_prepare_requires_model_url_when_model_file_is_absent(tmp_path: Path) -> None:
+    package = _copy_prepare_package(tmp_path)
+
+    completed = _run_prepare(package.preparer, ("--model-id", "ja-streaming-rnnt"))
+
+    assert completed.returncode == 1
+    assert "--model-url is required when model file is absent" in completed.stderr
 
 
 def test_prepare_fails_closed_when_download_fails(tmp_path: Path) -> None:
@@ -193,7 +215,14 @@ def test_prepare_fails_closed_when_download_fails(tmp_path: Path) -> None:
 
     completed = _run_prepare(
         package.preparer,
-        ("--models-dir", str(package.package_dir / "models" / "nemo_rnnt_streaming")),
+        (
+            "--model-id",
+            "ja-streaming-rnnt",
+            "--model-url",
+            "https://example.test/models/ja-streaming-rnnt.nemo",
+            "--models-dir",
+            str(package.package_dir / "models" / "nemo_rnnt_streaming"),
+        ),
         env_updates={"PATH": f"{bin_dir}:{os.environ['PATH']}"},
     )
 

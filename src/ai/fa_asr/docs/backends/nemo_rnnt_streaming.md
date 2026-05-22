@@ -456,8 +456,8 @@ trace には `command_received health`、`health_start`、同じ理由の `worke
 注意すべき operational drift は次です。
 
 - `src/ai/fa_asr/scripts/prepare_nemo_rnnt_streaming_asr` は現時点では Parakeet 1.1B multilingual の NGC preparer ではありません。
-- 同 script の default は `nemotron-speech-streaming-en-0.6b` で、Hugging Face URL から `curl` で `.nemo` を取得します。
-- 同 script の `validate_model_id()` は `nemotron-speech-streaming-en-0.6b` 以外を拒否します。
+- 同 script は default model id / URL を持たず、`--model-id` を明示し、model file が無い場合は `--model-url` も明示する必要があります。
+- 同 script の `validate_model_id()` は path separator などを含む model id を拒否します。
 - 同 script は `${MODELS_DIR}/${MODEL_ID}.nemo` を出力 path にするため、上記 Parakeet NGC artifact の directory layout とは一致しません。
 
 したがって、Parakeet 1.1B multilingual の取得、配置、integrity check、worker `health` は、現行 prepare script の成功とは別の作業として扱います。

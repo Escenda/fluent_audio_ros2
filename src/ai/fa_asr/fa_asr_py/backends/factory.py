@@ -28,6 +28,10 @@ from fa_asr_py.backends.parakeet_worker import (
     ParakeetWorkerAsrBackend,
     load_parakeet_worker_config,
 )
+from fa_asr_py.backends.parakeet_multilingual_buffered import (
+    ParakeetMultilingualBufferedAsrBackend,
+    load_parakeet_multilingual_buffered_config,
+)
 from fa_asr_py.backends.whisper_cpp import WhisperCppAsrBackend, load_whisper_cpp_config
 
 
@@ -42,6 +46,7 @@ class AsrBackendSettings:
     openai_realtime_api_key_env: str = ""
     openai_transcriptions_api_key_env: str = ""
     language: str = ""
+    language_policy: str = ""
     args: tuple[str, ...] = ()
     health_args: tuple[str, ...] = ()
     timeout_sec: float = 0.0
@@ -54,6 +59,8 @@ class AsrBackendSettings:
     chunk_ms: int = 0
     emit_partial: bool = True
     max_partial_interval_ms: int = 0
+    max_buffer_sec: float = 30.0
+    speech_energy_threshold: float = 0.001
 
 
 def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
@@ -106,6 +113,22 @@ def build_asr_backend(settings: AsrBackendSettings) -> AsrBackend:
                 workspace_dir=settings.workspace_dir,
                 cleanup_audio_files=settings.cleanup_audio_files,
                 result_format=settings.result_format.strip(),
+            )
+        )
+    if backend_name == ParakeetMultilingualBufferedAsrBackend.name:
+        return ParakeetMultilingualBufferedAsrBackend(
+            load_parakeet_multilingual_buffered_config(
+                model=settings.model.strip(),
+                model_path_value=settings.model_path.strip(),
+                language=settings.language,
+                language_policy=settings.language_policy,
+                sample_rate_hz=settings.sample_rate_hz,
+                channels=settings.channels,
+                chunk_size_samples=settings.chunk_size_samples,
+                chunk_ms=settings.chunk_ms,
+                emit_partial=settings.emit_partial,
+                max_buffer_sec=settings.max_buffer_sec,
+                speech_energy_threshold=settings.speech_energy_threshold,
             )
         )
     if backend_name == NemoRnntStreamingAsrBackend.name:

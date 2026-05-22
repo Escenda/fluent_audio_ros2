@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_MODEL_ID="nemotron-speech-streaming-en-0.6b"
-DEFAULT_MODEL_URL="https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b/resolve/main/nemotron-speech-streaming-en-0.6b.nemo"
-
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 case "${SCRIPT_PATH}" in
   */*) SCRIPT_DIR="$(cd -- "${SCRIPT_PATH%/*}" >/dev/null 2>&1 && pwd -P)" ;;
@@ -11,8 +8,8 @@ case "${SCRIPT_PATH}" in
 esac
 PACKAGE_DIR="$(cd -- "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd -P)"
 WORKER="${SCRIPT_DIR}/nemo_rnnt_streaming_worker"
-MODEL_ID="${DEFAULT_MODEL_ID}"
-MODEL_URL="${DEFAULT_MODEL_URL}"
+MODEL_ID=""
+MODEL_URL=""
 MODELS_DIR="${PACKAGE_DIR}/models/nemo_rnnt_streaming"
 TRACE_FILE=""
 TRACE_STATUS="failure"
@@ -24,8 +21,8 @@ usage() {
 Usage: $(basename -- "$0") [options]
 
 Options:
-  --model-id MODEL_ID      model id to download/use (default: ${DEFAULT_MODEL_ID})
-  --model-url URL          explicit .nemo URL
+  --model-id MODEL_ID      explicit model id to download/use
+  --model-url URL          explicit .nemo URL when the model file is not present
   --models-dir DIR         model directory (default: ${MODELS_DIR})
   --trace-file PATH        trace log file path
   -h, --help               show this help
@@ -188,10 +185,13 @@ trap on_exit EXIT
 validate_model_id() {
   local value="$1"
   case "${value}" in
-    nemotron-speech-streaming-en-0.6b)
+    "")
+      fail "--model-id is required"
+      ;;
+    *[!a-zA-Z0-9._-]*)
+      fail "model id contains unsupported characters: ${value}"
       ;;
     *)
-      fail "unsupported model id: ${value}"
       ;;
   esac
 }
@@ -245,6 +245,10 @@ download_model() {
     trace_stage_start "download_model" "existing ${model_path}"
     trace_stage_finish "download_model" "${model_path}"
     return 0
+  fi
+
+  if [[ -z "${MODEL_URL}" ]]; then
+    fail "--model-url is required when model file is absent: ${model_path}"
   fi
 
   require_command curl

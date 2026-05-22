@@ -26,6 +26,10 @@ from fa_asr_py.backends.parakeet_worker import (
     ParakeetWorkerAsrBackend,
     ParakeetWorkerAsrConfig,
 )
+from fa_asr_py.backends.parakeet_multilingual_buffered import (
+    ParakeetMultilingualBufferedAsrBackend,
+    ParakeetMultilingualBufferedConfig,
+)
 from fa_asr_py.backends.whisper_cpp import WhisperCppAsrBackend, WhisperCppAsrConfig
 
 __all__ = [
@@ -44,6 +48,8 @@ __all__ = [
     "OpenAiTranscriptionsAsrConfig",
     "ParakeetWorkerAsrBackend",
     "ParakeetWorkerAsrConfig",
+    "ParakeetMultilingualBufferedAsrBackend",
+    "ParakeetMultilingualBufferedConfig",
     "LocalCommandAsrBackend",
     "LocalCommandAsrConfig",
     "WhisperCppAsrBackend",

@@ -314,6 +314,7 @@ class FaAsrNode(Node):
             Parameter.Type.STRING,
         )
         self.declare_parameter("backend.language", Parameter.Type.STRING)
+        self.declare_parameter("backend.language_policy", Parameter.Type.STRING)
         self.declare_parameter("backend.timeout_sec", Parameter.Type.DOUBLE)
         self.declare_parameter("backend.working_directory", Parameter.Type.STRING)
         self.declare_parameter("backend.args", Parameter.Type.STRING_ARRAY)
@@ -326,6 +327,8 @@ class FaAsrNode(Node):
         self.declare_parameter("backend.chunk_ms", Parameter.Type.INTEGER)
         self.declare_parameter("backend.emit_partial", Parameter.Type.BOOL)
         self.declare_parameter("backend.max_partial_interval_ms", Parameter.Type.INTEGER)
+        self.declare_parameter("backend.max_buffer_sec", Parameter.Type.DOUBLE)
+        self.declare_parameter("backend.speech_energy_threshold", Parameter.Type.DOUBLE)
         self.declare_parameter("audio.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)
@@ -461,6 +464,29 @@ class FaAsrNode(Node):
                     working_directory=self._string_parameter("backend.working_directory"),
                     output_text_path=self._string_parameter("backend.output_text_path"),
                     result_format=self._string_parameter("backend.result_format"),
+                )
+            )
+        if backend_name == "parakeet_multilingual_buffered":
+            return build_asr_backend(
+                AsrBackendSettings(
+                    name=backend_name,
+                    workspace_dir=self.workspace_dir,
+                    cleanup_audio_files=self.cleanup_audio_files,
+                    model=self._string_parameter("backend.model"),
+                    model_path=self._string_parameter("backend.model_path"),
+                    language=self._string_parameter("backend.language"),
+                    language_policy=self._string_parameter("backend.language_policy"),
+                    sample_rate_hz=self._integer_parameter("backend.sample_rate_hz"),
+                    channels=self._integer_parameter("backend.channels"),
+                    chunk_size_samples=self._integer_parameter(
+                        "backend.chunk_size_samples"
+                    ),
+                    chunk_ms=self._integer_parameter("backend.chunk_ms"),
+                    emit_partial=self._bool_parameter("backend.emit_partial"),
+                    max_buffer_sec=self._double_parameter("backend.max_buffer_sec"),
+                    speech_energy_threshold=self._double_parameter(
+                        "backend.speech_energy_threshold"
+                    ),
                 )
             )
         if backend_name == "nemo_rnnt_streaming":
