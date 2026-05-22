@@ -124,21 +124,23 @@ def inference_mode():
 class CacheAwareStreamingAudioBuffer:
     def __init__(self, model, online_normalization=False):
         self.model = model
-        self.items = []
-        self.cursor = 0
+        self.buffer = None
+        self.buffer_idx = 0
         self.streams_length = None
 
     def append_audio(self, audio, stream_id=-1):
         self.model.append_stream_ids.append(stream_id)
+        if self.buffer is None:
+            self.buffer = type(audio)(audio)
+        else:
+            self.buffer = type(audio)(tuple(self.buffer) + tuple(audio))
         if self.streams_length is None:
             if stream_id >= 0:
                 raise RuntimeError("first append must create a new stream")
-            self.items.append(audio)
             self.streams_length = [len(audio)]
             return None, None, -1
         if stream_id != 0:
             raise RuntimeError("subsequent append must target stream 0")
-        self.items.append(audio)
         self.streams_length[0] += len(audio)
         return None, None, stream_id
 
@@ -146,18 +148,22 @@ class CacheAwareStreamingAudioBuffer:
         return self
 
     def __next__(self):
-        if self.cursor >= len(self.items):
+        if self.buffer is None or self.buffer_idx >= len(self.buffer):
             raise StopIteration
-        item = self.items[self.cursor]
-        self.cursor += 1
+        chunk_size = self.model.encoder.streaming_cfg.chunk_size[
+            0 if self.buffer_idx == 0 else 1
+        ]
+        end_index = min(len(self.buffer), self.buffer_idx + chunk_size)
+        item = type(self.buffer)(tuple(self.buffer)[self.buffer_idx:end_index])
+        self.buffer_idx = end_index
         return item, len(item)
 
     def is_buffer_empty(self):
-        return self.cursor >= len(self.items)
+        return self.buffer is None or self.buffer_idx >= len(self.buffer)
 
     def reset_buffer(self):
-        self.items = []
-        self.cursor = 0
+        self.buffer = None
+        self.buffer_idx = 0
         self.streams_length = None
 """,
         encoding="utf-8",
@@ -204,6 +210,7 @@ class CacheAwareStreamingAudioBuffer:
 class FakeStreamingCfg:
     drop_extra_pre_encoded = 0
     last_channel_cache_size = {last_channel_cache_size}
+    chunk_size = [2, 2]
 
 
 class FakeEncoder:
@@ -397,20 +404,20 @@ class _DirectFakeTorch:
 class _DirectFakeStreamingAudioBuffer:
     def __init__(self, model, online_normalization: bool = False) -> None:
         del online_normalization
-        self._items: list[_DirectFakeAudio] = []
-        self._cursor = 0
+        self._model = model
+        self.buffer = _DirectFakeAudio(())
+        self.buffer_idx = 0
         self.streams_length: list[int] | None = None
 
     def append_audio(self, audio: _DirectFakeAudio, stream_id: int = -1):
+        self.buffer = _DirectFakeAudio(tuple(self.buffer) + tuple(audio))
         if self.streams_length is None:
             if stream_id >= 0:
                 raise RuntimeError("first append must create a new stream")
-            self._items.append(audio)
             self.streams_length = [audio.size(-1)]
             return None, None, -1
         if stream_id != 0:
             raise RuntimeError("subsequent append must target stream 0")
-        self._items.append(audio)
         self.streams_length[0] += audio.size(-1)
         return None, None, stream_id
 
@@ -418,18 +425,22 @@ class _DirectFakeStreamingAudioBuffer:
         return self
 
     def __next__(self) -> tuple[_DirectFakeAudio, int]:
-        if self._cursor >= len(self._items):
+        if self.buffer_idx >= self.buffer.size(-1):
             raise StopIteration
-        item = self._items[self._cursor]
-        self._cursor += 1
+        chunk_size = self._model.encoder.streaming_cfg.chunk_size[
+            0 if self.buffer_idx == 0 else 1
+        ]
+        end_index = min(self.buffer.size(-1), self.buffer_idx + chunk_size)
+        item = _DirectFakeAudio(tuple(self.buffer)[self.buffer_idx:end_index])
+        self.buffer_idx = end_index
         return item, item.size(-1)
 
     def is_buffer_empty(self) -> bool:
-        return self._cursor >= len(self._items)
+        return self.buffer_idx >= self.buffer.size(-1)
 
     def reset_buffer(self) -> None:
-        self._items = []
-        self._cursor = 0
+        self.buffer = _DirectFakeAudio(())
+        self.buffer_idx = 0
         self.streams_length = None
 
 
@@ -440,15 +451,20 @@ class _DirectFakeStreamingUtils:
 class _DirectFakeStreamingCfg:
     drop_extra_pre_encoded = 0
 
-    def __init__(self, last_channel_cache_size) -> None:
+    def __init__(self, last_channel_cache_size, chunk_size: tuple[int, int]) -> None:
         self.last_channel_cache_size = last_channel_cache_size
+        self.chunk_size = list(chunk_size)
 
 
 class _DirectFakeEncoder:
-    def __init__(self, last_channel_cache_size) -> None:
+    def __init__(
+        self,
+        last_channel_cache_size,
+        chunk_size: tuple[int, int] = (3, 3),
+    ) -> None:
         self.att_context_size = [-1, -1]
         self.att_context_size_all = [[-1, -1], [70, 1]]
-        self.streaming_cfg = _DirectFakeStreamingCfg(last_channel_cache_size)
+        self.streaming_cfg = _DirectFakeStreamingCfg(last_channel_cache_size, chunk_size)
         self.max_audio_length_calls: list[int] = []
         self.model = None
 
@@ -482,7 +498,7 @@ class _DirectFakeEncoder:
 class _DirectFakeEncoderWithoutSetMaxAudioLength:
     def __init__(self, last_channel_cache_size: int) -> None:
         self.att_context_size = [70, 1]
-        self.streaming_cfg = _DirectFakeStreamingCfg(last_channel_cache_size)
+        self.streaming_cfg = _DirectFakeStreamingCfg(last_channel_cache_size, (2, 2))
         self.model = None
 
     def get_initial_cache_state(self, batch_size: int) -> tuple[str, str, str]:
@@ -513,6 +529,7 @@ class _DirectFakeModel:
         }
         self.encoder = encoder
         self.events: list[str] = []
+        self.keep_all_outputs_calls: list[bool] = []
         self.calls = 0
         if hasattr(encoder, "model"):
             encoder.model = self
@@ -525,6 +542,9 @@ class _DirectFakeModel:
         expected_event = f"set_max_audio_length:{required_length}"
         if not self.events or self.events[-1] != expected_event:
             raise RuntimeError("set_max_audio_length was not called before model step")
+        if type(kwargs["keep_all_outputs"]) is not bool:
+            raise RuntimeError("keep_all_outputs must be a bool")
+        self.keep_all_outputs_calls.append(kwargs["keep_all_outputs"])
         self.events.append("conformer_stream_step")
         self.calls += 1
         return (
@@ -667,12 +687,168 @@ def test_cache_aware_step_sets_required_max_audio_length_before_model_step(
 
     assert text == "cache-1"
     assert encoder.max_audio_length_calls == [10003]
+    assert model.keep_all_outputs_calls == [False]
     assert model.events == [
         "set_default_att_context_size:[70, 1]",
         "setup_streaming_params:10:5:2",
         "set_max_audio_length:10003",
         "conformer_stream_step",
     ]
+
+
+def test_cache_aware_non_final_ready_chunk_keeps_outputs_non_final(
+    monkeypatch,
+) -> None:
+    worker = _load_worker_module()
+    _install_direct_cache_aware_modules(worker, monkeypatch)
+    encoder = _DirectFakeEncoder(last_channel_cache_size=10000)
+    model = _DirectFakeModel(encoder)
+    runner = worker.CacheAwareConformerStreamingRunner(
+        model,
+        _worker_config(worker, Path("model.nemo")),
+    )
+
+    runner.start_stream()
+    text = runner.accept_audio(samples=(0.0, 0.25, 0.5))
+
+    assert text == "cache-1"
+    assert model.keep_all_outputs_calls == [False]
+
+
+def test_cache_aware_non_final_incomplete_chunk_returns_empty_without_advancing(
+    monkeypatch,
+) -> None:
+    worker = _load_worker_module()
+    _install_direct_cache_aware_modules(worker, monkeypatch)
+    encoder = _DirectFakeEncoder(last_channel_cache_size=10000, chunk_size=(4, 2))
+    model = _DirectFakeModel(encoder)
+    runner = worker.CacheAwareConformerStreamingRunner(
+        model,
+        _worker_config(worker, Path("model.nemo")),
+    )
+
+    runner.start_stream()
+    text = runner.accept_audio(samples=(0.0, 0.25, 0.5))
+    buffer = runner._require_buffer()
+
+    assert text == ""
+    assert buffer.buffer_idx == 0
+    assert model.calls == 0
+    assert model.keep_all_outputs_calls == []
+    assert encoder.max_audio_length_calls == []
+
+
+def test_cache_aware_non_final_later_append_processes_exactly_one_ready_chunk(
+    monkeypatch,
+) -> None:
+    worker = _load_worker_module()
+    _install_direct_cache_aware_modules(worker, monkeypatch)
+    encoder = _DirectFakeEncoder(last_channel_cache_size=10000, chunk_size=(4, 2))
+    model = _DirectFakeModel(encoder)
+    runner = worker.CacheAwareConformerStreamingRunner(
+        model,
+        _worker_config(worker, Path("model.nemo")),
+    )
+
+    runner.start_stream()
+    first_text = runner.accept_audio(samples=(0.0, 0.25, 0.5))
+    buffer = runner._require_buffer()
+
+    assert first_text == ""
+    assert buffer.buffer_idx == 0
+    assert model.calls == 0
+
+    text = runner.accept_audio(samples=(0.75,))
+
+    assert text == "cache-1"
+    assert buffer.buffer_idx == 4
+    assert model.calls == 1
+    assert model.keep_all_outputs_calls == [False]
+    assert encoder.max_audio_length_calls == [10004]
+
+
+def test_cache_aware_non_final_uses_later_chunk_size_after_first_step(
+    monkeypatch,
+) -> None:
+    worker = _load_worker_module()
+    _install_direct_cache_aware_modules(worker, monkeypatch)
+    encoder = _DirectFakeEncoder(last_channel_cache_size=10000, chunk_size=(4, 2))
+    model = _DirectFakeModel(encoder)
+    runner = worker.CacheAwareConformerStreamingRunner(
+        model,
+        _worker_config(worker, Path("model.nemo")),
+    )
+
+    runner.start_stream()
+    runner.accept_audio(samples=(0.0, 0.25, 0.5, 0.75))
+    buffer = runner._require_buffer()
+
+    text = runner.accept_audio(samples=(0.125,))
+
+    assert text == ""
+    assert buffer.buffer_idx == 4
+    assert model.calls == 1
+    assert model.keep_all_outputs_calls == [False]
+
+    text = runner.accept_audio(samples=(0.25,))
+
+    assert text == "cache-2"
+    assert buffer.buffer_idx == 6
+    assert model.calls == 2
+    assert model.keep_all_outputs_calls == [False, False]
+    assert encoder.max_audio_length_calls == [10004, 10002]
+
+
+def test_cache_aware_finish_drain_marks_final_chunk_keep_all_outputs(
+    monkeypatch,
+) -> None:
+    worker = _load_worker_module()
+    _install_direct_cache_aware_modules(worker, monkeypatch)
+    encoder = _DirectFakeEncoder(last_channel_cache_size=10000)
+    model = _DirectFakeModel(encoder)
+    runner = worker.CacheAwareConformerStreamingRunner(
+        model,
+        _worker_config(worker, Path("model.nemo")),
+    )
+
+    runner.start_stream()
+    buffer = runner._require_buffer()
+    audio = _DirectFakeNumpy.asarray((0.0, 0.25, 0.5))
+    _, _, returned_stream_id = buffer.append_audio(audio, stream_id=-1)
+    runner._stream_id = runner._resolve_initial_stream_id(
+        buffer,
+        returned_stream_id=returned_stream_id,
+    )
+
+    text = runner.finish_stream()
+
+    assert text == "cache-1"
+    assert model.keep_all_outputs_calls == [True]
+
+
+def test_cache_aware_finish_drain_processes_incomplete_tail(
+    monkeypatch,
+) -> None:
+    worker = _load_worker_module()
+    _install_direct_cache_aware_modules(worker, monkeypatch)
+    encoder = _DirectFakeEncoder(last_channel_cache_size=10000, chunk_size=(4, 4))
+    model = _DirectFakeModel(encoder)
+    runner = worker.CacheAwareConformerStreamingRunner(
+        model,
+        _worker_config(worker, Path("model.nemo")),
+    )
+
+    runner.start_stream()
+    text = runner.accept_audio(samples=(0.0, 0.25))
+
+    assert text == ""
+    assert model.keep_all_outputs_calls == []
+
+    text = runner.finish_stream()
+
+    assert text == "cache-1"
+    assert model.keep_all_outputs_calls == [True]
+    assert encoder.max_audio_length_calls == [10002]
 
 
 def test_cache_aware_step_fails_closed_without_set_max_audio_length(

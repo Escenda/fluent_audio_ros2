@@ -528,7 +528,18 @@ class CacheAwareConformerStreamingRunner:
             command="finish" if final else "audio",
             details={"final": final},
         )
-        for chunk_audio, chunk_lengths in buffer:
+        buffer_iterator = None
+        while final or self._has_complete_non_final_chunk(buffer):
+            if buffer_iterator is None:
+                buffer_iterator = iter(buffer)
+            try:
+                chunk_audio, chunk_lengths = next(buffer_iterator)
+            except StopIteration as exc:
+                if final:
+                    break
+                raise WorkerError(
+                    "cache-aware buffer reported a complete chunk but iterator ended"
+                ) from exc
             chunk_count += 1
             chunk_time_length = _chunk_time_length(chunk_audio)
             self._trace.emit(
@@ -544,7 +555,9 @@ class CacheAwareConformerStreamingRunner:
             latest_text = self._conformer_stream_step(
                 chunk_audio=chunk_audio,
                 chunk_lengths=chunk_lengths,
-                keep_all_outputs=final or buffer.is_buffer_empty(),
+                # In live append mode, an empty buffer only means all currently
+                # appended audio was consumed. Only finish may mark a final chunk.
+                keep_all_outputs=final,
             )
         if latest_text:
             self._last_text = latest_text
@@ -557,6 +570,41 @@ class CacheAwareConformerStreamingRunner:
             details={"final": final},
         )
         return latest_text
+
+    def _has_complete_non_final_chunk(self, buffer) -> bool:
+        buffer_idx, available_length = self._buffer_position(buffer)
+        return available_length >= self._current_non_final_chunk_size(
+            buffer_idx=buffer_idx,
+        )
+
+    def _buffer_position(self, buffer) -> tuple[int, int]:
+        audio_buffer = _required_cache_buffer_attr(buffer, "buffer")
+        buffer_idx = _required_cache_buffer_attr(buffer, "buffer_idx")
+        if type(buffer_idx) is not int or buffer_idx < 0:
+            raise WorkerError("cache-aware buffer buffer_idx must be a non-negative integer")
+        if not hasattr(audio_buffer, "size"):
+            raise WorkerError("cache-aware buffer audio does not expose size")
+        buffer_length = audio_buffer.size(-1)
+        if type(buffer_length) is not int or buffer_length < 0:
+            raise WorkerError("cache-aware buffer length must be a non-negative integer")
+        if buffer_idx > buffer_length:
+            raise WorkerError("cache-aware buffer_idx exceeds buffer length")
+        return buffer_idx, buffer_length - buffer_idx
+
+    def _current_non_final_chunk_size(self, *, buffer_idx: int) -> int:
+        encoder = _required_attr(self._model, "encoder")
+        streaming_cfg = _required_attr(encoder, "streaming_cfg")
+        chunk_size = _required_attr(streaming_cfg, "chunk_size")
+        if type(chunk_size) is int:
+            return _require_positive_chunk_size(chunk_size)
+        if type(chunk_size) is list or type(chunk_size) is tuple:
+            chunk_index = 0 if buffer_idx == 0 else 1
+            if len(chunk_size) <= chunk_index:
+                raise WorkerError(
+                    "streaming_cfg.chunk_size must contain first and later chunk sizes"
+                )
+            return _require_positive_chunk_size(chunk_size[chunk_index])
+        raise WorkerError("streaming_cfg.chunk_size must be an integer or pair")
 
     def _conformer_stream_step(
         self,
@@ -1136,6 +1184,18 @@ def _required_attr(value, name: str):
     if not hasattr(value, name):
         raise WorkerError(f"model is missing required attribute: {name}")
     return getattr(value, name)
+
+
+def _required_cache_buffer_attr(buffer, name: str):
+    if not hasattr(buffer, name):
+        raise WorkerError(f"cache-aware buffer is missing required attribute: {name}")
+    return getattr(buffer, name)
+
+
+def _require_positive_chunk_size(value) -> int:
+    if type(value) is not int or value <= 0:
+        raise WorkerError("streaming_cfg.chunk_size values must be positive integers")
+    return value
 
 
 def _required_config_section(config, name: str):
