@@ -1,5 +1,10 @@
 # whisper.cpp Backend
 
+## Position
+
+`whisper.cpp` is a legacy optional external worker backend.
+It is not the current standard ASR backend, not a default path, not the validation reference, and not a fallback for `parakeet_multilingual_buffered`.
+
 ## Backend Name
 
 `whisper.cpp`

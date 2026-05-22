@@ -1,5 +1,11 @@
 # nemo_offline_transcribe Backend
 
+## Position
+
+`nemo_offline_transcribe` is a legacy optional non-streaming command / worker backend.
+It is not the current standard ASR backend, not a default path, not a streaming reference implementation, and not a fallback for `parakeet_multilingual_buffered`.
+The current standard multilingual Parakeet path is `parakeet_multilingual_buffered`.
+
 ## Backend Name
 
 `nemo_offline_transcribe`

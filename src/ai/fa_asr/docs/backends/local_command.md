@@ -1,5 +1,11 @@
 # local_command Backend
 
+## Position
+
+`local_command` is an optional legacy command-backend abstraction.
+It is not the current standard ASR backend, not a default path, and not a fallback for `parakeet_multilingual_buffered`.
+Use it only when a profile explicitly selects this backend and supplies the full command contract.
+
 ## Backend Name
 
 `local_command`

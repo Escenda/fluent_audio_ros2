@@ -1,5 +1,10 @@
 # openai_realtime Backend
 
+## Position
+
+`openai_realtime` is an optional external API worker slot.
+It is not the current standard ASR backend, not a default path, and not a fallback for `parakeet_multilingual_buffered`.
+
 ## Backend Name
 
 `openai_realtime`

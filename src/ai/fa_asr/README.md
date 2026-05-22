@@ -1,6 +1,6 @@
 # fa_asr
 
-`fa_asr` は `audio/frame` を `TurnContext` 単位でバッファし、VAD終了または無音タイムアウトで ASR backend に raw float32le payload を渡します。OpenAI SDK/APIやWebSocket client には直接依存しません。
+`fa_asr` は `audio/frame` を ASR stream 単位でバッファし、VAD / TurnDetector / timeout trigger で final decode します。標準 ASR path は `parakeet_multilingual_buffered` であり、OpenAI SDK/API、WebSocket client、Whisper、NIM、Riva、gRPC、legacy JSONL worker には標準経路として依存しません。
 
 ## 入出力
 
@@ -39,7 +39,7 @@ observability.qos.reliable: true
 
 この backend の入力 contract は固定です。
 
-- `backend.model_path`: local multilingual Parakeet 1.1B `.nemo`
+- `backend.model_path` または `backend.model`: local multilingual Parakeet 1.1B `.nemo` または multilingual Parakeet 1.1B model id。両方を同時に設定しない
 - `backend.language`: 空文字
 - `backend.language_policy`: `auto_detect`
 - `backend.sample_rate_hz`: `16000`
@@ -53,4 +53,4 @@ observability.qos.reliable: true
 
 Parakeet 1.1B multilingual `.nemo` は full-context model として扱います。cache-aware streaming model ではないため、FluentAudio では rolling buffer を chunk 境界で再 decode し、partial を未確定 hypothesis として返します。VAD / TurnDetector / timeout などで stream が閉じたとき、`finish()` が final decode を行い、その結果だけを committed transcript とします。
 
-speech energy が十分ある audio に対して final transcript が空なら成功扱いしません。英語専用 model、Whisper、旧 JSONL worker、外部 serving stack へ自動 fallback もしません。
+speech energy が十分ある audio に対して final transcript が空なら成功扱いしません。multilingual Parakeet 1.1B ではない model、Whisper、旧 JSONL worker、外部 serving stack へ自動 fallback もしません。

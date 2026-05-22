@@ -69,7 +69,7 @@ routing / mixing (`routing/`)
 ### AI (`src/ai/`)
 - **fa_vad**: Voice Activity Detection (silero-vad worker 経由)
 - **fa_kws**: Keyword Spotting (sherpa-onnx worker 経由)
-- **fa_asr**: ASR + Transcribe サービス (外部 backend 経由)
+- **fa_asr**: ASR + Transcribe サービス。標準 ASR backend は in-process `parakeet_multilingual_buffered` で、legacy external backend は明示選択時だけ使う
 - **fa_turn_detector**: ターン終端検出 (smart-turn ONNX worker 経由)
 - **fa_audio_embedding**: 音声 embedding 出力
 - **fa_sed / fa_speaker**: 計画段階

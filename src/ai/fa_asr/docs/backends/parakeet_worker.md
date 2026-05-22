@@ -1,5 +1,11 @@
 # parakeet_worker Backend
 
+## Position
+
+`parakeet_worker` is a legacy optional external worker backend.
+It is not the current standard ASR backend, not a default path, and not a fallback for `parakeet_multilingual_buffered`.
+The current standard multilingual Parakeet path keeps the runner inside `parakeet_multilingual_buffered`.
+
 ## Backend Name
 
 `parakeet_worker`
