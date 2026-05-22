@@ -18,6 +18,7 @@ install(PROGRAMS
   scripts/fa_asr_node
   scripts/nemo_offline_transcribe_worker
   scripts/nemo_rnnt_streaming_worker
+  scripts/prepare_nemo_offline_transcribe_asr
   scripts/prepare_nemo_rnnt_streaming_asr
   scripts/prepare_whisper_cpp_asr
   scripts/whisper_cpp_worker
