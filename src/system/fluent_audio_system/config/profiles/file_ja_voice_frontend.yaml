@@ -172,15 +172,18 @@ groups:
           timeline.clock: "media"
           timeline.window_id: "file_ja_voice_frontend_asr"
           timeline.window_epoch: 1
-          backend.name: "nemo_offline_transcribe"
-          backend.command: "${env:FLUENT_AUDIO_NEMO_OFFLINE_TRANSCRIBE_WORKER}"
-          backend.model_path: "${env:FLUENT_AUDIO_NEMO_OFFLINE_TRANSCRIBE_MODEL_PATH}"
-          backend.language: "ja-JP"
+          backend.name: "parakeet_multilingual_buffered"
+          backend.model_path: "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
+          backend.language: ""
+          backend.language_policy: "auto_detect"
           backend.sample_rate_hz: 16000
           backend.channels: 1
-          backend.result_format: "plain_text"
+          backend.chunk_size_samples: 1600
+          backend.chunk_ms: 0
           backend.emit_partial: false
-          backend.timeout_sec: 120.0
+          backend.max_partial_interval_ms: 300
+          backend.max_buffer_sec: 30.0
+          backend.speech_energy_threshold: 0.001
           workspace_dir: "/tmp/fluent_audio/fa_asr/file_ja_voice_frontend"
           cleanup_audio_files: true
           result.qos.depth: 10

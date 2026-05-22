@@ -20,8 +20,7 @@ _PCM_PATH_ENV = "FLUENT_AUDIO_FILE_JA_PCM_PATH"
 _VAD_MODEL_DIR_ENV = "FLUENT_AUDIO_VAD_MODEL_DIR"
 _VAD_PROVIDER_ENV = "FLUENT_AUDIO_VAD_PROVIDER"
 _VAD_WORKER_ENV = "FLUENT_AUDIO_VAD_WORKER"
-_ASR_WORKER_ENV = "FLUENT_AUDIO_NEMO_OFFLINE_TRANSCRIBE_WORKER"
-_ASR_MODEL_ENV = "FLUENT_AUDIO_NEMO_OFFLINE_TRANSCRIBE_MODEL_PATH"
+_ASR_MODEL_ENV = "FLUENT_AUDIO_ASR_MODEL_PATH"
 _EXPECTED_TEXT_ENV = "FLUENT_AUDIO_FILE_JA_EXPECTED_TEXT"
 
 _SOURCE_ID = "file_ja"
@@ -104,13 +103,6 @@ YamlValue: TypeAlias = YamlScalar | YamlMapping | YamlSequence
 
 
 @dataclass(frozen=True)
-class _ExecutableEnv:
-    env_name: str
-    configured_value: str
-    resolved_path: Path
-
-
-@dataclass(frozen=True)
 class _SmokeInput:
     source_pcm_path: Path
     conditioned_pcm_path: Path
@@ -118,12 +110,11 @@ class _SmokeInput:
     source_config_path: Path
     vad_model_dir: Path
     vad_worker_path: Path
-    asr_worker: _ExecutableEnv
     asr_model_path: Path
     expected_text: str | None
 
 
-def test_file_ja_voice_frontend_runs_real_nemo_offline_asr_when_enabled(
+def test_file_ja_voice_frontend_runs_real_parakeet_multilingual_asr_when_enabled(
     tmp_path: Path,
 ) -> None:
     if os.environ.get(_SMOKE_ENV) != "1":
@@ -266,7 +257,6 @@ def _load_smoke_input(tmp_path: Path) -> _SmokeInput:
     )
     downstream_config_path, source_config_path = _write_split_profile_configs(tmp_path)
     vad_model_dir, vad_worker_path = _write_test_vad_runtime(tmp_path)
-    asr_worker = _required_executable_env(_ASR_WORKER_ENV)
     asr_model_path = _required_file_path(_ASR_MODEL_ENV)
     if asr_model_path.suffix != ".nemo":
         raise AssertionError(f"{_ASR_MODEL_ENV} must point to a local .nemo file: {asr_model_path}")
@@ -280,7 +270,6 @@ def _load_smoke_input(tmp_path: Path) -> _SmokeInput:
         source_config_path=source_config_path,
         vad_model_dir=vad_model_dir,
         vad_worker_path=vad_worker_path,
-        asr_worker=asr_worker,
         asr_model_path=asr_model_path,
         expected_text=expected_text,
     )
@@ -334,33 +323,6 @@ def _required_non_empty_env(env_name: str) -> str:
     if value is None or not value.strip():
         raise AssertionError(f"{env_name} must be set for file_ja real ASR smoke")
     return value.strip()
-
-
-def _required_executable_env(env_name: str) -> _ExecutableEnv:
-    configured_value = _required_non_empty_env(env_name)
-    resolved = _resolve_executable(configured_value)
-    if resolved is None:
-        raise AssertionError(f"{env_name} must resolve to an executable: {configured_value}")
-    return _ExecutableEnv(
-        env_name=env_name,
-        configured_value=configured_value,
-        resolved_path=resolved,
-    )
-
-
-def _resolve_executable(configured_value: str) -> Path | None:
-    if "/" in configured_value:
-        path = Path(configured_value).expanduser()
-        if path.is_file() and os.access(path, os.X_OK):
-            return path
-        return None
-    resolved = shutil.which(configured_value)
-    if resolved is None:
-        return None
-    path = Path(resolved)
-    if path.is_file() and os.access(path, os.X_OK):
-        return path
-    return None
 
 
 def _write_split_profile_configs(tmp_path: Path) -> tuple[Path, Path]:
@@ -466,7 +428,6 @@ def _start_profile_launch_process(
             _VAD_MODEL_DIR_ENV: str(smoke_input.vad_model_dir),
             _VAD_PROVIDER_ENV: _TEST_VAD_PROVIDER,
             _VAD_WORKER_ENV: str(smoke_input.vad_worker_path),
-            _ASR_WORKER_ENV: smoke_input.asr_worker.configured_value,
             _ASR_MODEL_ENV: str(smoke_input.asr_model_path),
         }
     )
