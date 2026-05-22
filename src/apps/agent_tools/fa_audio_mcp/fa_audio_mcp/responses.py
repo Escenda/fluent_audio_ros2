@@ -38,40 +38,6 @@ class AudioClipResponseLike(Protocol):
     time_range: TimeRangeLike
 
 
-class TranscriptSegmentLike(Protocol):
-    start_unix_ns: int
-    end_unix_ns: int
-    text: str
-    speaker_label: str
-
-
-class AudioWindowRefLike(Protocol):
-    window_id: str
-    window_epoch: int
-    source_id: str
-    stream_id: str
-    time_range: TimeRangeLike
-
-
-class AudioModelRefLike(Protocol):
-    backend_name: str
-    backend_kind: str
-    model_id: str
-    model_path: str
-    model_version: str
-    model_revision: str
-
-
-class TranscribeAudioResponseLike(Protocol):
-    success: bool
-    error_code: str
-    message: str
-    segments: list[TranscriptSegmentLike]
-    audio_window_ref: AudioWindowRefLike
-    model_ref: AudioModelRefLike
-    time_range: TimeRangeLike
-
-
 def format_export_audio_result(
     response: AudioClipResponseLike,
     requested_time_range: NumericTimeRange,
@@ -114,22 +80,6 @@ def _format_audio_clip_result(
     }
 
 
-def format_transcribe_audio_result(
-    response: TranscribeAudioResponseLike,
-    requested_time_range: NumericTimeRange,
-) -> dict[str, JsonValue]:
-    if not response.success:
-        raise AudioToolError(response.error_code, response.message)
-
-    return {
-        "segments": [_format_segment(segment) for segment in response.segments],
-        "audio_window_ref": _format_audio_window_ref(response.audio_window_ref),
-        "model_ref": _format_model_ref(response.model_ref),
-        "time_range": _format_time_range(response.time_range),
-        "requested_time_range": _format_requested_time_range(requested_time_range),
-    }
-
-
 def _format_time_range(time_range: TimeRangeLike) -> dict[str, JsonValue]:
     return {
         "start_unix_ns": time_range.start_unix_ns,
@@ -145,34 +95,4 @@ def _format_requested_time_range(time_range: NumericTimeRange) -> dict[str, Json
         "start_unix_ns": time_range.start_unix_ns,
         "end_unix_ns": time_range.end_unix_ns,
         "spec": requested_time_range_spec(time_range),
-    }
-
-
-def _format_segment(segment: TranscriptSegmentLike) -> dict[str, JsonValue]:
-    return {
-        "start_unix_ns": segment.start_unix_ns,
-        "end_unix_ns": segment.end_unix_ns,
-        "text": segment.text,
-        "speaker_label": segment.speaker_label,
-    }
-
-
-def _format_audio_window_ref(ref: AudioWindowRefLike) -> dict[str, JsonValue]:
-    return {
-        "window_id": ref.window_id,
-        "window_epoch": ref.window_epoch,
-        "source_id": ref.source_id,
-        "stream_id": ref.stream_id,
-        "time_range": _format_time_range(ref.time_range),
-    }
-
-
-def _format_model_ref(ref: AudioModelRefLike) -> dict[str, JsonValue]:
-    return {
-        "backend_name": ref.backend_name,
-        "backend_kind": ref.backend_kind,
-        "model_id": ref.model_id,
-        "model_path": ref.model_path,
-        "model_version": ref.model_version,
-        "model_revision": ref.model_revision,
     }

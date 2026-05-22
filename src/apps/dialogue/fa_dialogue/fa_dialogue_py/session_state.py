@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import IntEnum
 from typing import Literal
 
 
@@ -22,12 +21,6 @@ CompletionDecisionReason = Literal[
     "turn_mismatch",
     "not_terminal",
 ]
-
-
-class AsrStatus(IntEnum):
-    FINAL = 1
-    TIMEOUT = 2
-    ERROR = 3
 
 
 @dataclass(frozen=True)
@@ -137,20 +130,6 @@ class DialogueSessionState:
         )
 
     def handle_turn_end(self, event: CompletionEvent) -> CompletionDecision:
-        return self._handle_completion(event)
-
-    def handle_asr_result(
-        self,
-        event: CompletionEvent,
-        *,
-        status: int,
-    ) -> CompletionDecision:
-        if status not in (
-            AsrStatus.FINAL,
-            AsrStatus.TIMEOUT,
-            AsrStatus.ERROR,
-        ):
-            return CompletionDecision("ignored", "not_terminal", None)
         return self._handle_completion(event)
 
     def _handle_completion(self, event: CompletionEvent) -> CompletionDecision:

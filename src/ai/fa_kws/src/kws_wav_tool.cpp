@@ -175,7 +175,6 @@ struct Args
   int num_trailing_blanks{-1};
   float keywords_score{std::numeric_limits<float>::quiet_NaN()};
   bool batch_mode{false};
-  bool assume_vad_speech{false};
 };
 
 Args parse_args(int argc, char **argv)
@@ -187,13 +186,13 @@ Args parse_args(int argc, char **argv)
       "--command <path> --workspace_dir <dir> --timeout_sec <sec> "
       "--threshold <float> --sample_rate <hz> --num_threads <n> "
       "--max_active_paths <n> --num_trailing_blanks <n> --keywords_score <float> "
-      "[--chunk_ms 20] --assume-vad-speech\n"
+      "[--chunk_ms 20]\n"
       "   or: kws_wav_tool --batch <dir> --encoder <path> --decoder <path> "
       "--joiner <path> --tokens <path> --keywords <path> --provider <provider> "
       "--command <path> --workspace_dir <dir> --timeout_sec <sec> "
       "--threshold <float> --sample_rate <hz> --num_threads <n> "
       "--max_active_paths <n> --num_trailing_blanks <n> --keywords_score <float> "
-      "[--chunk_ms 20] --assume-vad-speech");
+      "[--chunk_ms 20]");
   }
   Args args;
   for (int i = 1; i < argc; ++i) {
@@ -235,8 +234,6 @@ Args parse_args(int argc, char **argv)
       args.num_trailing_blanks = std::stoi(argv[++i]);
     } else if (arg == "--keywords_score" && i + 1 < argc) {
       args.keywords_score = std::stof(argv[++i]);
-    } else if (arg == "--assume-vad-speech") {
-      args.assume_vad_speech = true;
     }
   }
   if (args.batch_mode) {
@@ -281,11 +278,6 @@ Args parse_args(int argc, char **argv)
   if (!std::isfinite(args.timeout_sec) || args.timeout_sec <= 0.0) {
     throw std::runtime_error("timeout_sec must be finite and positive");
   }
-  if (!args.assume_vad_speech) {
-    throw std::runtime_error(
-      "kws_wav_tool requires explicit VAD policy: "
-      "pass --assume-vad-speech for canonical speech fixtures");
-  }
   return args;
 }
 
@@ -322,7 +314,6 @@ fa_kws::SherpaOnnxKwsBackendConfig build_backend_config(const Args &args)
   cfg.num_trailing_blanks = args.num_trailing_blanks;
   cfg.keywords_score = args.keywords_score;
   cfg.keywords_threshold = args.keywords_threshold;
-  cfg.vad_threshold = 1.0f;
   cfg.cooldown = std::chrono::milliseconds{0};
   cfg.command = args.command;
   cfg.args = {
@@ -398,7 +389,6 @@ bool process_single_wav(fa_kws::SherpaOnnxKwsBackend &engine,
               << " frames=" << wav.samples.size()
               << " chunk=" << chunk
               << " threshold=" << args.keywords_threshold
-              << " vad_policy=assume_speech"
               << std::endl;
   }
 
@@ -410,7 +400,6 @@ bool process_single_wav(fa_kws::SherpaOnnxKwsBackend &engine,
     now += std::chrono::milliseconds(args.chunk_ms);
     auto det = engine.process(slice,
                               static_cast<std::int32_t>(args.target_sample_rate),
-                              /*vad_prob=*/1.0f,
                               now);
     if (det) {
       if (verbose) {
@@ -442,7 +431,6 @@ int main(int argc, char **argv)
 
       std::cout << "Batch mode: " << wav_files.size() << " files, threshold="
                 << args.keywords_threshold
-                << " vad_policy=assume_speech"
                 << std::endl;
 
       // Create engine once
@@ -493,7 +481,6 @@ int main(int argc, char **argv)
                 << " frames=" << wav.samples.size()
                 << " chunk=" << chunk
                 << " threshold=" << args.keywords_threshold
-                << " vad_policy=assume_speech"
                 << std::endl;
 
       std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
@@ -505,7 +492,6 @@ int main(int argc, char **argv)
         now += std::chrono::milliseconds(args.chunk_ms);
         auto det = engine.process(slice,
                                   static_cast<std::int32_t>(args.target_sample_rate),
-                                  /*vad_prob=*/1.0f,
                                   now);
         if (det) {
           std::cout << "DETECTED keyword=" << det->keyword

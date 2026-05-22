@@ -24,7 +24,6 @@ std::unique_ptr<KwsBackend> buildKwsBackend(const KwsBackendSettings &settings)
     config.num_trailing_blanks = settings.num_trailing_blanks;
     config.keywords_score = settings.keywords_score;
     config.keywords_threshold = settings.keywords_threshold;
-    config.vad_threshold = settings.vad_threshold;
     config.cooldown = settings.cooldown;
     config.command = settings.command;
     config.args = settings.args;

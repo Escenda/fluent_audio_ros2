@@ -1,5 +1,4 @@
 from fa_dialogue_py.session_state import (
-    AsrStatus,
     CompletionEvent,
     DialogueSessionState,
     MessageStamp,
@@ -80,56 +79,13 @@ def test_turn_end_for_active_turn_publishes_inactive_context() -> None:
     assert decision.context.active is False
 
 
-def test_asr_terminal_status_for_active_turn_publishes_inactive_context() -> None:
-    state = _state()
-    wake = state.handle_wake(_wake(), now_ms=9500)
-    assert wake.context is not None
-
-    decision = state.handle_asr_result(
-        CompletionEvent(
-            session_id=wake.context.session_id,
-            user_turn_id=wake.context.user_turn_id,
-            terminal=True,
-        ),
-        status=AsrStatus.FINAL,
-    )
-
-    assert decision.kind == "ended"
-    assert decision.context is not None
-    assert decision.context.active is False
-
-
-def test_asr_non_terminal_status_is_ignored() -> None:
-    state = _state()
-    wake = state.handle_wake(_wake(), now_ms=9500)
-    assert wake.context is not None
-
-    decision = state.handle_asr_result(
-        CompletionEvent(
-            session_id=wake.context.session_id,
-            user_turn_id=wake.context.user_turn_id,
-            terminal=True,
-        ),
-        status=0,
-    )
-
-    assert decision.kind == "ignored"
-    assert decision.reason == "not_terminal"
-    assert state.active_turn_id == wake.context.user_turn_id
-
-
-def test_asr_and_turn_end_without_active_turn_are_ignored() -> None:
+def test_turn_end_without_active_turn_is_ignored() -> None:
     state = _state()
 
-    asr_decision = state.handle_asr_result(
-        CompletionEvent(session_id="test-session-1", user_turn_id=1, terminal=True),
-        status=AsrStatus.ERROR,
-    )
     turn_end_decision = state.handle_turn_end(
         CompletionEvent(session_id="test-session-1", user_turn_id=1, terminal=True)
     )
 
-    assert asr_decision.reason == "turn_not_active"
     assert turn_end_decision.reason == "turn_not_active"
 
 
@@ -141,13 +97,12 @@ def test_session_and_turn_mismatch_are_ignored_without_fallback() -> None:
     wrong_session = state.handle_turn_end(
         CompletionEvent(session_id="other-session", user_turn_id=1, terminal=True)
     )
-    wrong_turn = state.handle_asr_result(
+    wrong_turn = state.handle_turn_end(
         CompletionEvent(
             session_id=wake.context.session_id,
             user_turn_id=wake.context.user_turn_id + 1,
             terminal=True,
-        ),
-        status=AsrStatus.TIMEOUT,
+        )
     )
 
     assert wrong_session.reason == "session_mismatch"

@@ -34,13 +34,6 @@ class ArchiveAudioRequestValues:
     payload_format: str
 
 
-@dataclass(frozen=True)
-class TranscribeAudioRequestValues:
-    time_range: NumericTimeRange
-    time_range_spec: str
-    audio_scope: str
-
-
 def build_export_audio_request_values(
     *,
     time_range: str,
@@ -100,27 +93,6 @@ def build_archive_audio_request_values(
         codec=_optional_string(codec, DEFAULT_AUDIO_CLIP_CODEC),
         container=_optional_string(container, DEFAULT_AUDIO_CLIP_CONTAINER),
         payload_format=_optional_string(payload_format, DEFAULT_AUDIO_CLIP_PAYLOAD_FORMAT),
-    )
-
-
-def build_transcribe_audio_request_values(
-    *,
-    time_range: str,
-    audio_scope: str | None,
-    scope_resolver: AudioScopeResolver,
-    now_unix_ns: int | None = None,
-    marker_resolver: TimeMarkerResolver | None = None,
-) -> TranscribeAudioRequestValues:
-    parsed_time_range = resolve_time_range(
-        time_range,
-        now_unix_ns=now_unix_ns,
-        marker_resolver=marker_resolver,
-    )
-    resolved_scope = scope_resolver.resolve(audio_scope)
-    return TranscribeAudioRequestValues(
-        time_range=parsed_time_range,
-        time_range_spec=parsed_time_range.spec,
-        audio_scope=resolved_scope,
     )
 
 

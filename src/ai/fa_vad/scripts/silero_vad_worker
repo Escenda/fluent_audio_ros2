@@ -1,8 +1,0 @@
-#!/usr/bin/env python3
-from __future__ import annotations
-
-from fa_vad_py.backends.silero_worker import main
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

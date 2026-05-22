@@ -16,9 +16,7 @@ Only directories with `package.xml` are ROS 2 packages.
 
 | Directory | Status |
 | --- | --- |
-| `fa_vad/` | ROS 2 package |
 | `fa_kws/` | ROS 2 package |
-| `fa_asr/` | ROS 2 package |
 | `fa_turn_detector/` | ROS 2 package |
 | `fa_audio_embedding/` | ROS 2 package |
 | `fa_sed/` | roadmap placeholder; not a ROS 2 package |

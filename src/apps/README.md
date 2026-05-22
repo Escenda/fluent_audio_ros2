@@ -4,7 +4,7 @@ Application-layer packages live under explicit responsibility directories:
 
 - `voice_command/`: command routing and mode control.
 - `agent_tools/`: adapter packages that expose FluentAudio capabilities to external agent/tool runtimes.
-- `dialogue/`: dialogue orchestration that joins wake word, ASR, turn detection, TTS, and external reasoning services.
+- `dialogue/`: dialogue orchestration that joins wake word, turn detection, TTS, and external reasoning services.
 - `safety/`: safety policy for audio-driven commands.
 
 Device I/O and audio processing do not live here.

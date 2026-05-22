@@ -30,7 +30,6 @@ struct KwsBackendSettings
   float keywords_score;
   float keywords_threshold;
 
-  float vad_threshold;
   std::chrono::milliseconds cooldown;
 
   std::string command;

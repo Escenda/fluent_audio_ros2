@@ -19,11 +19,9 @@ ConfigValue: TypeAlias = ConfigScalar | ConfigMapping | ConfigSequence
 _INLINE_SHARE_RE = re.compile(r"\$\{share:([A-Za-z0-9_]+)\}")
 _INLINE_ENV_RE = re.compile(r"\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
 _AI_PACKAGE_NAMES = (
-    "fa_asr",
     "fa_audio_embedding",
     "fa_kws",
     "fa_turn_detector",
-    "fa_vad",
 )
 _STREAMING_PACKAGE_NAMES = (
     "fa_audio_window",
@@ -96,9 +94,7 @@ _PACKAGE_CATEGORIES = {
     "fa_monitor_mix": frozenset(("routing",)),
     "fa_loopback": frozenset(("routing",)),
     "fa_patchbay": frozenset(("routing",)),
-    "fa_vad": frozenset(("ai",)),
     "fa_kws": frozenset(("ai",)),
-    "fa_asr": frozenset(("ai",)),
     "fa_turn_detector": frozenset(("ai",)),
     "fa_audio_embedding": frozenset(("ai",)),
     "fa_audio_mcp": frozenset(("apps",)),
@@ -156,9 +152,7 @@ _BACKEND_NAME_REQUIRED_PACKAGES = frozenset((
     "fa_pitch",
     "fa_stft",
     "fa_tempo",
-    "fa_vad",
     "fa_kws",
-    "fa_asr",
     "fa_turn_detector",
     "fa_audio_embedding",
     "fa_tts",
@@ -335,9 +329,7 @@ _AI_AUDIO_CONTRACT = ParameterIdentityContract(
         "audio_topic",
         "input_topic",
         "output_topic",
-        "vad_topic",
         "turn_context_topic",
-        "asr_result_topic",
     )),
     stream_identity_keys=frozenset(("expected_stream_id", "input_stream_id")),
 )
@@ -345,14 +337,6 @@ _KWS_CONTRACT = ParameterIdentityContract(
     topic_keys=frozenset((
         "audio_topic",
         "output_topic",
-    )),
-    stream_identity_keys=frozenset(("expected_stream_id",)),
-)
-_ASR_CONTRACT = ParameterIdentityContract(
-    topic_keys=frozenset((
-        "audio_topic",
-        "turn_context_topic",
-        "asr_result_topic",
     )),
     stream_identity_keys=frozenset(("expected_stream_id",)),
 )
@@ -367,10 +351,6 @@ _TURN_DETECTOR_CONTRACT = ParameterIdentityContract(
 _AUDIO_WINDOW_CONTRACT = ParameterIdentityContract(
     topic_keys=frozenset(("input_topic",)),
     stream_identity_keys=frozenset(("input.stream_id",)),
-)
-_VAD_CONTRACT = ParameterIdentityContract(
-    topic_keys=frozenset(("input_topic", "output_topic", "vad_state_topic", "probability_topic")),
-    stream_identity_keys=frozenset(("input_stream_id",)),
 )
 _MIX_CONTRACT = ParameterIdentityContract(
     topic_keys=frozenset(("input_topics", "output_topic")),
@@ -480,9 +460,7 @@ _PARAMETER_IDENTITY_CONTRACTS: dict[str, ParameterIdentityContract] = {
     "fa_monitor_mix": _MIX_CONTRACT,
     "fa_bus_router": _BUS_ROUTER_CONTRACT,
     "fa_patchbay": _PATCHBAY_CONTRACT,
-    "fa_vad": _VAD_CONTRACT,
     "fa_kws": _KWS_CONTRACT,
-    "fa_asr": _ASR_CONTRACT,
     "fa_turn_detector": _TURN_DETECTOR_CONTRACT,
     "fa_audio_embedding": _AI_AUDIO_CONTRACT,
     "fa_audio_window": _AUDIO_WINDOW_CONTRACT,
@@ -499,23 +477,6 @@ _PARAMETER_IDENTITY_CONTRACTS: dict[str, ParameterIdentityContract] = {
 _CONTROL_TOP_LEVEL_KEYS = frozenset((
     "control.inputs",
     "control.default_enabled",
-))
-_ASR_CONTROL_SUFFIXES = frozenset((
-    "action",
-    "topic",
-    "msg_type",
-    "source_id",
-    "stream_id",
-    "active_field",
-    "start_field",
-    "end_field",
-    "open_on",
-    "close_on",
-    "submit_on_close",
-    "pre_roll_ms",
-    "post_roll_ms",
-    "qos.depth",
-    "qos.reliable",
 ))
 _KWS_CONTROL_SUFFIXES = frozenset((
     "action",
@@ -543,10 +504,11 @@ _TURN_DETECTOR_CONTROL_SUFFIXES = frozenset((
     "qos.reliable",
 ))
 _CONTROL_SUFFIXES_BY_PACKAGE: dict[str, frozenset[str]] = {
-    "fa_asr": _ASR_CONTROL_SUFFIXES,
     "fa_kws": _KWS_CONTROL_SUFFIXES,
     "fa_turn_detector": _TURN_DETECTOR_CONTROL_SUFFIXES,
 }
+_DISALLOWED_PARAMETER_KEYS_BY_PACKAGE: dict[str, frozenset[str]] = {}
+_BACKEND_REQUIRED_PARAMETERS: dict[tuple[str, str], frozenset[str]] = {}
 
 
 def load_system_config(path: str) -> AudioSystemSpec:
@@ -753,14 +715,23 @@ def _parse_node(node: _NodeConfig) -> AudioNodeSpec:
     if not os.path.isfile(params_file):
         raise RuntimeError(f"params_file not found: {params_file}")
     params_file_parameters = _params_file_parameters(params_file, package, node_name, node_id)
+    _validate_disallowed_parameter_keys(package, node_id, params_file_parameters)
     _validate_parameter_identity_contract(package, node_id, params_file_parameters)
     parameters = _optional_parameters(node.parameters, node_id)
+    _validate_disallowed_parameter_keys(package, node_id, parameters)
     _validate_parameter_identity_contract(package, node_id, parameters)
     remappings = _optional_remappings(node.remappings, node_id)
     env = _optional_env(node.env, node_id)
     backend_name = _effective_backend_name(params_file_parameters, parameters, node_id)
     if package in _BACKEND_NAME_REQUIRED_PACKAGES and backend_name is None:
         raise RuntimeError(f"node {node_id}.backend.name is required for {package}")
+    if backend_name is not None:
+        _validate_backend_required_parameters(
+            package,
+            node_id,
+            backend_name,
+            parameters,
+        )
     return AudioNodeSpec(
         id=node_id,
         package=package,
@@ -879,6 +850,52 @@ def _effective_backend_name(
     return value.strip()
 
 
+def _validate_backend_required_parameters(
+    package: str,
+    node_id: str,
+    backend_name: str,
+    inline_parameters: dict[str, ParamValue],
+) -> None:
+    required_parameters = _BACKEND_REQUIRED_PARAMETERS.get((package, backend_name))
+    if required_parameters is None:
+        return
+    for key in sorted(required_parameters):
+        value = inline_parameters.get(key)
+        if value is None:
+            raise RuntimeError(f"node {node_id}.{key} is required for {backend_name}")
+        _validate_backend_required_parameter_value(node_id, backend_name, key, value)
+
+
+def _validate_backend_required_parameter_value(
+    node_id: str,
+    backend_name: str,
+    key: str,
+    value: ParamValue,
+) -> None:
+    if key in _NEMO_RNNT_STREAMING_REQUIRED_TEXT_PARAMETERS:
+        if not isinstance(value, str) or not value.strip():
+            raise RuntimeError(f"node {node_id}.{key} is required for {backend_name}")
+        return
+    if key in _NEMO_RNNT_STREAMING_REQUIRED_INT_PARAMETERS:
+        if type(value) is not int:
+            raise RuntimeError(
+                f"node {node_id}.{key} must be an integer for {backend_name}"
+            )
+        return
+    if key in _NEMO_RNNT_STREAMING_REQUIRED_NUMBER_PARAMETERS:
+        if type(value) not in (float, int):
+            raise RuntimeError(
+                f"node {node_id}.{key} must be a number for {backend_name}"
+            )
+        return
+    if key in _NEMO_RNNT_STREAMING_REQUIRED_BOOL_PARAMETERS:
+        if type(value) is not bool:
+            raise RuntimeError(
+                f"node {node_id}.{key} must be a bool for {backend_name}"
+            )
+        return
+
+
 def _params_file_parameters(
     params_file: str,
     package: str,
@@ -973,6 +990,22 @@ def _validate_parameter_identity_contract(
                     f"node {node_id} parameter '{stream_key}' must not reuse ROS topic "
                     f"value '{value}'"
                 )
+
+
+def _validate_disallowed_parameter_keys(
+    package: str,
+    node_id: str,
+    parameters: dict[str, ParamValue],
+) -> None:
+    disallowed_keys = _DISALLOWED_PARAMETER_KEYS_BY_PACKAGE.get(package)
+    if disallowed_keys is None:
+        return
+    for key in sorted(disallowed_keys):
+        if key in parameters:
+            raise RuntimeError(
+                f"node {node_id} parameter '{key}' is not supported; "
+                "use control.inputs and control.<id>.* parameters"
+            )
 
 
 def _control_identity_contract(

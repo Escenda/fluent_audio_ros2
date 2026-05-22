@@ -29,7 +29,6 @@ public:
 
   virtual std::optional<KwsDetection> process(const std::vector<float> &samples,
                                              std::int32_t sample_rate,
-                                             float vad_prob,
                                              std::chrono::steady_clock::time_point now) = 0;
 
   virtual void reset() = 0;

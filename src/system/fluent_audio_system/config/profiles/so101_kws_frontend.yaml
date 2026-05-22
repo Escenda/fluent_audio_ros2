@@ -1,204 +1,170 @@
 system:
   default_start_delay: 0.2
   inter_group_delay: 0.5
-
 groups:
-  - id: audio_io
+- id: audio_io
+  enable: true
+  nodes:
+  - id: fa_in
     enable: true
-    nodes:
-      - id: fa_in
-        enable: true
-        package: fa_in
-        exec: fa_in_node
-        node_name: fa_in
-        namespace: ""
-        params_file: "${share:fa_in}/config/default.yaml"
-        remappings: {}
-        parameters:
-          output_topic: "audio/frame"
-          audio.stream_id: "audio/raw/mic"
-
-  - id: audio_format
+    package: fa_in
+    exec: fa_in_node
+    node_name: fa_in
+    namespace: ''
+    params_file: ${share:fa_in}/config/default.yaml
+    remappings: {}
+    parameters:
+      output_topic: audio/frame
+      audio.stream_id: audio/raw/mic
+- id: audio_format
+  enable: true
+  nodes:
+  - id: fa_sample_format
     enable: true
-    nodes:
-      - id: fa_sample_format
-        enable: true
-        package: fa_sample_format
-        exec: fa_sample_format_node
-        node_name: fa_sample_format_mic
-        namespace: ""
-        params_file: "${share:fa_sample_format}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/frame"
-          output_topic: "audio/sample_format/mic"
-          input_stream_id: "audio/raw/mic"
-          output.stream_id: "audio/float32/mic"
-          expected.sample_rate: 48000
-
-      - id: fa_resample
-        enable: true
-        package: fa_resample
-        exec: fa_resample_node
-        node_name: fa_resample_mic
-        namespace: ""
-        params_file: "${share:fa_resample}/config/default.yaml"
-        remappings: {}
-        parameters:
-          mic.input_topic: "audio/sample_format/mic"
-          mic.output_topic: "audio/resample16k/mic"
-          mic.input_stream_id: "audio/float32/mic"
-          mic.output.stream_id: "audio/preprocessed/mono16k"
-
-  - id: audio_correction
+    package: fa_sample_format
+    exec: fa_sample_format_node
+    node_name: fa_sample_format_mic
+    namespace: ''
+    params_file: ${share:fa_sample_format}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/frame
+      output_topic: audio/sample_format/mic
+      input_stream_id: audio/raw/mic
+      output.stream_id: audio/float32/mic
+      expected.sample_rate: 48000
+  - id: fa_resample
     enable: true
-    nodes:
-      - id: fa_dc_offset_removal
-        enable: true
-        package: fa_dc_offset_removal
-        exec: fa_dc_offset_removal_node
-        node_name: fa_dc_offset_removal_mic
-        namespace: ""
-        params_file: "${share:fa_dc_offset_removal}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          output_topic: "audio/dc_offset_removed/frame"
-          input_stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/dc_offset_removed/mic"
-          expected.sample_rate: 16000
-
-  - id: audio_frequency
+    package: fa_resample
+    exec: fa_resample_node
+    node_name: fa_resample_mic
+    namespace: ''
+    params_file: ${share:fa_resample}/config/default.yaml
+    remappings: {}
+    parameters:
+      mic.input_topic: audio/sample_format/mic
+      mic.output_topic: audio/resample16k/mic
+      mic.input_stream_id: audio/float32/mic
+      mic.output.stream_id: audio/preprocessed/mono16k
+- id: audio_correction
+  enable: true
+  nodes:
+  - id: fa_dc_offset_removal
     enable: true
-    nodes:
-      - id: fa_high_pass
-        enable: true
-        package: fa_high_pass
-        exec: fa_high_pass_node
-        node_name: fa_high_pass_mic
-        namespace: ""
-        params_file: "${share:fa_high_pass}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/dc_offset_removed/frame"
-          output_topic: "audio/high_pass/frame"
-          input_stream_id: "audio/dc_offset_removed/mic"
-          output.stream_id: "audio/high_pass/mic"
-          filter.cutoff_hz: 80.0
-          expected.sample_rate: 16000
-
-  - id: voice_frontend
+    package: fa_dc_offset_removal
+    exec: fa_dc_offset_removal_node
+    node_name: fa_dc_offset_removal_mic
+    namespace: ''
+    params_file: ${share:fa_dc_offset_removal}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/resample16k/mic
+      output_topic: audio/dc_offset_removed/frame
+      input_stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/dc_offset_removed/mic
+      expected.sample_rate: 16000
+- id: audio_frequency
+  enable: true
+  nodes:
+  - id: fa_high_pass
     enable: true
-    nodes:
-      - id: fa_vad
-        enable: true
-        package: fa_vad
-        exec: fa_vad_node
-        node_name: fa_vad
-        namespace: ""
-        params_file: "${share:fa_vad}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/high_pass/frame"
-          input_stream_id: "audio/high_pass/mic"
-          backend.name: "silero"
-          backend.model_path: "${env:FLUENT_AUDIO_VAD_MODEL_DIR}"
-          backend.execution_provider: "${env:FLUENT_AUDIO_VAD_PROVIDER}"
-          backend.command: "${env:FLUENT_AUDIO_VAD_WORKER}"
-
-      - id: fa_kws
-        enable: true
-        package: fa_kws
-        exec: fa_kws_node
-        node_name: fa_kws
-        namespace: ""
-        params_file: "${share:fa_kws}/config/default.yaml"
-        remappings: {}
-        parameters:
-          audio_topic: "audio/high_pass/frame"
-          expected_stream_id: "audio/high_pass/mic"
-          control.default_enabled: false
-          control.inputs: ["speech_control"]
-          control.speech_control.action: "topic"
-          control.speech_control.topic: "voice/vad_state"
-          control.speech_control.msg_type: "fa_interfaces/msg/VadState"
-          control.speech_control.source_id: "mic"
-          control.speech_control.stream_id: "audio/high_pass/mic"
-          control.speech_control.probability_field: "probability"
-          control.speech_control.probability_gate: 0.35
-          control.speech_control.max_age_ms: 1000
-          control.speech_control.qos.depth: 20
-          control.speech_control.qos.reliable: false
-          output_topic: "voice/wake_word"
-          backend.name: "sherpa_onnx_kws"
-          backend.execution_provider: "${env:FLUENT_AUDIO_KWS_PROVIDER}"
-          backend.command: "${env:FLUENT_AUDIO_KWS_WORKER}"
-          backend.args:
-            - "detect"
-            - "--audio"
-            - "{audio}"
-            - "--encoder"
-            - "{encoder}"
-            - "--decoder"
-            - "{decoder}"
-            - "--joiner"
-            - "{joiner}"
-            - "--tokens"
-            - "{tokens}"
-            - "--keywords"
-            - "{keywords}"
-            - "--provider"
-            - "{provider}"
-            - "--sample-rate"
-            - "{sample_rate}"
-            - "--num-threads"
-            - "{num_threads}"
-            - "--max-active-paths"
-            - "{max_active_paths}"
-            - "--num-trailing-blanks"
-            - "{num_trailing_blanks}"
-            - "--keywords-score"
-            - "{keywords_score}"
-            - "--keywords-threshold"
-            - "{keywords_threshold}"
-          backend.health_args:
-            - "health"
-            - "--encoder"
-            - "{encoder}"
-            - "--decoder"
-            - "{decoder}"
-            - "--joiner"
-            - "{joiner}"
-            - "--tokens"
-            - "{tokens}"
-            - "--keywords"
-            - "{keywords}"
-            - "--provider"
-            - "{provider}"
-            - "--sample-rate"
-            - "{sample_rate}"
-            - "--num-threads"
-            - "{num_threads}"
-            - "--max-active-paths"
-            - "{max_active_paths}"
-            - "--num-trailing-blanks"
-            - "{num_trailing_blanks}"
-            - "--keywords-score"
-            - "{keywords_score}"
-            - "--keywords-threshold"
-            - "{keywords_threshold}"
-          backend.timeout_sec: 5.0
-          backend.workspace_dir: "/tmp/fluent_audio/fa_kws/so101"
-          backend.cleanup_audio_files: true
-          output.qos.depth: 10
-          output.qos.reliable: false
-          model.encoder: "${env:FLUENT_AUDIO_KWS_ENCODER}"
-          model.decoder: "${env:FLUENT_AUDIO_KWS_DECODER}"
-          model.joiner: "${env:FLUENT_AUDIO_KWS_JOINER}"
-          model.tokens: "${env:FLUENT_AUDIO_KWS_TOKENS}"
-          kws.keywords_file: "${env:FLUENT_AUDIO_KWS_KEYWORDS}"
-          model.num_threads: 4
-          kws.max_active_paths: 32
-          kws.num_trailing_blanks: 1
-          kws.keywords_score: 1.0
-          kws.keywords_threshold: 0.25
+    package: fa_high_pass
+    exec: fa_high_pass_node
+    node_name: fa_high_pass_mic
+    namespace: ''
+    params_file: ${share:fa_high_pass}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/dc_offset_removed/frame
+      output_topic: audio/high_pass/frame
+      input_stream_id: audio/dc_offset_removed/mic
+      output.stream_id: audio/high_pass/mic
+      filter.cutoff_hz: 80.0
+      expected.sample_rate: 16000
+- id: voice_frontend
+  enable: true
+  nodes:
+  - id: fa_kws
+    enable: true
+    package: fa_kws
+    exec: fa_kws_node
+    node_name: fa_kws
+    namespace: ''
+    params_file: ${share:fa_kws}/config/default.yaml
+    remappings: {}
+    parameters:
+      audio_topic: audio/high_pass/frame
+      expected_stream_id: audio/high_pass/mic
+      output_topic: voice/wake_word
+      backend.name: sherpa_onnx_kws
+      backend.execution_provider: ${env:FLUENT_AUDIO_KWS_PROVIDER}
+      backend.command: ${env:FLUENT_AUDIO_KWS_WORKER}
+      backend.args:
+      - detect
+      - --audio
+      - '{audio}'
+      - --encoder
+      - '{encoder}'
+      - --decoder
+      - '{decoder}'
+      - --joiner
+      - '{joiner}'
+      - --tokens
+      - '{tokens}'
+      - --keywords
+      - '{keywords}'
+      - --provider
+      - '{provider}'
+      - --sample-rate
+      - '{sample_rate}'
+      - --num-threads
+      - '{num_threads}'
+      - --max-active-paths
+      - '{max_active_paths}'
+      - --num-trailing-blanks
+      - '{num_trailing_blanks}'
+      - --keywords-score
+      - '{keywords_score}'
+      - --keywords-threshold
+      - '{keywords_threshold}'
+      backend.health_args:
+      - health
+      - --encoder
+      - '{encoder}'
+      - --decoder
+      - '{decoder}'
+      - --joiner
+      - '{joiner}'
+      - --tokens
+      - '{tokens}'
+      - --keywords
+      - '{keywords}'
+      - --provider
+      - '{provider}'
+      - --sample-rate
+      - '{sample_rate}'
+      - --num-threads
+      - '{num_threads}'
+      - --max-active-paths
+      - '{max_active_paths}'
+      - --num-trailing-blanks
+      - '{num_trailing_blanks}'
+      - --keywords-score
+      - '{keywords_score}'
+      - --keywords-threshold
+      - '{keywords_threshold}'
+      backend.timeout_sec: 5.0
+      backend.workspace_dir: /tmp/fluent_audio/fa_kws/so101
+      backend.cleanup_audio_files: true
+      output.qos.depth: 10
+      output.qos.reliable: false
+      model.encoder: ${env:FLUENT_AUDIO_KWS_ENCODER}
+      model.decoder: ${env:FLUENT_AUDIO_KWS_DECODER}
+      model.joiner: ${env:FLUENT_AUDIO_KWS_JOINER}
+      model.tokens: ${env:FLUENT_AUDIO_KWS_TOKENS}
+      kws.keywords_file: ${env:FLUENT_AUDIO_KWS_KEYWORDS}
+      model.num_threads: 4
+      kws.max_active_paths: 32
+      kws.num_trailing_blanks: 1
+      kws.keywords_score: 1.0
+      kws.keywords_threshold: 0.25

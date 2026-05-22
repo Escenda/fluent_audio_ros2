@@ -10,6 +10,7 @@ from fluent_audio_system.site_binding import (
 )
 from fluent_audio_system.site_binding_launch import (
     SOURCE_BOUND_AUDIO_AI_PACKAGES,
+    SOURCE_BOUND_CONTROL_PACKAGES,
     SOURCE_BOUND_STREAMING_PACKAGES,
     node_enabled_by_site_binding,
     node_launch_parameters,
@@ -24,6 +25,7 @@ def _node(
     package: str,
     backend_name: str | None,
     params_file: str = "/tmp/node.params.yaml",
+    parameters: dict[str, str | int | float | bool | list[str]] | None = None,
 ) -> AudioNodeSpec:
     return AudioNodeSpec(
         id=package,
@@ -33,10 +35,12 @@ def _node(
         namespace="",
         output="screen",
         params_file=params_file,
-        parameters={},
+        parameters=parameters or {},
         remappings=[],
         backend_name=backend_name,
     )
+
+
 def test_site_binding_launch_gates_only_alsa_site_bound_io() -> None:
     overrides = build_site_binding_overrides(
         fa_in_enabled=False,
@@ -110,6 +114,34 @@ def test_site_binding_launch_applies_source_id_to_audio_ai_nodes(
     ) == [
         "/tmp/node.params.yaml",
         {"expected_source_id": "hw:CARD=Mic,DEV=0"},
+    ]
+
+
+@pytest.mark.parametrize("package_name", sorted(SOURCE_BOUND_CONTROL_PACKAGES))
+def test_site_binding_launch_applies_source_id_to_control_inputs(
+    package_name: str,
+) -> None:
+    overrides = build_site_binding_overrides(
+        fa_in_enabled=True,
+        fa_out_enabled=False,
+        fa_in_source_id="hw:CARD=Mic,DEV=0",
+        fa_out_sink_id="",
+    )
+
+    assert node_launch_parameters(
+        _node(
+            package=package_name,
+            backend_name="test_backend",
+            parameters={"control.inputs": ["speech_control"]},
+        ),
+        overrides,
+    ) == [
+        "/tmp/node.params.yaml",
+        {"control.inputs": ["speech_control"]},
+        {
+            "expected_source_id": "hw:CARD=Mic,DEV=0",
+            "control.speech_control.source_id": "hw:CARD=Mic,DEV=0",
+        },
     ]
 
 

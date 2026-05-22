@@ -23,7 +23,6 @@ fa_kws::KwsBackendSettings baseSettings()
   settings.num_trailing_blanks = 2;
   settings.keywords_score = 1.0f;
   settings.keywords_threshold = 0.25f;
-  settings.vad_threshold = 0.5f;
   settings.cooldown = std::chrono::milliseconds{0};
   settings.timeout_sec = 1.0;
   settings.cleanup_audio_files = true;

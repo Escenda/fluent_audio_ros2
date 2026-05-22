@@ -19,11 +19,9 @@ class ServerConfig:
     port: int
     export_service_name: str
     archive_service_name: str
-    transcribe_service_name: str
     service_timeout_sec: float
     export_scope_config: AudioScopeConfig
     archive_scope_config: AudioScopeConfig
-    transcribe_scope_config: AudioScopeConfig
     time_marker_resolver: TimeMarkerResolver = field(
         default_factory=TimeMarkerResolver.empty,
     )
@@ -49,10 +47,6 @@ def load_server_config() -> ServerConfig:
             "FLUENT_AUDIO_ARCHIVE_AUDIO_WINDOW_SERVICE",
             "archive_audio_window",
         ),
-        transcribe_service_name=_read_non_empty_string(
-            "FLUENT_AUDIO_TRANSCRIBE_AUDIO_SERVICE",
-            "transcribe_audio",
-        ),
         service_timeout_sec=_read_positive_float(
             "FLUENT_AUDIO_MCP_SERVICE_TIMEOUT_SEC",
             "10.0",
@@ -73,15 +67,6 @@ def load_server_config() -> ServerConfig:
             default_scope_key=_read_optional_scope_key(
                 "FLUENT_AUDIO_ARCHIVE_DEFAULT_SCOPE",
                 "mic",
-            ),
-        ),
-        transcribe_scope_config=AudioScopeConfig(
-            mic=_read_optional_scope("FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC"),
-            system=_read_optional_scope("FLUENT_AUDIO_TRANSCRIBE_SCOPE_SYSTEM"),
-            mixed=_read_optional_scope("FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIXED"),
-            default_scope_key=_read_optional_scope_key(
-                "FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE",
-                None,
             ),
         ),
         time_marker_resolver=_read_time_marker_resolver("FLUENT_AUDIO_TIME_MARKERS"),

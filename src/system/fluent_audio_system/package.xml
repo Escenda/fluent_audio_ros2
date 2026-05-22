@@ -14,7 +14,6 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>python3-pydantic</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
-  <exec_depend>fa_asr</exec_depend>
   <exec_depend>fa_audio_mcp</exec_depend>
   <exec_depend>fa_audio_window</exec_depend>
   <exec_depend>fa_dc_offset_removal</exec_depend>
@@ -29,13 +28,11 @@
   <exec_depend>fa_sample_format</exec_depend>
   <exec_depend>fa_tts</exec_depend>
   <exec_depend>fa_turn_detector</exec_depend>
-  <exec_depend>fa_vad</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
   <test_depend>rclpy</test_depend>
   <test_depend>rosgraph_msgs</test_depend>
   <test_depend>ros2launch</test_depend>
-  <test_depend>fa_asr</test_depend>
   <test_depend>fa_audio_mcp</test_depend>
   <test_depend>fa_audio_window</test_depend>
   <test_depend>fa_dc_offset_removal</test_depend>
@@ -53,7 +50,6 @@
   <test_depend>fa_sample_format</test_depend>
   <test_depend>fa_tts</test_depend>
   <test_depend>fa_turn_detector</test_depend>
-  <test_depend>fa_vad</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

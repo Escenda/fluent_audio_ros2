@@ -4,7 +4,6 @@ from fa_audio_mcp.errors import AudioToolError
 from fa_audio_mcp.requests import (
     build_archive_audio_request_values,
     build_export_audio_request_values,
-    build_transcribe_audio_request_values,
 )
 from fa_audio_mcp.scopes import AudioScopeConfig, AudioScopeResolver
 from fa_audio_mcp.time_range import TimeMarkerResolver
@@ -119,92 +118,6 @@ def test_archive_request_uses_configured_default_scope_when_omitted(
     )
 
     assert values.audio_scope == "robot_mic"
-
-
-def test_transcribe_request_rejects_unconfigured_mic_scope() -> None:
-    resolver = AudioScopeResolver(AudioScopeConfig())
-
-    with pytest.raises(AudioToolError):
-        build_transcribe_audio_request_values(
-            time_range="100..300",
-            audio_scope="mic",
-            scope_resolver=resolver,
-        )
-
-
-def test_transcribe_request_uses_configured_asr_stream_scope() -> None:
-    resolver = AudioScopeResolver(AudioScopeConfig(mic="audio/high_pass/mic"))
-
-    values = build_transcribe_audio_request_values(
-        time_range="100..300",
-        audio_scope="mic",
-        scope_resolver=resolver,
-    )
-
-    assert values.audio_scope == "audio/high_pass/mic"
-
-
-def test_transcribe_request_uses_configured_default_scope_when_omitted() -> None:
-    resolver = AudioScopeResolver(
-        AudioScopeConfig(
-            mic="audio/high_pass/mic",
-            default_scope_key="mic",
-        )
-    )
-
-    values = build_transcribe_audio_request_values(
-        time_range="100..300",
-        audio_scope=None,
-        scope_resolver=resolver,
-    )
-
-    assert values.audio_scope == "audio/high_pass/mic"
-
-
-def test_transcribe_request_resolves_now_relative_range_at_input_boundary() -> None:
-    resolver = AudioScopeResolver(
-        AudioScopeConfig(
-            mic="audio/high_pass/mic",
-            default_scope_key="mic",
-        )
-    )
-
-    values = build_transcribe_audio_request_values(
-        time_range="now-10s..now",
-        audio_scope=None,
-        scope_resolver=resolver,
-        now_unix_ns=1700000010000000000,
-    )
-
-    assert values.time_range.start_unix_ns == 1700000000000000000
-    assert values.time_range.end_unix_ns == 1700000010000000000
-    assert values.time_range.requested_spec == "now-10s..now"
-    assert values.time_range_spec == "1700000000000000000..1700000010000000000"
-
-
-def test_transcribe_request_resolves_marker_range_at_input_boundary() -> None:
-    scope_resolver = AudioScopeResolver(
-        AudioScopeConfig(
-            mic="audio/high_pass/mic",
-            default_scope_key="mic",
-        )
-    )
-    marker_resolver = TimeMarkerResolver(
-        {
-            "action_12.start": 1_700_000_000_000_000_000,
-            "action_12.end": 1_700_000_005_000_000_000,
-        }
-    )
-
-    values = build_transcribe_audio_request_values(
-        time_range="action_12.start..action_12.end+2s",
-        audio_scope=None,
-        scope_resolver=scope_resolver,
-        marker_resolver=marker_resolver,
-    )
-
-    assert values.time_range_spec == "1700000000000000000..1700000007000000000"
-    assert values.time_range.requested_spec == "action_12.start..action_12.end+2s"
 
 
 def test_archive_request_resolves_marker_range_at_input_boundary() -> None:

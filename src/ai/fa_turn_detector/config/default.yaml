@@ -6,19 +6,6 @@ fa_turn_detector:
     output_topic: "voice/turn_end"
     # Required. Must match AudioFrame.source_id from the configured fa_in/source pipeline.
     expected_source_id: ""
-    control.default_enabled: false
-    control.inputs: ["speech_control"]
-    control.speech_control.action: "topic"
-    control.speech_control.topic: "voice/vad_state"
-    control.speech_control.msg_type: "fa_interfaces/msg/VadState"
-    control.speech_control.source_id: ""
-    control.speech_control.stream_id: "audio/raw/mic"
-    control.speech_control.active_field: "is_speech"
-    control.speech_control.start_field: "start"
-    control.speech_control.end_field: "end"
-    control.speech_control.close_on: "end_or_active_falling"
-    control.speech_control.qos.depth: 10
-    control.speech_control.qos.reliable: false
     # Required backend id. Empty means startup fails closed until launch/profile config selects one.
     backend.name: ""
     # Required. Set an explicit model path in launch/system config.

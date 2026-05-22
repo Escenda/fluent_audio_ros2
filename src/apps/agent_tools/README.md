@@ -2,7 +2,7 @@
 
 `agent_tools/` は、FluentAudioROS2 の ROS2 topic / service 能力を外部 agent / tool runtime から呼び出すための adapter package を置く領域です。
 
-ここに置く package は、tool schema、入力 validation、scope mapping、ROS2 service 呼び出し、service error の tool error 変換を担当します。audio DSP、codec、resample、format conversion、ASR / TTS / KWS model runtime、timeline buffer、archive storage の実体は所有しません。
+ここに置く package は、tool schema、入力 validation、scope mapping、ROS2 service 呼び出し、service error の tool error 変換を担当します。audio DSP、codec、resample、format conversion、model runtime、timeline buffer、archive storage の実体は所有しません。
 
 ## 境界
 

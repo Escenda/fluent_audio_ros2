@@ -22,13 +22,13 @@ launch, and fixture tests.
 | Directory | Reason |
 | --- | --- |
 | `src/ai/fa_speaker/` | Speaker embedding / identification is a recognition primitive likely to feed dialogue context and user-specific behavior. |
-| `src/ai/fa_sed/` | Sound event detection is an audio recognition primitive distinct from VAD/KWS/ASR/TD. |
-| `src/processing/correction/fa_dereverb/` | Room echo correction is directly relevant to robot microphones and ASR stability. |
+| `src/ai/fa_sed/` | Sound event detection is an audio recognition primitive distinct from keyword and turn detection. |
+| `src/processing/correction/fa_dereverb/` | Room echo correction is directly relevant to robot microphones and recognition stability. |
 | `src/processing/correction/fa_declip/` | Clipped microphone input should fail or be repaired explicitly before model input. |
 | `src/processing/correction/fa_debreath/` | Breath/noise suppression may be useful for near-field microphones and dialogue recordings. |
 | `src/processing/correction/fa_wind/` | Wind handling is relevant for mobile or fan-adjacent robot deployments. |
-| `src/processing/frequency/fa_spectral_subtraction/` | Classical noise reduction backend useful before VAD/ASR and narrow enough for a standalone package. |
-| `src/processing/frequency/fa_wiener/` | Statistical noise filtering backend useful before VAD/ASR and narrow enough for a standalone package. |
+| `src/processing/frequency/fa_spectral_subtraction/` | Classical noise reduction backend useful before recognition model input and narrow enough for a standalone package. |
+| `src/processing/frequency/fa_wiener/` | Statistical noise filtering backend useful before recognition model input and narrow enough for a standalone package. |
 | `src/processing/spatial/fa_source_separation/` | Useful for multi-speaker or robot-environment separation, but should be promoted only with an explicit backend contract. |
 
 ## Explicit Roadmap-Only

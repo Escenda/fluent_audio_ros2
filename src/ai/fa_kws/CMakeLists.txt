@@ -30,7 +30,6 @@ add_executable(fa_kws_wav_tool
 add_executable(fa_kws_node
   src/fa_kws_node.cpp
   src/audio_utils.cpp
-  src/vad_state_identity.cpp
 )
 
 ament_target_dependencies(fa_kws_node
@@ -71,15 +70,6 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
 
-  ament_add_gtest(${PROJECT_NAME}_vad_gate_test
-    test/unit/vad_gate_contract.cpp
-  )
-  if(TARGET ${PROJECT_NAME}_vad_gate_test)
-    target_include_directories(${PROJECT_NAME}_vad_gate_test PRIVATE
-      include
-    )
-  endif()
-
   ament_add_gtest(${PROJECT_NAME}_backend_config_validation_test
     test/unit/backend_config_validation_contract.cpp
   )
@@ -110,19 +100,6 @@ if(BUILD_TESTING)
       include
     )
     ament_target_dependencies(${PROJECT_NAME}_audio_utils_test
-      fa_interfaces
-    )
-  endif()
-
-  ament_add_gtest(${PROJECT_NAME}_vad_state_identity_test
-    test/unit/vad_state_identity_contract.cpp
-    src/vad_state_identity.cpp
-  )
-  if(TARGET ${PROJECT_NAME}_vad_state_identity_test)
-    target_include_directories(${PROJECT_NAME}_vad_state_identity_test PRIVATE
-      include
-    )
-    ament_target_dependencies(${PROJECT_NAME}_vad_state_identity_test
       fa_interfaces
     )
   endif()

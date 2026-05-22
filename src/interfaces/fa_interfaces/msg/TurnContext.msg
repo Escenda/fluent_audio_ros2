@@ -2,7 +2,7 @@
 # セッション/入力ターンの「現在値」を配布するためのコンテキストメッセージ。
 #
 # - 会話オーケストレータが session_id / user_turn_id を発番する
-# - ASR / turn_detector はこのメッセージを購読して、結果にIDを付与する
+# - 結果を出す node はこのメッセージを購読して、結果にIDを付与する
 
 # タイムスタンプ（送信時刻）
 builtin_interfaces/Time timestamp

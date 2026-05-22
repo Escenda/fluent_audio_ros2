@@ -7,13 +7,9 @@ find_package(builtin_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 
 set(message_files
-  "msg/AsrResult.msg"
-  "msg/AsrEvent.msg"
-  "msg/AsrState.msg"
   "msg/AudioClipRef.msg"
   "msg/AudioEmbeddingFrame.msg"
   "msg/AudioFrame.msg"
-  "msg/AudioModelRef.msg"
   "msg/AudioWindowRef.msg"
   "msg/CqtFrame.msg"
   "msg/EncodedAudioChunk.msg"
@@ -26,10 +22,8 @@ set(message_files
   "msg/ResolvedTimeRange.msg"
   "msg/StftFrame.msg"
   "msg/TempoFrame.msg"
-  "msg/TranscriptSegment.msg"
   "msg/TurnContext.msg"
   "msg/TurnEnd.msg"
-  "msg/VadState.msg"
   "msg/WakeWordResult.msg"
 )
 
@@ -41,7 +35,6 @@ set(service_files
   "srv/SwitchDevice.srv"
   "srv/Record.srv"
   "srv/Speak.srv"
-  "srv/TranscribeAudio.srv"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

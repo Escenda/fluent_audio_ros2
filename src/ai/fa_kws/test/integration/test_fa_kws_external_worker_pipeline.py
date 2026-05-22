@@ -41,7 +41,6 @@ int main(int argc, char **argv)
     cfg.num_trailing_blanks = 1;
     cfg.keywords_score = 1.0f;
     cfg.keywords_threshold = 0.25f;
-    cfg.vad_threshold = 0.5f;
     cfg.cooldown = std::chrono::milliseconds{0};
     cfg.command = worker.string();
     cfg.args = {
@@ -109,7 +108,6 @@ int main(int argc, char **argv)
     const auto result = backend.process(
       samples,
       16000,
-      1.0f,
       std::chrono::steady_clock::now());
     if (!result) {
       std::cout << "NO_DETECTION" << std::endl;

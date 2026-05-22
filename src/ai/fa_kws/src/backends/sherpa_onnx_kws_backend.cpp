@@ -23,8 +23,6 @@
 #include <string>
 #include <thread>
 
-#include "fa_kws/vad_gate.hpp"
-
 namespace
 {
 
@@ -365,7 +363,6 @@ SherpaOnnxKwsBackend::~SherpaOnnxKwsBackend() = default;
 std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
   const std::vector<float> &samples,
   std::int32_t sample_rate,
-  float vad_prob,
   std::chrono::steady_clock::time_point now)
 {
   if (samples.empty()) {
@@ -375,12 +372,6 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
     throw std::invalid_argument(
       "KWS backend sample_rate must match configured target_sample_rate " +
       std::to_string(config_.target_sample_rate) + ", got " + std::to_string(sample_rate));
-  }
-  if (!isValidVadProbability(vad_prob)) {
-    throw std::invalid_argument("vad_prob must be finite and in [0.0, 1.0]");
-  }
-  if (!passesVadGate(vad_prob, config_.vad_threshold)) {
-    return std::nullopt;
   }
 
   std::filesystem::create_directories(config_.workspace_dir);
@@ -496,9 +487,6 @@ void SherpaOnnxKwsBackend::validateConfig() const
   }
   if (!std::isfinite(config_.keywords_threshold) || config_.keywords_threshold <= 0.0f) {
     throw std::invalid_argument("backend.keywords_threshold must be finite and > 0");
-  }
-  if (!isValidVadGateThreshold(static_cast<double>(config_.vad_threshold))) {
-    throw std::invalid_argument("vad_threshold must be finite and in (0.0, 1.0]");
   }
   if (config_.cooldown.count() < 0) {
     throw std::invalid_argument("backend.cooldown must be >= 0 ms");

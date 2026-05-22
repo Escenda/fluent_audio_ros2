@@ -28,9 +28,7 @@ RUNTIME_BACKEND_PACKAGE_CASES = (
     ("analysis", "fa_pitch", "fa_pitch_node"),
     ("analysis", "fa_stft", "fa_stft_node"),
     ("analysis", "fa_tempo", "fa_tempo_node"),
-    ("ai", "fa_vad", "fa_vad_node"),
     ("ai", "fa_kws", "fa_kws_node"),
-    ("ai", "fa_asr", "fa_asr_node"),
     ("ai", "fa_turn_detector", "fa_turn_detector_node"),
     ("ai", "fa_audio_embedding", "fa_audio_embedding_node"),
     ("generation", "fa_tts", "fa_tts_node"),
@@ -57,9 +55,7 @@ def _default_backend_name(package_name: str) -> str:
         "fa_pitch": "internal_autocorrelation",
         "fa_stft": "internal_stft",
         "fa_tempo": "internal_onset_autocorrelation",
-        "fa_vad": "silero",
         "fa_kws": "sherpa_onnx_kws",
-        "fa_asr": "local_command",
         "fa_turn_detector": "smart_turn_onnx",
         "fa_audio_embedding": "external_worker",
         "fa_tts": "pyopenjtalk",
@@ -190,12 +186,12 @@ fa_in:
 def test_launch_parameters_omit_empty_arrays_from_auxiliary_params_dict(
     tmp_path: Path,
 ) -> None:
-    params_file = tmp_path / "fa_asr.yaml"
+    params_file = tmp_path / "fa_kws.yaml"
     params_file.write_text(
         """
-fa_asr:
+fa_kws:
   ros__parameters:
-    backend.name: local_command
+    backend.name: sherpa_onnx_kws
     backend.args: []
     backend.health_args: []
     audio.qos.depth: 20
@@ -212,11 +208,11 @@ fa_asr:
                     "enable": True,
                     "nodes": [
                         {
-                            "id": "fa_asr",
+                            "id": "fa_kws",
                             "enable": True,
-                            "package": "fa_asr",
-                            "exec": "fa_asr_node",
-                            "node_name": "fa_asr_profile",
+                            "package": "fa_kws",
+                            "exec": "fa_kws_node",
+                            "node_name": "fa_kws_profile",
                             "params_file": str(params_file),
                         }
                     ],
@@ -439,9 +435,7 @@ def test_so101_voice_frontend_required_packages_include_audio_window_in_launch_o
         "fa_dc_offset_removal",
         "fa_high_pass",
         "fa_audio_window",
-        "fa_vad",
         "fa_kws",
-        "fa_asr",
         "fa_turn_detector",
         "fa_dialogue",
     ]
@@ -691,11 +685,9 @@ def test_list_required_packages_cli_returns_error_for_invalid_config(
 @pytest.mark.parametrize(
     "package_name",
     [
-        "fa_asr",
         "fa_audio_embedding",
         "fa_kws",
         "fa_turn_detector",
-        "fa_vad",
     ],
 )
 def test_analysis_group_rejects_ai_package_even_when_node_disabled(
@@ -975,8 +967,6 @@ def test_apps_group_accepts_audio_mcp_and_expands_node_env(tmp_path: Path) -> No
                                 "FLUENT_AUDIO_EXPORT_DEFAULT_SCOPE": "mic",
                                 "FLUENT_AUDIO_ARCHIVE_SCOPE_MIC": "mic",
                                 "FLUENT_AUDIO_ARCHIVE_DEFAULT_SCOPE": "mic",
-                                "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC": "audio/high_pass/mic",
-                                "FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE": "mic",
                             },
                         }
                     ],
@@ -996,8 +986,6 @@ def test_apps_group_accepts_audio_mcp_and_expands_node_env(tmp_path: Path) -> No
         "FLUENT_AUDIO_EXPORT_DEFAULT_SCOPE": "mic",
         "FLUENT_AUDIO_ARCHIVE_SCOPE_MIC": "mic",
         "FLUENT_AUDIO_ARCHIVE_DEFAULT_SCOPE": "mic",
-        "FLUENT_AUDIO_TRANSCRIBE_SCOPE_MIC": "audio/high_pass/mic",
-        "FLUENT_AUDIO_TRANSCRIBE_DEFAULT_SCOPE": "mic",
     }
     assert required_packages_for_system(spec) == [
         "fa_interfaces",
@@ -1109,26 +1097,11 @@ def test_node_env_expands_inline_env_values(
             {
                 "backend.name": "sherpa_onnx_kws",
                 "audio_topic": "voice/audio",
-                "expected_stream_id": "voice/vad_state",
+                "expected_stream_id": "voice/mic",
                 "control.default_enabled": False,
                 "control.inputs": ["speech_control"],
                 "control.speech_control.action": "topic",
-                "control.speech_control.topic": "voice/vad_state",
-                "control.speech_control.stream_id": "voice/mic",
-            },
-        ),
-        (
-            "ai",
-            "fa_asr",
-            "fa_asr_node",
-            {
-                "backend.name": "parakeet_multilingual_buffered",
-                "audio_topic": "voice/audio",
-                "expected_stream_id": "voice/vad_state",
-                "control.default_enabled": False,
-                "control.inputs": ["speech_control"],
-                "control.speech_control.action": "topic",
-                "control.speech_control.topic": "voice/vad_state",
+                "control.speech_control.topic": "voice/speech_activity",
                 "control.speech_control.stream_id": "voice/mic",
             },
         ),
@@ -1139,11 +1112,11 @@ def test_node_env_expands_inline_env_values(
             {
                 "backend.name": "smart_turn_onnx",
                 "audio_topic": "voice/audio",
-                "expected_stream_id": "voice/vad_state",
+                "expected_stream_id": "voice/mic",
                 "control.default_enabled": False,
                 "control.inputs": ["speech_control"],
                 "control.speech_control.action": "topic",
-                "control.speech_control.topic": "voice/vad_state",
+                "control.speech_control.topic": "voice/speech_activity",
                 "control.speech_control.stream_id": "voice/mic",
             },
         ),
@@ -1409,7 +1382,7 @@ def test_system_config_rejects_removed_or_unknown_packages_even_when_disabled(
 def test_format_group_rejects_ai_package_even_when_node_disabled() -> None:
     with pytest.raises(
         RuntimeError,
-        match="group format must not contain fa_vad; package category is ai",
+        match="group format must not contain fa_kws; package category is ai",
     ):
         parse_system_config(
             {
@@ -1420,9 +1393,9 @@ def test_format_group_rejects_ai_package_even_when_node_disabled() -> None:
                         "enable": True,
                         "nodes": [
                             {
-                                "id": "fa_vad",
+                                "id": "fa_kws",
                                 "enable": False,
-                                "package": "fa_vad",
+                                "package": "fa_kws",
                             }
                         ],
                     }

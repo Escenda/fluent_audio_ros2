@@ -30,7 +30,6 @@
 - canned response fallback
 - direct robot actuation
 - final safety accept / reject
-- ASR / KWS / TTS waveform generation の混入
 
 ## Failure Policy
 

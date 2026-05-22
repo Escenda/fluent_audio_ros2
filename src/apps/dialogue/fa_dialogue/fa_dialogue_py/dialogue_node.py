@@ -8,7 +8,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-from fa_interfaces.msg import AsrResult, TurnContext, TurnEnd, WakeWordResult
+from fa_interfaces.msg import TurnContext, TurnEnd, WakeWordResult
 from fa_dialogue_py.session_state import (
     CompletionEvent,
     DialogueSessionState,
@@ -25,7 +25,6 @@ class FaDialogueNode(Node):
         self._declare_required_parameters()
 
         self.wake_word_topic = self._string_parameter("wake_word_topic")
-        self.asr_result_topic = self._string_parameter("asr_result_topic")
         self.turn_end_topic = self._string_parameter("turn_end_topic")
         self.turn_context_topic = self._string_parameter("turn_context_topic")
         session_prefix = self._string_parameter("session_prefix")
@@ -41,7 +40,6 @@ class FaDialogueNode(Node):
         )
 
         wake_qos = self._qos_profile("wake.qos.depth", "wake.qos.reliable")
-        asr_qos = self._qos_profile("asr.qos.depth", "asr.qos.reliable")
         turn_end_qos = self._qos_profile(
             "turn_end.qos.depth",
             "turn_end.qos.reliable",
@@ -62,12 +60,6 @@ class FaDialogueNode(Node):
             self.on_wake_word,
             wake_qos,
         )
-        self.asr_result_sub = self.create_subscription(
-            AsrResult,
-            self.asr_result_topic,
-            self.on_asr_result,
-            asr_qos,
-        )
         self.turn_end_sub = self.create_subscription(
             TurnEnd,
             self.turn_end_topic,
@@ -78,7 +70,6 @@ class FaDialogueNode(Node):
         self.get_logger().info(
             "fa_dialogue started: "
             f"wake={self.wake_word_topic} "
-            f"asr_result={self.asr_result_topic} "
             f"turn_end={self.turn_end_topic} "
             f"turn_context={self.turn_context_topic}"
         )
@@ -99,20 +90,6 @@ class FaDialogueNode(Node):
             self.get_logger().debug(
                 f"wake ignored: kind={decision.kind} reason={decision.reason}"
             )
-            return
-        self._publish_context(decision.context)
-
-    def on_asr_result(self, msg: AsrResult) -> None:
-        decision = self._state.handle_asr_result(
-            CompletionEvent(
-                session_id=msg.session_id,
-                user_turn_id=msg.user_turn_id,
-                terminal=True,
-            ),
-            status=msg.status,
-        )
-        if decision.context is None:
-            self.get_logger().debug(f"asr result ignored: reason={decision.reason}")
             return
         self._publish_context(decision.context)
 
@@ -139,7 +116,6 @@ class FaDialogueNode(Node):
 
     def _declare_required_parameters(self) -> None:
         self.declare_parameter("wake_word_topic", Parameter.Type.STRING)
-        self.declare_parameter("asr_result_topic", Parameter.Type.STRING)
         self.declare_parameter("turn_end_topic", Parameter.Type.STRING)
         self.declare_parameter("turn_context_topic", Parameter.Type.STRING)
         self.declare_parameter("session_prefix", Parameter.Type.STRING)
@@ -147,8 +123,6 @@ class FaDialogueNode(Node):
         self.declare_parameter("wake.allow_zero_stamp", Parameter.Type.BOOL)
         self.declare_parameter("wake.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("wake.qos.reliable", Parameter.Type.BOOL)
-        self.declare_parameter("asr.qos.depth", Parameter.Type.INTEGER)
-        self.declare_parameter("asr.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("turn_end.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("turn_end.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)

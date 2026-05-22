@@ -1,396 +1,288 @@
 system:
   default_start_delay: 0.2
   inter_group_delay: 0.5
-
 groups:
-  - id: audio_io
+- id: audio_io
+  enable: true
+  nodes:
+  - id: fa_in
     enable: true
-    nodes:
-      - id: fa_in
-        enable: true
-        package: fa_in
-        exec: fa_in_node
-        node_name: fa_in
-        namespace: ""
-        params_file: "${share:fa_in}/config/default.yaml"
-        remappings: {}
-        parameters:
-          output_topic: "audio/frame"
-          audio.stream_id: "audio/raw/mic"
-
-  - id: audio_format
+    package: fa_in
+    exec: fa_in_node
+    node_name: fa_in
+    namespace: ''
+    params_file: ${share:fa_in}/config/default.yaml
+    remappings: {}
+    parameters:
+      output_topic: audio/frame
+      audio.stream_id: audio/raw/mic
+- id: audio_format
+  enable: true
+  nodes:
+  - id: fa_sample_format
     enable: true
-    nodes:
-      - id: fa_sample_format
-        enable: true
-        package: fa_sample_format
-        exec: fa_sample_format_node
-        node_name: fa_sample_format_mic
-        namespace: ""
-        params_file: "${share:fa_sample_format}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/frame"
-          output_topic: "audio/sample_format/mic"
-          input_stream_id: "audio/raw/mic"
-          output.stream_id: "audio/float32/mic"
-          expected.sample_rate: 48000
-
-      - id: fa_resample
-        enable: true
-        package: fa_resample
-        exec: fa_resample_node
-        node_name: fa_resample_mic
-        namespace: ""
-        params_file: "${share:fa_resample}/config/default.yaml"
-        remappings: {}
-        parameters:
-          mic.input_topic: "audio/sample_format/mic"
-          mic.output_topic: "audio/resample16k/mic"
-          mic.input_stream_id: "audio/float32/mic"
-          mic.output.stream_id: "audio/preprocessed/mono16k"
-
-  - id: audio_correction
+    package: fa_sample_format
+    exec: fa_sample_format_node
+    node_name: fa_sample_format_mic
+    namespace: ''
+    params_file: ${share:fa_sample_format}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/frame
+      output_topic: audio/sample_format/mic
+      input_stream_id: audio/raw/mic
+      output.stream_id: audio/float32/mic
+      expected.sample_rate: 48000
+  - id: fa_resample
     enable: true
-    nodes:
-      - id: fa_dc_offset_removal
-        enable: true
-        package: fa_dc_offset_removal
-        exec: fa_dc_offset_removal_node
-        node_name: fa_dc_offset_removal_mic
-        namespace: ""
-        params_file: "${share:fa_dc_offset_removal}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          output_topic: "audio/dc_offset_removed/frame"
-          input_stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/dc_offset_removed/mic"
-          expected.sample_rate: 16000
-
-  - id: audio_frequency
+    package: fa_resample
+    exec: fa_resample_node
+    node_name: fa_resample_mic
+    namespace: ''
+    params_file: ${share:fa_resample}/config/default.yaml
+    remappings: {}
+    parameters:
+      mic.input_topic: audio/sample_format/mic
+      mic.output_topic: audio/resample16k/mic
+      mic.input_stream_id: audio/float32/mic
+      mic.output.stream_id: audio/preprocessed/mono16k
+- id: audio_correction
+  enable: true
+  nodes:
+  - id: fa_dc_offset_removal
     enable: true
-    nodes:
-      - id: fa_high_pass
-        enable: true
-        package: fa_high_pass
-        exec: fa_high_pass_node
-        node_name: fa_high_pass_mic
-        namespace: ""
-        params_file: "${share:fa_high_pass}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/dc_offset_removed/frame"
-          output_topic: "audio/high_pass/frame"
-          input_stream_id: "audio/dc_offset_removed/mic"
-          output.stream_id: "audio/high_pass/mic"
-          filter.cutoff_hz: 80.0
-          expected.sample_rate: 16000
-
-  - id: audio_archive_format
+    package: fa_dc_offset_removal
+    exec: fa_dc_offset_removal_node
+    node_name: fa_dc_offset_removal_mic
+    namespace: ''
+    params_file: ${share:fa_dc_offset_removal}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/resample16k/mic
+      output_topic: audio/dc_offset_removed/frame
+      input_stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/dc_offset_removed/mic
+      expected.sample_rate: 16000
+- id: audio_frequency
+  enable: true
+  nodes:
+  - id: fa_high_pass
     enable: true
-    nodes:
-      - id: fa_archive_sample_format
-        enable: true
-        package: fa_sample_format
-        exec: fa_sample_format_node
-        node_name: fa_archive_sample_format_mic
-        namespace: ""
-        params_file: "${share:fa_sample_format}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/high_pass/frame"
-          output_topic: "audio/archive_pcm16/frame"
-          input_stream_id: "audio/high_pass/mic"
-          output.stream_id: "audio/archive_pcm16/mic"
-          input.encoding: "FLOAT32LE"
-          input.bit_depth: 32
-          output.encoding: "PCM16LE"
-          output.bit_depth: 16
-          expected.sample_rate: 16000
-          expected.channels: 1
-          expected.layout: "interleaved"
-
-  - id: audio_archive_streaming
+    package: fa_high_pass
+    exec: fa_high_pass_node
+    node_name: fa_high_pass_mic
+    namespace: ''
+    params_file: ${share:fa_high_pass}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/dc_offset_removed/frame
+      output_topic: audio/high_pass/frame
+      input_stream_id: audio/dc_offset_removed/mic
+      output.stream_id: audio/high_pass/mic
+      filter.cutoff_hz: 80.0
+      expected.sample_rate: 16000
+- id: audio_archive_format
+  enable: true
+  nodes:
+  - id: fa_archive_sample_format
     enable: true
-    nodes:
-      - id: fa_audio_window
-        enable: true
-        package: fa_audio_window
-        exec: fa_audio_window_node
-        node_name: fa_audio_window_mic
-        namespace: ""
-        params_file: "${share:fa_audio_window}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/archive_pcm16/frame"
-          service_name: "export_audio_window"
-          archive_service_name: "archive_audio_window"
-          input.source_id: "mic"
-          input.stream_id: "audio/archive_pcm16/mic"
-          expected.encoding: "PCM16LE"
-          expected.sample_rate: 16000
-          expected.channels: 1
-          expected.bit_depth: 16
-          expected.layout: "interleaved"
-          window.retention_seconds: 1800
-          window.id: "so101_voice_frontend_mic_archive"
-          window.epoch: 1
-          audio.default_scope: "mic"
-          audio.supported_scopes:
-            - "mic"
-          export.output_directory: "/tmp/fluent_audio/fa_audio_window/so101_voice_frontend"
-          export.codec: "pcm_s16le"
-          export.container: "wav"
-          export.payload_format: "audio/wav"
-
-  - id: voice_frontend
+    package: fa_sample_format
+    exec: fa_sample_format_node
+    node_name: fa_archive_sample_format_mic
+    namespace: ''
+    params_file: ${share:fa_sample_format}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/high_pass/frame
+      output_topic: audio/archive_pcm16/frame
+      input_stream_id: audio/high_pass/mic
+      output.stream_id: audio/archive_pcm16/mic
+      input.encoding: FLOAT32LE
+      input.bit_depth: 32
+      output.encoding: PCM16LE
+      output.bit_depth: 16
+      expected.sample_rate: 16000
+      expected.channels: 1
+      expected.layout: interleaved
+- id: audio_archive_streaming
+  enable: true
+  nodes:
+  - id: fa_audio_window
     enable: true
-    nodes:
-      - id: fa_vad
-        enable: true
-        package: fa_vad
-        exec: fa_vad_node
-        node_name: fa_vad
-        namespace: ""
-        params_file: "${share:fa_vad}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/high_pass/frame"
-          input_stream_id: "audio/high_pass/mic"
-          expected_source_id: "mic"
-          backend.name: "silero"
-          backend.model_path: "${env:FLUENT_AUDIO_VAD_MODEL_DIR}"
-          backend.execution_provider: "${env:FLUENT_AUDIO_VAD_PROVIDER}"
-          backend.command: "${env:FLUENT_AUDIO_VAD_WORKER}"
-
-      - id: fa_kws
-        enable: true
-        package: fa_kws
-        exec: fa_kws_node
-        node_name: fa_kws
-        namespace: ""
-        params_file: "${share:fa_kws}/config/default.yaml"
-        remappings: {}
-        parameters:
-          audio_topic: "audio/high_pass/frame"
-          expected_source_id: "mic"
-          expected_stream_id: "audio/high_pass/mic"
-          control.default_enabled: false
-          control.inputs: ["speech_control"]
-          control.speech_control.action: "topic"
-          control.speech_control.topic: "voice/vad_state"
-          control.speech_control.msg_type: "fa_interfaces/msg/VadState"
-          control.speech_control.source_id: "mic"
-          control.speech_control.stream_id: "audio/high_pass/mic"
-          control.speech_control.probability_field: "probability"
-          control.speech_control.probability_gate: 0.35
-          control.speech_control.max_age_ms: 1000
-          control.speech_control.qos.depth: 20
-          control.speech_control.qos.reliable: false
-          output_topic: "voice/wake_word"
-          backend.name: "sherpa_onnx_kws"
-          backend.execution_provider: "${env:FLUENT_AUDIO_KWS_PROVIDER}"
-          backend.command: "${env:FLUENT_AUDIO_KWS_WORKER}"
-          backend.args:
-            - "detect"
-            - "--audio"
-            - "{audio}"
-            - "--encoder"
-            - "{encoder}"
-            - "--decoder"
-            - "{decoder}"
-            - "--joiner"
-            - "{joiner}"
-            - "--tokens"
-            - "{tokens}"
-            - "--keywords"
-            - "{keywords}"
-            - "--provider"
-            - "{provider}"
-            - "--sample-rate"
-            - "{sample_rate}"
-            - "--num-threads"
-            - "{num_threads}"
-            - "--max-active-paths"
-            - "{max_active_paths}"
-            - "--num-trailing-blanks"
-            - "{num_trailing_blanks}"
-            - "--keywords-score"
-            - "{keywords_score}"
-            - "--keywords-threshold"
-            - "{keywords_threshold}"
-          backend.health_args:
-            - "health"
-            - "--encoder"
-            - "{encoder}"
-            - "--decoder"
-            - "{decoder}"
-            - "--joiner"
-            - "{joiner}"
-            - "--tokens"
-            - "{tokens}"
-            - "--keywords"
-            - "{keywords}"
-            - "--provider"
-            - "{provider}"
-            - "--sample-rate"
-            - "{sample_rate}"
-            - "--num-threads"
-            - "{num_threads}"
-            - "--max-active-paths"
-            - "{max_active_paths}"
-            - "--num-trailing-blanks"
-            - "{num_trailing_blanks}"
-            - "--keywords-score"
-            - "{keywords_score}"
-            - "--keywords-threshold"
-            - "{keywords_threshold}"
-          backend.timeout_sec: 5.0
-          backend.workspace_dir: "/tmp/fluent_audio/fa_kws/so101_voice_frontend"
-          backend.cleanup_audio_files: true
-          output.qos.depth: 10
-          output.qos.reliable: false
-          model.encoder: "${env:FLUENT_AUDIO_KWS_ENCODER}"
-          model.decoder: "${env:FLUENT_AUDIO_KWS_DECODER}"
-          model.joiner: "${env:FLUENT_AUDIO_KWS_JOINER}"
-          model.tokens: "${env:FLUENT_AUDIO_KWS_TOKENS}"
-          kws.keywords_file: "${env:FLUENT_AUDIO_KWS_KEYWORDS}"
-          model.num_threads: 4
-          kws.max_active_paths: 32
-          kws.num_trailing_blanks: 1
-          kws.keywords_score: 1.0
-          kws.keywords_threshold: 0.25
-
-      - id: fa_asr
-        enable: true
-        package: fa_asr
-        exec: fa_asr_node
-        node_name: fa_asr
-        namespace: ""
-        params_file: "${share:fa_asr}/config/default.yaml"
-        remappings: {}
-        parameters:
-          audio_topic: "audio/high_pass/frame"
-          expected_source_id: "mic"
-          expected_stream_id: "audio/high_pass/mic"
-          control.default_enabled: false
-          control.inputs: ["speech_control"]
-          control.speech_control.action: "topic"
-          control.speech_control.topic: "voice/vad_state"
-          control.speech_control.msg_type: "fa_interfaces/msg/VadState"
-          control.speech_control.source_id: "mic"
-          control.speech_control.stream_id: "audio/high_pass/mic"
-          control.speech_control.active_field: "is_speech"
-          control.speech_control.start_field: "start"
-          control.speech_control.end_field: "end"
-          control.speech_control.open_on: "start_or_active_rising"
-          control.speech_control.close_on: "end_or_active_falling"
-          control.speech_control.submit_on_close: true
-          control.speech_control.pre_roll_ms: 0.0
-          control.speech_control.post_roll_ms: 0.0
-          control.speech_control.qos.depth: 50
-          control.speech_control.qos.reliable: false
-          turn_context_topic: "conversation/turn_context"
-          asr_result_topic: "voice/asr/result"
-          timeline.retention_sec: 1800.0
-          timeline.timestamp_alignment_tolerance_ms: 5.0
-          timeline.clock: "media"
-          timeline.window_id: "so101_voice_frontend_mic_asr"
-          timeline.window_epoch: 1
-          backend.name: "parakeet_multilingual_buffered"
-          backend.model_path: "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
-          backend.language: ""
-          backend.language_policy: "auto_detect"
-          backend.sample_rate_hz: 16000
-          backend.channels: 1
-          backend.chunk_size_samples: 1600
-          backend.chunk_ms: 0
-          backend.emit_partial: true
-          backend.max_partial_interval_ms: 300
-          backend.max_buffer_sec: 30.0
-          backend.speech_energy_threshold: 0.001
-          workspace_dir: "/tmp/fluent_audio/fa_asr/so101_voice_frontend"
-          cleanup_audio_files: true
-          result.qos.depth: 10
-          result.qos.reliable: true
-
-      - id: fa_turn_detector
-        enable: true
-        package: fa_turn_detector
-        exec: fa_turn_detector_node
-        node_name: fa_turn_detector
-        namespace: ""
-        params_file: "${share:fa_turn_detector}/config/default.yaml"
-        remappings: {}
-        parameters:
-          audio_topic: "audio/high_pass/frame"
-          expected_source_id: "mic"
-          expected_stream_id: "audio/high_pass/mic"
-          control.default_enabled: false
-          control.inputs: ["speech_control"]
-          control.speech_control.action: "topic"
-          control.speech_control.topic: "voice/vad_state"
-          control.speech_control.msg_type: "fa_interfaces/msg/VadState"
-          control.speech_control.source_id: "mic"
-          control.speech_control.stream_id: "audio/high_pass/mic"
-          control.speech_control.active_field: "is_speech"
-          control.speech_control.start_field: "start"
-          control.speech_control.end_field: "end"
-          control.speech_control.close_on: "end_or_active_falling"
-          control.speech_control.qos.depth: 10
-          control.speech_control.qos.reliable: false
-          turn_context_topic: "conversation/turn_context"
-          output_topic: "voice/turn_end"
-          backend.name: "smart_turn_onnx"
-          backend.model_path: "${env:FLUENT_AUDIO_TURN_DETECTOR_MODEL}"
-          backend.execution_provider: "${env:FLUENT_AUDIO_TURN_DETECTOR_PROVIDER}"
-          backend.command: "${env:FLUENT_AUDIO_TURN_DETECTOR_WORKER}"
-          backend.args:
-            - "detect"
-            - "--model"
-            - "{model}"
-            - "--provider"
-            - "{provider}"
-            - "--audio"
-            - "{audio}"
-          backend.health_args:
-            - "health"
-            - "--model"
-            - "{model}"
-            - "--provider"
-            - "{provider}"
-          backend.timeout_sec: 5.0
-          backend.workspace_dir: "/tmp/fluent_audio/fa_turn_detector/so101_voice_frontend"
-          backend.cleanup_audio_files: true
-          backend.threshold: 0.5
-          output.qos.depth: 10
-          output.qos.reliable: true
-
-  - id: apps_dialogue
+    package: fa_audio_window
+    exec: fa_audio_window_node
+    node_name: fa_audio_window_mic
+    namespace: ''
+    params_file: ${share:fa_audio_window}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/archive_pcm16/frame
+      service_name: export_audio_window
+      archive_service_name: archive_audio_window
+      input.source_id: mic
+      input.stream_id: audio/archive_pcm16/mic
+      expected.encoding: PCM16LE
+      expected.sample_rate: 16000
+      expected.channels: 1
+      expected.bit_depth: 16
+      expected.layout: interleaved
+      window.retention_seconds: 1800
+      window.id: so101_voice_frontend_mic_archive
+      window.epoch: 1
+      audio.default_scope: mic
+      audio.supported_scopes:
+      - mic
+      export.output_directory: /tmp/fluent_audio/fa_audio_window/so101_voice_frontend
+      export.codec: pcm_s16le
+      export.container: wav
+      export.payload_format: audio/wav
+- id: voice_frontend
+  enable: true
+  nodes:
+  - id: fa_kws
     enable: true
-    nodes:
-      - id: fa_dialogue
-        enable: true
-        package: fa_dialogue
-        exec: fa_dialogue_node
-        node_name: fa_dialogue
-        namespace: ""
-        params_file: "${share:fa_dialogue}/config/default.yaml"
-        remappings: {}
-        parameters:
-          wake_word_topic: "voice/wake_word"
-          asr_result_topic: "voice/asr/result"
-          turn_end_topic: "voice/turn_end"
-          turn_context_topic: "conversation/turn_context"
-          session_prefix: "so101_voice-"
-          wake.max_age_ms: 1500
-          wake.allow_zero_stamp: false
-          wake.qos.depth: 10
-          wake.qos.reliable: false
-          asr.qos.depth: 10
-          asr.qos.reliable: true
-          turn_end.qos.depth: 10
-          turn_end.qos.reliable: true
-          turn_context.qos.depth: 10
-          turn_context.qos.reliable: true
+    package: fa_kws
+    exec: fa_kws_node
+    node_name: fa_kws
+    namespace: ''
+    params_file: ${share:fa_kws}/config/default.yaml
+    remappings: {}
+    parameters:
+      audio_topic: audio/high_pass/frame
+      expected_source_id: mic
+      expected_stream_id: audio/high_pass/mic
+      output_topic: voice/wake_word
+      backend.name: sherpa_onnx_kws
+      backend.execution_provider: ${env:FLUENT_AUDIO_KWS_PROVIDER}
+      backend.command: ${env:FLUENT_AUDIO_KWS_WORKER}
+      backend.args:
+      - detect
+      - --audio
+      - '{audio}'
+      - --encoder
+      - '{encoder}'
+      - --decoder
+      - '{decoder}'
+      - --joiner
+      - '{joiner}'
+      - --tokens
+      - '{tokens}'
+      - --keywords
+      - '{keywords}'
+      - --provider
+      - '{provider}'
+      - --sample-rate
+      - '{sample_rate}'
+      - --num-threads
+      - '{num_threads}'
+      - --max-active-paths
+      - '{max_active_paths}'
+      - --num-trailing-blanks
+      - '{num_trailing_blanks}'
+      - --keywords-score
+      - '{keywords_score}'
+      - --keywords-threshold
+      - '{keywords_threshold}'
+      backend.health_args:
+      - health
+      - --encoder
+      - '{encoder}'
+      - --decoder
+      - '{decoder}'
+      - --joiner
+      - '{joiner}'
+      - --tokens
+      - '{tokens}'
+      - --keywords
+      - '{keywords}'
+      - --provider
+      - '{provider}'
+      - --sample-rate
+      - '{sample_rate}'
+      - --num-threads
+      - '{num_threads}'
+      - --max-active-paths
+      - '{max_active_paths}'
+      - --num-trailing-blanks
+      - '{num_trailing_blanks}'
+      - --keywords-score
+      - '{keywords_score}'
+      - --keywords-threshold
+      - '{keywords_threshold}'
+      backend.timeout_sec: 5.0
+      backend.workspace_dir: /tmp/fluent_audio/fa_kws/so101_voice_frontend
+      backend.cleanup_audio_files: true
+      output.qos.depth: 10
+      output.qos.reliable: false
+      model.encoder: ${env:FLUENT_AUDIO_KWS_ENCODER}
+      model.decoder: ${env:FLUENT_AUDIO_KWS_DECODER}
+      model.joiner: ${env:FLUENT_AUDIO_KWS_JOINER}
+      model.tokens: ${env:FLUENT_AUDIO_KWS_TOKENS}
+      kws.keywords_file: ${env:FLUENT_AUDIO_KWS_KEYWORDS}
+      model.num_threads: 4
+      kws.max_active_paths: 32
+      kws.num_trailing_blanks: 1
+      kws.keywords_score: 1.0
+      kws.keywords_threshold: 0.25
+  - id: fa_turn_detector
+    enable: true
+    package: fa_turn_detector
+    exec: fa_turn_detector_node
+    node_name: fa_turn_detector
+    namespace: ''
+    params_file: ${share:fa_turn_detector}/config/default.yaml
+    remappings: {}
+    parameters:
+      audio_topic: audio/high_pass/frame
+      expected_source_id: mic
+      expected_stream_id: audio/high_pass/mic
+      turn_context_topic: conversation/turn_context
+      output_topic: voice/turn_end
+      backend.name: smart_turn_onnx
+      backend.model_path: ${env:FLUENT_AUDIO_TURN_DETECTOR_MODEL}
+      backend.execution_provider: ${env:FLUENT_AUDIO_TURN_DETECTOR_PROVIDER}
+      backend.command: ${env:FLUENT_AUDIO_TURN_DETECTOR_WORKER}
+      backend.args:
+      - detect
+      - --model
+      - '{model}'
+      - --provider
+      - '{provider}'
+      - --audio
+      - '{audio}'
+      backend.health_args:
+      - health
+      - --model
+      - '{model}'
+      - --provider
+      - '{provider}'
+      backend.timeout_sec: 5.0
+      backend.workspace_dir: /tmp/fluent_audio/fa_turn_detector/so101_voice_frontend
+      backend.cleanup_audio_files: true
+      backend.threshold: 0.5
+      output.qos.depth: 10
+      output.qos.reliable: true
+- id: apps_dialogue
+  enable: true
+  nodes:
+  - id: fa_dialogue
+    enable: true
+    package: fa_dialogue
+    exec: fa_dialogue_node
+    node_name: fa_dialogue
+    namespace: ''
+    params_file: ${share:fa_dialogue}/config/default.yaml
+    remappings: {}
+    parameters:
+      wake_word_topic: voice/wake_word
+      turn_end_topic: voice/turn_end
+      turn_context_topic: conversation/turn_context
+      session_prefix: so101_voice-
+      wake.max_age_ms: 1500
+      wake.allow_zero_stamp: false
+      wake.qos.depth: 10
+      wake.qos.reliable: false
+      turn_end.qos.depth: 10
+      turn_end.qos.reliable: true
+      turn_context.qos.depth: 10
+      turn_context.qos.reliable: true

@@ -1,1024 +1,863 @@
 system:
   default_start_delay: 0.2
   inter_group_delay: 0.5
-
 groups:
-  - id: io
+- id: io
+  enable: true
+  nodes:
+  - id: fa_in
     enable: true
-    nodes:
-      - id: fa_in
-        enable: true
-        package: fa_in
-        exec: fa_in_node
-        node_name: fa_in
-        namespace: ""
-        params_file: "${share:fa_in}/config/default.yaml"
-        remappings: {}
-        parameters:
-          output_topic: "audio/frame"
-          audio.stream_id: "audio/raw/mic"
-
-      - id: fa_out
-        enable: true
-        package: fa_out
-        exec: fa_out_node
-        node_name: fa_out
-        namespace: ""
-        params_file: "${share:fa_out}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/output/frame"
-          input_stream_id: "audio/playback/main"
-          playback_done_topic: "audio/output/playback_done"
-          playback_control_service: "audio/output/playback_control"
-
-  - id: format
+    package: fa_in
+    exec: fa_in_node
+    node_name: fa_in
+    namespace: ''
+    params_file: ${share:fa_in}/config/default.yaml
+    remappings: {}
+    parameters:
+      output_topic: audio/frame
+      audio.stream_id: audio/raw/mic
+  - id: fa_out
     enable: true
-    nodes:
-      - id: fa_sample_format
-        enable: true
-        package: fa_sample_format
-        exec: fa_sample_format_node
-        node_name: fa_sample_format
-        namespace: ""
-        params_file: "${share:fa_sample_format}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/frame"
-          output_topic: "audio/sample_format/mic"
-          input_stream_id: "audio/raw/mic"
-          output.stream_id: "audio/float32/mic"
-          expected.sample_rate: 48000
-
-      - id: fa_resample
-        enable: true
-        package: fa_resample
-        exec: fa_resample_node
-        node_name: fa_resample
-        namespace: ""
-        params_file: "${share:fa_resample}/config/default.yaml"
-        remappings: {}
-        parameters:
-          mic.input_topic: "audio/sample_format/mic"
-          mic.output_topic: "audio/resample16k/mic"
-          mic.input_stream_id: "audio/float32/mic"
-          mic.output.stream_id: "audio/preprocessed/mono16k"
-
-      - id: fa_encode
-        enable: false
-        package: fa_encode
-        exec: fa_encode_node
-        node_name: fa_encode_mic
-        namespace: ""
-        params_file: "${share:fa_encode}/config/default.yaml"
-        remappings: {}
-        parameters:
-          backend.command.executable: "${env:FLUENT_AUDIO_CODEC_ENCODER}"
-          input_topic: "audio/resample16k/mic"
-          output_topic: "audio/encoded/mic"
-          input_stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/encoded/mic/opus"
-
-      - id: fa_decode
-        enable: false
-        package: fa_decode
-        exec: fa_decode_node
-        node_name: fa_decode_mic
-        namespace: ""
-        params_file: "${share:fa_decode}/config/default.yaml"
-        remappings: {}
-        parameters:
-          backend.command.executable: "${env:FLUENT_AUDIO_CODEC_DECODER}"
-          input_topic: "audio/encoded/mic"
-          output_topic: "audio/decoded/mic"
-          input_stream_id: "audio/encoded/mic/opus"
-          output.stream_id: "audio/decoded/mic/pcm16"
-
-      - id: fa_resample_tts
-        enable: false
-        package: fa_resample
-        exec: fa_resample_node
-        node_name: fa_resample_tts
-        namespace: ""
-        params_file: "${share:fa_resample}/config/default.yaml"
-        remappings: {}
-        parameters:
-          target_sample_rate: 48000
-          mic.enabled: true
-          mic.input_topic: "audio/tts/frame"
-          mic.output_topic: "audio/tts/48k_float32"
-          mic.input_stream_id: "tts_synthesis"
-          mic.output.stream_id: "tts_synthesis_48k"
-          ref.enabled: false
-
-      - id: fa_sample_format_tts
-        enable: false
-        package: fa_sample_format
-        exec: fa_sample_format_node
-        node_name: fa_sample_format_tts
-        namespace: ""
-        params_file: "${share:fa_sample_format}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/tts/48k_float32"
-          output_topic: "audio/tts/pcm16"
-          input_stream_id: "tts_synthesis_48k"
-          output.stream_id: "tts_playback_pcm16"
-          input.encoding: "FLOAT32LE"
-          input.bit_depth: 32
-          output.encoding: "PCM16LE"
-          output.bit_depth: 16
-          expected.sample_rate: 48000
-          expected.channels: 1
-          expected.layout: "interleaved"
-
-      - id: fa_bit_depth
-        enable: false
-        package: fa_bit_depth
-        exec: fa_bit_depth_node
-        node_name: fa_bit_depth
-        namespace: ""
-        params_file: "${share:fa_bit_depth}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_channel_convert
-        enable: false
-        package: fa_channel_convert
-        exec: fa_channel_convert_node
-        node_name: fa_channel_convert
-        namespace: ""
-        params_file: "${share:fa_channel_convert}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_interleave
-        enable: false
-        package: fa_interleave
-        exec: fa_interleave_node
-        node_name: fa_interleave
-        namespace: ""
-        params_file: "${share:fa_interleave}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-  - id: dynamics
+    package: fa_out
+    exec: fa_out_node
+    node_name: fa_out
+    namespace: ''
+    params_file: ${share:fa_out}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/output/frame
+      input_stream_id: audio/playback/main
+      playback_done_topic: audio/output/playback_done
+      playback_control_service: audio/output/playback_control
+- id: format
+  enable: true
+  nodes:
+  - id: fa_sample_format
     enable: true
-    nodes:
-      - id: fa_gain
-        enable: false
-        package: fa_gain
-        exec: fa_gain_node
-        node_name: fa_gain
-        namespace: ""
-        params_file: "${share:fa_gain}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_limiter
-        enable: false
-        package: fa_limiter
-        exec: fa_limiter_node
-        node_name: fa_limiter
-        namespace: ""
-        params_file: "${share:fa_limiter}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_noise_gate
-        enable: false
-        package: fa_noise_gate
-        exec: fa_noise_gate_node
-        node_name: fa_noise_gate
-        namespace: ""
-        params_file: "${share:fa_noise_gate}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_normalize
-        enable: false
-        package: fa_normalize
-        exec: fa_normalize_node
-        node_name: fa_normalize
-        namespace: ""
-        params_file: "${share:fa_normalize}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_compressor
-        enable: false
-        package: fa_compressor
-        exec: fa_compressor_node
-        node_name: fa_compressor
-        namespace: ""
-        params_file: "${share:fa_compressor}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_expander
-        enable: false
-        package: fa_expander
-        exec: fa_expander_node
-        node_name: fa_expander
-        namespace: ""
-        params_file: "${share:fa_expander}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_agc
-        enable: false
-        package: fa_agc
-        exec: fa_agc_node
-        node_name: fa_agc
-        namespace: ""
-        params_file: "${share:fa_agc}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-  - id: frequency
+    package: fa_sample_format
+    exec: fa_sample_format_node
+    node_name: fa_sample_format
+    namespace: ''
+    params_file: ${share:fa_sample_format}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/frame
+      output_topic: audio/sample_format/mic
+      input_stream_id: audio/raw/mic
+      output.stream_id: audio/float32/mic
+      expected.sample_rate: 48000
+  - id: fa_resample
     enable: true
-    nodes:
-      - id: fa_eq
-        enable: false
-        package: fa_eq
-        exec: fa_eq_node
-        node_name: fa_eq
-        namespace: ""
-        params_file: "${share:fa_eq}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_high_pass
-        enable: false
-        package: fa_high_pass
-        exec: fa_high_pass_node
-        node_name: fa_high_pass
-        namespace: ""
-        params_file: "${share:fa_high_pass}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_low_pass
-        enable: false
-        package: fa_low_pass
-        exec: fa_low_pass_node
-        node_name: fa_low_pass
-        namespace: ""
-        params_file: "${share:fa_low_pass}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_band_pass
-        enable: false
-        package: fa_band_pass
-        exec: fa_band_pass_node
-        node_name: fa_band_pass
-        namespace: ""
-        params_file: "${share:fa_band_pass}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_notch
-        enable: false
-        package: fa_notch
-        exec: fa_notch_node
-        node_name: fa_notch
-        namespace: ""
-        params_file: "${share:fa_notch}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_deesser
-        enable: false
-        package: fa_deesser
-        exec: fa_deesser_node
-        node_name: fa_deesser
-        namespace: ""
-        params_file: "${share:fa_deesser}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-  - id: temporal
-    enable: true
-    nodes:
-      - id: fa_delay
-        enable: false
-        package: fa_delay
-        exec: fa_delay_node
-        node_name: fa_delay
-        namespace: ""
-        params_file: "${share:fa_delay}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_echo
-        enable: false
-        package: fa_echo
-        exec: fa_echo_node
-        node_name: fa_echo
-        namespace: ""
-        params_file: "${share:fa_echo}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_reverb
-        enable: false
-        package: fa_reverb
-        exec: fa_reverb_node
-        node_name: fa_reverb
-        namespace: ""
-        params_file: "${share:fa_reverb}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_trim
-        enable: false
-        package: fa_trim
-        exec: fa_trim_node
-        node_name: fa_trim
-        namespace: ""
-        params_file: "${share:fa_trim}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_fade
-        enable: false
-        package: fa_fade
-        exec: fa_fade_node
-        node_name: fa_fade
-        namespace: ""
-        params_file: "${share:fa_fade}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_silence_removal
-        enable: false
-        package: fa_silence_removal
-        exec: fa_silence_removal_node
-        node_name: fa_silence_removal
-        namespace: ""
-        params_file: "${share:fa_silence_removal}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_window
-        enable: false
-        package: fa_window
-        exec: fa_window_node
-        node_name: fa_window
-        namespace: ""
-        params_file: "${share:fa_window}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-  - id: correction
-    enable: true
-    nodes:
-      - id: fa_aec_linear
-        enable: false
-        package: fa_aec_linear
-        exec: fa_aec_linear_node
-        node_name: fa_aec_linear
-        namespace: ""
-        params_file: "${share:fa_aec_linear}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_aec_nn
-        enable: false
-        package: fa_aec_nn
-        exec: fa_aec_nn_node
-        node_name: fa_aec_nn
-        namespace: ""
-        params_file: "${share:fa_aec_nn}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_denoise
-        enable: false
-        package: fa_denoise
-        exec: fa_denoise_node
-        node_name: fa_denoise
-        namespace: ""
-        params_file: "${share:fa_denoise}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_declick
-        enable: false
-        package: fa_declick
-        exec: fa_declick_node
-        node_name: fa_declick
-        namespace: ""
-        params_file: "${share:fa_declick}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_hum
-        enable: false
-        package: fa_hum
-        exec: fa_hum_node
-        node_name: fa_hum
-        namespace: ""
-        params_file: "${share:fa_hum}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_dc_offset_removal
-        enable: false
-        package: fa_dc_offset_removal
-        exec: fa_dc_offset_removal_node
-        node_name: fa_dc_offset_removal
-        namespace: ""
-        params_file: "${share:fa_dc_offset_removal}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-  - id: spatial
-    enable: true
-    nodes:
-      - id: fa_pan
-        enable: false
-        package: fa_pan
-        exec: fa_pan_node
-        node_name: fa_pan
-        namespace: ""
-        params_file: "${share:fa_pan}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_stereo_widening
-        enable: false
-        package: fa_stereo_widening
-        exec: fa_stereo_widening_node
-        node_name: fa_stereo_widening
-        namespace: ""
-        params_file: "${share:fa_stereo_widening}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_downmix
-        enable: false
-        package: fa_downmix
-        exec: fa_downmix_node
-        node_name: fa_downmix
-        namespace: ""
-        params_file: "${share:fa_downmix}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_upmix
-        enable: false
-        package: fa_upmix
-        exec: fa_upmix_node
-        node_name: fa_upmix
-        namespace: ""
-        params_file: "${share:fa_upmix}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_beamforming
-        enable: false
-        package: fa_beamforming
-        exec: fa_beamforming_node
-        node_name: fa_beamforming
-        namespace: ""
-        params_file: "${share:fa_beamforming}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-  - id: analysis
-    enable: true
-    nodes:
-      - id: fa_cqt
-        enable: false
-        package: fa_cqt
-        exec: fa_cqt_node
-        node_name: fa_cqt
-        namespace: ""
-        params_file: "${share:fa_cqt}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/frame_buffer/cqt"
-          expected.stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/features/cqt/frames"
-          feature.frame_length: 4096
-          feature.hop_length: 512
-
-      - id: fa_log_mel
-        enable: false
-        package: fa_log_mel
-        exec: fa_log_mel_node
-        node_name: fa_log_mel
-        namespace: ""
-        params_file: "${share:fa_log_mel}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          expected.stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/features/log_mel/frames"
-          feature.n_fft: 320
-          feature.hop_length: 160
-
-      - id: fa_loudness
-        enable: false
-        package: fa_loudness
-        exec: fa_loudness_node
-        node_name: fa_loudness
-        namespace: ""
-        params_file: "${share:fa_loudness}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          expected.stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/features/loudness/frames"
-
-      - id: fa_mfcc
-        enable: false
-        package: fa_mfcc
-        exec: fa_mfcc_node
-        node_name: fa_mfcc
-        namespace: ""
-        params_file: "${share:fa_mfcc}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          expected.stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/features/mfcc/frames"
-          feature.n_fft: 320
-          feature.hop_length: 160
-          feature.n_mfcc: 13
-
-      - id: fa_onset
-        enable: false
-        package: fa_onset
-        exec: fa_onset_node
-        node_name: fa_onset
-        namespace: ""
-        params_file: "${share:fa_onset}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          expected.stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/features/onset/frames"
-          feature.n_fft: 320
-          feature.hop_length: 160
-          detector.threshold: 0.1
-
-      - id: fa_pitch
-        enable: false
-        package: fa_pitch
-        exec: fa_pitch_node
-        node_name: fa_pitch
-        namespace: ""
-        params_file: "${share:fa_pitch}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          expected.stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/features/pitch/frames"
-          feature.n_fft: 320
-          feature.hop_length: 160
-          feature.f_min_hz: 80.0
-
-      - id: fa_stft
-        enable: false
-        package: fa_stft
-        exec: fa_stft_node
-        node_name: fa_stft
-        namespace: ""
-        params_file: "${share:fa_stft}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          expected.stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/features/stft/frames"
-          feature.n_fft: 320
-          feature.hop_length: 160
-
-      - id: fa_tempo
-        enable: false
-        package: fa_tempo
-        exec: fa_tempo_node
-        node_name: fa_tempo
-        namespace: ""
-        params_file: "${share:fa_tempo}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          expected.stream_id: "audio/preprocessed/mono16k"
-          output.stream_id: "audio/features/tempo/frames"
-          feature.n_fft: 320
-          feature.hop_length: 160
-          tempo.bpm_min: 60.0
-
-  - id: ai
-    enable: true
-    nodes:
-      - id: fa_vad
-        enable: false
-        package: fa_vad
-        exec: fa_vad_node
-        node_name: fa_vad
-        namespace: ""
-        params_file: "${share:fa_vad}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          input_stream_id: "audio/preprocessed/mono16k"
-          backend.name: "silero"
-          backend.model_path: "${env:FLUENT_AUDIO_VAD_MODEL_DIR}"
-          backend.execution_provider: "${env:FLUENT_AUDIO_VAD_PROVIDER}"
-          backend.command: "${env:FLUENT_AUDIO_VAD_WORKER}"
-
-      - id: fa_kws
-        enable: false
-        package: fa_kws
-        exec: fa_kws_node
-        node_name: fa_kws
-        namespace: ""
-        params_file: "${share:fa_kws}/config/default.yaml"
-        remappings: {}
-        parameters:
-          audio_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/preprocessed/mono16k"
-          control.default_enabled: false
-          control.inputs: ["speech_control"]
-          control.speech_control.action: "topic"
-          control.speech_control.topic: "voice/vad_state"
-          control.speech_control.msg_type: "fa_interfaces/msg/VadState"
-          control.speech_control.source_id: "mic"
-          control.speech_control.stream_id: "audio/preprocessed/mono16k"
-          control.speech_control.probability_field: "probability"
-          control.speech_control.probability_gate: 0.35
-          control.speech_control.max_age_ms: 1000
-          control.speech_control.qos.depth: 20
-          control.speech_control.qos.reliable: false
-          output_topic: "voice/wake_word"
-          backend.name: "sherpa_onnx_kws"
-          backend.execution_provider: "${env:FLUENT_AUDIO_KWS_PROVIDER}"
-          backend.command: "${env:FLUENT_AUDIO_KWS_WORKER}"
-          backend.args:
-            - "detect"
-            - "--audio"
-            - "{audio}"
-            - "--encoder"
-            - "{encoder}"
-            - "--decoder"
-            - "{decoder}"
-            - "--joiner"
-            - "{joiner}"
-            - "--tokens"
-            - "{tokens}"
-            - "--keywords"
-            - "{keywords}"
-            - "--provider"
-            - "{provider}"
-            - "--sample-rate"
-            - "{sample_rate}"
-            - "--num-threads"
-            - "{num_threads}"
-            - "--max-active-paths"
-            - "{max_active_paths}"
-            - "--num-trailing-blanks"
-            - "{num_trailing_blanks}"
-            - "--keywords-score"
-            - "{keywords_score}"
-            - "--keywords-threshold"
-            - "{keywords_threshold}"
-          backend.health_args:
-            - "health"
-            - "--encoder"
-            - "{encoder}"
-            - "--decoder"
-            - "{decoder}"
-            - "--joiner"
-            - "{joiner}"
-            - "--tokens"
-            - "{tokens}"
-            - "--keywords"
-            - "{keywords}"
-            - "--provider"
-            - "{provider}"
-            - "--sample-rate"
-            - "{sample_rate}"
-            - "--num-threads"
-            - "{num_threads}"
-            - "--max-active-paths"
-            - "{max_active_paths}"
-            - "--num-trailing-blanks"
-            - "{num_trailing_blanks}"
-            - "--keywords-score"
-            - "{keywords_score}"
-            - "--keywords-threshold"
-            - "{keywords_threshold}"
-          backend.timeout_sec: 5.0
-          backend.workspace_dir: "/tmp/fluent_audio/fa_kws/sample"
-          backend.cleanup_audio_files: true
-          output.qos.depth: 10
-          output.qos.reliable: false
-          model.encoder: "${env:FLUENT_AUDIO_KWS_ENCODER}"
-          model.decoder: "${env:FLUENT_AUDIO_KWS_DECODER}"
-          model.joiner: "${env:FLUENT_AUDIO_KWS_JOINER}"
-          model.tokens: "${env:FLUENT_AUDIO_KWS_TOKENS}"
-          kws.keywords_file: "${env:FLUENT_AUDIO_KWS_KEYWORDS}"
-          model.num_threads: 4
-          kws.max_active_paths: 32
-          kws.num_trailing_blanks: 1
-          kws.keywords_score: 1.0
-          kws.keywords_threshold: 0.25
-
-      - id: fa_asr
-        enable: false
-        package: fa_asr
-        exec: fa_asr_node
-        node_name: fa_asr
-        namespace: ""
-        params_file: "${share:fa_asr}/config/default.yaml"
-        remappings: {}
-        parameters:
-          audio_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/preprocessed/mono16k"
-          control.default_enabled: false
-          control.inputs: ["speech_control"]
-          control.speech_control.action: "topic"
-          control.speech_control.topic: "voice/vad_state"
-          control.speech_control.msg_type: "fa_interfaces/msg/VadState"
-          control.speech_control.source_id: "mic"
-          control.speech_control.stream_id: "audio/preprocessed/mono16k"
-          control.speech_control.active_field: "is_speech"
-          control.speech_control.start_field: "start"
-          control.speech_control.end_field: "end"
-          control.speech_control.open_on: "start_or_active_rising"
-          control.speech_control.close_on: "end_or_active_falling"
-          control.speech_control.submit_on_close: true
-          control.speech_control.pre_roll_ms: 0.0
-          control.speech_control.post_roll_ms: 0.0
-          control.speech_control.qos.depth: 50
-          control.speech_control.qos.reliable: false
-          turn_context_topic: "conversation/turn_context"
-          asr_result_topic: "voice/asr/result"
-          timeline.retention_sec: 1800.0
-          timeline.clock: "media"
-          timeline.window_id: "sample_mic_asr"
-          timeline.window_epoch: 1
-          backend.name: "parakeet_multilingual_buffered"
-          backend.model_path: "${env:FLUENT_AUDIO_ASR_MODEL_PATH}"
-          backend.language: ""
-          backend.language_policy: "auto_detect"
-          backend.sample_rate_hz: 16000
-          backend.channels: 1
-          backend.chunk_size_samples: 1600
-          backend.chunk_ms: 0
-          backend.emit_partial: true
-          backend.max_partial_interval_ms: 300
-          backend.max_buffer_sec: 30.0
-          backend.speech_energy_threshold: 0.001
-          workspace_dir: "/tmp/fluent_audio/fa_asr/sample"
-          cleanup_audio_files: true
-          result.qos.depth: 10
-          result.qos.reliable: true
-
-      - id: fa_audio_embedding
-        enable: false
-        package: fa_audio_embedding
-        exec: fa_audio_embedding_node
-        node_name: fa_audio_embedding
-        namespace: ""
-        params_file: "${share:fa_audio_embedding}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/preprocessed/mono16k"
-
-      - id: fa_turn_detector
-        enable: false
-        package: fa_turn_detector
-        exec: fa_turn_detector_node
-        node_name: fa_turn_detector
-        namespace: ""
-        params_file: "${share:fa_turn_detector}/config/default.yaml"
-        remappings: {}
-        parameters:
-          audio_topic: "audio/resample16k/mic"
-          expected_stream_id: "audio/preprocessed/mono16k"
-          control.default_enabled: false
-          control.inputs: ["speech_control"]
-          control.speech_control.action: "topic"
-          control.speech_control.topic: "voice/vad_state"
-          control.speech_control.msg_type: "fa_interfaces/msg/VadState"
-          control.speech_control.source_id: "mic"
-          control.speech_control.stream_id: "audio/preprocessed/mono16k"
-          control.speech_control.active_field: "is_speech"
-          control.speech_control.start_field: "start"
-          control.speech_control.end_field: "end"
-          control.speech_control.close_on: "end_or_active_falling"
-          control.speech_control.qos.depth: 10
-          control.speech_control.qos.reliable: false
-          turn_context_topic: "conversation/turn_context"
-          output_topic: "voice/turn_end"
-          backend.name: "smart_turn_onnx"
-          backend.model_path: "${env:FLUENT_AUDIO_TURN_DETECTOR_MODEL}"
-          backend.execution_provider: "${env:FLUENT_AUDIO_TURN_DETECTOR_PROVIDER}"
-          backend.command: "${env:FLUENT_AUDIO_TURN_DETECTOR_WORKER}"
-          backend.args:
-            - "detect"
-            - "--model"
-            - "{model}"
-            - "--provider"
-            - "{provider}"
-            - "--audio"
-            - "{audio}"
-          backend.health_args:
-            - "health"
-            - "--model"
-            - "{model}"
-            - "--provider"
-            - "{provider}"
-          backend.timeout_sec: 5.0
-          backend.workspace_dir: "/tmp/fluent_audio/fa_turn_detector/sample"
-          backend.cleanup_audio_files: true
-          backend.threshold: 0.5
-          output.qos.depth: 10
-          output.qos.reliable: true
-
-  - id: generation_routing
-    enable: true
-    nodes:
-      - id: fa_tts
-        enable: false
-        package: fa_tts
-        exec: fa_tts_node
-        node_name: fa_tts
-        namespace: ""
-        params_file: "${share:fa_tts}/config/default.yaml"
-        remappings: {}
-        parameters:
-          backend.openjtalk_dict_dir: "${env:FLUENT_AUDIO_OPENJTALK_DICT_DIR}"
-          output_topic: "audio/tts/frame"
-
-      - id: fa_mix
-        enable: false
-        package: fa_mix
-        exec: fa_mix_node
-        node_name: fa_mix
-        namespace: ""
-        params_file: "${share:fa_mix}/config/default.yaml"
-        remappings: {}
-        parameters:
-          input_topics:
-            - "audio/tts/pcm16"
-          input_stream_ids:
-            - "tts_playback_pcm16"
-          input_gains_db:
-            - 0.0
-          master_index: 0
-          output_topic: "audio/output/frame"
-          output.stream_id: "audio/playback/main"
-          expected.sample_rate: 48000
-          expected.channels: 1
-          expected.bit_depth: 16
-          expected.encoding: "PCM16LE"
-
-      - id: fa_bus_router
-        enable: false
-        package: fa_bus_router
-        exec: fa_bus_router_node
-        node_name: fa_bus_router
-        namespace: ""
-        params_file: "${share:fa_bus_router}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_sidechain
-        enable: false
-        package: fa_sidechain
-        exec: fa_sidechain_node
-        node_name: fa_sidechain
-        namespace: ""
-        params_file: "${share:fa_sidechain}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_ducking
-        enable: false
-        package: fa_ducking
-        exec: fa_ducking_node
-        node_name: fa_ducking
-        namespace: ""
-        params_file: "${share:fa_ducking}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_monitor_mix
-        enable: false
-        package: fa_monitor_mix
-        exec: fa_monitor_mix_node
-        node_name: fa_monitor_mix
-        namespace: ""
-        params_file: "${share:fa_monitor_mix}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_loopback
-        enable: false
-        package: fa_loopback
-        exec: fa_loopback_node
-        node_name: fa_loopback
-        namespace: ""
-        params_file: "${share:fa_loopback}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_patchbay
-        enable: false
-        package: fa_patchbay
-        exec: fa_patchbay_node
-        node_name: fa_patchbay
-        namespace: ""
-        params_file: "${share:fa_patchbay}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-  - id: streaming
-    enable: true
-    nodes:
-      - id: fa_frame_buffer
-        enable: false
-        package: fa_frame_buffer
-        exec: fa_frame_buffer_node
-        node_name: fa_frame_buffer
-        namespace: ""
-        params_file: "${share:fa_frame_buffer}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_jitter_buffer
-        enable: false
-        package: fa_jitter_buffer
-        exec: fa_jitter_buffer_node
-        node_name: fa_jitter_buffer_node
-        namespace: ""
-        params_file: "${share:fa_jitter_buffer}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_clock_drift
-        enable: false
-        package: fa_clock_drift
-        exec: fa_clock_drift_node
-        node_name: fa_clock_drift
-        namespace: ""
-        params_file: "${share:fa_clock_drift}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_packet_loss_concealment
-        enable: false
-        package: fa_packet_loss_concealment
-        exec: fa_packet_loss_concealment_node
-        node_name: fa_packet_loss_concealment_node
-        namespace: ""
-        params_file: "${share:fa_packet_loss_concealment}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_latency_compensation
-        enable: false
-        package: fa_latency_compensation
-        exec: fa_latency_compensation_node
-        node_name: fa_latency_compensation
-        namespace: ""
-        params_file: "${share:fa_latency_compensation}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_time_alignment
-        enable: false
-        package: fa_time_alignment
-        exec: fa_time_alignment_node
-        node_name: fa_time_alignment
-        namespace: ""
-        params_file: "${share:fa_time_alignment}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_chunk_overlap
-        enable: false
-        package: fa_chunk_overlap
-        exec: fa_chunk_overlap_node
-        node_name: fa_chunk_overlap
-        namespace: ""
-        params_file: "${share:fa_chunk_overlap}/config/default.yaml"
-        remappings: {}
-        parameters: {}
-
-      - id: fa_overlap_add
-        enable: false
-        package: fa_overlap_add
-        exec: fa_overlap_add_node
-        node_name: fa_overlap_add_node
-        namespace: ""
-        params_file: "${share:fa_overlap_add}/config/default.yaml"
-        remappings: {}
-        parameters: {}
+    package: fa_resample
+    exec: fa_resample_node
+    node_name: fa_resample
+    namespace: ''
+    params_file: ${share:fa_resample}/config/default.yaml
+    remappings: {}
+    parameters:
+      mic.input_topic: audio/sample_format/mic
+      mic.output_topic: audio/resample16k/mic
+      mic.input_stream_id: audio/float32/mic
+      mic.output.stream_id: audio/preprocessed/mono16k
+  - id: fa_encode
+    enable: false
+    package: fa_encode
+    exec: fa_encode_node
+    node_name: fa_encode_mic
+    namespace: ''
+    params_file: ${share:fa_encode}/config/default.yaml
+    remappings: {}
+    parameters:
+      backend.command.executable: ${env:FLUENT_AUDIO_CODEC_ENCODER}
+      input_topic: audio/resample16k/mic
+      output_topic: audio/encoded/mic
+      input_stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/encoded/mic/opus
+  - id: fa_decode
+    enable: false
+    package: fa_decode
+    exec: fa_decode_node
+    node_name: fa_decode_mic
+    namespace: ''
+    params_file: ${share:fa_decode}/config/default.yaml
+    remappings: {}
+    parameters:
+      backend.command.executable: ${env:FLUENT_AUDIO_CODEC_DECODER}
+      input_topic: audio/encoded/mic
+      output_topic: audio/decoded/mic
+      input_stream_id: audio/encoded/mic/opus
+      output.stream_id: audio/decoded/mic/pcm16
+  - id: fa_resample_tts
+    enable: false
+    package: fa_resample
+    exec: fa_resample_node
+    node_name: fa_resample_tts
+    namespace: ''
+    params_file: ${share:fa_resample}/config/default.yaml
+    remappings: {}
+    parameters:
+      target_sample_rate: 48000
+      mic.enabled: true
+      mic.input_topic: audio/tts/frame
+      mic.output_topic: audio/tts/48k_float32
+      mic.input_stream_id: tts_synthesis
+      mic.output.stream_id: tts_synthesis_48k
+      ref.enabled: false
+  - id: fa_sample_format_tts
+    enable: false
+    package: fa_sample_format
+    exec: fa_sample_format_node
+    node_name: fa_sample_format_tts
+    namespace: ''
+    params_file: ${share:fa_sample_format}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/tts/48k_float32
+      output_topic: audio/tts/pcm16
+      input_stream_id: tts_synthesis_48k
+      output.stream_id: tts_playback_pcm16
+      input.encoding: FLOAT32LE
+      input.bit_depth: 32
+      output.encoding: PCM16LE
+      output.bit_depth: 16
+      expected.sample_rate: 48000
+      expected.channels: 1
+      expected.layout: interleaved
+  - id: fa_bit_depth
+    enable: false
+    package: fa_bit_depth
+    exec: fa_bit_depth_node
+    node_name: fa_bit_depth
+    namespace: ''
+    params_file: ${share:fa_bit_depth}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_channel_convert
+    enable: false
+    package: fa_channel_convert
+    exec: fa_channel_convert_node
+    node_name: fa_channel_convert
+    namespace: ''
+    params_file: ${share:fa_channel_convert}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_interleave
+    enable: false
+    package: fa_interleave
+    exec: fa_interleave_node
+    node_name: fa_interleave
+    namespace: ''
+    params_file: ${share:fa_interleave}/config/default.yaml
+    remappings: {}
+    parameters: {}
+- id: dynamics
+  enable: true
+  nodes:
+  - id: fa_gain
+    enable: false
+    package: fa_gain
+    exec: fa_gain_node
+    node_name: fa_gain
+    namespace: ''
+    params_file: ${share:fa_gain}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_limiter
+    enable: false
+    package: fa_limiter
+    exec: fa_limiter_node
+    node_name: fa_limiter
+    namespace: ''
+    params_file: ${share:fa_limiter}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_noise_gate
+    enable: false
+    package: fa_noise_gate
+    exec: fa_noise_gate_node
+    node_name: fa_noise_gate
+    namespace: ''
+    params_file: ${share:fa_noise_gate}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_normalize
+    enable: false
+    package: fa_normalize
+    exec: fa_normalize_node
+    node_name: fa_normalize
+    namespace: ''
+    params_file: ${share:fa_normalize}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_compressor
+    enable: false
+    package: fa_compressor
+    exec: fa_compressor_node
+    node_name: fa_compressor
+    namespace: ''
+    params_file: ${share:fa_compressor}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_expander
+    enable: false
+    package: fa_expander
+    exec: fa_expander_node
+    node_name: fa_expander
+    namespace: ''
+    params_file: ${share:fa_expander}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_agc
+    enable: false
+    package: fa_agc
+    exec: fa_agc_node
+    node_name: fa_agc
+    namespace: ''
+    params_file: ${share:fa_agc}/config/default.yaml
+    remappings: {}
+    parameters: {}
+- id: frequency
+  enable: true
+  nodes:
+  - id: fa_eq
+    enable: false
+    package: fa_eq
+    exec: fa_eq_node
+    node_name: fa_eq
+    namespace: ''
+    params_file: ${share:fa_eq}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_high_pass
+    enable: false
+    package: fa_high_pass
+    exec: fa_high_pass_node
+    node_name: fa_high_pass
+    namespace: ''
+    params_file: ${share:fa_high_pass}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_low_pass
+    enable: false
+    package: fa_low_pass
+    exec: fa_low_pass_node
+    node_name: fa_low_pass
+    namespace: ''
+    params_file: ${share:fa_low_pass}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_band_pass
+    enable: false
+    package: fa_band_pass
+    exec: fa_band_pass_node
+    node_name: fa_band_pass
+    namespace: ''
+    params_file: ${share:fa_band_pass}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_notch
+    enable: false
+    package: fa_notch
+    exec: fa_notch_node
+    node_name: fa_notch
+    namespace: ''
+    params_file: ${share:fa_notch}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_deesser
+    enable: false
+    package: fa_deesser
+    exec: fa_deesser_node
+    node_name: fa_deesser
+    namespace: ''
+    params_file: ${share:fa_deesser}/config/default.yaml
+    remappings: {}
+    parameters: {}
+- id: temporal
+  enable: true
+  nodes:
+  - id: fa_delay
+    enable: false
+    package: fa_delay
+    exec: fa_delay_node
+    node_name: fa_delay
+    namespace: ''
+    params_file: ${share:fa_delay}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_echo
+    enable: false
+    package: fa_echo
+    exec: fa_echo_node
+    node_name: fa_echo
+    namespace: ''
+    params_file: ${share:fa_echo}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_reverb
+    enable: false
+    package: fa_reverb
+    exec: fa_reverb_node
+    node_name: fa_reverb
+    namespace: ''
+    params_file: ${share:fa_reverb}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_trim
+    enable: false
+    package: fa_trim
+    exec: fa_trim_node
+    node_name: fa_trim
+    namespace: ''
+    params_file: ${share:fa_trim}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_fade
+    enable: false
+    package: fa_fade
+    exec: fa_fade_node
+    node_name: fa_fade
+    namespace: ''
+    params_file: ${share:fa_fade}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_silence_removal
+    enable: false
+    package: fa_silence_removal
+    exec: fa_silence_removal_node
+    node_name: fa_silence_removal
+    namespace: ''
+    params_file: ${share:fa_silence_removal}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_window
+    enable: false
+    package: fa_window
+    exec: fa_window_node
+    node_name: fa_window
+    namespace: ''
+    params_file: ${share:fa_window}/config/default.yaml
+    remappings: {}
+    parameters: {}
+- id: correction
+  enable: true
+  nodes:
+  - id: fa_aec_linear
+    enable: false
+    package: fa_aec_linear
+    exec: fa_aec_linear_node
+    node_name: fa_aec_linear
+    namespace: ''
+    params_file: ${share:fa_aec_linear}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_aec_nn
+    enable: false
+    package: fa_aec_nn
+    exec: fa_aec_nn_node
+    node_name: fa_aec_nn
+    namespace: ''
+    params_file: ${share:fa_aec_nn}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_denoise
+    enable: false
+    package: fa_denoise
+    exec: fa_denoise_node
+    node_name: fa_denoise
+    namespace: ''
+    params_file: ${share:fa_denoise}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_declick
+    enable: false
+    package: fa_declick
+    exec: fa_declick_node
+    node_name: fa_declick
+    namespace: ''
+    params_file: ${share:fa_declick}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_hum
+    enable: false
+    package: fa_hum
+    exec: fa_hum_node
+    node_name: fa_hum
+    namespace: ''
+    params_file: ${share:fa_hum}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_dc_offset_removal
+    enable: false
+    package: fa_dc_offset_removal
+    exec: fa_dc_offset_removal_node
+    node_name: fa_dc_offset_removal
+    namespace: ''
+    params_file: ${share:fa_dc_offset_removal}/config/default.yaml
+    remappings: {}
+    parameters: {}
+- id: spatial
+  enable: true
+  nodes:
+  - id: fa_pan
+    enable: false
+    package: fa_pan
+    exec: fa_pan_node
+    node_name: fa_pan
+    namespace: ''
+    params_file: ${share:fa_pan}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_stereo_widening
+    enable: false
+    package: fa_stereo_widening
+    exec: fa_stereo_widening_node
+    node_name: fa_stereo_widening
+    namespace: ''
+    params_file: ${share:fa_stereo_widening}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_downmix
+    enable: false
+    package: fa_downmix
+    exec: fa_downmix_node
+    node_name: fa_downmix
+    namespace: ''
+    params_file: ${share:fa_downmix}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_upmix
+    enable: false
+    package: fa_upmix
+    exec: fa_upmix_node
+    node_name: fa_upmix
+    namespace: ''
+    params_file: ${share:fa_upmix}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_beamforming
+    enable: false
+    package: fa_beamforming
+    exec: fa_beamforming_node
+    node_name: fa_beamforming
+    namespace: ''
+    params_file: ${share:fa_beamforming}/config/default.yaml
+    remappings: {}
+    parameters: {}
+- id: analysis
+  enable: true
+  nodes:
+  - id: fa_cqt
+    enable: false
+    package: fa_cqt
+    exec: fa_cqt_node
+    node_name: fa_cqt
+    namespace: ''
+    params_file: ${share:fa_cqt}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/frame_buffer/cqt
+      expected.stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/features/cqt/frames
+      feature.frame_length: 4096
+      feature.hop_length: 512
+  - id: fa_log_mel
+    enable: false
+    package: fa_log_mel
+    exec: fa_log_mel_node
+    node_name: fa_log_mel
+    namespace: ''
+    params_file: ${share:fa_log_mel}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/resample16k/mic
+      expected.stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/features/log_mel/frames
+      feature.n_fft: 320
+      feature.hop_length: 160
+  - id: fa_loudness
+    enable: false
+    package: fa_loudness
+    exec: fa_loudness_node
+    node_name: fa_loudness
+    namespace: ''
+    params_file: ${share:fa_loudness}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/resample16k/mic
+      expected.stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/features/loudness/frames
+  - id: fa_mfcc
+    enable: false
+    package: fa_mfcc
+    exec: fa_mfcc_node
+    node_name: fa_mfcc
+    namespace: ''
+    params_file: ${share:fa_mfcc}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/resample16k/mic
+      expected.stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/features/mfcc/frames
+      feature.n_fft: 320
+      feature.hop_length: 160
+      feature.n_mfcc: 13
+  - id: fa_onset
+    enable: false
+    package: fa_onset
+    exec: fa_onset_node
+    node_name: fa_onset
+    namespace: ''
+    params_file: ${share:fa_onset}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/resample16k/mic
+      expected.stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/features/onset/frames
+      feature.n_fft: 320
+      feature.hop_length: 160
+      detector.threshold: 0.1
+  - id: fa_pitch
+    enable: false
+    package: fa_pitch
+    exec: fa_pitch_node
+    node_name: fa_pitch
+    namespace: ''
+    params_file: ${share:fa_pitch}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/resample16k/mic
+      expected.stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/features/pitch/frames
+      feature.n_fft: 320
+      feature.hop_length: 160
+      feature.f_min_hz: 80.0
+  - id: fa_stft
+    enable: false
+    package: fa_stft
+    exec: fa_stft_node
+    node_name: fa_stft
+    namespace: ''
+    params_file: ${share:fa_stft}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/resample16k/mic
+      expected.stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/features/stft/frames
+      feature.n_fft: 320
+      feature.hop_length: 160
+  - id: fa_tempo
+    enable: false
+    package: fa_tempo
+    exec: fa_tempo_node
+    node_name: fa_tempo
+    namespace: ''
+    params_file: ${share:fa_tempo}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/resample16k/mic
+      expected.stream_id: audio/preprocessed/mono16k
+      output.stream_id: audio/features/tempo/frames
+      feature.n_fft: 320
+      feature.hop_length: 160
+      tempo.bpm_min: 60.0
+- id: ai
+  enable: true
+  nodes:
+  - id: fa_kws
+    enable: false
+    package: fa_kws
+    exec: fa_kws_node
+    node_name: fa_kws
+    namespace: ''
+    params_file: ${share:fa_kws}/config/default.yaml
+    remappings: {}
+    parameters:
+      audio_topic: audio/resample16k/mic
+      expected_stream_id: audio/preprocessed/mono16k
+      output_topic: voice/wake_word
+      backend.name: sherpa_onnx_kws
+      backend.execution_provider: ${env:FLUENT_AUDIO_KWS_PROVIDER}
+      backend.command: ${env:FLUENT_AUDIO_KWS_WORKER}
+      backend.args:
+      - detect
+      - --audio
+      - '{audio}'
+      - --encoder
+      - '{encoder}'
+      - --decoder
+      - '{decoder}'
+      - --joiner
+      - '{joiner}'
+      - --tokens
+      - '{tokens}'
+      - --keywords
+      - '{keywords}'
+      - --provider
+      - '{provider}'
+      - --sample-rate
+      - '{sample_rate}'
+      - --num-threads
+      - '{num_threads}'
+      - --max-active-paths
+      - '{max_active_paths}'
+      - --num-trailing-blanks
+      - '{num_trailing_blanks}'
+      - --keywords-score
+      - '{keywords_score}'
+      - --keywords-threshold
+      - '{keywords_threshold}'
+      backend.health_args:
+      - health
+      - --encoder
+      - '{encoder}'
+      - --decoder
+      - '{decoder}'
+      - --joiner
+      - '{joiner}'
+      - --tokens
+      - '{tokens}'
+      - --keywords
+      - '{keywords}'
+      - --provider
+      - '{provider}'
+      - --sample-rate
+      - '{sample_rate}'
+      - --num-threads
+      - '{num_threads}'
+      - --max-active-paths
+      - '{max_active_paths}'
+      - --num-trailing-blanks
+      - '{num_trailing_blanks}'
+      - --keywords-score
+      - '{keywords_score}'
+      - --keywords-threshold
+      - '{keywords_threshold}'
+      backend.timeout_sec: 5.0
+      backend.workspace_dir: /tmp/fluent_audio/fa_kws/sample
+      backend.cleanup_audio_files: true
+      output.qos.depth: 10
+      output.qos.reliable: false
+      model.encoder: ${env:FLUENT_AUDIO_KWS_ENCODER}
+      model.decoder: ${env:FLUENT_AUDIO_KWS_DECODER}
+      model.joiner: ${env:FLUENT_AUDIO_KWS_JOINER}
+      model.tokens: ${env:FLUENT_AUDIO_KWS_TOKENS}
+      kws.keywords_file: ${env:FLUENT_AUDIO_KWS_KEYWORDS}
+      model.num_threads: 4
+      kws.max_active_paths: 32
+      kws.num_trailing_blanks: 1
+      kws.keywords_score: 1.0
+      kws.keywords_threshold: 0.25
+  - id: fa_audio_embedding
+    enable: false
+    package: fa_audio_embedding
+    exec: fa_audio_embedding_node
+    node_name: fa_audio_embedding
+    namespace: ''
+    params_file: ${share:fa_audio_embedding}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/resample16k/mic
+      expected_stream_id: audio/preprocessed/mono16k
+  - id: fa_turn_detector
+    enable: false
+    package: fa_turn_detector
+    exec: fa_turn_detector_node
+    node_name: fa_turn_detector
+    namespace: ''
+    params_file: ${share:fa_turn_detector}/config/default.yaml
+    remappings: {}
+    parameters:
+      audio_topic: audio/resample16k/mic
+      expected_stream_id: audio/preprocessed/mono16k
+      turn_context_topic: conversation/turn_context
+      output_topic: voice/turn_end
+      backend.name: smart_turn_onnx
+      backend.model_path: ${env:FLUENT_AUDIO_TURN_DETECTOR_MODEL}
+      backend.execution_provider: ${env:FLUENT_AUDIO_TURN_DETECTOR_PROVIDER}
+      backend.command: ${env:FLUENT_AUDIO_TURN_DETECTOR_WORKER}
+      backend.args:
+      - detect
+      - --model
+      - '{model}'
+      - --provider
+      - '{provider}'
+      - --audio
+      - '{audio}'
+      backend.health_args:
+      - health
+      - --model
+      - '{model}'
+      - --provider
+      - '{provider}'
+      backend.timeout_sec: 5.0
+      backend.workspace_dir: /tmp/fluent_audio/fa_turn_detector/sample
+      backend.cleanup_audio_files: true
+      backend.threshold: 0.5
+      output.qos.depth: 10
+      output.qos.reliable: true
+- id: generation_routing
+  enable: true
+  nodes:
+  - id: fa_tts
+    enable: false
+    package: fa_tts
+    exec: fa_tts_node
+    node_name: fa_tts
+    namespace: ''
+    params_file: ${share:fa_tts}/config/default.yaml
+    remappings: {}
+    parameters:
+      backend.openjtalk_dict_dir: ${env:FLUENT_AUDIO_OPENJTALK_DICT_DIR}
+      output_topic: audio/tts/frame
+  - id: fa_mix
+    enable: false
+    package: fa_mix
+    exec: fa_mix_node
+    node_name: fa_mix
+    namespace: ''
+    params_file: ${share:fa_mix}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topics:
+      - audio/tts/pcm16
+      input_stream_ids:
+      - tts_playback_pcm16
+      input_gains_db:
+      - 0.0
+      master_index: 0
+      output_topic: audio/output/frame
+      output.stream_id: audio/playback/main
+      expected.sample_rate: 48000
+      expected.channels: 1
+      expected.bit_depth: 16
+      expected.encoding: PCM16LE
+  - id: fa_bus_router
+    enable: false
+    package: fa_bus_router
+    exec: fa_bus_router_node
+    node_name: fa_bus_router
+    namespace: ''
+    params_file: ${share:fa_bus_router}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_sidechain
+    enable: false
+    package: fa_sidechain
+    exec: fa_sidechain_node
+    node_name: fa_sidechain
+    namespace: ''
+    params_file: ${share:fa_sidechain}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_ducking
+    enable: false
+    package: fa_ducking
+    exec: fa_ducking_node
+    node_name: fa_ducking
+    namespace: ''
+    params_file: ${share:fa_ducking}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_monitor_mix
+    enable: false
+    package: fa_monitor_mix
+    exec: fa_monitor_mix_node
+    node_name: fa_monitor_mix
+    namespace: ''
+    params_file: ${share:fa_monitor_mix}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_loopback
+    enable: false
+    package: fa_loopback
+    exec: fa_loopback_node
+    node_name: fa_loopback
+    namespace: ''
+    params_file: ${share:fa_loopback}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_patchbay
+    enable: false
+    package: fa_patchbay
+    exec: fa_patchbay_node
+    node_name: fa_patchbay
+    namespace: ''
+    params_file: ${share:fa_patchbay}/config/default.yaml
+    remappings: {}
+    parameters: {}
+- id: streaming
+  enable: true
+  nodes:
+  - id: fa_frame_buffer
+    enable: false
+    package: fa_frame_buffer
+    exec: fa_frame_buffer_node
+    node_name: fa_frame_buffer
+    namespace: ''
+    params_file: ${share:fa_frame_buffer}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_jitter_buffer
+    enable: false
+    package: fa_jitter_buffer
+    exec: fa_jitter_buffer_node
+    node_name: fa_jitter_buffer_node
+    namespace: ''
+    params_file: ${share:fa_jitter_buffer}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_clock_drift
+    enable: false
+    package: fa_clock_drift
+    exec: fa_clock_drift_node
+    node_name: fa_clock_drift
+    namespace: ''
+    params_file: ${share:fa_clock_drift}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_packet_loss_concealment
+    enable: false
+    package: fa_packet_loss_concealment
+    exec: fa_packet_loss_concealment_node
+    node_name: fa_packet_loss_concealment_node
+    namespace: ''
+    params_file: ${share:fa_packet_loss_concealment}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_latency_compensation
+    enable: false
+    package: fa_latency_compensation
+    exec: fa_latency_compensation_node
+    node_name: fa_latency_compensation
+    namespace: ''
+    params_file: ${share:fa_latency_compensation}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_time_alignment
+    enable: false
+    package: fa_time_alignment
+    exec: fa_time_alignment_node
+    node_name: fa_time_alignment
+    namespace: ''
+    params_file: ${share:fa_time_alignment}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_chunk_overlap
+    enable: false
+    package: fa_chunk_overlap
+    exec: fa_chunk_overlap_node
+    node_name: fa_chunk_overlap
+    namespace: ''
+    params_file: ${share:fa_chunk_overlap}/config/default.yaml
+    remappings: {}
+    parameters: {}
+  - id: fa_overlap_add
+    enable: false
+    package: fa_overlap_add
+    exec: fa_overlap_add_node
+    node_name: fa_overlap_add_node
+    namespace: ''
+    params_file: ${share:fa_overlap_add}/config/default.yaml
+    remappings: {}
+    parameters: {}

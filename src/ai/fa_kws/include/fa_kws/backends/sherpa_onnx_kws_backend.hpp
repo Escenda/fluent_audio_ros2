@@ -27,7 +27,6 @@ struct SherpaOnnxKwsBackendConfig
   float keywords_score;
   float keywords_threshold;
 
-  float vad_threshold;
   std::chrono::milliseconds cooldown;
 
   std::string command;
@@ -53,7 +52,6 @@ public:
 
   std::optional<KwsDetection> process(const std::vector<float> &samples,
                                       std::int32_t sample_rate,
-                                      float vad_prob,
                                       std::chrono::steady_clock::time_point now) override;
 
   // Soft reset: clear stream state (may not fully reset internal buffers)
