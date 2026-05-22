@@ -34,7 +34,7 @@ observability.qos.reliable: true
 ## バックエンド契約
 
 `backend.name` は必須です。対応する backend は `local_command`, `whisper.cpp`, `parakeet_worker`, `nemo_offline_transcribe`, `nemo_rnnt_streaming`, `openai_realtime`, `openai_transcriptions` です。
-`nemo_offline_transcribe` は local `.nemo` を NeMo offline / full-context `transcribe(...)` API で呼ぶ non-streaming command / worker backend であり、working tree 上では backend / worker / tests / profile work が作成済みです。ただし file-source full ROS graph と accuracy 評価は未検証です。
+`nemo_offline_transcribe` は local `.nemo` を NeMo offline / full-context `transcribe(...)` API で呼ぶ non-streaming command / worker backend であり、working tree 上では backend / worker / tests / profile work が作成済みです。PO 検証では real worker health、raw `FLOAT32LE` fixture transcription、opt-in file-source full ROS graph smoke が通過済みです。ただし accuracy 評価、`TranscribeAudio` service integration、NIM / Riva / gRPC backend readiness、generic live microphone ASR は未検証です。
 non-streaming command 系 backend では `backend.result_format` も backend 設定時に必須です。`nemo_rnnt_streaming` は JSONL streaming protocol を使い、`backend.result_format` / `backend.args` / `backend.health_args` は使いません。default config は `backend.name` / command backend 用 `backend.result_format` を空にし、backend selection と output contract を暗黙選択しません。利用環境ごとの launch/config で `backend.name` と backend ごとの必須パラメータを明示してください。
 
 - `local_command` / `whisper.cpp`: `backend.command` と `backend.model_path` が必須です。
@@ -73,4 +73,6 @@ PO の直接 NeMo API 証跡として、`ASRModel.restore_from(...); model.trans
 天 気 練 習 残 業 安 ん な り 電 波 宣 兵 電 米 宣 本 専 用 本 屋 三 円 単 位
 ```
 
-これは offline / full-context local NeMo transcribe の viability を示す証跡です。accuracy、`nemo_rnnt_streaming` backend 成功、full ROS graph 成功は証明しません。`nemo_rnnt_streaming` は引き続き finite attention context 不成立により fail closed / 未検証として扱います。
+この direct API evidence 単体では、offline / full-context local NeMo transcribe の viability だけを示します。accuracy、`nemo_rnnt_streaming` backend 成功、file-source full ROS graph 成功は証明しません。`nemo_rnnt_streaming` は引き続き finite attention context 不成立により fail closed / 未検証として扱います。
+
+PO 検証では、commit `43fabab3` により `fa_in` の `pcm_file_reader` が actual PCM frame 数に基づく media-clock timestamp を出すようになった後、commit `5e3ae5a3` の opt-in smoke `src/system/fluent_audio_system/test/integration/test_file_ja_voice_frontend_real_asr_smoke.py` を `fluent-audio-runtime` で実行し、`1 passed in 130.86s` を確認しています。使用した経路は local Parakeet `.nemo` + `nemo_offline_transcribe` であり、NIM / Riva / gRPC / OpenAI は使っていません。この smoke が示すのは stated env 条件下の file-source full ROS graph で non-empty final ASR result が出たことです。accuracy、`TranscribeAudio` service integration、local `nemo_rnnt_streaming` 成功、NIM / Riva serving readiness、汎用 live microphone ASR は証明しません。
