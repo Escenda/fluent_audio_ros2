@@ -1,23 +1,36 @@
 # fa_dialogue
 
-`fa_dialogue` は FluentAudio の対話 turn context を配布する ROS 2 package です。
+`fa_dialogue` は FluentAudio の会話 turn lifecycle を所有する ROS 2 package です。
 
-## Node
+## Nodes
 
 - package: `fa_dialogue`
 - executable: `fa_dialogue_node`
 - launch: `launch/fa_dialogue.launch.py`
 - config: `config/default.yaml`
+- executable: `fa_wake_ack_node`
+- config: `config/wake_ack.yaml`
 
 ## Inputs
 
-- `WakeWordResult`: `detected=true` かつ keyword が空でない場合だけ turn を開始する
-- `TurnEnd`: active turn と session/turn が一致し、`is_end=true` の場合だけ turn を終了する
+- `WakeWordResult`: wake 検出を turn 開始候補として扱う
+- `VoiceActivity`: VAD の speech state と `speech_ended` を終了候補の起点として扱う
+- `TurnEnd`: TD の発話終了判定。最終決定ではなく候補として扱う
 
-## Output
+## Outputs
 
 - `TurnContext`: session id、user turn id、active flag を配布する
+- `AsrControl`: ASR stream の `START` / `STOP` / `CANCEL` を配布する
 
 ## Boundary
 
-今回の実装は turn context publisher までです。reasoning、TTS、safety policy、external dialogue backend、robot command proposal は実装しません。
+`fa_dialogue` が会話 turn の唯一の所有者です。ASR backend や ASR node は wake / VAD / TD から turn を推定しません。TD は VAD `speech_ended` 後の終了候補であり、ASR を止める最終判断は `fa_dialogue` が行います。
+
+
+## Turn Timing
+
+`fa_dialogue_node` starts ASR on wake, then waits for follow-up speech. Wake-phrase trailing silence is not treated as user-turn completion. `turn.min_listen_ms` keeps the turn open for the minimum listening window after wake; the SO101 profile sets this to 3000 ms. If no follow-up speech arrives, `turn.no_speech_timeout_ms` closes the turn after that window.
+
+## Wake Ack
+
+`fa_wake_ack_node` subscribes to `AsrControl` and publishes a short eased PCM16LE earcon when it sees `ACTION_START` with `reason=wake`. It does not own dialogue state.

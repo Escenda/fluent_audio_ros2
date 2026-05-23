@@ -11,6 +11,7 @@ ament_python_install_package(fa_dialogue_py PACKAGE_DIR fa_dialogue_py)
 
 install(PROGRAMS
   scripts/fa_dialogue_node
+  scripts/fa_wake_ack_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

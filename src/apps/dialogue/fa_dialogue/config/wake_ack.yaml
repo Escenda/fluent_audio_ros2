@@ -1,0 +1,23 @@
+fa_wake_ack:
+  ros__parameters:
+    enabled: true
+    control_topic: "voice/asr_control"
+    output_topic: "audio/output/frame"
+    output.source_id: "fa_wake_ack"
+    output.stream_id: "audio/playback/main"
+    cooldown_ms: 1200
+
+    audio.sample_rate: 48000
+    audio.channels: 1
+
+    tone.duration_ms: 260
+    tone.fade_ms: 34
+    tone.gain: 0.18
+    tone.base_hz: 660.0
+    tone.lift_hz: 260.0
+    tone.shimmer_hz: 1320.0
+
+    control.qos.depth: 10
+    control.qos.reliable: true
+    output.qos.depth: 10
+    output.qos.reliable: true
