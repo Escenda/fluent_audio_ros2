@@ -1,0 +1,28 @@
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    node_name = LaunchConfiguration("node_name")
+    config_file = LaunchConfiguration("config_file")
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "node_name",
+                description="ノード名",
+            ),
+            DeclareLaunchArgument(
+                "config_file",
+                description="Path to fa_asr parameter YAML.",
+            ),
+            Node(
+                package="fa_asr",
+                executable="fa_asr_node",
+                name=node_name,
+                output="screen",
+                parameters=[config_file],
+            ),
+        ]
+    )

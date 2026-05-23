@@ -1,0 +1,32 @@
+fa_asr:
+  ros__parameters:
+    audio_topic: "audio/frame"
+    control_topic: "voice/asr_control"
+    output_topic: "voice/asr_transcript"
+
+    expected_source_id: ""
+    expected_stream_id: "audio/preprocessed/mono16k"
+    expected.sample_rate: 16000
+    expected.channels: 1
+    expected.encoding: "FLOAT32LE"
+    expected.bit_depth: 32
+    expected.layout: "interleaved"
+
+    backend.name: ""
+    backend.model_id: ""
+    backend.model_path: ""
+    backend.device: "cuda"
+    backend.compute_dtype: "bfloat16"
+    backend.left_context_secs: 0.64
+    backend.chunk_secs: 0.64
+    backend.right_context_secs: 0.32
+    backend.att_context_size_as_chunk: true
+
+    controller.preroll_ms: 500
+
+    audio.qos.depth: 10
+    audio.qos.reliable: false
+    control.qos.depth: 10
+    control.qos.reliable: true
+    output.qos.depth: 10
+    output.qos.reliable: true
