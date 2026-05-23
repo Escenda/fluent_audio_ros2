@@ -1,0 +1,742 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_CONTAINER="fluent-audio-runtime"
+DEFAULT_SOURCE_ID="${FLUENT_AUDIO_FA_IN_SOURCE_ID:-hw:CARD=S3,DEV=0}"
+DEFAULT_SINK_ID="${FLUENT_AUDIO_FA_OUT_SINK_ID:-}"
+DEFAULT_DURATION="60"
+DEFAULT_CONFIG="src/system/fluent_audio_system/config/profiles/so101_voice_frontend.yaml"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  scripts/run_live_voice_pipeline_smoke [options]
+
+Runs the live mic -> VAD -> KWS -> TD/dialogue -> ASR pipeline for a fixed
+duration and prints live topic observations, especially ASR transcripts.
+
+Options:
+  --duration SEC          Run duration. Default: 60
+  --source-id ID          ALSA hw capture id. Default: hw:CARD=S3,DEV=0
+  --sink-id ID            ALSA hw playback id for --wake-sound. Default: --source-id
+  --wake-sound            Enable fa_out and play the wake acknowledgement earcon.
+  --config PATH           Base fluent_audio_system profile.
+                          Default: src/system/fluent_audio_system/config/profiles/so101_voice_frontend.yaml
+  --container NAME        Docker container used when launched from host.
+                          Default: fluent-audio-runtime
+  --no-docker             Run directly in the current shell/container.
+  --build                 Build required ROS packages before launch.
+  --asr-device DEVICE     ASR backend device. Default: cuda
+  --asr-dtype DTYPE       ASR compute dtype. Default: bfloat16
+  --require-asr           Exit non-zero if no ASR transcript was observed.
+  --show-launch-log       Print the full ros2 launch log at the end.
+  --dry-run               Validate packages/config/env, then print the launch command.
+  -h, --help              Show this help.
+
+Examples:
+  scripts/run_live_voice_pipeline_smoke --duration 45
+  scripts/run_live_voice_pipeline_smoke --duration 30 --source-id hw:CARD=S3,DEV=0
+USAGE
+}
+
+duration="${DEFAULT_DURATION}"
+source_id="${DEFAULT_SOURCE_ID}"
+sink_id="${DEFAULT_SINK_ID}"
+wake_sound=0
+config_path="${DEFAULT_CONFIG}"
+container="${DEFAULT_CONTAINER}"
+use_docker=1
+build_first=0
+asr_device="cuda"
+asr_dtype="bfloat16"
+require_asr=0
+show_launch_log=0
+dry_run=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --duration)
+      duration="${2:?--duration requires a value}"
+      shift 2
+      ;;
+    --source-id)
+      source_id="${2:?--source-id requires a value}"
+      shift 2
+      ;;
+    --sink-id)
+      sink_id="${2:?--sink-id requires a value}"
+      shift 2
+      ;;
+    --wake-sound)
+      wake_sound=1
+      shift
+      ;;
+    --config)
+      config_path="${2:?--config requires a value}"
+      shift 2
+      ;;
+    --container)
+      container="${2:?--container requires a value}"
+      shift 2
+      ;;
+    --no-docker)
+      use_docker=0
+      shift
+      ;;
+    --build)
+      build_first=1
+      shift
+      ;;
+    --asr-device)
+      asr_device="${2:?--asr-device requires a value}"
+      shift 2
+      ;;
+    --asr-dtype)
+      asr_dtype="${2:?--asr-dtype requires a value}"
+      shift 2
+      ;;
+    --require-asr)
+      require_asr=1
+      shift
+      ;;
+    --show-launch-log)
+      show_launch_log=1
+      shift
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ ! "$duration" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "--duration must be a positive number: $duration" >&2
+  exit 2
+fi
+
+if [[ -z "$source_id" ]]; then
+  echo "--source-id is required" >&2
+  exit 2
+fi
+
+if [[ "$wake_sound" == "1" && -z "$sink_id" ]]; then
+  sink_id="$source_id"
+fi
+
+if [[ "${FA_LIVE_SMOKE_IN_CONTAINER:-0}" != "1" && "$use_docker" == "1" && ! -d /ros2_ws/src/fluent_audio_ros2 ]]; then
+  tty_args=(-i)
+  if [[ -t 0 && -t 1 ]]; then
+    tty_args=(-it)
+  fi
+  exec docker exec "${tty_args[@]}" \
+    -e FA_LIVE_SMOKE_IN_CONTAINER=1 \
+    "$container" \
+    /ros2_ws/src/fluent_audio_ros2/scripts/run_live_voice_pipeline_smoke \
+    --no-docker \
+    --duration "$duration" \
+    --source-id "$source_id" \
+    --sink-id "$sink_id" \
+    --config "$config_path" \
+    --asr-device "$asr_device" \
+    --asr-dtype "$asr_dtype" \
+    $([[ "$wake_sound" == "1" ]] && printf '%s' "--wake-sound") \
+    $([[ "$build_first" == "1" ]] && printf '%s' "--build") \
+    $([[ "$require_asr" == "1" ]] && printf '%s' "--require-asr") \
+    $([[ "$show_launch_log" == "1" ]] && printf '%s' "--show-launch-log") \
+    $([[ "$dry_run" == "1" ]] && printf '%s' "--dry-run")
+fi
+
+if [[ -d /ros2_ws/src/fluent_audio_ros2 ]]; then
+  repo_root="/ros2_ws/src/fluent_audio_ros2"
+  workspace_root="/ros2_ws"
+else
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  workspace_root="$(cd "$repo_root/../.." && pwd)"
+fi
+
+cd "$repo_root"
+
+if [[ "$config_path" != /* ]]; then
+  config_path="$repo_root/$config_path"
+fi
+if [[ ! -f "$config_path" ]]; then
+  echo "config not found: $config_path" >&2
+  exit 2
+fi
+
+ros_setup="/opt/ros/humble/setup.bash"
+workspace_setup="$workspace_root/install/setup.bash"
+repo_setup="$repo_root/install/setup.bash"
+runtime_overlay_root="${FA_LIVE_SMOKE_BUILD_ROOT:-/tmp/fluent_audio_live_smoke_colcon}"
+runtime_overlay_setup="$runtime_overlay_root/install/setup.bash"
+
+if [[ ! -f "$ros_setup" ]]; then
+  echo "ROS setup not found: $ros_setup" >&2
+  exit 1
+fi
+
+refresh_source_prefix() {
+  source_prefix="source '$ros_setup'"
+  if [[ -f "$workspace_setup" ]]; then
+    source_prefix="$source_prefix; source '$workspace_setup'"
+  fi
+  if [[ -f "$repo_setup" ]]; then
+    source_prefix="$source_prefix; source '$repo_setup'"
+  fi
+  if [[ -f "$runtime_overlay_setup" ]]; then
+    source_prefix="$source_prefix; source '$runtime_overlay_setup'"
+  fi
+  source_prefix="$source_prefix; export PYTHONPATH='$repo_root/src/system/fluent_audio_system:$repo_root/src/ai/fa_asr:$repo_root/src/ai/fa_vad:$repo_root/src/ai/fa_turn_detector:'\"\${PYTHONPATH:-}\""
+}
+
+refresh_source_prefix
+
+run_ros() {
+  bash -lc "$source_prefix; exec \"\$@\"" bash "$@"
+}
+
+process_group_exists() {
+  local pgid="$1"
+  kill -0 -- "-$pgid" >/dev/null 2>&1
+}
+
+terminate_process_group() {
+  local pgid="$1"
+  if ! process_group_exists "$pgid" && ! kill -0 "$pgid" >/dev/null 2>&1; then
+    return
+  fi
+  kill -INT -- "-$pgid" >/dev/null 2>&1 || kill -INT "$pgid" >/dev/null 2>&1 || true
+  for _ in 1 2 3 4; do
+    if ! process_group_exists "$pgid" && ! kill -0 "$pgid" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.5
+  done
+  kill -TERM -- "-$pgid" >/dev/null 2>&1 || kill -TERM "$pgid" >/dev/null 2>&1 || true
+  for _ in 1 2 3 4; do
+    if ! process_group_exists "$pgid" && ! kill -0 "$pgid" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.5
+  done
+  kill -KILL -- "-$pgid" >/dev/null 2>&1 || kill -KILL "$pgid" >/dev/null 2>&1 || true
+}
+
+required_packages=(
+  fa_interfaces
+  fluent_audio_system
+  fa_in
+  fa_sample_format
+  fa_resample
+  fa_dc_offset_removal
+  fa_high_pass
+  fa_audio_window
+  fa_out
+  fa_vad
+  fa_kws
+  fa_turn_detector
+  fa_dialogue
+  fa_asr
+)
+
+build_required_packages() {
+  echo "[live-smoke] building required packages into $runtime_overlay_root/install ..."
+  run_ros colcon --log-base "$runtime_overlay_root/log" build \
+    --symlink-install --base-paths "$repo_root/src" \
+    --build-base "$runtime_overlay_root/build" \
+    --install-base "$runtime_overlay_root/install" \
+    --packages-select "${required_packages[@]}"
+  refresh_source_prefix
+}
+
+if [[ "$build_first" == "1" ]]; then
+  build_required_packages
+fi
+
+missing_packages=()
+for package in "${required_packages[@]}"; do
+  if ! run_ros ros2 pkg prefix "$package" >/dev/null 2>&1; then
+    missing_packages+=("$package")
+  fi
+done
+if [[ "${#missing_packages[@]}" -gt 0 ]]; then
+  echo "missing ROS packages: ${missing_packages[*]}" >&2
+  echo "rerun with --build, or build the workspace before launching" >&2
+  exit 1
+fi
+
+kws_dir="$repo_root/src/ai/fa_kws/models/sherpa-onnx-kws"
+asr_model="$repo_root/src/ai/fa_asr/models/parakeet-rnnt-riva-1-1b-unified-ml-cs-universal_vtrainable_v1.0/Parakeet-RNNT-XXL-1.1b_merged_universal_spe8.5k_1.0.nemo"
+turn_model="$repo_root/src/ai/fa_turn_detector/models/smart-turn-v3/smart-turn-v3.0.onnx"
+vad_model_dir="$repo_root/src/ai/fa_vad/models/silero-vad"
+
+set_file_env_default() {
+  local name="$1"
+  local fallback="$2"
+  local current="${!name:-}"
+  if [[ -n "$current" && -f "$current" ]]; then
+    export "$name=$current"
+    return
+  fi
+  if [[ -n "$current" && ! -f "$current" && -f "$fallback" ]]; then
+    echo "[live-smoke] $name=$current does not exist; using $fallback" >&2
+  fi
+  export "$name=$fallback"
+}
+
+set_dir_file_env_default() {
+  local name="$1"
+  local fallback="$2"
+  local required_filename="$3"
+  local current="${!name:-}"
+  if [[ -n "$current" && -f "$current/$required_filename" ]]; then
+    export "$name=$current"
+    return
+  fi
+  if [[ -n "$current" && ! -f "$current/$required_filename" && -f "$fallback/$required_filename" ]]; then
+    echo "[live-smoke] $name/$required_filename does not exist; using $fallback" >&2
+  fi
+  export "$name=$fallback"
+}
+
+set_dir_file_env_default FLUENT_AUDIO_VAD_MODEL_DIR "$vad_model_dir" silero_vad.onnx
+export FLUENT_AUDIO_VAD_PROVIDER="${FLUENT_AUDIO_VAD_PROVIDER:-CPUExecutionProvider}"
+export FLUENT_AUDIO_KWS_PROVIDER="${FLUENT_AUDIO_KWS_PROVIDER:-cpu}"
+set_file_env_default FLUENT_AUDIO_KWS_WORKER "$repo_root/src/ai/fa_kws/scripts/sherpa_onnx_kws_worker"
+set_file_env_default FLUENT_AUDIO_KWS_ENCODER "$kws_dir/encoder.onnx"
+set_file_env_default FLUENT_AUDIO_KWS_DECODER "$kws_dir/decoder.onnx"
+set_file_env_default FLUENT_AUDIO_KWS_JOINER "$kws_dir/joiner.onnx"
+set_file_env_default FLUENT_AUDIO_KWS_TOKENS "$kws_dir/tokens.txt"
+set_file_env_default FLUENT_AUDIO_KWS_KEYWORDS "$kws_dir/keywords.txt"
+set_file_env_default FLUENT_AUDIO_TURN_DETECTOR_MODEL "$turn_model"
+export FLUENT_AUDIO_TURN_DETECTOR_PROVIDER="${FLUENT_AUDIO_TURN_DETECTOR_PROVIDER:-CPUExecutionProvider}"
+set_file_env_default FLUENT_AUDIO_TURN_DETECTOR_WORKER "$repo_root/src/ai/fa_turn_detector/scripts/smart_turn_onnx_worker"
+set_file_env_default FLUENT_AUDIO_ASR_MODEL_PATH "$asr_model"
+
+required_files=(
+  "$FLUENT_AUDIO_VAD_MODEL_DIR/silero_vad.onnx"
+  "$FLUENT_AUDIO_KWS_WORKER"
+  "$FLUENT_AUDIO_KWS_ENCODER"
+  "$FLUENT_AUDIO_KWS_DECODER"
+  "$FLUENT_AUDIO_KWS_JOINER"
+  "$FLUENT_AUDIO_KWS_TOKENS"
+  "$FLUENT_AUDIO_KWS_KEYWORDS"
+  "$FLUENT_AUDIO_TURN_DETECTOR_MODEL"
+  "$FLUENT_AUDIO_TURN_DETECTOR_WORKER"
+  "$FLUENT_AUDIO_ASR_MODEL_PATH"
+)
+for path in "${required_files[@]}"; do
+  if [[ ! -f "$path" ]]; then
+    echo "required model/worker file not found: $path" >&2
+    exit 1
+  fi
+done
+
+runtime_preflight() {
+  run_ros python3 -c '
+from fa_interfaces.msg import AsrControl, AsrTranscript, VoiceActivity
+import pathlib
+import subprocess
+kws_prefix = pathlib.Path(subprocess.check_output(["ros2", "pkg", "prefix", "fa_kws"], text=True).strip())
+kws_binary = kws_prefix / "lib" / "fa_kws" / "fa_kws_node"
+payload = kws_binary.read_bytes()
+if b"fa_kws control action must be gate" not in payload:
+    raise RuntimeError(f"installed fa_kws_node is stale: {kws_binary}")
+dialogue_prefix = pathlib.Path(subprocess.check_output(["ros2", "pkg", "prefix", "fa_dialogue"], text=True).strip())
+wake_ack_config = dialogue_prefix / "share" / "fa_dialogue" / "config" / "wake_ack.yaml"
+wake_ack_node = dialogue_prefix / "lib" / "fa_dialogue" / "fa_wake_ack_node"
+if not wake_ack_config.exists():
+    raise RuntimeError(f"installed fa_dialogue config is stale: {wake_ack_config}")
+if not wake_ack_node.exists():
+    raise RuntimeError(f"installed fa_dialogue executable is stale: {wake_ack_node}")
+'
+}
+
+if ! runtime_preflight >/dev/null 2>&1; then
+  if [[ "$build_first" == "1" ]]; then
+    echo "[live-smoke] runtime preflight still failed after build" >&2
+    runtime_preflight
+  fi
+  echo "[live-smoke] installed runtime is stale; rebuilding required packages..."
+  build_required_packages
+  runtime_preflight
+fi
+
+tmpdir="$(mktemp -d /tmp/fluent_audio_live_smoke.XXXXXX)"
+overlay_config="$tmpdir/asr_overlay.yaml"
+monitor_script="$tmpdir/monitor.py"
+log_watcher_script="$tmpdir/log_watcher.py"
+summary_file="$tmpdir/summary.json"
+launch_log="$tmpdir/ros2_launch.log"
+
+cleanup() {
+  if [[ -n "${log_watcher_pid:-}" ]] && kill -0 "$log_watcher_pid" >/dev/null 2>&1; then
+    kill -TERM "$log_watcher_pid" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${launch_pid:-}" ]]; then
+    terminate_process_group "$launch_pid"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+cat > "$overlay_config" <<YAML
+system:
+  default_start_delay: 0.2
+  inter_group_delay: 0.5
+groups:
+- id: live_ai_asr
+  enable: true
+  nodes:
+  - id: fa_asr
+    enable: true
+    package: fa_asr
+    exec: fa_asr_node
+    node_name: fa_asr
+    namespace: ''
+    params_file: \${share:fa_asr}/config/default.yaml
+    remappings: {}
+    parameters:
+      audio_topic: audio/high_pass/frame
+      control_topic: voice/asr_control
+      output_topic: voice/asr_transcript
+      expected_source_id: mic
+      expected_stream_id: audio/high_pass/mic
+      backend.name: parakeet_rnnt_streaming
+      backend.model_id: parakeet-1.1b-rnnt-multilingual-asr
+      backend.model_path: \${env:FLUENT_AUDIO_ASR_MODEL_PATH}
+      backend.device: $asr_device
+      backend.compute_dtype: $asr_dtype
+      backend.left_context_secs: 0.64
+      backend.chunk_secs: 0.64
+      backend.right_context_secs: 0.32
+      backend.att_context_size_as_chunk: true
+      controller.preroll_ms: 500
+YAML
+
+cat > "$monitor_script" <<'PY'
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from collections import defaultdict
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+
+from fa_interfaces.msg import (
+    AsrControl,
+    AsrTranscript,
+    AudioFrame,
+    TurnContext,
+    TurnEnd,
+    VoiceActivity,
+    WakeWordResult,
+)
+
+
+class Monitor(Node):
+    def __init__(self) -> None:
+        super().__init__("fa_live_voice_pipeline_monitor")
+        self.counts = defaultdict(int)
+        self.last_audio_report = time.monotonic()
+        self.last_vad_state: bool | None = None
+        qos = QoSProfile(depth=50)
+        qos.history = HistoryPolicy.KEEP_LAST
+        qos.reliability = ReliabilityPolicy.BEST_EFFORT
+        self.create_subscription(AudioFrame, "audio/high_pass/frame", self.on_audio, qos)
+        self.create_subscription(VoiceActivity, "voice/activity", self.on_vad, qos)
+        self.create_subscription(WakeWordResult, "voice/wake_word", self.on_wake, qos)
+        self.create_subscription(TurnEnd, "voice/turn_end", self.on_turn_end, qos)
+        self.create_subscription(TurnContext, "conversation/turn_context", self.on_turn_context, qos)
+        self.create_subscription(AsrControl, "voice/asr_control", self.on_asr_control, qos)
+        self.create_subscription(AsrTranscript, "voice/asr_transcript", self.on_asr, qos)
+
+    def on_audio(self, msg: AudioFrame) -> None:
+        self.counts["audio"] += 1
+        now = time.monotonic()
+        if now - self.last_audio_report >= 2.0:
+            self.last_audio_report = now
+            print(
+                "[audio] "
+                f"frames={self.counts['audio']} source={msg.source_id} "
+                f"stream={msg.stream_id} sr={msg.sample_rate} bytes={len(msg.data)}",
+                flush=True,
+            )
+
+    def on_vad(self, msg: VoiceActivity) -> None:
+        self.counts["vad"] += 1
+        state = bool(msg.is_speech)
+        if state != self.last_vad_state or msg.speech_started or msg.speech_ended:
+            self.last_vad_state = state
+            print(
+                "[vad] "
+                f"speech={state} started={bool(msg.speech_started)} "
+                f"ended={bool(msg.speech_ended)} prob={msg.probability:.3f} "
+                f"smooth={msg.smoothed_probability:.3f}",
+                flush=True,
+            )
+
+    def on_wake(self, msg: WakeWordResult) -> None:
+        self.counts["wake"] += 1
+        print(
+            "[wake] "
+            f"detected={bool(msg.detected)} keyword={msg.keyword!r} score={msg.score:.3f}",
+            flush=True,
+        )
+
+    def on_turn_end(self, msg: TurnEnd) -> None:
+        self.counts["turn_end"] += 1
+        print(
+            "[turn_end] "
+            f"is_end={bool(msg.is_end)} probability={msg.probability:.3f}",
+            flush=True,
+        )
+
+    def on_turn_context(self, msg: TurnContext) -> None:
+        self.counts["turn_context"] += 1
+        print(
+            "[turn_context] "
+            f"active={bool(msg.active)} session={msg.session_id} "
+            f"turn={int(msg.user_turn_id)}",
+            flush=True,
+        )
+
+    def on_asr_control(self, msg: AsrControl) -> None:
+        self.counts["asr_control"] += 1
+        names = {
+            AsrControl.ACTION_START: "START",
+            AsrControl.ACTION_STOP: "STOP",
+            AsrControl.ACTION_CANCEL: "CANCEL",
+        }
+        print(
+            "[asr_control] "
+            f"action={names.get(int(msg.action), msg.action)} "
+            f"session={msg.session_id or '-'} turn={int(msg.user_turn_id)} "
+            f"reason={msg.reason or '-'}",
+            flush=True,
+        )
+
+    def on_asr(self, msg: AsrTranscript) -> None:
+        self.counts["asr"] += 1
+        kind = "final" if msg.is_final else "partial"
+        text = msg.text if msg.text else "<empty>"
+        print(
+            f"[asr:{kind}] "
+            f"session={msg.session_id or '-'} turn={int(msg.user_turn_id)} "
+            f"samples={int(msg.accepted_samples)} text={text}",
+            flush=True,
+        )
+
+    def summary(self) -> dict[str, int]:
+        return {key: int(self.counts[key]) for key in (
+            "audio",
+            "vad",
+            "wake",
+            "turn_end",
+            "turn_context",
+            "asr_control",
+            "asr",
+        )}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--duration", type=float, required=True)
+    parser.add_argument("--summary", required=True)
+    args = parser.parse_args()
+
+    rclpy.init()
+    node = Monitor()
+    deadline = time.monotonic() + args.duration
+    print(f"[monitor] listening for {args.duration:.1f}s", flush=True)
+    try:
+        while rclpy.ok() and time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.1)
+    finally:
+        summary = node.summary()
+        print("[summary] " + " ".join(f"{key}={value}" for key, value in summary.items()), flush=True)
+        with open(args.summary, "w", encoding="utf-8") as stream:
+            json.dump(summary, stream, sort_keys=True)
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
+chmod +x "$monitor_script"
+
+cat > "$log_watcher_script" <<'PY'
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import time
+from pathlib import Path
+
+
+def _compact(line: str) -> str:
+    return line.strip()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--log", required=True)
+    parser.add_argument("--duration", type=float, required=True)
+    args = parser.parse_args()
+
+    path = Path(args.log)
+    deadline = time.monotonic() + args.duration + 30.0
+    position = 0
+    emitted: set[str] = set()
+
+    def emit(tag: str, line: str) -> None:
+        message = _compact(line)
+        key = f"{tag}\0{message}"
+        if key in emitted:
+            return
+        emitted.add(key)
+        print(f"[{tag}] {message}", flush=True)
+
+    while time.monotonic() < deadline:
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as stream:
+                stream.seek(position)
+                while True:
+                    line = stream.readline()
+                    if not line:
+                        position = stream.tell()
+                        break
+                    position = stream.tell()
+                    if "fa_asr_node-" in line and "process started with pid" in line:
+                        emit("asr:process", line)
+                    elif "[fa_asr]" in line and "fa_asr started:" in line:
+                        emit("asr:ready", line)
+                    elif "[fa_asr]" in line and "ASR control:" in line:
+                        emit("asr:control", line)
+                    elif (
+                        "fa_asr_node-" in line
+                        and ("FATAL" in line or "Traceback" in line or "process has died" in line)
+                    ):
+                        emit("asr:error", line)
+                    elif "fa_kws_node-" in line and "process started with pid" in line:
+                        emit("kws:process", line)
+                    elif "[fa_kws]" in line and "fa_kws initialized:" in line:
+                        emit("kws:ready", line)
+                    elif (
+                        "KWS backend failed" in line
+                        or (
+                            "fa_kws_node-" in line
+                            and (
+                                "FATAL" in line
+                                or "Traceback" in line
+                                or "process has died" in line
+                            )
+                        )
+                    ):
+                        emit("kws:error", line)
+                    elif "[fa_kws]" in line and ("KWS gate:" in line or "KWS stream:" in line):
+                        emit("kws:diag", line)
+                    elif "[fa_vad]" in line and "fa_vad started:" in line:
+                        emit("vad:ready", line)
+                    elif "[fa_turn_detector]" in line and "fa_turn_detector started:" in line:
+                        emit("td:ready", line)
+                    elif "[fa_dialogue]" in line and "fa_dialogue started:" in line:
+                        emit("dialogue:ready", line)
+                    elif "[fa_wake_ack]" in line and "fa_wake_ack started:" in line:
+                        emit("wake_ack:ready", line)
+                    elif "[fa_wake_ack]" in line and "Wake ack tone published:" in line:
+                        emit("wake_ack", line)
+        except FileNotFoundError:
+            pass
+        time.sleep(0.2)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
+chmod +x "$log_watcher_script"
+
+full_config="$config_path,$overlay_config"
+
+echo "[live-smoke] repo=$repo_root"
+echo "[live-smoke] config=$full_config"
+echo "[live-smoke] source_id=$source_id"
+echo "[live-smoke] wake_sound=$wake_sound sink_id=${sink_id:-unused}"
+echo "[live-smoke] duration=${duration}s"
+echo "[live-smoke] launch_log=$launch_log"
+echo "[live-smoke] instruction: wait until a separate [asr:ready] line appears, then say the wake phrase and speak"
+
+if [[ "$dry_run" == "1" ]]; then
+  run_ros python3 -c \
+    'import sys; from fluent_audio_system.config_schema import load_system_config; spec = load_system_config(sys.argv[1]); print("[dry-run] groups=" + ",".join(group.id for group in spec.groups)); print("[dry-run] nodes=" + ",".join(node.id for group in spec.groups for node in group.nodes))' \
+    "$full_config"
+  echo "[dry-run] ros2 launch fluent_audio_system run.py config:=$full_config fa_in_enabled:=true fa_out_enabled:=$([[ "$wake_sound" == "1" ]] && printf true || printf false) fa_in_source_id:=$source_id fa_out_sink_id:=${sink_id:-unused}"
+  exit 0
+fi
+
+setsid bash -lc "$source_prefix; exec \"\$@\"" bash \
+  ros2 launch fluent_audio_system run.py \
+  "config:=$full_config" \
+  "fa_in_enabled:=true" \
+  "fa_out_enabled:=$([[ "$wake_sound" == "1" ]] && printf true || printf false)" \
+  "fa_in_source_id:=$source_id" \
+  "fa_out_sink_id:=${sink_id:-unused}" \
+  >"$launch_log" 2>&1 &
+launch_pid=$!
+
+python3 -u "$log_watcher_script" --log "$launch_log" --duration "$duration" &
+log_watcher_pid=$!
+
+sleep 5
+if ! kill -0 "$launch_pid" >/dev/null 2>&1; then
+  echo "[live-smoke] ros2 launch exited before monitoring started" >&2
+  tail -n 120 "$launch_log" >&2 || true
+  exit 1
+fi
+
+set +e
+run_ros python3 -u "$monitor_script" --duration "$duration" --summary "$summary_file"
+monitor_status=$?
+set -e
+
+cleanup
+wait "$launch_pid" >/dev/null 2>&1 || true
+trap - EXIT INT TERM
+
+if [[ "$show_launch_log" == "1" ]]; then
+  echo "[live-smoke] full launch log:"
+  cat "$launch_log"
+else
+  echo "[live-smoke] launch log tail:"
+  tail -n 80 "$launch_log" || true
+fi
+
+if [[ ! -f "$summary_file" ]]; then
+  echo "[live-smoke] monitor did not write summary" >&2
+  exit 1
+fi
+
+asr_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("asr", 0))' "$summary_file")"
+if [[ "$require_asr" == "1" && "$asr_count" == "0" ]]; then
+  echo "[live-smoke] no ASR transcript observed" >&2
+  exit 1
+fi
+
+exit "$monitor_status"
