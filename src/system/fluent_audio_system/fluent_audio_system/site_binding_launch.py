@@ -7,6 +7,7 @@ from fluent_audio_system.site_binding import SiteBindingOverrides
 SOURCE_BOUND_AUDIO_AI_PACKAGES = frozenset(
     ("fa_asr", "fa_audio_embedding", "fa_kws", "fa_turn_detector", "fa_vad")
 )
+SOURCE_BOUND_DIALOGUE_PACKAGES = frozenset(("fa_dialogue",))
 SOURCE_BOUND_CONTROL_PACKAGES = frozenset(("fa_kws", "fa_turn_detector"))
 SOURCE_BOUND_STREAMING_PACKAGES = frozenset(("fa_audio_window",))
 
@@ -35,7 +36,10 @@ def node_launch_parameters(
     ):
         override_params["audio.device_selector.mode"] = "id"
         override_params["audio.device_selector.identifier"] = overrides.fa_in_source_id
-    if node.package in SOURCE_BOUND_AUDIO_AI_PACKAGES and overrides.fa_in_source_id:
+    if (
+        node.package in SOURCE_BOUND_AUDIO_AI_PACKAGES
+        or node.package in SOURCE_BOUND_DIALOGUE_PACKAGES
+    ) and overrides.fa_in_source_id:
         override_params["expected_source_id"] = overrides.fa_in_source_id
     if node.package in SOURCE_BOUND_CONTROL_PACKAGES and overrides.fa_in_source_id:
         for control_id in _control_input_ids(node):
