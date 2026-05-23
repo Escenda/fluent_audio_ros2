@@ -6,12 +6,14 @@ from typing import Iterable
 
 import numpy as np
 import rclpy
+from rclpy._rclpy_pybind11 import RCLError
 from rclpy.exceptions import ParameterUninitializedException
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-from fa_interfaces.msg import AudioFrame, TurnContext, TurnEnd
+from fa_interfaces.msg import AudioFrame, TurnContext, TurnEnd, VoiceActivity
 from fa_turn_detector_py.backends.base import TurnDetectorBackend
 from fa_turn_detector_py.backends.factory import (
     TurnDetectorBackendSettings,
@@ -36,6 +38,7 @@ class FaTurnDetectorNode(Node):
         self.audio_topic = self._required_string_parameter("audio_topic")
         self.expected_stream_id = self._required_string_parameter("expected_stream_id")
         self.turn_context_topic = self._required_string_parameter("turn_context_topic")
+        self.voice_activity_topic = self._required_string_parameter("voice_activity_topic")
         self.output_topic = self._required_string_parameter("output_topic")
         self.expected_source_id = self._required_string_parameter("expected_source_id")
         self._validate_identity_contract()
@@ -53,6 +56,10 @@ class FaTurnDetectorNode(Node):
         qos_turn_context = self._qos_profile(
             depth_parameter="turn_context.qos.depth",
             reliable_parameter="turn_context.qos.reliable",
+        )
+        qos_vad = self._qos_profile(
+            depth_parameter="voice_activity.qos.depth",
+            reliable_parameter="voice_activity.qos.reliable",
         )
         qos_output = self._qos_profile(
             depth_parameter="output.qos.depth",
@@ -72,11 +79,18 @@ class FaTurnDetectorNode(Node):
             self.on_turn_context,
             qos_turn_context,
         )
+        self.voice_activity_sub = self.create_subscription(
+            VoiceActivity,
+            self.voice_activity_topic,
+            self.on_voice_activity,
+            qos_vad,
+        )
 
         self.get_logger().info(
             "fa_turn_detector started: "
             f"audio={self.audio_topic} "
             f"turn_context={self.turn_context_topic} "
+            f"vad={self.voice_activity_topic} "
             f"output={self.output_topic} "
             f"expected_source_id={self.expected_source_id} "
             f"expected_stream_id={self.expected_stream_id} "
@@ -88,6 +102,7 @@ class FaTurnDetectorNode(Node):
         self.declare_parameter("audio_topic", Parameter.Type.STRING)
         self.declare_parameter("expected_stream_id", Parameter.Type.STRING)
         self.declare_parameter("turn_context_topic", Parameter.Type.STRING)
+        self.declare_parameter("voice_activity_topic", Parameter.Type.STRING)
         self.declare_parameter("output_topic", Parameter.Type.STRING)
         self.declare_parameter("expected_source_id", Parameter.Type.STRING)
         self.declare_parameter("backend.name", Parameter.Type.STRING)
@@ -104,6 +119,8 @@ class FaTurnDetectorNode(Node):
         self.declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("turn_context.qos.reliable", Parameter.Type.BOOL)
+        self.declare_parameter("voice_activity.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("voice_activity.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("output.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("output.qos.reliable", Parameter.Type.BOOL)
 
@@ -111,6 +128,7 @@ class FaTurnDetectorNode(Node):
         for topic_name, topic_value in (
             ("audio_topic", self.audio_topic),
             ("turn_context_topic", self.turn_context_topic),
+            ("voice_activity_topic", self.voice_activity_topic),
             ("output_topic", self.output_topic),
         ):
             if self._same_identity_string(self.expected_stream_id, topic_value):
@@ -260,6 +278,15 @@ class FaTurnDetectorNode(Node):
             self.get_logger().error(f"Dropping invalid AudioFrame: {exc}")
             return
         self.audio_buffer.extend(audio_data.tolist())
+
+    def on_voice_activity(self, msg: VoiceActivity) -> None:
+        if not self._context_active:
+            return
+        if msg.source_id != self.expected_source_id or msg.stream_id != self.expected_stream_id:
+            self.get_logger().warning("Dropping VoiceActivity with unexpected source/stream")
+            return
+        if not bool(msg.speech_ended):
+            return
         self._detect_turn_end()
 
     def _detect_turn_end(self) -> None:
@@ -332,8 +359,12 @@ def main(args: Iterable[str] | None = None) -> None:
     node = FaTurnDetectorNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RCLError as exc:
+        message = str(exc)
+        if "context is not valid" not in message and "rcl_shutdown" not in message:
+            raise
     finally:
         node.destroy_node()
         if rclpy.ok():
