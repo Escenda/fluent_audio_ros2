@@ -1,18 +1,24 @@
 from fa_dialogue_py.session_state import (
-    CompletionEvent,
-    DialogueSessionState,
+    DialogueTurnConfig,
+    DialogueTurnController,
     MessageStamp,
-    SessionStateConfig,
+    TurnEndCandidate,
+    VoiceActivityEvent,
     WakeEvent,
 )
 
 
-def _state(*, allow_zero_stamp: bool = False) -> DialogueSessionState:
-    return DialogueSessionState(
-        SessionStateConfig(
+def _state(*, allow_zero_stamp: bool = False, min_listen_ms: int = 0) -> DialogueTurnController:
+    return DialogueTurnController(
+        DialogueTurnConfig(
             session_prefix="test-session-",
             wake_max_age_ms=1000,
             wake_allow_zero_stamp=allow_zero_stamp,
+            min_turn_ms=1000,
+            min_listen_ms=min_listen_ms,
+            no_speech_timeout_ms=3000,
+            td_min_silence_ms=300,
+            vad_fallback_silence_ms=1500,
         )
     )
 
@@ -25,166 +31,291 @@ def _wake(stamp_ms: int = 9000) -> WakeEvent:
     )
 
 
-def test_wake_starts_deterministic_session_and_active_turn() -> None:
+def test_wake_starts_turn_context_and_asr_control() -> None:
     state = _state()
 
     decision = state.handle_wake(_wake(), now_ms=9500)
 
     assert decision.kind == "accepted"
-    assert decision.context is not None
-    assert decision.context.session_id == "test-session-1"
-    assert decision.context.user_turn_id == 1
-    assert decision.context.active is True
+    assert decision.contexts[0].session_id == "test-session-1"
+    assert decision.contexts[0].user_turn_id == 1
+    assert decision.contexts[0].active is True
+    assert decision.asr_controls[0].action == "start"
+    assert decision.asr_controls[0].reason == "wake"
 
 
-def test_active_wake_replaces_current_turn_with_next_turn_id() -> None:
+def test_wake_during_active_turn_is_ignored() -> None:
     state = _state()
     first = state.handle_wake(_wake(), now_ms=9500)
     second = state.handle_wake(_wake(stamp_ms=9600), now_ms=9700)
 
-    assert first.context is not None
-    assert second.context is not None
-    assert second.context.session_id == first.context.session_id
-    assert second.context.user_turn_id == 2
-    assert second.context.active is True
-
-    old_turn_end = state.handle_turn_end(
-        CompletionEvent(
-            session_id=first.context.session_id,
-            user_turn_id=first.context.user_turn_id,
-            terminal=True,
-        )
-    )
-    assert old_turn_end.kind == "ignored"
-    assert old_turn_end.reason == "turn_mismatch"
+    assert first.kind == "accepted"
+    assert second.kind == "ignored"
+    assert second.reason == "turn_active"
+    assert state.active_turn_id == 1
 
 
-def test_turn_end_for_active_turn_publishes_inactive_context() -> None:
+def test_td_candidate_before_vad_speech_end_is_ignored() -> None:
     state = _state()
-    wake = state.handle_wake(_wake(), now_ms=9500)
-    assert wake.context is not None
-
-    decision = state.handle_turn_end(
-        CompletionEvent(
-            session_id=wake.context.session_id,
-            user_turn_id=wake.context.user_turn_id,
-            terminal=True,
-        )
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=True, speech_started=True, speech_ended=False),
+        now_ms=9400,
     )
+    wake = state.handle_wake(_wake(), now_ms=9500)
+    context = wake.contexts[0]
+
+    decision = state.handle_turn_end_candidate(
+        TurnEndCandidate(context.session_id, context.user_turn_id, True, 0.8),
+        now_ms=9800,
+    )
+
+    assert decision.kind == "ignored"
+    assert decision.reason == "no_speech_end_candidate"
+    assert state.active_turn_id == context.user_turn_id
+
+
+def test_td_candidate_after_speech_end_stops_after_min_silence() -> None:
+    state = _state()
+    wake = state.handle_wake(_wake(), now_ms=9000)
+    context = wake.contexts[0]
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=True, speech_started=True, speech_ended=False),
+        now_ms=9100,
+    )
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=False, speech_started=False, speech_ended=True),
+        now_ms=10100,
+    )
+
+    pending = state.handle_turn_end_candidate(
+        TurnEndCandidate(context.session_id, context.user_turn_id, True, 0.8),
+        now_ms=10150,
+    )
+    ended = state.tick(now_ms=10400)
+
+    assert pending.kind == "accepted"
+    assert pending.reason == "td_pending"
+    assert ended.kind == "ended"
+    assert ended.reason == "td_end"
+    assert ended.asr_controls[0].action == "stop"
+    assert ended.contexts[0].active is False
+
+
+def test_speech_restart_cancels_pending_td_end() -> None:
+    state = _state()
+    wake = state.handle_wake(_wake(), now_ms=9000)
+    context = wake.contexts[0]
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=True, speech_started=True, speech_ended=False),
+        now_ms=9100,
+    )
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=False, speech_started=False, speech_ended=True),
+        now_ms=10100,
+    )
+    state.handle_turn_end_candidate(
+        TurnEndCandidate(context.session_id, context.user_turn_id, True, 0.8),
+        now_ms=10150,
+    )
+
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=True, speech_started=True, speech_ended=False),
+        now_ms=10200,
+    )
+    decision = state.tick(now_ms=10600)
+
+    assert decision.kind == "ignored"
+    assert state.active_turn_id == context.user_turn_id
+
+
+def test_wake_after_prior_vad_silence_waits_for_followup_speech() -> None:
+    state = _state()
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=False, speech_started=False, speech_ended=True),
+        now_ms=8900,
+    )
+
+    wake = state.handle_wake(_wake(), now_ms=9000)
+    waiting = state.tick(now_ms=10500)
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=True, speech_started=True, speech_ended=False),
+        now_ms=10600,
+    )
+    still_open = state.tick(now_ms=10850)
+
+    assert wake.kind == "accepted"
+    assert waiting.kind == "ignored"
+    assert waiting.reason == "waiting_for_speech"
+    assert still_open.kind == "ignored"
+    assert state.active_turn_id == wake.contexts[0].user_turn_id
+
+
+def test_wake_without_followup_speech_stops_after_timeout() -> None:
+    state = _state()
+
+    wake = state.handle_wake(_wake(), now_ms=9000)
+    waiting = state.tick(now_ms=11900)
+    ended = state.tick(now_ms=12000)
+
+    assert wake.kind == "accepted"
+    assert waiting.reason == "waiting_for_speech"
+    assert ended.kind == "ended"
+    assert ended.reason == "no_speech_timeout"
+
+
+def test_min_turn_duration_is_measured_from_followup_speech_start() -> None:
+    state = _state()
+    wake = state.handle_wake(_wake(), now_ms=9000)
+    context = wake.contexts[0]
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=True, speech_started=True, speech_ended=False),
+        now_ms=10400,
+    )
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=False, speech_started=False, speech_ended=True),
+        now_ms=10500,
+    )
+
+    pending = state.handle_turn_end_candidate(
+        TurnEndCandidate(context.session_id, context.user_turn_id, True, 0.8),
+        now_ms=10800,
+    )
+    too_early = state.tick(now_ms=11399)
+
+    assert pending.kind == "accepted"
+    assert pending.reason == "td_pending"
+    assert too_early.kind == "ignored"
+    assert state.active_turn_id == wake.contexts[0].user_turn_id
+
+    ended = state.tick(now_ms=11400)
+
+    assert ended.kind == "ended"
+    assert ended.reason == "td_end"
+
+
+
+
+def test_min_listen_window_blocks_early_td_stop() -> None:
+    state = _state(min_listen_ms=3000)
+    wake = state.handle_wake(_wake(), now_ms=9000)
+    context = wake.contexts[0]
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=True, speech_started=True, speech_ended=False),
+        now_ms=9100,
+    )
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=False, speech_started=False, speech_ended=True),
+        now_ms=9200,
+    )
+
+    pending = state.handle_turn_end_candidate(
+        TurnEndCandidate(context.session_id, context.user_turn_id, True, 0.8),
+        now_ms=9500,
+    )
+    too_early = state.tick(now_ms=11999)
+
+    assert pending.kind == "accepted"
+    assert too_early.kind == "ignored"
+    assert state.active_turn_id == context.user_turn_id
+
+    ended = state.tick(now_ms=12000)
+
+    assert ended.kind == "ended"
+    assert ended.reason == "td_end"
+
+
+def test_vad_fallback_stops_without_td_candidate() -> None:
+    state = _state()
+    wake = state.handle_wake(_wake(), now_ms=9000)
+    context = wake.contexts[0]
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=True, speech_started=True, speech_ended=False),
+        now_ms=9100,
+    )
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=False, speech_started=False, speech_ended=True),
+        now_ms=10100,
+    )
+
+    decision = state.tick(now_ms=11600)
 
     assert decision.kind == "ended"
-    assert decision.context is not None
-    assert decision.context.session_id == wake.context.session_id
-    assert decision.context.user_turn_id == wake.context.user_turn_id
-    assert decision.context.active is False
+    assert decision.reason == "vad_fallback"
+    assert decision.asr_controls[0].session_id == context.session_id
+    assert decision.asr_controls[0].user_turn_id == context.user_turn_id
 
 
-def test_turn_end_without_active_turn_is_ignored() -> None:
-    state = _state()
-
-    turn_end_decision = state.handle_turn_end(
-        CompletionEvent(session_id="test-session-1", user_turn_id=1, terminal=True)
-    )
-
-    assert turn_end_decision.reason == "turn_not_active"
-
-
-def test_session_and_turn_mismatch_are_ignored_without_fallback() -> None:
+def test_session_and_turn_mismatch_are_ignored() -> None:
     state = _state()
     wake = state.handle_wake(_wake(), now_ms=9500)
-    assert wake.context is not None
-
-    wrong_session = state.handle_turn_end(
-        CompletionEvent(session_id="other-session", user_turn_id=1, terminal=True)
+    context = wake.contexts[0]
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=True, speech_started=True, speech_ended=False),
+        now_ms=9600,
     )
-    wrong_turn = state.handle_turn_end(
-        CompletionEvent(
-            session_id=wake.context.session_id,
-            user_turn_id=wake.context.user_turn_id + 1,
-            terminal=True,
-        )
+    state.handle_voice_activity(
+        VoiceActivityEvent(is_speech=False, speech_started=False, speech_ended=True),
+        now_ms=10100,
+    )
+
+    wrong_session = state.handle_turn_end_candidate(
+        TurnEndCandidate("other-session", context.user_turn_id, True, 0.9),
+        now_ms=10400,
+    )
+    wrong_turn = state.handle_turn_end_candidate(
+        TurnEndCandidate(context.session_id, context.user_turn_id + 1, True, 0.9),
+        now_ms=10400,
     )
 
     assert wrong_session.reason == "session_mismatch"
     assert wrong_turn.reason == "turn_mismatch"
-    assert state.active_turn_id == wake.context.user_turn_id
+    assert state.active_turn_id == context.user_turn_id
 
 
-def test_stale_wake_is_rejected() -> None:
-    state = _state()
-
-    decision = state.handle_wake(_wake(stamp_ms=1000), now_ms=2501)
-
-    assert decision.kind == "rejected"
-    assert decision.reason == "stale_stamp"
-    assert decision.context is None
-    assert state.session_id == ""
-
-
-def test_future_wake_is_rejected() -> None:
-    state = _state()
-
-    decision = state.handle_wake(_wake(stamp_ms=2600), now_ms=2501)
-
-    assert decision.kind == "rejected"
-    assert decision.reason == "future_stamp"
-    assert decision.context is None
-    assert state.session_id == ""
-
-
-def test_zero_stamp_requires_explicit_config() -> None:
-    rejected = _state(allow_zero_stamp=False).handle_wake(
+def test_stale_future_and_zero_stamp_wake_validation() -> None:
+    stale = _state().handle_wake(_wake(stamp_ms=1000), now_ms=2501)
+    future = _state().handle_wake(_wake(stamp_ms=2600), now_ms=2501)
+    zero_rejected = _state(allow_zero_stamp=False).handle_wake(
         WakeEvent(True, "fluent", MessageStamp(sec=0, nanosec=0)),
         now_ms=2501,
     )
-    accepted = _state(allow_zero_stamp=True).handle_wake(
+    zero_accepted = _state(allow_zero_stamp=True).handle_wake(
         WakeEvent(True, "fluent", MessageStamp(sec=0, nanosec=0)),
         now_ms=2501,
     )
 
-    assert rejected.kind == "rejected"
-    assert rejected.reason == "zero_stamp_disallowed"
-    assert accepted.kind == "accepted"
-    assert accepted.context is not None
+    assert stale.reason == "stale_stamp"
+    assert future.reason == "future_stamp"
+    assert zero_rejected.reason == "zero_stamp_disallowed"
+    assert zero_accepted.kind == "accepted"
 
 
-def test_empty_or_undetected_wake_does_not_start_session() -> None:
-    state = _state()
-
-    not_detected = state.handle_wake(
-        WakeEvent(False, "fluent", MessageStamp(sec=9, nanosec=0)),
-        now_ms=9500,
-    )
-    empty_keyword = state.handle_wake(
-        WakeEvent(True, "  ", MessageStamp(sec=9, nanosec=0)),
-        now_ms=9500,
-    )
-
-    assert not_detected.reason == "not_detected"
-    assert empty_keyword.reason == "empty_keyword"
-    assert state.session_id == ""
-
-
-def test_invalid_session_config_is_rejected() -> None:
-    for prefix in ("", "  ", " padded "):
+def test_invalid_config_is_rejected() -> None:
+    invalid_values = [
+        {"session_prefix": ""},
+        {"session_prefix": " padded "},
+        {"wake_max_age_ms": 0},
+        {"min_turn_ms": -1},
+        {"min_listen_ms": -1},
+        {"no_speech_timeout_ms": 0},
+        {"min_listen_ms": 3001},
+        {"td_min_silence_ms": -1},
+        {"vad_fallback_silence_ms": 0},
+    ]
+    for overrides in invalid_values:
+        values = {
+            "session_prefix": "test-session-",
+            "wake_max_age_ms": 1000,
+            "wake_allow_zero_stamp": False,
+            "min_turn_ms": 1000,
+            "min_listen_ms": 0,
+            "no_speech_timeout_ms": 3000,
+            "td_min_silence_ms": 300,
+            "vad_fallback_silence_ms": 1500,
+        }
+        values.update(overrides)
         try:
-            SessionStateConfig(
-                session_prefix=prefix,
-                wake_max_age_ms=1000,
-                wake_allow_zero_stamp=False,
-            )
+            DialogueTurnConfig(**values)
         except ValueError:
             continue
-
-        raise AssertionError(f"invalid session_prefix was accepted: {prefix!r}")
-
-    try:
-        SessionStateConfig(
-            session_prefix="test-session-",
-            wake_max_age_ms=0,
-            wake_allow_zero_stamp=False,
-        )
-    except ValueError:
-        return
-
-    raise AssertionError("non-positive wake_max_age_ms was accepted")
+        raise AssertionError(f"invalid config was accepted: {overrides}")

@@ -1,17 +1,32 @@
 fa_dialogue:
   ros__parameters:
     wake_word_topic: "voice/wake_word"
+    voice_activity_topic: "voice/activity"
     turn_end_topic: "voice/turn_end"
     turn_context_topic: "conversation/turn_context"
+    asr_control_topic: "voice/asr_control"
 
+    expected_source_id: ""
+    expected_stream_id: "audio/preprocessed/mono16k"
     session_prefix: "dialogue-session-"
 
     wake.max_age_ms: 1500
     wake.allow_zero_stamp: false
 
+    turn.min_duration_ms: 1200
+    turn.min_listen_ms: 3000
+    turn.no_speech_timeout_ms: 3000
+    turn.td_min_silence_ms: 300
+    turn.vad_fallback_silence_ms: 1800
+    turn.tick_period_ms: 50
+
     wake.qos.depth: 10
     wake.qos.reliable: true
+    voice_activity.qos.depth: 10
+    voice_activity.qos.reliable: false
     turn_end.qos.depth: 10
     turn_end.qos.reliable: true
     turn_context.qos.depth: 10
     turn_context.qos.reliable: true
+    asr_control.qos.depth: 10
+    asr_control.qos.reliable: true
