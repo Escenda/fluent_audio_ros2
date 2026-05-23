@@ -1,0 +1,35 @@
+fa_vad:
+  ros__parameters:
+    audio_topic: "audio/frame"
+    output_topic: "voice/activity"
+    expected_source_id: ""
+    expected_stream_id: "audio/preprocessed/mono16k"
+    expected.sample_rate: 16000
+    expected.channels: 1
+    expected.encoding: "FLOAT32LE"
+    expected.bit_depth: 32
+    expected.layout: "interleaved"
+
+    # Required backend id. Empty means startup fails closed until launch/profile
+    # config selects a concrete model.
+    backend.name: ""
+    backend.model_path: ""
+    backend.execution_provider: "CPUExecutionProvider"
+    backend.inter_op_num_threads: 1
+    backend.intra_op_num_threads: 1
+
+    detector.speech_threshold: 0.55
+    detector.silence_threshold: 0.35
+    detector.start_delta: 0.20
+    detector.end_delta: 0.20
+    detector.min_start_probability: 0.35
+    detector.max_end_probability: 0.45
+    detector.smoothing_alpha: 0.35
+    detector.start_consecutive_windows: 2
+    detector.end_consecutive_windows: 4
+    detector.min_speech_ms: 120
+
+    audio.qos.depth: 10
+    audio.qos.reliable: false
+    output.qos.depth: 10
+    output.qos.reliable: false
