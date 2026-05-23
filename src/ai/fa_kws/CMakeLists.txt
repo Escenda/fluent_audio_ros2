@@ -30,6 +30,7 @@ add_executable(fa_kws_wav_tool
 add_executable(fa_kws_node
   src/fa_kws_node.cpp
   src/audio_utils.cpp
+  src/vad_gate.cpp
 )
 
 ament_target_dependencies(fa_kws_node
@@ -101,6 +102,16 @@ if(BUILD_TESTING)
     )
     ament_target_dependencies(${PROJECT_NAME}_audio_utils_test
       fa_interfaces
+    )
+  endif()
+
+  ament_add_gtest(${PROJECT_NAME}_vad_gate_test
+    test/unit/vad_gate_contract.cpp
+    src/vad_gate.cpp
+  )
+  if(TARGET ${PROJECT_NAME}_vad_gate_test)
+    target_include_directories(${PROJECT_NAME}_vad_gate_test PRIVATE
+      include
     )
   endif()
 

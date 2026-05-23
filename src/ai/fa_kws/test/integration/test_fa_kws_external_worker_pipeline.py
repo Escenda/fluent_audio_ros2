@@ -11,6 +11,7 @@ def _write_probe_source(path: Path) -> None:
     path.write_text(
         r'''
 #include <chrono>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -72,6 +73,37 @@ int main(int argc, char **argv)
       "--keywords-threshold",
       "{keywords_threshold}",
     };
+    const char *streaming = std::getenv("FA_KWS_PROBE_STREAMING");
+    if (streaming != nullptr && streaming[0] != '\0') {
+      cfg.stream_args = {
+        "stream",
+        "--encoder",
+        "{encoder}",
+        "--decoder",
+        "{decoder}",
+        "--joiner",
+        "{joiner}",
+        "--tokens",
+        "{tokens}",
+        "--keywords",
+        "{keywords}",
+        "--provider",
+        "{provider}",
+        "--sample-rate",
+        "{sample_rate}",
+        "--num-threads",
+        "{num_threads}",
+        "--max-active-paths",
+        "{max_active_paths}",
+        "--num-trailing-blanks",
+        "{num_trailing_blanks}",
+        "--keywords-score",
+        "{keywords_score}",
+        "--keywords-threshold",
+        "{keywords_threshold}",
+      };
+    }
+
     cfg.health_args = {
       "health",
       "--encoder",
@@ -175,6 +207,25 @@ def test_external_kws_worker_detects_keyword(tmp_path: Path) -> None:
         check=True,
         text=True,
         capture_output=True,
+    )
+
+    assert result.stdout.strip() == "hello_fluent\t0.875\t0.25"
+    assert not any((tmp_path / "workspace").glob("*.f32"))
+
+
+def test_external_kws_worker_streaming_detects_keyword(tmp_path: Path) -> None:
+    _prepare_model_files(tmp_path)
+    worker = _prepare_worker(tmp_path)
+    binary = _build_probe(tmp_path)
+    env = os.environ.copy()
+    env["FA_KWS_PROBE_STREAMING"] = "1"
+
+    result = subprocess.run(
+        [str(binary), str(worker), str(tmp_path)],
+        check=True,
+        text=True,
+        capture_output=True,
+        env=env,
     )
 
     assert result.stdout.strip() == "hello_fluent\t0.875\t0.25"

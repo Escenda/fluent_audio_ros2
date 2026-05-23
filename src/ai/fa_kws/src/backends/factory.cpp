@@ -27,6 +27,7 @@ std::unique_ptr<KwsBackend> buildKwsBackend(const KwsBackendSettings &settings)
     config.cooldown = settings.cooldown;
     config.command = settings.command;
     config.args = settings.args;
+    config.stream_args = settings.stream_args;
     config.health_args = settings.health_args;
     config.timeout_sec = settings.timeout_sec;
     config.workspace_dir = settings.workspace_dir;

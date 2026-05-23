@@ -34,6 +34,7 @@ struct KwsBackendSettings
 
   std::string command;
   std::vector<std::string> args;
+  std::vector<std::string> stream_args;
   std::vector<std::string> health_args;
   double timeout_sec;
   std::string workspace_dir;

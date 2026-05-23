@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,9 +108,14 @@ def parse_args() -> WorkerConfig | DetectConfig:
     detect_parser.add_argument("--audio", required=True, help="raw mono float32le audio path")
     _add_common_args(detect_parser)
 
+    stream_parser = subparsers.add_parser("stream", help="run persistent streaming keyword spotting")
+    _add_common_args(stream_parser)
+
     args = parser.parse_args()
     worker = _worker_config(args)
     if args.command == "health":
+        return worker
+    if args.command == "stream":
         return worker
     if args.command == "detect":
         audio_path = _existing_file(args.audio, "audio")
@@ -149,6 +155,18 @@ def create_spotter(config: WorkerConfig):
     )
 
 
+def _result_keyword(result: object) -> str:
+    if isinstance(result, str):
+        return result.strip()
+    return str(getattr(result, "keyword", "")).strip()
+
+
+def _result_start_time(result: object) -> float:
+    if isinstance(result, str):
+        return 0.0
+    return float(getattr(result, "start_time", 0.0))
+
+
 def detect(config: DetectConfig) -> str:
     spotter = create_spotter(config.worker)
     stream = spotter.create_stream()
@@ -157,19 +175,86 @@ def detect(config: DetectConfig) -> str:
     while spotter.is_ready(stream):
         spotter.decode_stream(stream)
     result = spotter.get_result(stream)
-    keyword = str(result.keyword).strip()
+    keyword = _result_keyword(result)
     if not keyword:
         return "NO_DETECTION"
     score = 1.0
-    start_time = float(result.start_time)
+    start_time = _result_start_time(result)
     if not np.isfinite(start_time) or start_time < 0.0:
         raise RuntimeError("worker start_time must be finite and >= 0")
     return f"DETECTED\t{keyword}\t{score:.8f}\t{start_time:.8f}"
 
 
+def _decode_inline_audio(value: str) -> np.ndarray:
+    try:
+        data = base64.b64decode(value.encode("ascii"), validate=True)
+    except Exception as exc:
+        raise RuntimeError("stream audio must be base64 float32le") from exc
+    if not data:
+        raise RuntimeError("stream audio payload is required")
+    if len(data) % np.dtype("<f4").itemsize != 0:
+        raise RuntimeError("stream audio payload must be raw float32le")
+    samples = np.frombuffer(data, dtype="<f4")
+    if samples.ndim != 1:
+        raise RuntimeError("stream audio payload must be one-dimensional")
+    if not np.all(np.isfinite(samples)):
+        raise RuntimeError("stream audio payload contains non-finite samples")
+    if np.any(samples < -1.0) or np.any(samples > 1.0):
+        raise RuntimeError("stream audio payload samples must be normalized to [-1.0, 1.0]")
+    return samples
+
+
+def _format_stream_result(result: object) -> str:
+    keyword = _result_keyword(result)
+    if not keyword:
+        return "NO_DETECTION"
+    start_time = _result_start_time(result)
+    if not np.isfinite(start_time) or start_time < 0.0:
+        raise RuntimeError("worker start_time must be finite and >= 0")
+    return f"DETECTED\t{keyword}\t1.00000000\t{start_time:.8f}"
+
+
+def stream_loop(config: WorkerConfig) -> int:
+    spotter = create_spotter(config)
+    stream = spotter.create_stream()
+    print("STREAM_READY", flush=True)
+    while True:
+        line = input()
+        if not line:
+            continue
+        if line == "EXIT":
+            return 0
+        if line == "RESET":
+            spotter.reset_stream(stream)
+            print("OK", flush=True)
+            continue
+        if not line.startswith("PUSH "):
+            raise RuntimeError(f"unsupported stream command: {line.split(' ', 1)[0]}")
+        parts = line.split(" ", 2)
+        if len(parts) != 3:
+            raise RuntimeError("PUSH command must be PUSH <sample_rate> <base64_audio>")
+        sample_rate = int(parts[1])
+        if sample_rate != config.sample_rate:
+            raise RuntimeError(
+                f"stream sample_rate must be {config.sample_rate}, got {sample_rate}"
+            )
+        samples = _decode_inline_audio(parts[2])
+        stream.accept_waveform(sample_rate, samples)
+        while spotter.is_ready(stream):
+            spotter.decode_stream(stream)
+        result = spotter.get_result(stream)
+        output = _format_stream_result(result)
+        print(output, flush=True)
+        if output.startswith("DETECTED\t"):
+            spotter.reset_stream(stream)
+
+
 def main() -> int:
     config = parse_args()
     if isinstance(config, WorkerConfig):
+        import sys
+        if len(sys.argv) > 1 and sys.argv[1] == "stream":
+            return stream_loop(config)
         create_spotter(config)
         print("health-ok")
         return 0

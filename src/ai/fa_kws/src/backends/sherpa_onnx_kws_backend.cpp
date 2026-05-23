@@ -2,6 +2,7 @@
 
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/select.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -22,6 +23,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace
 {
@@ -327,6 +329,139 @@ void requireSuccessfulCommand(const CommandResult &result, const char *operation
     std::to_string(result.exit_code) + " stderr=" + trim(result.stderr_text));
 }
 
+std::string base64Encode(const std::string &bytes)
+{
+  static constexpr char alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  out.reserve(((bytes.size() + 2) / 3) * 4);
+  std::size_t i = 0;
+  while (i + 3 <= bytes.size()) {
+    const unsigned int value =
+      (static_cast<unsigned char>(bytes[i]) << 16U) |
+      (static_cast<unsigned char>(bytes[i + 1]) << 8U) |
+      static_cast<unsigned char>(bytes[i + 2]);
+    out.push_back(alphabet[(value >> 18U) & 0x3FU]);
+    out.push_back(alphabet[(value >> 12U) & 0x3FU]);
+    out.push_back(alphabet[(value >> 6U) & 0x3FU]);
+    out.push_back(alphabet[value & 0x3FU]);
+    i += 3;
+  }
+  if (i < bytes.size()) {
+    unsigned int value = static_cast<unsigned char>(bytes[i]) << 16U;
+    const bool has_second = i + 1 < bytes.size();
+    if (has_second) {
+      value |= static_cast<unsigned char>(bytes[i + 1]) << 8U;
+    }
+    out.push_back(alphabet[(value >> 18U) & 0x3FU]);
+    out.push_back(alphabet[(value >> 12U) & 0x3FU]);
+    out.push_back(has_second ? alphabet[(value >> 6U) & 0x3FU] : '=');
+    out.push_back('=');
+  }
+  return out;
+}
+
+std::string encodeFloat32LeBase64(const std::vector<float> &samples)
+{
+  std::string bytes;
+  bytes.reserve(samples.size() * 4U);
+  for (const float sample : samples) {
+    if (!std::isfinite(sample)) {
+      throw std::invalid_argument("KWS backend samples must be finite");
+    }
+    if (sample < -1.0f || sample > 1.0f) {
+      throw std::invalid_argument("KWS backend samples must be normalized to [-1.0, 1.0]");
+    }
+    const auto encoded = encodeFloat32Le(sample);
+    bytes.append(encoded.data(), encoded.size());
+  }
+  return base64Encode(bytes);
+}
+
+void writeAll(int fd, const std::string &value)
+{
+  const char *data = value.data();
+  std::size_t remaining = value.size();
+  while (remaining > 0) {
+    const ssize_t written = write(fd, data, remaining);
+    if (written > 0) {
+      data += written;
+      remaining -= static_cast<std::size_t>(written);
+      continue;
+    }
+    if (written < 0 && errno == EINTR) {
+      continue;
+    }
+    throw std::runtime_error("write to KWS streaming worker failed");
+  }
+}
+
+std::string readLineWithTimeout(
+  int fd,
+  int stderr_fd,
+  double timeout_sec,
+  const char *operation)
+{
+  const auto start = std::chrono::steady_clock::now();
+  std::string line;
+  std::string stderr_text;
+  while (true) {
+    appendAvailable(stderr_fd, stderr_text);
+    char c = 0;
+    const ssize_t count = read(fd, &c, 1);
+    if (count == 1) {
+      if (c == '\n') {
+        return trim(line);
+      }
+      line.push_back(c);
+      continue;
+    }
+    if (count == 0) {
+      throw std::runtime_error(
+        std::string("KWS streaming worker closed stdout during ") + operation +
+        " stderr=" + trim(stderr_text));
+    }
+    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+      throw std::runtime_error("read from KWS streaming worker failed");
+    }
+    const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - start;
+    if (elapsed.count() > timeout_sec) {
+      throw std::runtime_error(
+        std::string("KWS streaming worker ") + operation + " timed out stderr=" +
+        trim(stderr_text));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+}
+
+std::optional<fa_kws::KwsDetection> parseDetectionLine(const std::string &line)
+{
+  if (line == "NO_DETECTION") {
+    return std::nullopt;
+  }
+  const std::vector<std::string> fields = splitLine(line, '\t');
+  if (fields.size() != 4 || fields[0] != "DETECTED") {
+    throw std::runtime_error(
+      "KWS backend output must be NO_DETECTION or DETECTED<TAB>keyword<TAB>score<TAB>start_time_sec");
+  }
+  if (fields[1].empty()) {
+    throw std::runtime_error("KWS backend detected keyword must be non-empty");
+  }
+  const float score = parseFiniteFloat(fields[2], "KWS backend score");
+  if (score < 0.0f || score > 1.0f) {
+    throw std::runtime_error("KWS backend score must be in [0.0, 1.0]");
+  }
+  const double start_time_sec = parseFiniteDouble(fields[3], "KWS backend start_time_sec");
+  if (start_time_sec < 0.0) {
+    throw std::runtime_error("KWS backend start_time_sec must be >= 0");
+  }
+  fa_kws::KwsDetection det;
+  det.keyword = fields[1];
+  det.score = score;
+  det.start_time_sec = start_time_sec;
+  return det;
+}
+
 }  // namespace
 
 namespace fa_kws
@@ -356,9 +491,15 @@ SherpaOnnxKwsBackend::SherpaOnnxKwsBackend(const SherpaOnnxKwsBackendConfig &con
     config_.timeout_sec,
     "health check");
   requireSuccessfulCommand(health, "health check");
+  if (!config_.stream_args.empty()) {
+    startStreamingWorker();
+  }
 }
 
-SherpaOnnxKwsBackend::~SherpaOnnxKwsBackend() = default;
+SherpaOnnxKwsBackend::~SherpaOnnxKwsBackend()
+{
+  stopStreamingWorker();
+}
 
 std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
   const std::vector<float> &samples,
@@ -372,6 +513,9 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
     throw std::invalid_argument(
       "KWS backend sample_rate must match configured target_sample_rate " +
       std::to_string(config_.target_sample_rate) + ", got " + std::to_string(sample_rate));
+  }
+  if (streaming_enabled_) {
+    return processStreaming(samples, sample_rate, now);
   }
 
   std::filesystem::create_directories(config_.workspace_dir);
@@ -401,23 +545,9 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
     }
 
     const std::string line = lastNonEmptyLine(result.stdout_text);
-    if (line == "NO_DETECTION") {
+    auto detection = parseDetectionLine(line);
+    if (!detection) {
       return std::nullopt;
-    }
-    const std::vector<std::string> fields = splitLine(line, '\t');
-    if (fields.size() != 4 || fields[0] != "DETECTED") {
-      throw std::runtime_error("KWS backend output must be NO_DETECTION or DETECTED<TAB>keyword<TAB>score<TAB>start_time_sec");
-    }
-    if (fields[1].empty()) {
-      throw std::runtime_error("KWS backend detected keyword must be non-empty");
-    }
-    const float score = parseFiniteFloat(fields[2], "KWS backend score");
-    if (score < 0.0f || score > 1.0f) {
-      throw std::runtime_error("KWS backend score must be in [0.0, 1.0]");
-    }
-    const double start_time_sec = parseFiniteDouble(fields[3], "KWS backend start_time_sec");
-    if (start_time_sec < 0.0) {
-      throw std::runtime_error("KWS backend start_time_sec must be >= 0");
     }
 
     const auto elapsed_ms =
@@ -430,11 +560,7 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
     last_detect_time_ = now;
     has_detect_time_ = true;
 
-    KwsDetection det;
-    det.keyword = fields[1];
-    det.score = score;
-    det.start_time_sec = start_time_sec;
-    return det;
+    return detection;
   } catch (...) {
     if (config_.cleanup_audio_files) {
       std::filesystem::remove(audio_path);
@@ -446,11 +572,190 @@ std::optional<KwsDetection> SherpaOnnxKwsBackend::process(
 void SherpaOnnxKwsBackend::reset()
 {
   has_detect_time_ = false;
+  if (streaming_enabled_) {
+    resetStreamingWorker();
+  }
 }
 
 void SherpaOnnxKwsBackend::resetHard()
 {
   has_detect_time_ = false;
+  if (streaming_enabled_) {
+    stopStreamingWorker();
+    startStreamingWorker();
+  }
+}
+
+void SherpaOnnxKwsBackend::startStreamingWorker()
+{
+  if (streaming_enabled_) {
+    return;
+  }
+
+  int stdin_pipe[2];
+  int stdout_pipe[2];
+  int stderr_pipe[2];
+  if (pipe(stdin_pipe) != 0) {
+    throw std::runtime_error("failed to create KWS streaming stdin pipe");
+  }
+  if (pipe(stdout_pipe) != 0) {
+    close(stdin_pipe[0]);
+    close(stdin_pipe[1]);
+    throw std::runtime_error("failed to create KWS streaming stdout pipe");
+  }
+  if (pipe(stderr_pipe) != 0) {
+    close(stdin_pipe[0]);
+    close(stdin_pipe[1]);
+    close(stdout_pipe[0]);
+    close(stdout_pipe[1]);
+    throw std::runtime_error("failed to create KWS streaming stderr pipe");
+  }
+
+  const pid_t pid = fork();
+  if (pid < 0) {
+    close(stdin_pipe[0]);
+    close(stdin_pipe[1]);
+    close(stdout_pipe[0]);
+    close(stdout_pipe[1]);
+    close(stderr_pipe[0]);
+    close(stderr_pipe[1]);
+    throw std::runtime_error("failed to fork KWS streaming worker");
+  }
+
+  if (pid == 0) {
+    dup2(stdin_pipe[0], STDIN_FILENO);
+    dup2(stdout_pipe[1], STDOUT_FILENO);
+    dup2(stderr_pipe[1], STDERR_FILENO);
+    close(stdin_pipe[0]);
+    close(stdin_pipe[1]);
+    close(stdout_pipe[0]);
+    close(stdout_pipe[1]);
+    close(stderr_pipe[0]);
+    close(stderr_pipe[1]);
+
+    std::vector<std::string> argv_storage;
+    argv_storage.reserve(config_.stream_args.size() + 1);
+    argv_storage.push_back(config_.command);
+    const auto args = formatArgs(config_.stream_args, "", false);
+    argv_storage.insert(argv_storage.end(), args.begin(), args.end());
+
+    std::vector<char *> argv;
+    argv.reserve(argv_storage.size() + 1);
+    for (std::string &item : argv_storage) {
+      argv.push_back(item.data());
+    }
+    argv.push_back(nullptr);
+    execvp(config_.command.c_str(), argv.data());
+    _exit(127);
+  }
+
+  close(stdin_pipe[0]);
+  close(stdout_pipe[1]);
+  close(stderr_pipe[1]);
+  setNonBlocking(stdout_pipe[0]);
+  setNonBlocking(stderr_pipe[0]);
+  stream_pid_ = pid;
+  stream_stdin_fd_ = stdin_pipe[1];
+  stream_stdout_fd_ = stdout_pipe[0];
+  stream_stderr_fd_ = stderr_pipe[0];
+  streaming_enabled_ = true;
+
+  const std::string ready = readLineWithTimeout(
+    stream_stdout_fd_, stream_stderr_fd_, config_.timeout_sec, "startup");
+  if (ready != "STREAM_READY") {
+    stopStreamingWorker();
+    throw std::runtime_error("KWS streaming worker did not report STREAM_READY: " + ready);
+  }
+}
+
+void SherpaOnnxKwsBackend::stopStreamingWorker()
+{
+  if (!streaming_enabled_) {
+    return;
+  }
+  if (stream_stdin_fd_ >= 0) {
+    try {
+      writeAll(stream_stdin_fd_, "EXIT\n");
+    } catch (...) {
+    }
+  }
+  if (stream_pid_ > 0) {
+    int status = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    while (std::chrono::steady_clock::now() < deadline) {
+      const pid_t result = waitpid(stream_pid_, &status, WNOHANG);
+      if (result == stream_pid_) {
+        stream_pid_ = -1;
+        break;
+      }
+      if (result < 0 && errno != EINTR) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (stream_pid_ > 0) {
+      kill(stream_pid_, SIGKILL);
+      waitpid(stream_pid_, &status, 0);
+    }
+  }
+  if (stream_stdin_fd_ >= 0) {
+    close(stream_stdin_fd_);
+  }
+  if (stream_stdout_fd_ >= 0) {
+    close(stream_stdout_fd_);
+  }
+  if (stream_stderr_fd_ >= 0) {
+    close(stream_stderr_fd_);
+  }
+  stream_pid_ = -1;
+  stream_stdin_fd_ = -1;
+  stream_stdout_fd_ = -1;
+  stream_stderr_fd_ = -1;
+  streaming_enabled_ = false;
+}
+
+std::optional<KwsDetection> SherpaOnnxKwsBackend::processStreaming(
+  const std::vector<float> &samples,
+  std::int32_t sample_rate,
+  std::chrono::steady_clock::time_point now)
+{
+  if (!streaming_enabled_) {
+    startStreamingWorker();
+  }
+  const std::string payload = encodeFloat32LeBase64(samples);
+  writeAll(
+    stream_stdin_fd_,
+    "PUSH " + std::to_string(sample_rate) + " " + payload + "\n");
+  const std::string line = readLineWithTimeout(
+    stream_stdout_fd_, stream_stderr_fd_, config_.timeout_sec, "inference");
+  auto detection = parseDetectionLine(line);
+  if (!detection) {
+    return std::nullopt;
+  }
+
+  const auto elapsed_ms =
+    has_detect_time_
+      ? std::chrono::duration_cast<std::chrono::milliseconds>(now - last_detect_time_).count()
+      : std::numeric_limits<long long>::max();
+  if (elapsed_ms < config_.cooldown.count()) {
+    return std::nullopt;
+  }
+  last_detect_time_ = now;
+  has_detect_time_ = true;
+  return detection;
+}
+
+void SherpaOnnxKwsBackend::resetStreamingWorker()
+{
+  if (!streaming_enabled_) {
+    return;
+  }
+  writeAll(stream_stdin_fd_, "RESET\n");
+  const std::string line = readLineWithTimeout(
+    stream_stdout_fd_, stream_stderr_fd_, config_.timeout_sec, "reset");
+  if (line != "OK") {
+    throw std::runtime_error("KWS streaming worker reset failed: " + line);
+  }
 }
 
 void SherpaOnnxKwsBackend::validateConfig() const
@@ -498,13 +803,18 @@ void SherpaOnnxKwsBackend::validateConfig() const
   if (config_.workspace_dir.empty()) {
     throw std::invalid_argument("backend.workspace_dir is required");
   }
-  if (config_.args.empty()) {
-    throw std::invalid_argument("backend.args must not be empty");
+  if (config_.args.empty() && config_.stream_args.empty()) {
+    throw std::invalid_argument("backend.args or backend.stream_args must not be empty");
   }
   if (config_.health_args.empty()) {
     throw std::invalid_argument("backend.health_args must not be empty");
   }
-  formatArgs(config_.args, "/tmp/fa_kws_contract_audio.f32", true);
+  if (!config_.args.empty()) {
+    formatArgs(config_.args, "/tmp/fa_kws_contract_audio.f32", true);
+  }
+  if (!config_.stream_args.empty()) {
+    formatArgs(config_.stream_args, "", false);
+  }
   formatArgs(config_.health_args, "", false);
 }
 
@@ -554,7 +864,7 @@ std::vector<std::string> SherpaOnnxKwsBackend::formatArgs(
         throw std::invalid_argument("unsupported backend args placeholder: " + field);
       }
       if (field == "audio" && !allow_audio_placeholder) {
-        throw std::invalid_argument("backend.health_args must not include {audio}");
+        throw std::invalid_argument("backend stream/health args must not include {audio}");
       }
       seen_fields.insert(field);
       if (field == "audio") {

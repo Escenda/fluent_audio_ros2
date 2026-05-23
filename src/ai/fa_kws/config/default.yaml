@@ -28,14 +28,11 @@ fa_kws:
     backend.execution_provider: ""
     # Required external worker command. The ROS2 node never links sherpa-onnx directly.
     backend.command: ""
-    # Required inference args. Profiles must provide this as a non-empty string-array.
+    # One-shot inference args are kept for offline compatibility. Live profiles should
+    # provide backend.stream_args so sherpa-onnx is loaded once and fed incrementally.
     # Empty YAML arrays are intentionally not declared here because ROS parameters cannot
     # infer their element type and report them as "not set" before backend validation.
-    # Required placeholders: {audio}, {encoder}, {decoder}, {joiner}, {tokens}, {keywords},
-    # {provider}, {sample_rate}, {num_threads}, {max_active_paths},
-    # {num_trailing_blanks}, {keywords_score}, {keywords_threshold}.
-    # Required startup health-check args. Profiles must provide this as a non-empty
-    # string-array with the same placeholders except {audio}, which is forbidden.
+    # One-shot args require {audio}; stream and health args forbid {audio}.
     backend.timeout_sec: 5.0
     backend.workspace_dir: "/tmp/fluent_audio_fa_kws"
     backend.cleanup_audio_files: true
@@ -44,4 +41,13 @@ fa_kws:
     kws.keywords_score: 1.0
     kws.keywords_threshold: 0.25
 
+    # KWS keeps the model loaded and starts streaming only when VAD opens.
+    # pre_roll keeps the phrase onset, hangover keeps trailing speech after
+    # VAD falls, and merge_gap joins short VAD gaps.
+    stream_gate.enabled: true
+    stream_gate.pre_roll_ms: 500
+    stream_gate.hangover_ms: 900
+    stream_gate.merge_gap_ms: 400
+
+    diagnostics.enabled: false
     debug.status_period_sec: 0.0

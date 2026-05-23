@@ -157,7 +157,7 @@ TEST(KwsBackendFactoryTest, DelegatesSherpaOnnxConfigValidation)
     std::invalid_argument);
 }
 
-TEST(KwsBackendFactoryTest, RejectsMissingSherpaOnnxInferenceArgs)
+TEST(KwsBackendFactoryTest, RejectsMissingSherpaOnnxInferenceOrStreamArgs)
 {
   auto settings = baseSettings();
   settings.execution_provider = "cpu";
@@ -168,7 +168,7 @@ TEST(KwsBackendFactoryTest, RejectsMissingSherpaOnnxInferenceArgs)
     settings,
     std::filesystem::temp_directory_path() / "fa_kws_backend_factory_missing_args");
 
-  expectInvalidArgument(settings, "backend.args must not be empty");
+  expectInvalidArgument(settings, "backend.args or backend.stream_args must not be empty");
 }
 
 TEST(KwsBackendFactoryTest, RejectsMissingSherpaOnnxHealthArgs)

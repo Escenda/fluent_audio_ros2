@@ -5,6 +5,7 @@
 ## 入出力
 
 - Sub: configured `audio_topic` (`fa_interfaces/msg/AudioFrame`)
+- Sub: optional `control.<id>.topic` (`fa_interfaces/msg/VoiceActivity`)
 - Pub: configured `output_topic` (`fa_interfaces/msg/WakeWordResult`)
 
 ## モデル
@@ -15,7 +16,9 @@
 
 audio / output topic QoS は `audio.qos.*`、`output.qos.*` で明示します。depth が 0 以下の場合は起動失敗し、node code 内の hidden depth / reliability へ切り替えません。
 
-`fa_kws_node` は sherpa-onnx C API を直接 link しません。`backend.command` / `backend.args` / `backend.health_args` で外部 worker を明示し、その worker が sherpa-onnx runtime、Python / C++ runtime、venv、container、GPU provider を所有します。worker 欠落、health check failure、timeout、invalid stdout は起動または推論時に fail closed します。
+`control.inputs` に `fa_interfaces/msg/VoiceActivity` gate を指定すると、KWS backend には VAD が許可した audio chunk だけを渡します。`stream_gate.*` は pre-roll、hangover、短い VAD gap の merge を扱う node/controller 層の責務で、backend と external worker には VAD topic や turn lifecycle を渡しません。
+
+`fa_kws_node` は sherpa-onnx C API を直接 link しません。`backend.command` / `backend.args` / `backend.stream_args` / `backend.health_args` で外部 worker を明示し、その worker が sherpa-onnx runtime、Python / C++ runtime、venv、container、GPU provider を所有します。`backend.stream_args` がある場合は worker を常駐起動し、VAD によって開いた区間だけ `PUSH` します。worker 欠落、health check failure、timeout、invalid stdout は起動または推論時に fail closed します。
 
 同梱の `scripts/sherpa_onnx_kws_worker` は Python `sherpa_onnx` runtime 向け reference worker entrypoint です。
 実体は `fa_kws_py/backends/sherpa_onnx_kws_worker.py` に分離し、script は thin entrypoint として扱います。

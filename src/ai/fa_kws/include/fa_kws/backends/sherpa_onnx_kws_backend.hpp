@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <sys/types.h>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,7 @@ struct SherpaOnnxKwsBackendConfig
 
   std::string command;
   std::vector<std::string> args;
+  std::vector<std::string> stream_args;
   std::vector<std::string> health_args;
   double timeout_sec;
   std::string workspace_dir;
@@ -65,8 +67,20 @@ private:
   std::vector<std::string> formatArgs(const std::vector<std::string> &template_args,
                                       const std::string &audio_path,
                                       bool allow_audio_placeholder) const;
+  void startStreamingWorker();
+  void stopStreamingWorker();
+  std::optional<KwsDetection> processStreaming(const std::vector<float> &samples,
+                                               std::int32_t sample_rate,
+                                               std::chrono::steady_clock::time_point now);
+  void resetStreamingWorker();
 
   SherpaOnnxKwsBackendConfig config_;
+
+  pid_t stream_pid_{-1};
+  int stream_stdin_fd_{-1};
+  int stream_stdout_fd_{-1};
+  int stream_stderr_fd_{-1};
+  bool streaming_enabled_{false};
 
   std::chrono::steady_clock::time_point last_detect_time_;
   bool has_detect_time_{false};
