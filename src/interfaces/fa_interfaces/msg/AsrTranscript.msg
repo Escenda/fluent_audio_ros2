@@ -1,0 +1,10 @@
+std_msgs/Header header
+string source_id
+string stream_id
+uint32 epoch
+string session_id
+uint32 user_turn_id
+string text
+bool is_final
+uint64 accepted_samples
+string model_id

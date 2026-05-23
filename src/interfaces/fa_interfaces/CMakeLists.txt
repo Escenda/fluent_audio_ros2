@@ -7,6 +7,8 @@ find_package(builtin_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 
 set(message_files
+  "msg/AsrControl.msg"
+  "msg/AsrTranscript.msg"
   "msg/AudioClipRef.msg"
   "msg/AudioEmbeddingFrame.msg"
   "msg/AudioFrame.msg"
@@ -24,6 +26,7 @@ set(message_files
   "msg/TempoFrame.msg"
   "msg/TurnContext.msg"
   "msg/TurnEnd.msg"
+  "msg/VoiceActivity.msg"
   "msg/WakeWordResult.msg"
 )
 

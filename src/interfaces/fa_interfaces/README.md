@@ -3,6 +3,8 @@
 `fa_interfaces`は FluentAudio の msg/srv を集約するインターフェースパッケージです。
 
 ## Messages
+- `fa_interfaces/msg/AsrControl`
+- `fa_interfaces/msg/AsrTranscript`
 - `fa_interfaces/msg/AudioClipRef`
 - `fa_interfaces/msg/AudioEmbeddingFrame`
 - `fa_interfaces/msg/AudioFrame`

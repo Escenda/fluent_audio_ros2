@@ -1,0 +1,12 @@
+std_msgs/Header header
+string source_id
+string stream_id
+uint32 sample_rate
+uint32 epoch
+uint64 window_start_sample
+uint64 window_end_sample
+float32 probability
+float32 smoothed_probability
+bool is_speech
+bool speech_started
+bool speech_ended
