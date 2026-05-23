@@ -261,7 +261,7 @@ groups:
       audio_topic: audio/resample16k/mic
       expected_stream_id: audio/preprocessed/mono16k
       turn_context_topic: conversation/turn_context
-      voice_activity_topic: voice/activity
+      turn_end_request_topic: voice/turn_end_request
       output_topic: voice/turn_end
       backend.name: smart_turn_onnx
       backend.model_path: ${env:FLUENT_AUDIO_TURN_DETECTOR_MODEL}
@@ -285,7 +285,7 @@ groups:
       backend.workspace_dir: /tmp/fluent_audio/fa_turn_detector/so101
       backend.cleanup_audio_files: true
       backend.threshold: 0.5
-      voice_activity.qos.depth: 10
-      voice_activity.qos.reliable: false
+      turn_end_request.qos.depth: 10
+      turn_end_request.qos.reliable: true
       output.qos.depth: 10
       output.qos.reliable: true

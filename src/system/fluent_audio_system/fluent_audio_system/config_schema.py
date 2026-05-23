@@ -365,7 +365,7 @@ _TURN_DETECTOR_CONTRACT = ParameterIdentityContract(
     topic_keys=frozenset((
         "audio_topic",
         "turn_context_topic",
-        "voice_activity_topic",
+        "turn_end_request_topic",
         "output_topic",
     )),
     stream_identity_keys=frozenset(("expected_stream_id",)),

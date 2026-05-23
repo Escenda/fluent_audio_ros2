@@ -3,7 +3,7 @@ fa_turn_detector:
     audio_topic: "audio/frame"
     expected_stream_id: "audio/raw/mic"
     turn_context_topic: "conversation/turn_context"
-    voice_activity_topic: "voice/activity"
+    turn_end_request_topic: "voice/turn_end_request"
     output_topic: "voice/turn_end"
     # Required. Must match AudioFrame.source_id from the configured fa_in/source pipeline.
     expected_source_id: ""
@@ -31,7 +31,7 @@ fa_turn_detector:
     audio.qos.reliable: false
     turn_context.qos.depth: 10
     turn_context.qos.reliable: true
-    voice_activity.qos.depth: 10
-    voice_activity.qos.reliable: false
+    turn_end_request.qos.depth: 10
+    turn_end_request.qos.reliable: true
     output.qos.depth: 10
     output.qos.reliable: true

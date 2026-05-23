@@ -344,7 +344,7 @@ done
 
 runtime_preflight() {
   run_ros python3 -c '
-from fa_interfaces.msg import AsrControl, AsrTranscript, VoiceActivity
+from fa_interfaces.msg import AsrControl, AsrTranscript, TurnEndRequest, VoiceActivity
 import pathlib
 import subprocess
 kws_prefix = pathlib.Path(subprocess.check_output(["ros2", "pkg", "prefix", "fa_kws"], text=True).strip())
@@ -442,6 +442,7 @@ from fa_interfaces.msg import (
     AudioFrame,
     TurnContext,
     TurnEnd,
+    TurnEndRequest,
     VoiceActivity,
     WakeWordResult,
 )
@@ -460,6 +461,12 @@ class Monitor(Node):
         self.create_subscription(VoiceActivity, "voice/activity", self.on_vad, qos)
         self.create_subscription(WakeWordResult, "voice/wake_word", self.on_wake, qos)
         self.create_subscription(TurnEnd, "voice/turn_end", self.on_turn_end, qos)
+        self.create_subscription(
+            TurnEndRequest,
+            "voice/turn_end_request",
+            self.on_turn_end_request,
+            qos,
+        )
         self.create_subscription(TurnContext, "conversation/turn_context", self.on_turn_context, qos)
         self.create_subscription(AsrControl, "voice/asr_control", self.on_asr_control, qos)
         self.create_subscription(AsrTranscript, "voice/asr_transcript", self.on_asr, qos)
@@ -501,7 +508,17 @@ class Monitor(Node):
         self.counts["turn_end"] += 1
         print(
             "[turn_end] "
-            f"is_end={bool(msg.is_end)} probability={msg.probability:.3f}",
+            f"request={int(msg.request_id)} is_end={bool(msg.is_end)} "
+            f"probability={msg.probability:.3f}",
+            flush=True,
+        )
+
+    def on_turn_end_request(self, msg: TurnEndRequest) -> None:
+        self.counts["turn_end_request"] += 1
+        print(
+            "[turn_end_request] "
+            f"request={int(msg.request_id)} session={msg.session_id} "
+            f"turn={int(msg.user_turn_id)} quiet_ms={int(msg.quiet_ms)}",
             flush=True,
         )
 
@@ -545,6 +562,7 @@ class Monitor(Node):
             "audio",
             "vad",
             "wake",
+            "turn_end_request",
             "turn_end",
             "turn_context",
             "asr_control",

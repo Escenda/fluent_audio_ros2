@@ -3,6 +3,7 @@ fa_dialogue:
     wake_word_topic: "voice/wake_word"
     voice_activity_topic: "voice/activity"
     turn_end_topic: "voice/turn_end"
+    turn_end_request_topic: "voice/turn_end_request"
     turn_context_topic: "conversation/turn_context"
     asr_control_topic: "voice/asr_control"
 
@@ -13,11 +14,12 @@ fa_dialogue:
     wake.max_age_ms: 1500
     wake.allow_zero_stamp: false
 
-    turn.min_duration_ms: 1200
-    turn.min_listen_ms: 3000
-    turn.no_speech_timeout_ms: 3000
-    turn.td_min_silence_ms: 300
-    turn.vad_fallback_silence_ms: 1800
+    turn.min_active_ms: 3000
+    turn.no_speech_timeout_ms: 6000
+    turn.quiet_candidate_ms: 1200
+    turn.td_threshold: 0.65
+    turn.fallback_quiet_ms: 3500
+    turn.max_active_ms: 30000
     turn.tick_period_ms: 50
 
     wake.qos.depth: 10
@@ -26,6 +28,8 @@ fa_dialogue:
     voice_activity.qos.reliable: false
     turn_end.qos.depth: 10
     turn_end.qos.reliable: true
+    turn_end_request.qos.depth: 10
+    turn_end_request.qos.reliable: true
     turn_context.qos.depth: 10
     turn_context.qos.reliable: true
     asr_control.qos.depth: 10

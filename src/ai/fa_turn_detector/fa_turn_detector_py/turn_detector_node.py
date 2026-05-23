@@ -13,7 +13,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-from fa_interfaces.msg import AudioFrame, TurnContext, TurnEnd, VoiceActivity
+from fa_interfaces.msg import AudioFrame, TurnContext, TurnEnd, TurnEndRequest
 from fa_turn_detector_py.backends.base import TurnDetectorBackend
 from fa_turn_detector_py.backends.factory import (
     TurnDetectorBackendSettings,
@@ -38,7 +38,9 @@ class FaTurnDetectorNode(Node):
         self.audio_topic = self._required_string_parameter("audio_topic")
         self.expected_stream_id = self._required_string_parameter("expected_stream_id")
         self.turn_context_topic = self._required_string_parameter("turn_context_topic")
-        self.voice_activity_topic = self._required_string_parameter("voice_activity_topic")
+        self.turn_end_request_topic = self._required_string_parameter(
+            "turn_end_request_topic"
+        )
         self.output_topic = self._required_string_parameter("output_topic")
         self.expected_source_id = self._required_string_parameter("expected_source_id")
         self._validate_identity_contract()
@@ -57,9 +59,9 @@ class FaTurnDetectorNode(Node):
             depth_parameter="turn_context.qos.depth",
             reliable_parameter="turn_context.qos.reliable",
         )
-        qos_vad = self._qos_profile(
-            depth_parameter="voice_activity.qos.depth",
-            reliable_parameter="voice_activity.qos.reliable",
+        qos_turn_end_request = self._qos_profile(
+            depth_parameter="turn_end_request.qos.depth",
+            reliable_parameter="turn_end_request.qos.reliable",
         )
         qos_output = self._qos_profile(
             depth_parameter="output.qos.depth",
@@ -79,18 +81,18 @@ class FaTurnDetectorNode(Node):
             self.on_turn_context,
             qos_turn_context,
         )
-        self.voice_activity_sub = self.create_subscription(
-            VoiceActivity,
-            self.voice_activity_topic,
-            self.on_voice_activity,
-            qos_vad,
+        self.turn_end_request_sub = self.create_subscription(
+            TurnEndRequest,
+            self.turn_end_request_topic,
+            self.on_turn_end_request,
+            qos_turn_end_request,
         )
 
         self.get_logger().info(
             "fa_turn_detector started: "
             f"audio={self.audio_topic} "
             f"turn_context={self.turn_context_topic} "
-            f"vad={self.voice_activity_topic} "
+            f"turn_end_request={self.turn_end_request_topic} "
             f"output={self.output_topic} "
             f"expected_source_id={self.expected_source_id} "
             f"expected_stream_id={self.expected_stream_id} "
@@ -102,7 +104,7 @@ class FaTurnDetectorNode(Node):
         self.declare_parameter("audio_topic", Parameter.Type.STRING)
         self.declare_parameter("expected_stream_id", Parameter.Type.STRING)
         self.declare_parameter("turn_context_topic", Parameter.Type.STRING)
-        self.declare_parameter("voice_activity_topic", Parameter.Type.STRING)
+        self.declare_parameter("turn_end_request_topic", Parameter.Type.STRING)
         self.declare_parameter("output_topic", Parameter.Type.STRING)
         self.declare_parameter("expected_source_id", Parameter.Type.STRING)
         self.declare_parameter("backend.name", Parameter.Type.STRING)
@@ -119,8 +121,8 @@ class FaTurnDetectorNode(Node):
         self.declare_parameter("audio.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("turn_context.qos.reliable", Parameter.Type.BOOL)
-        self.declare_parameter("voice_activity.qos.depth", Parameter.Type.INTEGER)
-        self.declare_parameter("voice_activity.qos.reliable", Parameter.Type.BOOL)
+        self.declare_parameter("turn_end_request.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("turn_end_request.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("output.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("output.qos.reliable", Parameter.Type.BOOL)
 
@@ -128,7 +130,7 @@ class FaTurnDetectorNode(Node):
         for topic_name, topic_value in (
             ("audio_topic", self.audio_topic),
             ("turn_context_topic", self.turn_context_topic),
-            ("voice_activity_topic", self.voice_activity_topic),
+            ("turn_end_request_topic", self.turn_end_request_topic),
             ("output_topic", self.output_topic),
         ):
             if self._same_identity_string(self.expected_stream_id, topic_value):
@@ -279,17 +281,22 @@ class FaTurnDetectorNode(Node):
             return
         self.audio_buffer.extend(audio_data.tolist())
 
-    def on_voice_activity(self, msg: VoiceActivity) -> None:
+    def on_turn_end_request(self, msg: TurnEndRequest) -> None:
         if not self._context_active:
             return
-        if msg.source_id != self.expected_source_id or msg.stream_id != self.expected_stream_id:
-            self.get_logger().warning("Dropping VoiceActivity with unexpected source/stream")
+        if msg.session_id != self._active_session_id:
+            self.get_logger().debug("Dropping TurnEndRequest with stale session")
             return
-        if not bool(msg.speech_ended):
+        if int(msg.user_turn_id) != self._active_user_turn_id:
+            self.get_logger().debug("Dropping TurnEndRequest with stale turn")
             return
-        self._detect_turn_end()
+        request_id = int(msg.request_id)
+        if request_id <= 0:
+            self.get_logger().warning("Dropping TurnEndRequest with invalid request_id")
+            return
+        self._detect_turn_end(request_id=request_id)
 
-    def _detect_turn_end(self) -> None:
+    def _detect_turn_end(self, *, request_id: int) -> None:
         if len(self.audio_buffer) < self.backend.min_samples:
             self.get_logger().debug(
                 f"Not enough audio data for turn detection: {len(self.audio_buffer)} samples"
@@ -309,12 +316,16 @@ class FaTurnDetectorNode(Node):
         out.timestamp = self.get_clock().now().to_msg()
         out.session_id = self._active_session_id
         out.user_turn_id = int(self._active_user_turn_id)
+        out.request_id = int(request_id)
         out.probability = float(result.probability)
         out.is_end = bool(result.is_end)
         self.turn_end_pub.publish(out)
 
         self.get_logger().info(
-            f"Turn end probability: {result.probability:.3f} is_end={str(out.is_end).lower()}"
+            "Turn end probability: "
+            f"request_id={request_id} "
+            f"probability={result.probability:.3f} "
+            f"is_end={str(out.is_end).lower()}"
         )
 
     @staticmethod

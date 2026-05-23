@@ -26,6 +26,7 @@ set(message_files
   "msg/TempoFrame.msg"
   "msg/TurnContext.msg"
   "msg/TurnEnd.msg"
+  "msg/TurnEndRequest.msg"
   "msg/VoiceActivity.msg"
   "msg/WakeWordResult.msg"
 )

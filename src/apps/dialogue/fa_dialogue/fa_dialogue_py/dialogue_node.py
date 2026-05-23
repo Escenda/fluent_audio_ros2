@@ -8,7 +8,14 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-from fa_interfaces.msg import AsrControl, TurnContext, TurnEnd, VoiceActivity, WakeWordResult
+from fa_interfaces.msg import (
+    AsrControl,
+    TurnContext,
+    TurnEnd,
+    TurnEndRequest,
+    VoiceActivity,
+    WakeWordResult,
+)
 from fa_dialogue_py.session_state import (
     AsrControlCommand,
     DialogueDecision,
@@ -17,6 +24,7 @@ from fa_dialogue_py.session_state import (
     MessageStamp,
     TurnContextSnapshot,
     TurnEndCandidate,
+    TurnEndRequestCommand,
     VoiceActivityEvent,
     WakeEvent,
 )
@@ -30,6 +38,7 @@ class FaDialogueNode(Node):
         self.wake_word_topic = self._string_parameter("wake_word_topic")
         self.voice_activity_topic = self._string_parameter("voice_activity_topic")
         self.turn_end_topic = self._string_parameter("turn_end_topic")
+        self.turn_end_request_topic = self._string_parameter("turn_end_request_topic")
         self.turn_context_topic = self._string_parameter("turn_context_topic")
         self.asr_control_topic = self._string_parameter("asr_control_topic")
         self.expected_source_id = self._string_parameter("expected_source_id")
@@ -39,23 +48,28 @@ class FaDialogueNode(Node):
                 session_prefix=self._string_parameter("session_prefix"),
                 wake_max_age_ms=self._positive_integer_parameter("wake.max_age_ms"),
                 wake_allow_zero_stamp=self._bool_parameter("wake.allow_zero_stamp"),
-                min_turn_ms=self._non_negative_integer_parameter("turn.min_duration_ms"),
-                min_listen_ms=self._non_negative_integer_parameter("turn.min_listen_ms"),
+                min_active_ms=self._non_negative_integer_parameter("turn.min_active_ms"),
                 no_speech_timeout_ms=self._positive_integer_parameter(
                     "turn.no_speech_timeout_ms"
                 ),
-                td_min_silence_ms=self._non_negative_integer_parameter(
-                    "turn.td_min_silence_ms"
+                quiet_candidate_ms=self._positive_integer_parameter(
+                    "turn.quiet_candidate_ms"
                 ),
-                vad_fallback_silence_ms=self._positive_integer_parameter(
-                    "turn.vad_fallback_silence_ms"
+                td_threshold=self._double_parameter("turn.td_threshold"),
+                fallback_quiet_ms=self._positive_integer_parameter(
+                    "turn.fallback_quiet_ms"
                 ),
+                max_active_ms=self._positive_integer_parameter("turn.max_active_ms"),
             )
         )
 
         wake_qos = self._qos_profile("wake.qos.depth", "wake.qos.reliable")
         vad_qos = self._qos_profile("voice_activity.qos.depth", "voice_activity.qos.reliable")
         turn_end_qos = self._qos_profile("turn_end.qos.depth", "turn_end.qos.reliable")
+        turn_end_request_qos = self._qos_profile(
+            "turn_end_request.qos.depth",
+            "turn_end_request.qos.reliable",
+        )
         context_qos = self._qos_profile("turn_context.qos.depth", "turn_context.qos.reliable")
         asr_control_qos = self._qos_profile("asr_control.qos.depth", "asr_control.qos.reliable")
 
@@ -68,6 +82,11 @@ class FaDialogueNode(Node):
             AsrControl,
             self.asr_control_topic,
             asr_control_qos,
+        )
+        self.turn_end_request_pub = self.create_publisher(
+            TurnEndRequest,
+            self.turn_end_request_topic,
+            turn_end_request_qos,
         )
         self.wake_word_sub = self.create_subscription(
             WakeWordResult,
@@ -97,6 +116,7 @@ class FaDialogueNode(Node):
             f"wake={self.wake_word_topic} "
             f"vad={self.voice_activity_topic} "
             f"turn_end={self.turn_end_topic} "
+            f"turn_end_request={self.turn_end_request_topic} "
             f"turn_context={self.turn_context_topic} "
             f"asr_control={self.asr_control_topic}"
         )
@@ -134,6 +154,7 @@ class FaDialogueNode(Node):
             TurnEndCandidate(
                 session_id=msg.session_id,
                 user_turn_id=int(msg.user_turn_id),
+                request_id=int(msg.request_id),
                 terminal=bool(msg.is_end),
                 probability=float(msg.probability),
             ),
@@ -146,7 +167,11 @@ class FaDialogueNode(Node):
         self._publish_decision(decision)
 
     def _publish_decision(self, decision: DialogueDecision) -> None:
-        if not decision.contexts and not decision.asr_controls:
+        if (
+            not decision.contexts
+            and not decision.asr_controls
+            and not decision.turn_end_requests
+        ):
             if decision.kind in ("rejected",):
                 self.get_logger().debug(
                     f"dialogue decision ignored: kind={decision.kind} reason={decision.reason}"
@@ -157,6 +182,8 @@ class FaDialogueNode(Node):
                 self._publish_asr_control(control)
         for context in decision.contexts:
             self._publish_context(context)
+        for request in decision.turn_end_requests:
+            self._publish_turn_end_request(request)
         for control in decision.asr_controls:
             if control.action == "start":
                 self._publish_asr_control(control)
@@ -181,6 +208,15 @@ class FaDialogueNode(Node):
         msg.reason = command.reason
         self.asr_control_pub.publish(msg)
 
+    def _publish_turn_end_request(self, command: TurnEndRequestCommand) -> None:
+        msg = TurnEndRequest()
+        msg.timestamp = self._now_time_msg()
+        msg.session_id = command.session_id
+        msg.user_turn_id = int(command.user_turn_id)
+        msg.request_id = int(command.request_id)
+        msg.quiet_ms = int(command.quiet_ms)
+        self.turn_end_request_pub.publish(msg)
+
     @staticmethod
     def _asr_action_value(action: str) -> int:
         if action == "start":
@@ -195,6 +231,7 @@ class FaDialogueNode(Node):
         self.declare_parameter("wake_word_topic", Parameter.Type.STRING)
         self.declare_parameter("voice_activity_topic", Parameter.Type.STRING)
         self.declare_parameter("turn_end_topic", Parameter.Type.STRING)
+        self.declare_parameter("turn_end_request_topic", Parameter.Type.STRING)
         self.declare_parameter("turn_context_topic", Parameter.Type.STRING)
         self.declare_parameter("asr_control_topic", Parameter.Type.STRING)
         self.declare_parameter("expected_source_id", Parameter.Type.STRING)
@@ -202,11 +239,12 @@ class FaDialogueNode(Node):
         self.declare_parameter("session_prefix", Parameter.Type.STRING)
         self.declare_parameter("wake.max_age_ms", Parameter.Type.INTEGER)
         self.declare_parameter("wake.allow_zero_stamp", Parameter.Type.BOOL)
-        self.declare_parameter("turn.min_duration_ms", Parameter.Type.INTEGER)
-        self.declare_parameter("turn.min_listen_ms", Parameter.Type.INTEGER)
+        self.declare_parameter("turn.min_active_ms", Parameter.Type.INTEGER)
         self.declare_parameter("turn.no_speech_timeout_ms", Parameter.Type.INTEGER)
-        self.declare_parameter("turn.td_min_silence_ms", Parameter.Type.INTEGER)
-        self.declare_parameter("turn.vad_fallback_silence_ms", Parameter.Type.INTEGER)
+        self.declare_parameter("turn.quiet_candidate_ms", Parameter.Type.INTEGER)
+        self.declare_parameter("turn.td_threshold", Parameter.Type.DOUBLE)
+        self.declare_parameter("turn.fallback_quiet_ms", Parameter.Type.INTEGER)
+        self.declare_parameter("turn.max_active_ms", Parameter.Type.INTEGER)
         self.declare_parameter("turn.tick_period_ms", Parameter.Type.INTEGER)
         self.declare_parameter("wake.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("wake.qos.reliable", Parameter.Type.BOOL)
@@ -214,6 +252,8 @@ class FaDialogueNode(Node):
         self.declare_parameter("voice_activity.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("turn_end.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("turn_end.qos.reliable", Parameter.Type.BOOL)
+        self.declare_parameter("turn_end_request.qos.depth", Parameter.Type.INTEGER)
+        self.declare_parameter("turn_end_request.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("turn_context.qos.depth", Parameter.Type.INTEGER)
         self.declare_parameter("turn_context.qos.reliable", Parameter.Type.BOOL)
         self.declare_parameter("asr_control.qos.depth", Parameter.Type.INTEGER)
@@ -239,6 +279,9 @@ class FaDialogueNode(Node):
         if value < 0:
             raise RuntimeError(f"{name} must be >= 0")
         return value
+
+    def _double_parameter(self, name: str) -> float:
+        return self.get_parameter(name).get_parameter_value().double_value
 
     def _qos_profile(self, depth_parameter: str, reliable_parameter: str) -> QoSProfile:
         depth = self._positive_integer_parameter(depth_parameter)

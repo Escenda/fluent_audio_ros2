@@ -22,6 +22,7 @@
 - `fa_interfaces/msg/TempoFrame`
 - `fa_interfaces/msg/TurnContext`
 - `fa_interfaces/msg/TurnEnd`
+- `fa_interfaces/msg/TurnEndRequest`
 - `fa_interfaces/msg/WakeWordResult`
 
 ## Services

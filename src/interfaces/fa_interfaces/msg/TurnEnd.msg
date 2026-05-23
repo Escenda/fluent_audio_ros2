@@ -10,6 +10,9 @@ string session_id
 # 入力ターンID
 uint32 user_turn_id
 
+# 要求ID。TurnEndRequest.request_id を引き継ぐ。
+uint32 request_id
+
 # 発話終了確率（0.0-1.0）
 float32 probability
 

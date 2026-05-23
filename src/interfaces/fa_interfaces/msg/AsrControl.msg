@@ -15,5 +15,5 @@ uint8 action
 string session_id
 uint32 user_turn_id
 
-# 制御理由。例: wake, td_end, vad_fallback, cancel
+# 制御理由。例: wake, td_end, quiet_fallback, cancel
 string reason

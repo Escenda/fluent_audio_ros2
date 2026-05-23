@@ -19,14 +19,14 @@ fa_vad:
     backend.intra_op_num_threads: 1
 
     detector.speech_threshold: 0.55
-    detector.silence_threshold: 0.35
+    detector.silence_threshold: 0.30
     detector.start_delta: 0.20
     detector.end_delta: 0.20
     detector.min_start_probability: 0.35
     detector.max_end_probability: 0.45
-    detector.smoothing_alpha: 0.35
+    detector.smoothing_alpha: 0.25
     detector.start_consecutive_windows: 2
-    detector.end_consecutive_windows: 4
+    detector.end_consecutive_windows: 8
     detector.min_speech_ms: 120
 
     audio.qos.depth: 10

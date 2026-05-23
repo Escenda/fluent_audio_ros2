@@ -1,12 +1,12 @@
 # fa_turn_detector
 
-`fa_turn_detector` estimates whether the user has finished their turn through an external Smart Turn v3 ONNX worker. It publishes a turn-end candidate only after VAD reports `speech_ended` for the active turn.
+`fa_turn_detector` estimates whether the user has finished their turn through an external Smart Turn v3 ONNX worker. It publishes a turn-end candidate only after `fa_dialogue` sends a `TurnEndRequest` for the active turn.
 
 ## 入出力
 
 - Sub: configured `audio_topic` (`fa_interfaces/msg/AudioFrame`)
 - Sub: `conversation/turn_context` (`fa_interfaces/msg/TurnContext`)
-- Sub: `voice/activity` (`fa_interfaces/msg/VoiceActivity`)
+- Sub: `voice/turn_end_request` (`fa_interfaces/msg/TurnEndRequest`)
 - Pub: `voice/turn_end` (`fa_interfaces/msg/TurnEnd`)
 
 ## QoS
@@ -18,8 +18,8 @@ audio.qos.depth: 10
 audio.qos.reliable: false
 turn_context.qos.depth: 10
 turn_context.qos.reliable: true
-voice_activity.qos.depth: 10
-voice_activity.qos.reliable: false
+turn_end_request.qos.depth: 10
+turn_end_request.qos.reliable: true
 output.qos.depth: 10
 output.qos.reliable: true
 ```

@@ -25,11 +25,12 @@ class DialogueTurnConfig:
     session_prefix: str
     wake_max_age_ms: int
     wake_allow_zero_stamp: bool
-    min_turn_ms: int = 1200
-    min_listen_ms: int = 3000
-    no_speech_timeout_ms: int = 5000
-    td_min_silence_ms: int = 300
-    vad_fallback_silence_ms: int = 1800
+    min_active_ms: int = 3000
+    no_speech_timeout_ms: int = 6000
+    quiet_candidate_ms: int = 1200
+    td_threshold: float = 0.65
+    fallback_quiet_ms: int = 3500
+    max_active_ms: int = 30000
 
     def __post_init__(self) -> None:
         if not self.session_prefix.strip():
@@ -38,18 +39,24 @@ class DialogueTurnConfig:
             raise ValueError("session_prefix must not have surrounding whitespace")
         if self.wake_max_age_ms <= 0:
             raise ValueError("wake_max_age_ms must be positive")
-        if self.min_turn_ms < 0:
-            raise ValueError("min_turn_ms must be >= 0")
-        if self.min_listen_ms < 0:
-            raise ValueError("min_listen_ms must be >= 0")
+        if self.min_active_ms < 0:
+            raise ValueError("min_active_ms must be >= 0")
         if self.no_speech_timeout_ms <= 0:
             raise ValueError("no_speech_timeout_ms must be positive")
-        if self.no_speech_timeout_ms < self.min_listen_ms:
-            raise ValueError("no_speech_timeout_ms must be >= min_listen_ms")
-        if self.td_min_silence_ms < 0:
-            raise ValueError("td_min_silence_ms must be >= 0")
-        if self.vad_fallback_silence_ms <= 0:
-            raise ValueError("vad_fallback_silence_ms must be positive")
+        if self.no_speech_timeout_ms < self.min_active_ms:
+            raise ValueError("no_speech_timeout_ms must be >= min_active_ms")
+        if self.quiet_candidate_ms <= 0:
+            raise ValueError("quiet_candidate_ms must be positive")
+        if self.td_threshold < 0.0 or self.td_threshold > 1.0:
+            raise ValueError("td_threshold must be in [0.0, 1.0]")
+        if self.fallback_quiet_ms <= 0:
+            raise ValueError("fallback_quiet_ms must be positive")
+        if self.fallback_quiet_ms < self.quiet_candidate_ms:
+            raise ValueError("fallback_quiet_ms must be >= quiet_candidate_ms")
+        if self.max_active_ms <= 0:
+            raise ValueError("max_active_ms must be positive")
+        if self.max_active_ms < self.min_active_ms:
+            raise ValueError("max_active_ms must be >= min_active_ms")
 
 
 @dataclass(frozen=True)
@@ -70,6 +77,7 @@ class VoiceActivityEvent:
 class TurnEndCandidate:
     session_id: str
     user_turn_id: int
+    request_id: int
     terminal: bool
     probability: float
 
@@ -90,11 +98,20 @@ class AsrControlCommand:
 
 
 @dataclass(frozen=True)
+class TurnEndRequestCommand:
+    session_id: str
+    user_turn_id: int
+    request_id: int
+    quiet_ms: int
+
+
+@dataclass(frozen=True)
 class DialogueDecision:
     kind: DecisionKind
     reason: str
     contexts: tuple[TurnContextSnapshot, ...] = field(default_factory=tuple)
     asr_controls: tuple[AsrControlCommand, ...] = field(default_factory=tuple)
+    turn_end_requests: tuple[TurnEndRequestCommand, ...] = field(default_factory=tuple)
 
 
 class DialogueTurnController:
@@ -104,14 +121,15 @@ class DialogueTurnController:
         self._config = config
         self._next_session_sequence = 1
         self._next_turn_id = 1
+        self._next_turn_end_request_id = 1
         self._session_id = ""
         self._active_turn_id = 0
         self._turn_started_at_ms: int | None = None
-        self._speech_started_at_ms: int | None = None
+        self._has_user_speech = False
         self._latest_vad_is_speech = False
-        self._vad_is_speech = False
-        self._speech_ended_at_ms: int | None = None
-        self._pending_td_end = False
+        self._quiet_started_at_ms: int | None = None
+        self._pending_td_request_id = 0
+        self._td_checked_quiet_started_at_ms: int | None = None
 
     @property
     def session_id(self) -> str:
@@ -144,10 +162,10 @@ class DialogueTurnController:
         self._next_turn_id += 1
         self._active_turn_id = turn_id
         self._turn_started_at_ms = now_ms
-        self._vad_is_speech = self._latest_vad_is_speech
-        self._speech_started_at_ms = now_ms if self._latest_vad_is_speech else None
-        self._speech_ended_at_ms = None
-        self._pending_td_end = False
+        self._has_user_speech = False
+        self._quiet_started_at_ms = None
+        self._pending_td_request_id = 0
+        self._td_checked_quiet_started_at_ms = None
 
         return DialogueDecision(
             "accepted",
@@ -166,22 +184,23 @@ class DialogueTurnController:
         if not self.active:
             return DialogueDecision("ignored", "turn_not_active")
 
-        self._vad_is_speech = bool(event.is_speech)
         if event.speech_started or event.is_speech:
-            if self._speech_started_at_ms is None:
-                self._speech_started_at_ms = now_ms
-            self._speech_ended_at_ms = None
-            self._pending_td_end = False
+            self._has_user_speech = True
+            self._quiet_started_at_ms = None
+            self._pending_td_request_id = 0
+            self._td_checked_quiet_started_at_ms = None
             return DialogueDecision("accepted", "speech_active")
 
-        if event.speech_ended:
-            if self._speech_started_at_ms is None:
-                return DialogueDecision("ignored", "speech_end_before_speech_start")
-            self._speech_ended_at_ms = now_ms
-            self._pending_td_end = False
-            return DialogueDecision("accepted", "speech_end_candidate")
+        if not self._has_user_speech:
+            return DialogueDecision("ignored", "waiting_for_speech")
 
-        return DialogueDecision("ignored", "no_transition")
+        if self._quiet_started_at_ms is None:
+            self._quiet_started_at_ms = now_ms
+            self._pending_td_request_id = 0
+            self._td_checked_quiet_started_at_ms = None
+            return DialogueDecision("accepted", "quiet_started")
+
+        return DialogueDecision("ignored", "quiet_continues")
 
     def handle_turn_end_candidate(
         self,
@@ -192,48 +211,81 @@ class DialogueTurnController:
         mismatch = self._completion_mismatch_reason(event.session_id, event.user_turn_id)
         if mismatch is not None:
             return DialogueDecision("ignored", mismatch)
-        if not event.terminal:
-            return DialogueDecision("ignored", "not_terminal")
-        if self._speech_ended_at_ms is None:
-            return DialogueDecision("ignored", "no_speech_end_candidate")
+        if self._pending_td_request_id == 0:
+            return DialogueDecision("ignored", "no_pending_td_request")
+        if int(event.request_id) != self._pending_td_request_id:
+            return DialogueDecision("ignored", "td_request_mismatch")
+        if self._quiet_started_at_ms is None:
+            self._pending_td_request_id = 0
+            return DialogueDecision("ignored", "speech_resumed")
 
-        self._pending_td_end = True
-        if self._can_end_by_td(now_ms):
+        self._pending_td_request_id = 0
+        self._td_checked_quiet_started_at_ms = self._quiet_started_at_ms
+        if (
+            float(event.probability) >= self._config.td_threshold
+            and self._turn_age_ms(now_ms) >= self._config.min_active_ms
+        ):
             return self._end_turn("td_end")
-        return DialogueDecision("accepted", "td_pending")
+        return DialogueDecision("accepted", "td_not_end")
 
     def tick(self, *, now_ms: int) -> DialogueDecision:
         if not self.active:
             return DialogueDecision("ignored", "turn_not_active")
-        if self._speech_started_at_ms is None:
-            if (
-                self._turn_age_ms(now_ms) >= self._config.no_speech_timeout_ms
-                and not self._latest_vad_is_speech
-            ):
+
+        turn_age_ms = self._turn_age_ms(now_ms)
+        if turn_age_ms >= self._config.max_active_ms:
+            return self._end_turn("max_active_timeout")
+
+        if not self._has_user_speech:
+            if turn_age_ms >= self._config.no_speech_timeout_ms:
                 return self._end_turn("no_speech_timeout")
             return DialogueDecision("ignored", "waiting_for_speech")
-        if self._speech_ended_at_ms is None:
-            return DialogueDecision("ignored", "no_pending_end")
-        if self._pending_td_end and self._can_end_by_td(now_ms):
-            return self._end_turn("td_end")
-        silence_ms = now_ms - self._speech_ended_at_ms
+
+        if self._quiet_started_at_ms is None:
+            return DialogueDecision("ignored", "speech_active")
+
+        quiet_ms = now_ms - self._quiet_started_at_ms
         if (
-            silence_ms >= self._config.vad_fallback_silence_ms
-            and self._speech_age_ms(now_ms) >= self._config.min_turn_ms
-            and self._turn_age_ms(now_ms) >= self._config.min_listen_ms
+            quiet_ms >= self._config.quiet_candidate_ms
+            and turn_age_ms >= self._config.min_active_ms
+            and self._pending_td_request_id == 0
+            and self._td_checked_quiet_started_at_ms != self._quiet_started_at_ms
         ):
-            return self._end_turn("vad_fallback")
+            return self._request_turn_end(quiet_ms=quiet_ms)
+
+        if (
+            quiet_ms >= self._config.fallback_quiet_ms
+            and turn_age_ms >= self._config.min_active_ms
+        ):
+            return self._end_turn("quiet_fallback")
         return DialogueDecision("ignored", "waiting_for_end")
+
+    def _request_turn_end(self, *, quiet_ms: int) -> DialogueDecision:
+        request_id = self._next_turn_end_request_id
+        self._next_turn_end_request_id += 1
+        self._pending_td_request_id = request_id
+        return DialogueDecision(
+            "accepted",
+            "turn_end_requested",
+            turn_end_requests=(
+                TurnEndRequestCommand(
+                    session_id=self._session_id,
+                    user_turn_id=self._active_turn_id,
+                    request_id=request_id,
+                    quiet_ms=max(0, quiet_ms),
+                ),
+            ),
+        )
 
     def _end_turn(self, reason: str) -> DialogueDecision:
         session_id = self._session_id
         turn_id = self._active_turn_id
         self._active_turn_id = 0
         self._turn_started_at_ms = None
-        self._speech_started_at_ms = None
-        self._vad_is_speech = False
-        self._speech_ended_at_ms = None
-        self._pending_td_end = False
+        self._has_user_speech = False
+        self._quiet_started_at_ms = None
+        self._pending_td_request_id = 0
+        self._td_checked_quiet_started_at_ms = None
         return DialogueDecision(
             "ended",
             reason,
@@ -241,25 +293,10 @@ class DialogueTurnController:
             asr_controls=(AsrControlCommand("stop", session_id, turn_id, reason),),
         )
 
-    def _can_end_by_td(self, now_ms: int) -> bool:
-        if self._speech_ended_at_ms is None:
-            return False
-        silence_ms = now_ms - self._speech_ended_at_ms
-        return (
-            silence_ms >= self._config.td_min_silence_ms
-            and self._speech_age_ms(now_ms) >= self._config.min_turn_ms
-            and self._turn_age_ms(now_ms) >= self._config.min_listen_ms
-        )
-
     def _turn_age_ms(self, now_ms: int) -> int:
         if self._turn_started_at_ms is None:
             return 0
         return max(0, now_ms - self._turn_started_at_ms)
-
-    def _speech_age_ms(self, now_ms: int) -> int:
-        if self._speech_started_at_ms is None:
-            return 0
-        return max(0, now_ms - self._speech_started_at_ms)
 
     def _completion_mismatch_reason(
         self,
