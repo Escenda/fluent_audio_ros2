@@ -224,7 +224,7 @@ fa_kws:
     assert spec.groups[0].nodes[0].launch_parameters() == [
         str(params_file),
         {
-            "backend.name": "local_command",
+            "backend.name": "sherpa_onnx_kws",
             "audio.qos.depth": 20,
         },
     ]
@@ -430,11 +430,13 @@ def test_so101_voice_frontend_required_packages_include_audio_window_in_launch_o
         "fa_interfaces",
         "fluent_audio_system",
         "fa_in",
+        "fa_out",
         "fa_sample_format",
         "fa_resample",
         "fa_dc_offset_removal",
         "fa_high_pass",
         "fa_audio_window",
+        "fa_vad",
         "fa_kws",
         "fa_turn_detector",
         "fa_dialogue",
@@ -1100,9 +1102,9 @@ def test_node_env_expands_inline_env_values(
                 "expected_stream_id": "voice/mic",
                 "control.default_enabled": False,
                 "control.inputs": ["speech_control"],
-                "control.speech_control.action": "topic",
+                "control.speech_control.action": "gate",
                 "control.speech_control.topic": "voice/speech_activity",
-                "control.speech_control.stream_id": "voice/mic",
+                "control.speech_control.stream_id": "voice/speech_activity",
             },
         ),
         (
@@ -1117,7 +1119,7 @@ def test_node_env_expands_inline_env_values(
                 "control.inputs": ["speech_control"],
                 "control.speech_control.action": "topic",
                 "control.speech_control.topic": "voice/speech_activity",
-                "control.speech_control.stream_id": "voice/mic",
+                "control.speech_control.stream_id": "voice/speech_activity",
             },
         ),
         (

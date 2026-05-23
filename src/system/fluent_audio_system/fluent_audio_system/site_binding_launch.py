@@ -5,7 +5,7 @@ from fluent_audio_system.site_binding import SiteBindingOverrides
 
 
 SOURCE_BOUND_AUDIO_AI_PACKAGES = frozenset(
-    ("fa_audio_embedding", "fa_kws", "fa_turn_detector")
+    ("fa_asr", "fa_audio_embedding", "fa_kws", "fa_turn_detector", "fa_vad")
 )
 SOURCE_BOUND_CONTROL_PACKAGES = frozenset(("fa_kws", "fa_turn_detector"))
 SOURCE_BOUND_STREAMING_PACKAGES = frozenset(("fa_audio_window",))

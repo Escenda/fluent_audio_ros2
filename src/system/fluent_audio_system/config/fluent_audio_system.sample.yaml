@@ -564,6 +564,22 @@ groups:
 - id: ai
   enable: true
   nodes:
+  - id: fa_vad
+    enable: false
+    package: fa_vad
+    exec: fa_vad_node
+    node_name: fa_vad
+    namespace: ''
+    params_file: ${share:fa_vad}/config/default.yaml
+    remappings: {}
+    parameters:
+      audio_topic: audio/resample16k/mic
+      expected_source_id: mic
+      expected_stream_id: audio/preprocessed/mono16k
+      output_topic: voice/activity
+      backend.name: silero_vad
+      backend.model_path: ${env:FLUENT_AUDIO_VAD_MODEL_DIR}/silero_vad.onnx
+      backend.execution_provider: ${env:FLUENT_AUDIO_VAD_PROVIDER}
   - id: fa_kws
     enable: false
     package: fa_kws
@@ -574,8 +590,22 @@ groups:
     remappings: {}
     parameters:
       audio_topic: audio/resample16k/mic
+      expected_source_id: mic
       expected_stream_id: audio/preprocessed/mono16k
       output_topic: voice/wake_word
+      control.default_enabled: false
+      control.inputs:
+      - vad
+      control.vad.action: gate
+      control.vad.topic: voice/activity
+      control.vad.msg_type: fa_interfaces/msg/VoiceActivity
+      control.vad.source_id: mic
+      control.vad.stream_id: audio/preprocessed/mono16k
+      control.vad.probability_field: smoothed_probability
+      control.vad.probability_gate: 0.35
+      control.vad.max_age_ms: 300
+      control.vad.qos.depth: 10
+      control.vad.qos.reliable: false
       backend.name: sherpa_onnx_kws
       backend.execution_provider: ${env:FLUENT_AUDIO_KWS_PROVIDER}
       backend.command: ${env:FLUENT_AUDIO_KWS_WORKER}
@@ -606,6 +636,32 @@ groups:
       - --keywords-score
       - '{keywords_score}'
       - --keywords-threshold
+      - '{keywords_threshold}'
+      backend.stream_args:
+      - 'stream'
+      - '--encoder'
+      - '{encoder}'
+      - '--decoder'
+      - '{decoder}'
+      - '--joiner'
+      - '{joiner}'
+      - '--tokens'
+      - '{tokens}'
+      - '--keywords'
+      - '{keywords}'
+      - '--provider'
+      - '{provider}'
+      - '--sample-rate'
+      - '{sample_rate}'
+      - '--num-threads'
+      - '{num_threads}'
+      - '--max-active-paths'
+      - '{max_active_paths}'
+      - '--num-trailing-blanks'
+      - '{num_trailing_blanks}'
+      - '--keywords-score'
+      - '{keywords_score}'
+      - '--keywords-threshold'
       - '{keywords_threshold}'
       backend.health_args:
       - health
@@ -647,7 +703,11 @@ groups:
       kws.max_active_paths: 32
       kws.num_trailing_blanks: 1
       kws.keywords_score: 1.0
-      kws.keywords_threshold: 0.25
+      kws.keywords_threshold: 0.05
+      stream_gate.enabled: true
+      stream_gate.pre_roll_ms: 500
+      stream_gate.hangover_ms: 900
+      stream_gate.merge_gap_ms: 400
   - id: fa_audio_embedding
     enable: false
     package: fa_audio_embedding
@@ -671,6 +731,7 @@ groups:
       audio_topic: audio/resample16k/mic
       expected_stream_id: audio/preprocessed/mono16k
       turn_context_topic: conversation/turn_context
+      voice_activity_topic: voice/activity
       output_topic: voice/turn_end
       backend.name: smart_turn_onnx
       backend.model_path: ${env:FLUENT_AUDIO_TURN_DETECTOR_MODEL}
@@ -694,8 +755,32 @@ groups:
       backend.workspace_dir: /tmp/fluent_audio/fa_turn_detector/sample
       backend.cleanup_audio_files: true
       backend.threshold: 0.5
+      voice_activity.qos.depth: 10
+      voice_activity.qos.reliable: false
       output.qos.depth: 10
       output.qos.reliable: true
+  - id: fa_asr
+    enable: false
+    package: fa_asr
+    exec: fa_asr_node
+    node_name: fa_asr
+    namespace: ''
+    params_file: ${share:fa_asr}/config/default.yaml
+    remappings: {}
+    parameters:
+      audio_topic: audio/resample16k/mic
+      control_topic: voice/asr_control
+      output_topic: voice/asr_transcript
+      expected_stream_id: audio/preprocessed/mono16k
+      backend.name: parakeet_rnnt_streaming
+      backend.model_id: parakeet-1.1b-rnnt-multilingual-asr
+      backend.model_path: ${env:FLUENT_AUDIO_ASR_MODEL_PATH}
+      backend.device: cuda
+      backend.compute_dtype: bfloat16
+      backend.left_context_secs: 0.64
+      backend.chunk_secs: 0.64
+      backend.right_context_secs: 0.32
+      controller.preroll_ms: 500
 - id: generation_routing
   enable: true
   nodes:

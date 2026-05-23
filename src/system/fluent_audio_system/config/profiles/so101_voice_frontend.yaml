@@ -16,6 +16,21 @@ groups:
     parameters:
       output_topic: audio/frame
       audio.stream_id: audio/raw/mic
+  - id: fa_out
+    enable: true
+    package: fa_out
+    exec: fa_out_node
+    node_name: fa_out
+    namespace: ''
+    params_file: ${share:fa_out}/config/default.yaml
+    remappings: {}
+    parameters:
+      input_topic: audio/output/frame
+      input_stream_id: audio/playback/main
+      audio.encoding: PCM16LE
+      audio.sample_rate: 48000
+      audio.channels: 1
+      audio.bit_depth: 16
 - id: audio_format
   enable: true
   nodes:
@@ -139,6 +154,22 @@ groups:
 - id: voice_frontend
   enable: true
   nodes:
+  - id: fa_vad
+    enable: true
+    package: fa_vad
+    exec: fa_vad_node
+    node_name: fa_vad
+    namespace: ''
+    params_file: ${share:fa_vad}/config/default.yaml
+    remappings: {}
+    parameters:
+      audio_topic: audio/high_pass/frame
+      expected_source_id: mic
+      expected_stream_id: audio/high_pass/mic
+      output_topic: voice/activity
+      backend.name: silero_vad
+      backend.model_path: ${env:FLUENT_AUDIO_VAD_MODEL_DIR}/silero_vad.onnx
+      backend.execution_provider: ${env:FLUENT_AUDIO_VAD_PROVIDER}
   - id: fa_kws
     enable: true
     package: fa_kws
@@ -152,6 +183,19 @@ groups:
       expected_source_id: mic
       expected_stream_id: audio/high_pass/mic
       output_topic: voice/wake_word
+      control.default_enabled: false
+      control.inputs:
+      - vad
+      control.vad.action: gate
+      control.vad.topic: voice/activity
+      control.vad.msg_type: fa_interfaces/msg/VoiceActivity
+      control.vad.source_id: mic
+      control.vad.stream_id: audio/high_pass/mic
+      control.vad.probability_field: smoothed_probability
+      control.vad.probability_gate: 0.35
+      control.vad.max_age_ms: 300
+      control.vad.qos.depth: 10
+      control.vad.qos.reliable: false
       backend.name: sherpa_onnx_kws
       backend.execution_provider: ${env:FLUENT_AUDIO_KWS_PROVIDER}
       backend.command: ${env:FLUENT_AUDIO_KWS_WORKER}
@@ -182,6 +226,32 @@ groups:
       - --keywords-score
       - '{keywords_score}'
       - --keywords-threshold
+      - '{keywords_threshold}'
+      backend.stream_args:
+      - 'stream'
+      - '--encoder'
+      - '{encoder}'
+      - '--decoder'
+      - '{decoder}'
+      - '--joiner'
+      - '{joiner}'
+      - '--tokens'
+      - '{tokens}'
+      - '--keywords'
+      - '{keywords}'
+      - '--provider'
+      - '{provider}'
+      - '--sample-rate'
+      - '{sample_rate}'
+      - '--num-threads'
+      - '{num_threads}'
+      - '--max-active-paths'
+      - '{max_active_paths}'
+      - '--num-trailing-blanks'
+      - '{num_trailing_blanks}'
+      - '--keywords-score'
+      - '{keywords_score}'
+      - '--keywords-threshold'
       - '{keywords_threshold}'
       backend.health_args:
       - health
@@ -223,7 +293,12 @@ groups:
       kws.max_active_paths: 32
       kws.num_trailing_blanks: 1
       kws.keywords_score: 1.0
-      kws.keywords_threshold: 0.25
+      kws.keywords_threshold: 0.05
+      stream_gate.enabled: true
+      stream_gate.pre_roll_ms: 500
+      stream_gate.hangover_ms: 900
+      stream_gate.merge_gap_ms: 400
+      diagnostics.enabled: true
   - id: fa_turn_detector
     enable: true
     package: fa_turn_detector
@@ -237,6 +312,7 @@ groups:
       expected_source_id: mic
       expected_stream_id: audio/high_pass/mic
       turn_context_topic: conversation/turn_context
+      voice_activity_topic: voice/activity
       output_topic: voice/turn_end
       backend.name: smart_turn_onnx
       backend.model_path: ${env:FLUENT_AUDIO_TURN_DETECTOR_MODEL}
@@ -260,6 +336,8 @@ groups:
       backend.workspace_dir: /tmp/fluent_audio/fa_turn_detector/so101_voice_frontend
       backend.cleanup_audio_files: true
       backend.threshold: 0.5
+      voice_activity.qos.depth: 10
+      voice_activity.qos.reliable: false
       output.qos.depth: 10
       output.qos.reliable: true
 - id: apps_dialogue
@@ -275,14 +353,41 @@ groups:
     remappings: {}
     parameters:
       wake_word_topic: voice/wake_word
+      voice_activity_topic: voice/activity
       turn_end_topic: voice/turn_end
       turn_context_topic: conversation/turn_context
+      asr_control_topic: voice/asr_control
+      expected_source_id: mic
+      expected_stream_id: audio/high_pass/mic
       session_prefix: so101_voice-
       wake.max_age_ms: 1500
       wake.allow_zero_stamp: false
+      turn.min_duration_ms: 1200
+      turn.min_listen_ms: 3000
+      turn.no_speech_timeout_ms: 3000
+      turn.td_min_silence_ms: 300
+      turn.vad_fallback_silence_ms: 1800
+      turn.tick_period_ms: 50
       wake.qos.depth: 10
       wake.qos.reliable: false
+      voice_activity.qos.depth: 10
+      voice_activity.qos.reliable: false
       turn_end.qos.depth: 10
       turn_end.qos.reliable: true
       turn_context.qos.depth: 10
       turn_context.qos.reliable: true
+      asr_control.qos.depth: 10
+      asr_control.qos.reliable: true
+  - id: fa_wake_ack
+    enable: true
+    package: fa_dialogue
+    exec: fa_wake_ack_node
+    node_name: fa_wake_ack
+    namespace: ''
+    params_file: ${share:fa_dialogue}/config/wake_ack.yaml
+    remappings: {}
+    parameters:
+      control_topic: voice/asr_control
+      output_topic: audio/output/frame
+      output.source_id: fa_wake_ack
+      output.stream_id: audio/playback/main

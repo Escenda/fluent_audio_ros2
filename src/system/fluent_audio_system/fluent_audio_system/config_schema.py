@@ -19,7 +19,9 @@ ConfigValue: TypeAlias = ConfigScalar | ConfigMapping | ConfigSequence
 _INLINE_SHARE_RE = re.compile(r"\$\{share:([A-Za-z0-9_]+)\}")
 _INLINE_ENV_RE = re.compile(r"\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
 _AI_PACKAGE_NAMES = (
+    "fa_vad",
     "fa_audio_embedding",
+    "fa_asr",
     "fa_kws",
     "fa_turn_detector",
 )
@@ -95,6 +97,8 @@ _PACKAGE_CATEGORIES = {
     "fa_loopback": frozenset(("routing",)),
     "fa_patchbay": frozenset(("routing",)),
     "fa_kws": frozenset(("ai",)),
+    "fa_vad": frozenset(("ai",)),
+    "fa_asr": frozenset(("ai",)),
     "fa_turn_detector": frozenset(("ai",)),
     "fa_audio_embedding": frozenset(("ai",)),
     "fa_audio_mcp": frozenset(("apps",)),
@@ -153,6 +157,8 @@ _BACKEND_NAME_REQUIRED_PACKAGES = frozenset((
     "fa_stft",
     "fa_tempo",
     "fa_kws",
+    "fa_vad",
+    "fa_asr",
     "fa_turn_detector",
     "fa_audio_embedding",
     "fa_tts",
@@ -340,10 +346,26 @@ _KWS_CONTRACT = ParameterIdentityContract(
     )),
     stream_identity_keys=frozenset(("expected_stream_id",)),
 )
+_VAD_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset((
+        "audio_topic",
+        "output_topic",
+    )),
+    stream_identity_keys=frozenset(("expected_stream_id",)),
+)
+_ASR_CONTRACT = ParameterIdentityContract(
+    topic_keys=frozenset((
+        "audio_topic",
+        "control_topic",
+        "output_topic",
+    )),
+    stream_identity_keys=frozenset(("expected_stream_id",)),
+)
 _TURN_DETECTOR_CONTRACT = ParameterIdentityContract(
     topic_keys=frozenset((
         "audio_topic",
         "turn_context_topic",
+        "voice_activity_topic",
         "output_topic",
     )),
     stream_identity_keys=frozenset(("expected_stream_id",)),
@@ -461,6 +483,8 @@ _PARAMETER_IDENTITY_CONTRACTS: dict[str, ParameterIdentityContract] = {
     "fa_bus_router": _BUS_ROUTER_CONTRACT,
     "fa_patchbay": _PATCHBAY_CONTRACT,
     "fa_kws": _KWS_CONTRACT,
+    "fa_vad": _VAD_CONTRACT,
+    "fa_asr": _ASR_CONTRACT,
     "fa_turn_detector": _TURN_DETECTOR_CONTRACT,
     "fa_audio_embedding": _AI_AUDIO_CONTRACT,
     "fa_audio_window": _AUDIO_WINDOW_CONTRACT,
